@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/project.schema.json",
+  "title": "Project configuration",
+  "description": "Schema for a Crosscut process suite project configuration, authored as YAML and validated as JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "meta",
+    "loops",
+    "variables"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "site": {
+          "type": "string"
+        }
+      }
+    },
+    "loops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "pv",
+          "sp",
+          "out"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pv": {
+            "type": "string"
+          },
+          "sp": {
+            "type": "string"
+          },
+          "out": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tag",
+          "role"
+        ],
+        "properties": {
+          "tag": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "MV",
+              "CV",
+              "DV"
+            ]
+          },
+          "low": {
+            "type": "number"
+          },
+          "high": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "tags_file": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tag"
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "tags_file"
+      ],
+      "not": {
+        "required": [
+          "tags"
+        ]
+      }
+    },
+    {
+      "required": [
+        "tags"
+      ],
+      "not": {
+        "required": [
+          "tags_file"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "unit",
+        "type",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "float",
+            "bool",
+            "enum"
+          ]
+        },
+        "eng_min": {
+          "type": "number"
+        },
+        "eng_max": {
+          "type": "number"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "PV",
+            "SP",
+            "OUT",
+            "MODE",
+            "DV",
+            "CV",
+            "MV",
+            "other"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "driver",
+            "address"
+          ],
+          "properties": {
+            "driver": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string"
+            }
+          }
+        },
+        "sample_period_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "writable": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

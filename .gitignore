@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# C++ / CMake
+/core/build/
+/build/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Data and outputs (generated, never commit)
+/data/
+*.parquet
+*.npz
+.agent-out/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
