@@ -6,3 +6,5 @@ ruff>=0.5
 mypy>=1.10
 types-jsonschema
 types-PyYAML
+numpy>=1.26
+-e ./sim

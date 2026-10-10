@@ -8,11 +8,15 @@ Citations are given from memory and must be verified against the originals befor
 
 | Method / model | Public source | Status | Implemented in |
 |---|---|---|---|
-| Wood-Berry binary distillation column (2x2 transfer function benchmark) | R. K. Wood, M. W. Berry, "Terminal composition control of a binary distillation column", Chemical Engineering Science 28 (1973) | planned | `sim/` |
+| Wood-Berry binary distillation column (2x2 transfer function benchmark) | R. K. Wood, M. W. Berry, "Terminal composition control of a binary distillation column", Chemical Engineering Science 28 (1973) | implemented (coefficients to verify) | `sim/src/crosscut_sim/plants/wood_berry.py` |
 | Least-squares ARX / FIR identification | L. Ljung, "System Identification: Theory for the User", 2nd ed., Prentice Hall (1999) | planned | `ident/` |
 | Direct method for closed-loop identification | U. Forssell, L. Ljung, "Closed-loop identification revisited", Automatica 35 (1999) | planned | `ident/`, `experiments/exp00_sp_vs_mv/` |
 | Causal forest / generalized random forests | S. Wager, S. Athey, "Estimation and inference of heterogeneous treatment effects using random forests", JASA (2018); S. Athey, J. Tibshirani, S. Wager, "Generalized random forests", Annals of Statistics (2019) | planned | `ident/` |
 | Double / debiased machine learning | V. Chernozhukov et al., "Double/debiased machine learning for treatment and structural parameters", Econometrics Journal (2018) | planned | `ident/` |
+| PID controller (positional form, derivative on measurement, anti-windup, tracking) | K. J. Astrom, T. Hagglund, "PID Controllers: Theory, Design, and Tuning", 2nd ed. (1995) | implemented | `sim/src/crosscut_sim/pid.py` |
+| BLT tuning of the two Wood-Berry loops | W. L. Luyben, "Simple method for tuning SISO controllers in multivariable systems", Ind. Eng. Chem. Process Des. Dev. 25 (1986) | implemented (values to verify) | `sim/src/crosscut_sim/plants/wood_berry.py` |
+| Exact discretization of first-order lag with dead time (zero-order hold) | G. F. Franklin, J. D. Powell, M. Workman, "Digital Control of Dynamic Systems" | implemented | `sim/src/crosscut_sim/core.py` |
+| Ornstein-Uhlenbeck process, exact discretization | D. T. Gillespie, "Exact numerical simulation of the Ornstein-Uhlenbeck process and its integral", Phys. Rev. E 54 (1996) | implemented | `sim/src/crosscut_sim/disturbances.py` |
 
 ## Rules
 
