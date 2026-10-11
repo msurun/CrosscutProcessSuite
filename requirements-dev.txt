@@ -14,3 +14,4 @@ asyncua>=1.1
 -e ./api
 fastapi>=0.110
 httpx>=0.27
+-e ./connectors

@@ -80,9 +80,9 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 |---|---|---|---|
 | A1 | Fault-injection wrapper (V1) | done (measurement faults) | see V1 |
 | B1/B2 | FastAPI backend: `/health`, `/datasets`, `/datasets/{id}/tags`, `/datasets/{id}/series` with min/max downsampling | done | package `api/` (`crosscut_api.app`, `downsample`); NaN is sent as null; dataset ids are resolved inside the data root only |
-| A2 | Messy-export corpus generator + importer robustness tests (V2) | todo | |
-| A3 | CSV connector | todo | |
-| B3 | OPC UA read connector, SQL connector | todo | GE Historian last (cannot be tested here) |
+| A2 | Messy-export corpus generator + importer robustness tests (V2) | done | `connectors/src/crosscut_connectors/messy.py`, 6 styles (delimiters, decimal comma, local time, BOM + preamble, text for bad values, duplicates + shuffled rows); round-trip tests |
+| A3 | CSV connector | done | `csv_import.py`: wide format, first column = timestamp, stdlib csv (fine for MB-sized files; switch to Arrow's CSV reader for GB-sized exports). Not yet: long-format exports, per-column units, DST-ambiguous local times |
+| B3 | OPC UA read connector, SQL connector | todo | OPC UA recording already exists (`crosscut_opcua.collector`, T0.10); SQL (testable with sqlite) and GE Historian last |
 | C1-C4 | Loop monitoring (CPM), stiction/oscillation detection, PID tuning report, benefit report | todo | C1 validated on datasets with injected faults |
 | D1-D3 | Screen sketches, trend viewer (React/TS, needs ADR 007 decision), loop views | todo | ask the owner before D2 |
 | E1/E2 | Customer validation kit (V6), public benchmarks (V3) | todo | |
@@ -149,3 +149,5 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 - B1/B2: tests first (`api/tests`, 18); `downsample.py` delegated and accepted; the delegated `app.py` passed the tests but used global state,
   a lexical-only path check and would have emitted invalid JSON for NaN, so I rewrote it by hand and added tests for both cases.
 - Note: the MCP `delegate` tool returned a bare error twice in this session; the CLI (`agentkit delegate ...` via `agentkit.cli.main`) worked.
+- A2/A3: tests first (round trip over 6 messy styles), generator and importer delegated (codestral, gpt-oss-120b). Generator needed one fix (numpy 2 `repr(np.float64)`),
+  the importer failed 2 tests (sort before dedup, strptime errors) plus a bare `except`; fixed by hand. 
