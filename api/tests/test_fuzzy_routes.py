@@ -104,3 +104,34 @@ def test_replay_reports_a_missing_tag(client: TestClient, document: dict) -> Non
     wrong["inputs"][0]["tag"] = "sim.mc.nothing"
     response = client.post(f"/datasets/{dataset}/fuzzy/replay", json={"document": wrong})
     assert response.status_code == 422 and "sim.mc.nothing" in response.json()["detail"]
+
+
+def test_every_save_adds_a_version_that_can_be_read_back(
+    client: TestClient, document: dict
+) -> None:
+    edited = copy.deepcopy(document)
+    edited["rules"][0]["weight"] = 0.5
+    assert client.put("/fuzzy/versioned", json=document).status_code == 200
+    assert client.put("/fuzzy/versioned", json=edited).status_code == 200
+
+    versions = client.get("/fuzzy/versioned/versions").json()
+
+    assert len(versions) == 2
+    newest = client.get(f"/fuzzy/versioned/versions/{versions[0]}").json()
+    assert newest["rules"][0]["weight"] == 0.5
+
+
+def test_unknown_and_malformed_version_ids_are_refused(client: TestClient) -> None:
+    assert client.get("/fuzzy/versioned/versions/20200101T000000000000Z").status_code == 404
+    assert client.get("/fuzzy/versioned/versions/not-a-version").status_code == 422
+
+
+def test_the_diff_route_reports_a_changed_rule_weight(client: TestClient, document: dict) -> None:
+    edited = copy.deepcopy(document)
+    edited["rules"][0]["weight"] = 0.5
+
+    changes = client.post("/fuzzy/diff", json={"old": document, "new": edited}).json()
+
+    assert changes == [
+        {"code": "rule_changed", "rule": document["rules"][0]["id"], "fields": ["weight"]}
+    ]

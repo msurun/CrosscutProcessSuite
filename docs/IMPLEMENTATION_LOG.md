@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-11 (session 2: C2, C3 and B3 (SQL via sqlite) done)
+Last updated: 2026-10-11 (session 2: fuzzy versions and diff backend, mypy clean)
 
 ## Project snapshot
 
@@ -190,3 +190,5 @@ ode` (winget install was cancelled at the UAC prompt); add it to PATH to use `np
 - CI was red from run #15 (OPC UA read connector) to #20 and I had not looked after pushing. Cause, reproduced in WSL Ubuntu (Python 3.14, venv `~/ci-venv`, no `gh` CLI on this machine): `test_opcua_import.read_column` turned nanosecond timestamps into Python objects (`to_pylist`), which fails when a Linux clock reading is not a whole microsecond. Fixed by selecting in Arrow. Lesson: after every push check the CI result (or run the suite in WSL first); the new `frontend` job has not been seen green yet.
 - F1 (fuzzy backend): engine and payload written by hand (array numerics), tests by DeepSeek flash in two files (the first single request was cut off and the router spent $0.027 on Gemini before reporting it; lesson: split test requests above ~2500 tokens of expected output), Haiku fixed the style gates. API route builder `build_fuzzy_router` is one 49-line closure (same pattern as `create_app`), accepted.
 - F2 (fuzzy screen): types, membership port, API client and texts by me; seven components by DeepSeek flash/codestral via the CLI. First attempt failed to compile (invented field names such as `term.id`, `clause.term`) because I forgot to pass `frontend/src/fuzzy.ts` and `api.ts` as `--files` context: ALWAYS attach the contract files when the prompt refers to types. Second attempt compiled except four unused names. Text inside a non-uniformly scaled SVG is stretched: axis numbers are HTML now.
+
+- Fuzzy Studio, versions and diff (backend): `fuzzy/versions.py` (snapshot per save in `<data>/_fuzzy/_history/<id>/`, list/load, `diff_documents` returns change codes), routes `GET /fuzzy/{id}/versions`, `GET /fuzzy/{id}/versions/{v}`, `POST /fuzzy/diff`. Tests by DeepSeek flash (the implementation failed two verify rounds on one wrong test expectation, kept by hand), Haiku fixed style. Added `py.typed` to `loops` and `fuzzy`: this removed all mypy errors in `api/src` (they came from untyped imports). Not yet: versions/diff screen, rule matrix view, backtest against operator moves (output `feed_change` is a delta of the SP tag).

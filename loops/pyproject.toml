@@ -12,3 +12,6 @@ dependencies = ["numpy>=1.26"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+crosscut_loops = ["py.typed"]

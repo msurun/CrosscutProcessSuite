@@ -6,6 +6,7 @@ Rule bases are configuration kept in ``<data root>/_fuzzy``; nothing here writes
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -13,6 +14,7 @@ import numpy as np
 from crosscut_fuzzy.library import list_systems, load_document, save_document
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
 from crosscut_fuzzy.payload import infer_payload, replay_payload
+from crosscut_fuzzy.versions import diff_documents, list_versions, load_version, save_version
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -26,6 +28,13 @@ class InferRequest(BaseModel):
 
     document: dict[str, Any]
     inputs: dict[str, float]
+
+
+class DiffRequest(BaseModel):
+    """Two rule base documents to compare."""
+
+    old: dict[str, Any]
+    new: dict[str, Any]
 
 
 class ReplayRequest(BaseModel):
@@ -62,9 +71,33 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         """Validate and save a rule base as the user's system (configuration only)."""
         try:
             save_document(system_id, document, user_dir)
+            save_version(system_id, document, user_dir, now=datetime.now(UTC))
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return document
+
+    @router.get("/fuzzy/{system_id}/versions")
+    def get_versions(system_id: str) -> list[str]:
+        """Version ids of the saved snapshots, newest first."""
+        try:
+            return list_versions(system_id, user_dir)
+        except FuzzyModelError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.get("/fuzzy/{system_id}/versions/{version_id}")
+    def get_version(system_id: str, version_id: str) -> dict[str, Any]:
+        """One saved snapshot of a rule base."""
+        try:
+            return load_version(system_id, version_id, user_dir)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="unknown version") from error
+        except FuzzyModelError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.post("/fuzzy/diff")
+    def post_diff(request: DiffRequest) -> list[dict[str, Any]]:
+        """Structural differences between two rule base documents (codes, not prose)."""
+        return diff_documents(request.old, request.new)
 
     @router.post("/fuzzy/infer")
     def post_infer(request: InferRequest) -> dict[str, Any]:

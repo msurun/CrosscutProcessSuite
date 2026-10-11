@@ -27,3 +27,4 @@ CMakeUserPresets.json
 .vscode/
 .DS_Store
 Thumbs.db
+.agent-prompts/
