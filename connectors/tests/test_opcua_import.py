@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pyarrow.compute as pc
 import pytest
 from crosscut_connectors.opcua_import import OpcUaImportReport, import_opcua
 from crosscut_opcua.server import PlantServer
@@ -72,8 +73,10 @@ def read_column(out_dir: Path, tag: str) -> tuple[np.ndarray, np.ndarray, np.nda
     """Return (timestamps, values, quality) for one tag read back from the written dataset."""
     table = read_dataset(out_dir)
     timestamps, wide = to_wide(table)
-    rows = sorted((r for r in table.to_pylist() if r["tag_id"] == tag), key=lambda r: r["ts"])
-    quality = np.array([r["quality"] for r in rows])
+    # Select in Arrow: converting the nanosecond timestamps to Python objects fails on Linux
+    # clocks, whose readings are not whole microseconds.
+    rows = table.filter(pc.equal(table["tag_id"], tag)).sort_by("ts")
+    quality = rows["quality"].to_numpy()
     return timestamps, wide[tag], quality
 
 
