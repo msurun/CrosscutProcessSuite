@@ -25,3 +25,11 @@ Status: open / partly tested / retired.
 
 - Model: the operator keeps the mean `margin_sigmas` standard deviations away from a limit. Cutting the standard deviation by the fraction `std_reduction` frees `margin_sigmas * std * std_reduction` of room, capped at today's gap to the limit; money is room times a user-given value per PV unit and hour.
 - Not claimed: that the freed room can be used (needs a trial), that the process is stationary, or that the value per unit is constant. `std_reduction` is an assumption of the user, not an output of the monitoring code.
+
+## Loop health score (C5)
+
+- Model: health % = 100 x time in use x time not saturated x time not frozen x (0.4 + 0.6 x Harris index clamped to 0..1) x 0.7 if a sustained oscillation x 0.6 if stiction is suspected; a loop that is mostly in manual has no score ("not in use"). An uncomputable Harris index counts as 0.5.
+- The weights (0.4 floor, 0.7, 0.6) are a first guess to make the ranking sensible, not a calibrated quantity; they live as named constants in `loops/src/crosscut_loops/overview.py` and must be tuned on real or benchmark data (stage 1, E2).
+- Stiction is reported only when the THD test AND the oscillation detector agree: the THD test alone fired on every loop of the noise-driven mill-circuit simulator (false positives). Revisit C2 (stiction) with a data set that has real stiction before relying on it.
+- Loops are discovered by naming convention (PV tag `X` with `X_sp`, `X_out`, `X_mode`); Wood-Berry does not follow it (its outputs are `reflux`, `steam`). Explicit loop definitions in the project file are needed for real plants.
+- Loop settings (dead time 30 s, natural period 600 s, amplitude limit 2 % of the range) are placeholders until the project file can carry them per loop.

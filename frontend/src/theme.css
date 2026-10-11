@@ -179,3 +179,26 @@ body {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Loop views */
+.view-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.view-tab { padding: 6px 14px; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; font: inherit; cursor: pointer; }
+.view-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+.link-button { padding: 0; color: var(--accent); background: none; border: none; font: inherit; text-decoration: underline; cursor: pointer; }
+.loops-summary { margin: 0 0 8px; font-weight: 600; }
+.loops-filters { display: flex; gap: 6px; margin-bottom: 12px; }
+.filter-chip { padding: 3px 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; font: inherit; cursor: pointer; }
+.filter-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-2); font-weight: 600; }
+.loops-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); }
+.loops-table th, .loops-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.loops-table th { color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.loops-table progress { width: 56px; height: 8px; margin-right: 8px; vertical-align: middle; }
+.row-unused { color: var(--text-muted); }
+.sparkline { width: 110px; height: 24px; color: var(--series-1); }
+.loop-detail-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 12px; }
+.loop-detail-grid section { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.loop-detail-grid h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-muted); }
+.key-numbers { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; }
+.key-numbers dd { margin: 0; font-weight: 600; text-align: right; }
+.loop-header { display: flex; align-items: center; gap: 12px; }
+.loop-header h2 { margin: 0; }

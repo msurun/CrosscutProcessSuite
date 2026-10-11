@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
+from crosscut_loops.overview import analyze_dataset, discover_loops
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import FastAPI, HTTPException, Query
 
@@ -15,6 +16,7 @@ from crosscut_api.downsample import downsample_minmax
 
 DEFAULT_MAX_POINTS = 2000
 MAX_POINTS_LIMIT = 100_000
+NS_PER_SECOND = 1e9
 WideTable = tuple[np.ndarray, dict[str, np.ndarray]]
 
 
@@ -115,5 +117,13 @@ def create_app(data_root: Path) -> FastAPI:
                 }
             )
         return {"dataset_id": dataset_id, "series": series}
+
+    @app.get("/datasets/{dataset_id}/loops")
+    def get_loops(dataset_id: str) -> dict[str, Any]:
+        tags = _read_json(_dataset_dir(root, dataset_id) / "tags.json")["tags"]
+        ts, values = load_wide(dataset_id)
+        t_s = (ts - ts[0]) / NS_PER_SECOND
+        loops = analyze_dataset(t_s, values, discover_loops(tags))
+        return {"dataset_id": dataset_id, "loops": loops}
 
     return app

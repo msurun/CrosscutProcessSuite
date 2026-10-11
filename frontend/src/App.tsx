@@ -10,6 +10,7 @@ import {
   type TagInfo,
 } from "./api";
 import { availableLanguages, detectLanguage, translate } from "./i18n";
+import { LoopsPage } from "./components/LoopsPage";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
 import { TrendPane } from "./components/TrendPane";
@@ -186,6 +187,7 @@ export function App() {
   const [theme, setTheme] = useTheme();
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [view, setView] = useState<"trends" | "loops">("trends");
 
   // The first dataset of the catalogue becomes the default selection.
   useEffect(() => {
@@ -247,16 +249,35 @@ export function App() {
               ))}
             </select>
           </label>
-          <TagList
-            tags={tags}
-            selected={selectedTags}
-            onToggle={handleToggleTag}
-            searchLabel={t("trends.searchTags")}
-            emptyLabel={t("trends.noTagsMatch")}
-          />
+          {view === "trends" && (
+            <TagList
+              tags={tags}
+              selected={selectedTags}
+              onToggle={handleToggleTag}
+              searchLabel={t("trends.searchTags")}
+              emptyLabel={t("trends.noTagsMatch")}
+            />
+          )}
         </aside>
         <main className="main-area">
-          {renderTrendArea()}
+          <nav className="view-tabs" aria-label={t("app.name")}>
+            {(["trends", "loops"] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="view-tab"
+                aria-current={view === name ? "page" : undefined}
+                onClick={() => setView(name)}
+              >
+                {t(`nav.${name}`)}
+              </button>
+            ))}
+          </nav>
+          {view === "loops" ? (
+            selectedDatasetId && <LoopsPage datasetId={selectedDatasetId} t={t} />
+          ) : (
+            renderTrendArea()
+          )}
         </main>
       </div>
     </div>

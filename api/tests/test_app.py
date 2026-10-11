@@ -110,3 +110,34 @@ def test_a_dotdot_dataset_id_is_not_found(data_root: Path) -> None:
     with pytest.raises(HTTPException) as err:
         _dataset_dir(data_root, "..")
     assert err.value.status_code == 404
+
+
+@pytest.fixture(scope="module")
+def loops_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
+    root = tmp_path_factory.mktemp("mill")
+    argv = [
+        "--plant",
+        "mill_circuit",
+        "--duration",
+        "1h",
+        "--sample-period",
+        "10",
+        "--out",
+        str(root),
+    ]
+    assert run_simulation(argv) == 0
+    return TestClient(create_app(root))
+
+
+def test_loops_endpoint_reports_each_discovered_loop_as_json(loops_client: TestClient) -> None:
+    dataset = loops_client.get("/datasets").json()[0]["id"]
+    body = loops_client.get(f"/datasets/{dataset}/loops").json()
+    assert body["dataset_id"] == dataset
+    assert [loop["name"] for loop in body["loops"]] == ["hpgr_press", "mill_feed", "cyc_water"]
+    first = body["loops"][0]
+    assert {"name", "status", "health_percent", "findings", "sparkline", "pv", "mode"} <= set(first)
+    assert first["status"] in {"ok", "warning", "problem", "unused"}
+
+
+def test_loops_endpoint_returns_404_for_an_unknown_dataset(client: TestClient) -> None:
+    assert client.get("/datasets/nope/loops").status_code == 404

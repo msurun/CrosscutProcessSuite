@@ -143,3 +143,38 @@ function appendOptionalInt(query: URLSearchParams, name: string, value: number |
     query.append(name, String(value));
   }
 }
+
+/** Status level of a loop, as decided by the backend (see `docs/design/screens.md`). */
+export type LoopStatus = "ok" | "warning" | "problem" | "unused";
+
+/** One finding as a stable code plus numeric parameters; the UI turns it into a sentence. */
+export interface LoopFinding {
+  code: string;
+  params: Record<string, number>;
+}
+
+/** Analysis result of one control loop (`GET /api/datasets/{id}/loops`). */
+export interface LoopSummary {
+  name: string;
+  pv: string;
+  sp: string;
+  out: string;
+  mode: string;
+  unit: string;
+  status: LoopStatus;
+  health_percent: number | null;
+  classification: string;
+  findings: LoopFinding[];
+  service_percent: number;
+  saturation_percent: number;
+  harris_index: number | null;
+  oscillation_period_s: number | null;
+  stiction_verdict: string;
+  sparkline: (number | null)[];
+}
+
+/** Fetch the loop analysis of a dataset. */
+export async function fetchLoops(datasetId: string): Promise<LoopSummary[]> {
+  const body = await getJson<{ loops: LoopSummary[] }>(`/api/datasets/${encodeURIComponent(datasetId)}/loops`);
+  return body.loops;
+}
