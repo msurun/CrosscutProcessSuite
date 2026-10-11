@@ -20,3 +20,8 @@ Status: open / partly tested / retired.
 | A12 | Ore-hardness-dependent gains are of the right order of magnitude | mill circuit table | literature, customer data | L6 | open |
 | A13 | Customers accept an on-premises, read-only first deployment | product strategy | pilot conversations | L7 | open |
 | A14 | A single time base (UTC) is available or can be reconstructed for all sources | ADR 003 | corpus, customer data | L2, L6 | open |
+
+## Benefit estimate (C4)
+
+- Model: the operator keeps the mean `margin_sigmas` standard deviations away from a limit. Cutting the standard deviation by the fraction `std_reduction` frees `margin_sigmas * std * std_reduction` of room, capped at today's gap to the limit; money is room times a user-given value per PV unit and hour.
+- Not claimed: that the freed room can be used (needs a trial), that the process is stationary, or that the value per unit is constant. `std_reduction` is an assumption of the user, not an output of the monitoring code.
