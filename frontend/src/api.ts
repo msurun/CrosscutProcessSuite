@@ -4,6 +4,8 @@
  * All timestamps are UTC nanoseconds. Numbers may be null when a bucket has no samples.
  */
 
+import type { FuzzyDocument } from "./fuzzy";
+
 /** One dataset as listed by `GET /api/datasets`. */
 export interface DatasetSummary {
   id: string;
@@ -265,4 +267,77 @@ export async function fetchBenefit(
   if (inputs?.stdReduction !== undefined) query.set("std_reduction", String(inputs.stdReduction));
   const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/benefit`;
   return getJson<BenefitPayload>(`${base}?${query.toString()}`);
+}
+
+/** A rule base in the library: bundled example or the user's own saved copy. */
+export interface FuzzySystemInfo {
+  id: string;
+  name: string;
+  source: "example" | "user";
+}
+
+/** Result of one what-if evaluation (`POST /api/fuzzy/infer`). */
+export interface FuzzyInference {
+  inputs: Record<string, number>;
+  degrees: Record<string, Record<string, number>>;
+  firing: Record<string, number>;
+  dominant: string[];
+  outputs: Record<string, { crisp: number | null; universe: number[]; aggregated: number[] }>;
+}
+
+/** Result of a replay over recorded data; `t` is in UTC nanoseconds, missing values are null. */
+export interface FuzzyReplay {
+  t: number[];
+  inputs: Record<string, (number | null)[]>;
+  outputs: Record<string, (number | null)[]>;
+  actual: Record<string, (number | null)[]>;
+}
+
+async function sendJson<T>(method: string, url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const detail = (await response.json()) as { detail?: unknown };
+      if (typeof detail.detail === "string") message = detail.detail;
+    } catch {
+      // keep the status text
+    }
+    throw new ApiError(response.status, message);
+  }
+  return (await response.json()) as T;
+}
+
+/** The bundled examples and the user's saved rule bases. */
+export async function fetchFuzzySystems(): Promise<FuzzySystemInfo[]> {
+  return getJson<FuzzySystemInfo[]>("/api/fuzzy");
+}
+
+/** One rule base document. */
+export async function fetchFuzzySystem(systemId: string): Promise<FuzzyDocument> {
+  return getJson<FuzzyDocument>(`/api/fuzzy/${encodeURIComponent(systemId)}`);
+}
+
+/** Save a rule base as the user's own (configuration only; nothing is written to a plant). */
+export async function saveFuzzySystem(systemId: string, document: FuzzyDocument): Promise<FuzzyDocument> {
+  return sendJson<FuzzyDocument>("PUT", `/api/fuzzy/${encodeURIComponent(systemId)}`, document);
+}
+
+/** What-if: evaluate an (unsaved) rule base on one set of input values. */
+export async function inferFuzzy(document: FuzzyDocument, inputs: Record<string, number>): Promise<FuzzyInference> {
+  return sendJson<FuzzyInference>("POST", "/api/fuzzy/infer", { document, inputs });
+}
+
+/** Replay an (unsaved) rule base over a dataset: what it would have said. */
+export async function replayFuzzy(
+  datasetId: string,
+  document: FuzzyDocument,
+  options?: { startS?: number; endS?: number; maxPoints?: number },
+): Promise<FuzzyReplay> {
+  const body = { document, start_s: options?.startS, end_s: options?.endS, max_points: options?.maxPoints };
+  return sendJson<FuzzyReplay>("POST", `/api/datasets/${encodeURIComponent(datasetId)}/fuzzy/replay`, body);
 }

@@ -222,3 +222,34 @@ body {
 .field-label .badge { margin-left: 6px; }
 .loop-detail-grid > * { min-width: 0; }
 .benefit-grid .field { margin-bottom: 12px; }
+
+/* Fuzzy Studio */
+.membership-chart { margin: 8px 0; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 0; padding: 0; list-style: none; }
+.legend-swatch { display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; }
+.row-selected { background: var(--surface-2); }
+.rules-list { padding-left: 20px; }
+.rule-row { margin-bottom: 10px; line-height: 2.2; }
+.rule-row select, .rule-row input[type="number"], .settings-table input[type="number"], .settings-table select {
+  padding: 2px 4px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; font: inherit;
+}
+.rule-row input[type="number"] { width: 64px; }
+.settings-table input[type="number"] { width: 84px; }
+.rule-disabled { opacity: 0.55; }
+.fuzzy-output { margin: 8px 0 16px; }
+.crisp-value { margin: 4px 0; font-size: 28px; font-weight: 600; }
+.firing-list { padding: 0; list-style: none; }
+.firing-list li { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.firing-list progress, .rule-row progress { width: 80px; height: 8px; }
+.fuzzy-save-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0 16px; }
+
+.chart-ticks { display: flex; justify-content: space-between; padding: 0 2% 0 7%; color: var(--text-muted); font-size: 11px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 8px 0; }
+.toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+.toolbar select, .toolbar input[type="text"], .toolbar input:not([type]) { padding: 3px 6px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; font: inherit; }
+.toolbar button { padding: 3px 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; font: inherit; cursor: pointer; }
+
+.rule-row > * { margin-right: 8px; }
+.rule-row .link-button { font-size: 12px; }
+.rule-row label { display: inline-flex; align-items: center; gap: 4px; }
+.rules-list { margin: 8px 0 12px; }

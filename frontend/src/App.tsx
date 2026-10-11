@@ -10,6 +10,7 @@ import {
   type TagInfo,
 } from "./api";
 import { availableLanguages, detectLanguage, translate } from "./i18n";
+import { FuzzyPage } from "./components/FuzzyPage";
 import { LoopsPage } from "./components/LoopsPage";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
@@ -187,7 +188,7 @@ export function App() {
   const [theme, setTheme] = useTheme();
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [view, setView] = useState<"trends" | "loops">("trends");
+  const [view, setView] = useState<"trends" | "loops" | "fuzzy">("trends");
 
   // The first dataset of the catalogue becomes the default selection.
   useEffect(() => {
@@ -261,7 +262,7 @@ export function App() {
         </aside>
         <main className="main-area">
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops"] as const).map((name) => (
+            {(["trends", "loops", "fuzzy"] as const).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -273,11 +274,9 @@ export function App() {
               </button>
             ))}
           </nav>
-          {view === "loops" ? (
-            selectedDatasetId && <LoopsPage datasetId={selectedDatasetId} t={t} />
-          ) : (
-            renderTrendArea()
-          )}
+          {view === "loops" && selectedDatasetId && <LoopsPage datasetId={selectedDatasetId} t={t} />}
+          {view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
+          {view === "trends" && renderTrendArea()}
         </main>
       </div>
     </div>
