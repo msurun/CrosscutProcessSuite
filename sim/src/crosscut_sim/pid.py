@@ -31,17 +31,6 @@ class PID:
             td_filter_n: Derivative filter coefficient.
             direct: If True, the controller is direct acting.
         """
-        if dt_s <= 0:
-            raise ValueError("dt_s must be positive")
-        if ti_s <= 0 and not math.isinf(ti_s):
-            raise ValueError("ti_s must be positive or infinity")
-        if out_min >= out_max:
-            raise ValueError("out_min must be less than out_max")
-        if td_s < 0:
-            raise ValueError("td_s must be non-negative")
-        if td_filter_n <= 0:
-            raise ValueError("td_filter_n must be positive")
-
         self.kc = kc
         self.ti_s = ti_s
         self.dt_s = dt_s
@@ -53,6 +42,20 @@ class PID:
         self._i = 0.0
         self._d = 0.0
         self._prev_pv: float | None = None
+        self._validate()
+
+    def _validate(self) -> None:
+        """Raise ``ValueError`` if any constructor setting is out of range."""
+        if self.dt_s <= 0:
+            raise ValueError("dt_s must be positive")
+        if self.ti_s <= 0 and not math.isinf(self.ti_s):
+            raise ValueError("ti_s must be positive or infinity")
+        if self.out_min >= self.out_max:
+            raise ValueError("out_min must be less than out_max")
+        if self.td_s < 0:
+            raise ValueError("td_s must be non-negative")
+        if self.td_filter_n <= 0:
+            raise ValueError("td_filter_n must be positive")
 
     def reset(self) -> None:
         """Reset the PID controller state."""
@@ -78,33 +81,53 @@ class PID:
         if mode not in ("MAN", "AUTO"):
             raise ValueError("mode must be 'MAN' or 'AUTO'")
 
-        e = pv - sp if self.direct else sp - pv
-        p = self.kc * e
+        error = pv - sp if self.direct else sp - pv
+        proportional = self.kc * error
 
         if self.td_s == 0:
-            d = 0.0
+            derivative = 0.0
         else:
-            tf = self.td_s / self.td_filter_n
-            dpv = pv - self._prev_pv if self._prev_pv is not None else 0.0
-            s = 1 if self.direct else -1
-            d = tf / (tf + self.dt_s) * self._d + s * self.kc * self.td_s / (tf + self.dt_s) * dpv
-            self._d = d
+            filter_time_s = self.td_s / self.td_filter_n
+            pv_change = pv - self._prev_pv if self._prev_pv is not None else 0.0
+            error_sign = 1 if self.direct else -1
+            derivative = (
+                filter_time_s / (filter_time_s + self.dt_s) * self._d
+                + error_sign
+                * self.kc
+                * self.td_s
+                / (filter_time_s + self.dt_s)
+                * pv_change
+            )
+            self._d = derivative
 
-        inc = self.kc * e * self.dt_s / self.ti_s if not math.isinf(self.ti_s) else 0.0
+        if math.isinf(self.ti_s):
+            integral_increment = 0.0
+        else:
+            integral_increment = self.kc * error * self.dt_s / self.ti_s
 
         if mode == "MAN":
-            out = max(self.out_min, min(self.out_max, man_out))
-            self._i = out - p - d - inc
-            return out
+            output = self._clip(man_out)
+            self._i = output - proportional - derivative - integral_increment
+            return output
 
-        candidate = self._i + inc
-        unclipped = p + candidate + d
-        out = max(self.out_min, min(self.out_max, unclipped))
+        candidate_integral = self._i + integral_increment
+        unclipped_output = proportional + candidate_integral + derivative
+        output = self._clip(unclipped_output)
 
-        if (unclipped > self.out_max and inc > 0) or (unclipped < self.out_min and inc < 0):
-            out = max(self.out_min, min(self.out_max, p + self._i + d))
+        if self._is_winding_up(unclipped_output, integral_increment):
+            output = self._clip(proportional + self._i + derivative)
         else:
-            self._i = candidate
+            self._i = candidate_integral
 
         self._prev_pv = pv
-        return out
+        return output
+
+    def _clip(self, value: float) -> float:
+        """Clamp a value to the configured output limits."""
+        return max(self.out_min, min(self.out_max, value))
+
+    def _is_winding_up(self, unclipped_output: float, integral_increment: float) -> bool:
+        """Return True when the integral term pushes an already saturated output further out."""
+        return (unclipped_output > self.out_max and integral_increment > 0) or (
+            unclipped_output < self.out_min and integral_increment < 0
+        )

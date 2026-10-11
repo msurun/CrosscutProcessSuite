@@ -48,20 +48,41 @@ def harris_index(error: np.ndarray, delay_samples: int, ar_order: int = DEFAULT_
     The minimum variance is sigma_a^2 * sum(psi_i^2, i < delay): the part of the error that
     cannot be influenced within the dead time. A constant error series gives NaN.
     """
+    centered_error = _center_and_validate(error, delay_samples, ar_order)
+    variance = _variance_of(centered_error)
+    ar_coefficients, noise_variance = _fit_ar(centered_error, ar_order)
+    impulse_response = _impulse_response(ar_coefficients, delay_samples)
+    return _clamp_index(noise_variance, impulse_response, variance)
+
+
+def _center_and_validate(error: np.ndarray, delay_samples: int, ar_order: int) -> np.ndarray:
+    """Validate the inputs, center the error series, and return it as a float array.
+
+    Raises:
+        ValueError: if delay_samples is below 1 or the series is too short for the AR fit.
+    """
     if delay_samples < 1:
         raise ValueError("delay_samples must be at least 1")
-    x = np.asarray(error, dtype=float)
-    if len(x) < AR_SAMPLES_PER_COEFFICIENT * ar_order:
+    error_series = np.asarray(error, dtype=float)
+    if len(error_series) < AR_SAMPLES_PER_COEFFICIENT * ar_order:
         raise ValueError("error series is too short for the AR fit")
-    x = x - x.mean()
-    variance = float(np.var(x))
+    return error_series - float(error_series.mean())
+
+
+def _variance_of(centered_error: np.ndarray) -> float:
+    """Return the variance of the centered error, or NaN when the error is constant."""
+    variance = float(np.var(centered_error))
     if variance == 0.0:
         # A constant error has no variance to benchmark against: the index is undefined (NaN),
         # the same convention analyze_loop uses for segments with zero variance.
         return float("nan")
-    ar, sigma_a2 = _fit_ar(x, ar_order)
-    psi = _impulse_response(ar, delay_samples)
-    index = sigma_a2 * float(np.sum(psi**2)) / variance
+    return variance
+
+
+def _clamp_index(noise_variance: float, impulse_response: np.ndarray, variance: float) -> float:
+    """Compute the Harris index from the noise variance, impulse response, and error variance."""
+    minimum_variance = noise_variance * float(np.sum(impulse_response**2))
+    index = minimum_variance / variance
     return float(np.clip(index, 0.0, 1.0))
 
 

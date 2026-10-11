@@ -57,7 +57,8 @@ def random_binary_events(
     -------
     tuple[Event, ...]
         A tuple of events at times ``k * switch_period_s`` for
-        ``k = 0 .. n‑1`` where ``n = ceil(duration_s / switch_period_s)``.
+        ``k = 0 .. event_count‑1`` where
+        ``event_count = ceil(duration_s / switch_period_s)``.
         The value of each event is either ``center - amplitude`` or
         ``center + amplitude`` depending on a random binary draw.
 
@@ -74,17 +75,17 @@ def random_binary_events(
     if amplitude < 0:
         raise ValueError("amplitude must be non‑negative")
 
-    n = int(math.ceil(duration_s / switch_period_s))
+    event_count = int(math.ceil(duration_s / switch_period_s))
     rng = np.random.default_rng(seed)
-    draws = rng.integers(0, 2, size=n)
+    draws = rng.integers(0, 2, size=event_count)
 
     events = []
-    low = center - amplitude
-    high = center + amplitude
-    for k, draw in enumerate(draws):
-        t = k * switch_period_s
-        value = low if draw == 0 else high
-        events.append(Event(t_s=t, tag_id=tag_id, value=value))
+    low_value = center - amplitude
+    high_value = center + amplitude
+    for index, draw in enumerate(draws):
+        event_time_s = index * switch_period_s
+        value = low_value if draw == 0 else high_value
+        events.append(Event(t_s=event_time_s, tag_id=tag_id, value=value))
 
     return tuple(events)
 
@@ -106,63 +107,83 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
     """
     dt = 1.0
     if scenario_name == "nominal":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            disturbance_sigma=0.0,
-            events=(),
-        )
+        return _build_wood_berry_nominal(duration_s, dt)
     if scenario_name == "noisy_feed":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            disturbance_sigma=0.02,
-            disturbance_tau_s=1800.0,
-            events=(),
-        )
+        return _build_wood_berry_noisy_feed(duration_s, dt)
     if scenario_name == "feed_step":
-        step_event = Event(
-            t_s=duration_s / 4.0,
-            tag_id="sim.wb.feed_rate",
-            value=NOMINAL["feed_rate"] + 0.1,
-        )
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            events=(step_event,),
-        )
+        return _build_wood_berry_feed_step(duration_s, dt)
     if scenario_name == "excited":
-        top_events = random_binary_events(
-            "sim.wb.top_comp_sp",
-            center=NOMINAL["top_comp"],
-            amplitude=0.5,
-            switch_period_s=600.0,
-            duration_s=duration_s,
-            seed=101,
-        )
-        bot_events = random_binary_events(
-            "sim.wb.bottom_comp_sp",
-            center=NOMINAL["bottom_comp"],
-            amplitude=0.1,
-            switch_period_s=900.0,
-            duration_s=duration_s,
-            seed=202,
-        )
-        merged = tuple(sorted(top_events + bot_events, key=lambda e: e.t_s))
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            events=merged,
-        )
+        return _build_wood_berry_excited(duration_s, dt)
     raise ValueError(f"unknown scenario for wood_berry: {scenario_name!r}")
+
+def _build_wood_berry_nominal(duration_s: float, dt: float) -> Scenario:
+    """Return the nominal Wood‑Berry scenario: no disturbance, no events."""
+    return Scenario(
+        name="nominal",
+        duration_s=duration_s,
+        dt_s=dt,
+        measurement_noise=1.0,
+        disturbance_sigma=0.0,
+        events=(),
+    )
+
+def _build_wood_berry_noisy_feed(duration_s: float, dt: float) -> Scenario:
+    """Return the Wood‑Berry scenario with a correlated feed disturbance."""
+    return Scenario(
+        name="noisy_feed",
+        duration_s=duration_s,
+        dt_s=dt,
+        measurement_noise=1.0,
+        disturbance_sigma=0.02,
+        disturbance_tau_s=1800.0,
+        events=(),
+    )
+
+def _build_wood_berry_feed_step(duration_s: float, dt: float) -> Scenario:
+    """Return the Wood‑Berry scenario with a single feed rate step."""
+    step_event = Event(
+        t_s=duration_s / 4.0,
+        tag_id="sim.wb.feed_rate",
+        value=NOMINAL["feed_rate"] + 0.1,
+    )
+    return Scenario(
+        name="feed_step",
+        duration_s=duration_s,
+        dt_s=dt,
+        measurement_noise=1.0,
+        events=(step_event,),
+    )
+
+def _build_wood_berry_excited(duration_s: float, dt: float) -> Scenario:
+    """Return the Wood‑Berry scenario with binary setpoint excitation on both compositions."""
+    merged = _build_wood_berry_excitation_events(duration_s)
+    return Scenario(
+        name="excited",
+        duration_s=duration_s,
+        dt_s=dt,
+        measurement_noise=1.0,
+        events=merged,
+    )
+
+def _build_wood_berry_excitation_events(duration_s: float) -> tuple[Event, ...]:
+    """Return the merged, time-sorted excitation events for the excited scenario."""
+    top_events = random_binary_events(
+        "sim.wb.top_comp_sp",
+        center=NOMINAL["top_comp"],
+        amplitude=0.5,
+        switch_period_s=600.0,
+        duration_s=duration_s,
+        seed=101,
+    )
+    bot_events = random_binary_events(
+        "sim.wb.bottom_comp_sp",
+        center=NOMINAL["bottom_comp"],
+        amplitude=0.1,
+        switch_period_s=900.0,
+        duration_s=duration_s,
+        seed=202,
+    )
+    return tuple(sorted(top_events + bot_events, key=lambda event: event.t_s))
 
 
 def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scenario:
@@ -170,6 +191,9 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
 
     Supported ``scenario_name`` values are ``"nominal"``, ``"observational"``, ``"excited"``,
     ``"quiet"``, ``"hardness_shift"`` and ``"step_test"`` (open-loop OUT steps for identification).
+
+    Raises:
+        ValueError: if ``scenario_name`` is not one of the supported names.
     """
     dt = 1.0
     if scenario_name == "nominal":
@@ -203,7 +227,12 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
             ),
         )
     if scenario_name == "hardness_shift":
-        shift_event = Event(t_s=duration_s / 2.0, tag_id="sim.mc.hardness_mean", value=16.0)
+        # The step lands halfway through the run so the first half stays at nominal hardness.
+        shift_event = Event(
+            t_s=duration_s / 2.0,
+            tag_id="sim.mc.hardness_mean",
+            value=16.0,
+        )
         return Scenario(
             name=scenario_name,
             duration_s=duration_s,
@@ -213,6 +242,8 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
             events=(shift_event,),
         )
     if scenario_name == "excited":
+        # Three independent binary dithers at different periods keep the inputs persistently
+        # excited, which is what the identification step needs.
         press_events = random_binary_events(
             "sim.mc.hpgr_press_sp",
             center=MILL_NOMINAL["hpgr_press"],
@@ -237,7 +268,9 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
             duration_s=duration_s,
             seed=303,
         )
-        merged = tuple(sorted(press_events + feed_events + water_events, key=lambda e: e.t_s))
+        merged = tuple(
+            sorted(press_events + feed_events + water_events, key=lambda event: event.t_s)
+        )
         return Scenario(
             name=scenario_name,
             duration_s=duration_s,

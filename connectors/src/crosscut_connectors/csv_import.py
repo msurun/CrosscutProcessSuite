@@ -87,17 +87,10 @@ def _detect_delimiter(lines: list[str]) -> str:
     candidates = [",", ";", "\t"]
     best_delim = ""
     best_score = -1
-    max_look = min(50, len(lines))
+    sample = lines[:50]
 
     for delim in candidates:
-        counts: dict[int, int] = {}
-        for ln in lines[:max_look]:
-            cnt = len(ln.split(delim))
-            counts[cnt] = counts.get(cnt, 0) + 1
-        # modal count is the one with highest frequency
-        if not counts:
-            continue
-        modal_cnt, modal_freq = max(counts.items(), key=lambda kv: kv[1])
+        modal_cnt, modal_freq = _modal_field_count(sample, delim)
         # we need at least two columns to be a plausible CSV
         if modal_cnt < 2:
             continue
@@ -108,6 +101,17 @@ def _detect_delimiter(lines: list[str]) -> str:
     if not best_delim:
         raise ValueError("cannot detect delimiter")
     return best_delim
+
+
+def _modal_field_count(lines: list[str], delimiter: str) -> tuple[int, int]:
+    """Return the most frequent field count and how many lines have it (0, 0 if none)."""
+    counts: dict[int, int] = {}
+    for ln in lines:
+        cnt = len(ln.split(delimiter))
+        counts[cnt] = counts.get(cnt, 0) + 1
+    if not counts:
+        return 0, 0
+    return max(counts.items(), key=lambda kv: kv[1])
 
 
 def _extract_header_and_rows(lines: list[str], delimiter: str) -> tuple[list[str], list[list[str]]]:
@@ -124,10 +128,10 @@ def _extract_header_and_rows(lines: list[str], delimiter: str) -> tuple[list[str
         if len(parts) != modal_cnt:
             continue
         if not header_found:
-            header = [p.strip() for p in parts]
+            header = [cell.strip() for cell in parts]
             header_found = True
             continue
-        data_rows.append([p.strip() for p in parts])
+        data_rows.append([cell.strip() for cell in parts])
     return header, data_rows
 
 
@@ -145,6 +149,7 @@ def _strptime_or_none(fmt: str) -> Callable[[str], datetime | None]:
     """Return a parser for ``fmt`` that yields None instead of raising on a mismatch."""
 
     def parse(text: str) -> datetime | None:
+        """Parse ``text`` with ``fmt``, or return None when it does not match."""
         try:
             return datetime.strptime(text, fmt)
         except ValueError:
@@ -159,22 +164,32 @@ def _try_timestamp_formats(
     """Return a format name and a parsing callable that works for *all* rows."""
     # Order matters – the first that succeeds for every row wins.
     # The callable returns a ``datetime`` (may be naive or aware).
-    fmt_functions: list[tuple[str, Callable[[str], datetime | None]]] = [
+    for name, fn in _timestamp_format_candidates():
+        # we only verify that the function does not raise for any candidate string
+        # – the actual conversion is done later.
+        if _parses_every_candidate(fn, candidates):
+            return name, fn
+    raise ValueError("timestamp format not recognised")
+
+
+def _timestamp_format_candidates() -> list[tuple[str, Callable[[str], datetime | None]]]:
+    """Return the parsing callables to try, in order of preference."""
+    return [
         ("ISO8601", _parse_iso8601),
         ("d.m.Y H:M:S", _strptime_or_none("%d.%m.%Y %H:%M:%S")),
         ("Y-m-d H:M:S", _strptime_or_none("%Y-%m-%d %H:%M:%S")),
     ]
-    for name, fn in fmt_functions:
-        # we only verify that the function does not raise for any candidate string
-        # – the actual conversion is done later.
-        ok = True
-        for s in candidates:
-            if fn(s) is None:
-                ok = False
-                break
-        if ok:
-            return name, fn
-    raise ValueError("timestamp format not recognised")
+
+
+def _parses_every_candidate(
+    parse: Callable[[str], datetime | None],
+    candidates: Iterable[str],
+) -> bool:
+    """Return True when *parse* yields a datetime for every candidate string."""
+    for candidate in candidates:
+        if parse(candidate) is None:
+            return False
+    return True
 
 
 def _to_utc_nanoseconds(dt: datetime, tz: str) -> int:

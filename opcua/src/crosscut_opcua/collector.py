@@ -36,14 +36,21 @@ def _utc_to_ns(text: str) -> int:
 
 async def _discover_plant_nodes(client: Client, idx: int) -> tuple[Node, list[Node], list[str]]:
     """Return the time node, the plant tag nodes (server order) and their tag ids."""
-    plant_obj: Node | None = None
+    plant_obj = await _find_plant_object(client)
+    time_node, tag_nodes, tag_ids = await _collect_plant_tags(plant_obj, idx)
+    return time_node, tag_nodes, tag_ids
+
+
+async def _find_plant_object(client: Client) -> Node:
+    """Return the server's plant object node. Raise RuntimeError when it is absent."""
     for child in await client.nodes.objects.get_children():
         if (await child.read_browse_name()).Name == PLANT_OBJECT_NAME:
-            plant_obj = child
-            break
-    if plant_obj is None:
-        raise RuntimeError(f"no '{PLANT_OBJECT_NAME}' object in the server address space")
+            return child
+    raise RuntimeError(f"no '{PLANT_OBJECT_NAME}' object in the server address space")
 
+
+async def _collect_plant_tags(plant_obj: Node, idx: int) -> tuple[Node, list[Node], list[str]]:
+    """Split the plant variables into the time tag and the remaining tag nodes with their ids."""
     time_node: Node | None = None
     tag_nodes: list[Node] = []
     tag_ids: list[str] = []

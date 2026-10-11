@@ -100,28 +100,109 @@ def create_app(data_root: Path) -> FastAPI:
     cache: dict[str, WideTable] = {}  # datasets are immutable once written
 
     def load_wide(dataset_id: str) -> WideTable:
+        """Return the cached wide table for a dataset, loading and caching it on first use."""
         if dataset_id not in cache:
             ts, values = to_wide(read_dataset(_dataset_dir(root, dataset_id)))
             cache[dataset_id] = (ts.astype(np.int64), values)
         return cache[dataset_id]
 
+    def tags_of(dataset_dir: Path) -> list[dict[str, Any]]:
+        """Return the tag documents stored next to a dataset."""
+        tag_document = _read_json(dataset_dir / "tags.json")
+        return _tags_from_document(tag_document)
+
+    def _tags_from_document(tag_document: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the "tags" list of a parsed tag document, asserting its type.
+
+        Raises:
+            TypeError: if the document has no "tags" list, which means the file
+                on disk does not follow the tag document format.
+        """
+        tags = tag_document["tags"]
+        if not isinstance(tags, list):
+            raise TypeError(
+                f"Expected the tag document to hold a list under 'tags', got {type(tags).__name__}"
+            )
+        return tags
+
+    def find_loop(dataset_dir: Path, loop_name: str) -> Any:
+        """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop."""
+        loop = next(
+            (
+                one
+                for one in _loops_of(dataset_dir, tags_of(dataset_dir))
+                if one.name == loop_name
+            ),
+            None,
+        )
+        if loop is None:
+            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
+        return loop
+
+    def load_seconds(dataset_id: str) -> tuple[np.ndarray, dict[str, Any]]:
+        """Return the dataset's series and its timestamps as seconds since the first sample."""
+        ts, values = load_wide(dataset_id)
+        return (ts - ts[0]) / NS_PER_SECOND, values
+
+    def build_series(
+        dataset_id: str,
+        tag: list[str],
+        start: int | None,
+        end: int | None,
+        max_points: int,
+    ) -> list[dict[str, Any]]:
+        """Return the downsampled envelopes of every requested tag."""
+        timestamps, values = load_wide(dataset_id)
+        _reject_unknown_tags(tag, values)
+        series = []
+        for tag_id in tag:
+            window_timestamps, window_values = _window(timestamps, values[tag_id], start, end)
+            envelope = downsample_minmax(window_timestamps, window_values, max_points)
+            series.append(_envelope_document(tag_id, envelope))
+        return series
+
+    def _reject_unknown_tags(tag: list[str], values: dict[str, Any]) -> None:
+        """Raise a 404 naming the first requested tag that the dataset does not contain."""
+        unknown = [tag_id for tag_id in tag if tag_id not in values]
+        if unknown:
+            raise HTTPException(status_code=404, detail=f"unknown tag: {unknown[0]}")
+
+    def _envelope_document(tag_id: str, envelope: Any) -> dict[str, Any]:
+        """Return the JSON document describing one tag's downsampled envelope."""
+        return {
+            "tag": tag_id,
+            "downsampled": envelope.downsampled,
+            "t": envelope.t.tolist(),
+            "min": _json_floats(envelope.min),
+            "max": _json_floats(envelope.max),
+            "mean": _json_floats(envelope.mean),
+        }
+
     app.include_router(build_fuzzy_router(root, load_wide))
 
-    @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    _register_health_route(app)
 
     @app.get("/datasets")
     def list_datasets() -> list[dict[str, Any]]:
+        """Return a summary of every dataset found on disk, sorted by dataset id."""
         documents = [_read_json(path) for path in root.glob("*/dataset.json")]
-        return sorted((_summary(d) for d in documents), key=lambda s: str(s["id"]))
+        summaries = (_summary(document) for document in documents)
+        return sorted(summaries, key=lambda summary: str(summary["id"]))
 
     @app.get("/datasets/{dataset_id}/tags")
     def get_tags(dataset_id: str) -> list[dict[str, Any]]:
-        tags: list[dict[str, Any]] = _read_json(_dataset_dir(root, dataset_id) / "tags.json")[
-            "tags"
-        ]
-        return tags
+        """Return the tag documents of a dataset."""
+        return tags_of(_dataset_dir(root, dataset_id))
+
+    @dataclass(frozen=True)
+    class SeriesRequest:
+        """Parameters describing which series to fetch and how to downsample them."""
+
+        dataset_id: str
+        tag: list[str]
+        start: int | None
+        end: int | None
+        max_points: int
 
     @app.get("/datasets/{dataset_id}/series")
     def get_series(
@@ -131,34 +212,25 @@ def create_app(data_root: Path) -> FastAPI:
         end: int | None = None,
         max_points: Annotated[int, Query(ge=2, le=MAX_POINTS_LIMIT)] = DEFAULT_MAX_POINTS,
     ) -> dict[str, Any]:
-        ts, values = load_wide(dataset_id)
-        unknown = [t for t in tag if t not in values]
-        if unknown:
-            raise HTTPException(status_code=404, detail=f"unknown tag: {unknown[0]}")
-        series = []
-        for tag_id in tag:
-            t_win, v_win = _window(ts, values[tag_id], start, end)
-            env = downsample_minmax(t_win, v_win, max_points)
-            series.append(
-                {
-                    "tag": tag_id,
-                    "downsampled": env.downsampled,
-                    "t": env.t.tolist(),
-                    "min": _json_floats(env.min),
-                    "max": _json_floats(env.max),
-                    "mean": _json_floats(env.mean),
-                }
-            )
-        return {"dataset_id": dataset_id, "series": series}
+        """Return the requested tags, downsampled for display."""
+        request = SeriesRequest(dataset_id, tag, start, end, max_points)
+        return {
+            "dataset_id": request.dataset_id,
+            "series": build_series(
+                request.dataset_id,
+                request.tag,
+                request.start,
+                request.end,
+                request.max_points,
+            ),
+        }
 
     @app.get("/datasets/{dataset_id}/loops")
     def get_loops(dataset_id: str) -> dict[str, Any]:
         """Analyse every control loop of the dataset (health, findings, key numbers)."""
         dataset_dir = _dataset_dir(root, dataset_id)
-        tags = _read_json(dataset_dir / "tags.json")["tags"]
-        ts, values = load_wide(dataset_id)
-        t_s = (ts - ts[0]) / NS_PER_SECOND
-        loops = analyze_dataset(t_s, values, _loops_of(dataset_dir, tags))
+        t_s, values = load_seconds(dataset_id)
+        loops = analyze_dataset(t_s, values, _loops_of(dataset_dir, tags_of(dataset_dir)))
         return {"dataset_id": dataset_id, "loops": loops}
 
     @app.get("/datasets/{dataset_id}/loops/{loop_name}/tuning")
@@ -171,12 +243,8 @@ def create_app(data_root: Path) -> FastAPI:
     ) -> dict[str, Any]:
         """Identify the loop on a data window and propose PI settings (read-only)."""
         dataset_dir = _dataset_dir(root, dataset_id)
-        tags = _read_json(dataset_dir / "tags.json")["tags"]
-        ts, values = load_wide(dataset_id)
-        t_s = (ts - ts[0]) / NS_PER_SECOND
-        loop = next((one for one in _loops_of(dataset_dir, tags) if one.name == loop_name), None)
-        if loop is None:
-            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
+        loop = find_loop(dataset_dir, loop_name)
+        t_s, values = load_seconds(dataset_id)
         row = analyze_dataset(t_s, values, [loop])[0]
         suspected = any(finding["code"] == "stiction" for finding in row["findings"])
         request = TuningRequest(start_s, end_s, robustness, suspected)
@@ -190,15 +258,20 @@ def create_app(data_root: Path) -> FastAPI:
     ) -> dict[str, Any]:
         """Estimate what a lower PV variability is worth, from the user's assumptions."""
         dataset_dir = _dataset_dir(root, dataset_id)
-        tags = _read_json(dataset_dir / "tags.json")["tags"]
-        ts, values = load_wide(dataset_id)
-        t_s = (ts - ts[0]) / NS_PER_SECOND
-        loop = next((one for one in _loops_of(dataset_dir, tags) if one.name == loop_name), None)
-        if loop is None:
-            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
+        loop = find_loop(dataset_dir, loop_name)
+        t_s, values = load_seconds(dataset_id)
         try:
             return benefit_payload(loop, t_s, values, request.to_request())
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     return app
+
+
+def _register_health_route(app: FastAPI) -> None:
+    """Register the liveness probe on ``app``."""
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        """Report that the service is up."""
+        return {"status": "ok"}

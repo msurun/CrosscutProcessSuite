@@ -43,118 +43,162 @@ BOT_NOISE_STD = 0.01
 
 def _build_tag_catalog() -> TagCatalog:
     specs = [
-        TagSpec(
-            id=TOP,
-            unit="wt%",
-            role="PV",
-            type="float",
-            description="Distillate top methanol composition",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=False,
-        ),
-        TagSpec(
-            id=TOP_SP,
-            unit="wt%",
-            role="SP",
-            type="float",
-            description="Top composition active setpoint",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=TOP_RSP,
-            unit="wt%",
-            role="SP",
-            type="float",
-            description="Top composition remote setpoint",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=TOP_MODE,
-            unit="",
-            role="MODE",
-            type="enum",
-            description="Top composition loop mode (0=MAN, 1=AUTO, 2=CAS)",
-            eng_min=0.0,
-            eng_max=2.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=REFLUX,
-            unit="lb/min",
-            role="OUT",
-            type="float",
-            description="Reflux flow rate",
-            eng_min=0.0,
-            eng_max=5.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=BOT,
-            unit="wt%",
-            role="PV",
-            type="float",
-            description="Bottom methanol composition",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=False,
-        ),
-        TagSpec(
-            id=BOT_SP,
-            unit="wt%",
-            role="SP",
-            type="float",
-            description="Bottom composition active setpoint",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=BOT_RSP,
-            unit="wt%",
-            role="SP",
-            type="float",
-            description="Bottom composition remote setpoint",
-            eng_min=0.0,
-            eng_max=100.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=BOT_MODE,
-            unit="",
-            role="MODE",
-            type="enum",
-            description="Bottom composition loop mode (0=MAN, 1=AUTO, 2=CAS)",
-            eng_min=0.0,
-            eng_max=2.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=STEAM,
-            unit="lb/min",
-            role="OUT",
-            type="float",
-            description="Reboiler steam flow rate",
-            eng_min=0.0,
-            eng_max=5.0,
-            writable=True,
-        ),
-        TagSpec(
-            id=FEED,
-            unit="lb/min",
-            role="DV",
-            type="float",
-            description="Column feed flow rate disturbance",
-            eng_min=0.0,
-            eng_max=10.0,
-            writable=True,
-        ),
+        _top_composition_spec(),
+        _top_setpoint_spec(),
+        _top_remote_setpoint_spec(),
+        _top_mode_spec(),
+        _reflux_spec(),
+        _bottom_composition_spec(),
+        _bottom_setpoint_spec(),
+        _bottom_remote_setpoint_spec(),
+        _bottom_mode_spec(),
+        _steam_spec(),
+        _feed_spec(),
     ]
     return TagCatalog(specs)
+
+
+def _top_composition_spec() -> TagSpec:
+    return TagSpec(
+        id=TOP,
+        unit="wt%",
+        role="PV",
+        type="float",
+        description="Distillate top methanol composition",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=False,
+    )
+
+
+def _top_setpoint_spec() -> TagSpec:
+    return TagSpec(
+        id=TOP_SP,
+        unit="wt%",
+        role="SP",
+        type="float",
+        description="Top composition active setpoint",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=True,
+    )
+
+
+def _top_remote_setpoint_spec() -> TagSpec:
+    return TagSpec(
+        id=TOP_RSP,
+        unit="wt%",
+        role="SP",
+        type="float",
+        description="Top composition remote setpoint",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=True,
+    )
+
+
+def _top_mode_spec() -> TagSpec:
+    return TagSpec(
+        id=TOP_MODE,
+        unit="",
+        role="MODE",
+        type="enum",
+        description="Top composition loop mode (0=MAN, 1=AUTO, 2=CAS)",
+        eng_min=0.0,
+        eng_max=2.0,
+        writable=True,
+    )
+
+
+def _reflux_spec() -> TagSpec:
+    return TagSpec(
+        id=REFLUX,
+        unit="lb/min",
+        role="OUT",
+        type="float",
+        description="Reflux flow rate",
+        eng_min=0.0,
+        eng_max=5.0,
+        writable=True,
+    )
+
+
+def _bottom_composition_spec() -> TagSpec:
+    return TagSpec(
+        id=BOT,
+        unit="wt%",
+        role="PV",
+        type="float",
+        description="Bottom methanol composition",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=False,
+    )
+
+
+def _bottom_setpoint_spec() -> TagSpec:
+    return TagSpec(
+        id=BOT_SP,
+        unit="wt%",
+        role="SP",
+        type="float",
+        description="Bottom composition active setpoint",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=True,
+    )
+
+
+def _bottom_remote_setpoint_spec() -> TagSpec:
+    return TagSpec(
+        id=BOT_RSP,
+        unit="wt%",
+        role="SP",
+        type="float",
+        description="Bottom composition remote setpoint",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=True,
+    )
+
+
+def _bottom_mode_spec() -> TagSpec:
+    return TagSpec(
+        id=BOT_MODE,
+        unit="",
+        role="MODE",
+        type="enum",
+        description="Bottom composition loop mode (0=MAN, 1=AUTO, 2=CAS)",
+        eng_min=0.0,
+        eng_max=2.0,
+        writable=True,
+    )
+
+
+def _steam_spec() -> TagSpec:
+    return TagSpec(
+        id=STEAM,
+        unit="lb/min",
+        role="OUT",
+        type="float",
+        description="Reboiler steam flow rate",
+        eng_min=0.0,
+        eng_max=5.0,
+        writable=True,
+    )
+
+
+def _feed_spec() -> TagSpec:
+    return TagSpec(
+        id=FEED,
+        unit="lb/min",
+        role="DV",
+        type="float",
+        description="Column feed flow rate disturbance",
+        eng_min=0.0,
+        eng_max=10.0,
+        writable=True,
+    )
 
 
 class WoodBerryPlant:
@@ -243,8 +287,16 @@ class WoodBerryPlant:
         )
 
         # Events sorted by trigger time
-        self._events: list[Event] = sorted(self._scenario.events, key=lambda e: e.t_s)
+        self._events: list[Event] = sorted(self._scenario.events, key=self._event_trigger_time_s)
         self._event_idx = 0
+
+    @staticmethod
+    def _event_trigger_time_s(event: Event) -> float:
+        """Return the simulation time at which `event` must be applied.
+
+        Used as the sort key so `self._events` is ordered by trigger time.
+        """
+        return event.t_s
 
     def _apply_event_write(self, tag_id: str, value: float) -> None:
         """Apply an event write directly to internal state bypassing permissions."""
@@ -255,9 +307,7 @@ class WoodBerryPlant:
         elif tag_id == TOP_MODE:
             self._top_mode = int(value)
         elif tag_id == REFLUX:
-            clamped = float(np.clip(value, 0.0, 5.0))
-            self._reflux_man_out = clamped
-            self._reflux_out = clamped
+            self._apply_reflux_write(value)
         elif tag_id == BOT_SP:
             self._bot_sp = float(value)
         elif tag_id == BOT_RSP:
@@ -265,12 +315,26 @@ class WoodBerryPlant:
         elif tag_id == BOT_MODE:
             self._bot_mode = int(value)
         elif tag_id == STEAM:
-            clamped = float(np.clip(value, 0.0, 5.0))
-            self._steam_man_out = clamped
-            self._steam_out = clamped
+            self._apply_steam_write(value)
         elif tag_id == FEED:
-            self._feed_base = float(value)
-            self._effective_feed = float(value)
+            self._apply_feed_write(value)
+
+    def _apply_reflux_write(self, value: float) -> None:
+        """Write the reflux value to both its manual-output and output holders."""
+        clamped = float(np.clip(value, 0.0, 5.0))
+        self._reflux_man_out = clamped
+        self._reflux_out = clamped
+
+    def _apply_steam_write(self, value: float) -> None:
+        """Write the steam value to both its manual-output and output holders."""
+        clamped = float(np.clip(value, 0.0, 5.0))
+        self._steam_man_out = clamped
+        self._steam_out = clamped
+
+    def _apply_feed_write(self, value: float) -> None:
+        """Write the feed value to both its base and effective-feed holders."""
+        self._feed_base = float(value)
+        self._effective_feed = float(value)
 
     def step(self) -> None:
         """Advance the simulation by scenario.dt_s."""
@@ -338,32 +402,47 @@ class WoodBerryPlant:
         if tag_id not in self.tags:
             raise KeyError(f"Unknown tag: {tag_id}")
 
-        if tag_id == TOP:
-            return self._top_pv_meas, GOOD
-        if tag_id == TOP_SP:
-            return self._top_sp, GOOD
-        if tag_id == TOP_RSP:
-            return self._top_rsp, GOOD
-        if tag_id == TOP_MODE:
-            return float(self._top_mode), GOOD
-        if tag_id == REFLUX:
-            return self._reflux_out, GOOD
+        # Top-section tags share one switch so that each helper stays short.
+        top_value = self._read_top_tag(tag_id)
+        if top_value is not None:
+            return top_value, GOOD
 
-        if tag_id == BOT:
-            return self._bot_pv_meas, GOOD
-        if tag_id == BOT_SP:
-            return self._bot_sp, GOOD
-        if tag_id == BOT_RSP:
-            return self._bot_rsp, GOOD
-        if tag_id == BOT_MODE:
-            return float(self._bot_mode), GOOD
-        if tag_id == STEAM:
-            return self._steam_out, GOOD
+        bottom_value = self._read_bottom_tag(tag_id)
+        if bottom_value is not None:
+            return bottom_value, GOOD
 
         if tag_id == FEED:
             return self._effective_feed, GOOD
 
         raise KeyError(f"Unknown tag: {tag_id}")
+
+    def _read_top_tag(self, tag_id: str) -> float | None:
+        """Return the top-section value for tag_id, or None when it is not a top tag."""
+        if tag_id == TOP:
+            return self._top_pv_meas
+        if tag_id == TOP_SP:
+            return self._top_sp
+        if tag_id == TOP_RSP:
+            return self._top_rsp
+        if tag_id == TOP_MODE:
+            return float(self._top_mode)
+        if tag_id == REFLUX:
+            return self._reflux_out
+        return None
+
+    def _read_bottom_tag(self, tag_id: str) -> float | None:
+        """Return the bottom-section value for tag_id, or None when it is not a bottom tag."""
+        if tag_id == BOT:
+            return self._bot_pv_meas
+        if tag_id == BOT_SP:
+            return self._bot_sp
+        if tag_id == BOT_RSP:
+            return self._bot_rsp
+        if tag_id == BOT_MODE:
+            return float(self._bot_mode)
+        if tag_id == STEAM:
+            return self._steam_out
+        return None
 
     def write(self, tag_id: str, value: float) -> None:
         """Write a tag value adhering to loop permissions and validation rules."""
@@ -374,66 +453,99 @@ class WoodBerryPlant:
         if not tag_spec.writable:
             raise PermissionError(f"Tag {tag_id} is read-only")
 
+        self._write_mode_tag(tag_id, value)
+        self._write_output_tag(tag_id, value)
+        self._write_setpoint_tag(tag_id, value)
+        self._write_ratio_tag(tag_id, value)
+        self._write_feed_tag(tag_id, value)
+
+    def _write_mode_tag(self, tag_id: str, value: float) -> None:
+        """Handle writes to mode tags TOP_MODE and BOT_MODE."""
         if tag_id == TOP_MODE:
-            if value not in (0, 1, 2, 0.0, 1.0, 2.0):
-                raise ValueError(f"Invalid mode value: {value}")
-            new_mode = int(value)
-            if new_mode == MAN:
-                self._reflux_man_out = self._reflux_out
-            self._top_mode = new_mode
-            return
-
+            self._set_top_mode(value)
         if tag_id == BOT_MODE:
-            if value not in (0, 1, 2, 0.0, 1.0, 2.0):
-                raise ValueError(f"Invalid mode value: {value}")
-            new_mode = int(value)
-            if new_mode == MAN:
-                self._steam_man_out = self._steam_out
-            self._bot_mode = new_mode
-            return
+            self._set_bot_mode(value)
 
+    def _set_top_mode(self, value: float) -> None:
+        """Validate and store a new top loop mode."""
+        if value not in (0, 1, 2, 0.0, 1.0, 2.0):
+            raise ValueError(f"Invalid mode value: {value}")
+        new_mode = int(value)
+        if new_mode == MAN:
+            self._reflux_man_out = self._reflux_out
+        self._top_mode = new_mode
+        return
+
+    def _set_bot_mode(self, value: float) -> None:
+        """Validate and store a new bottom loop mode."""
+        if value not in (0, 1, 2, 0.0, 1.0, 2.0):
+            raise ValueError(f"Invalid mode value: {value}")
+        new_mode = int(value)
+        if new_mode == MAN:
+            self._steam_man_out = self._steam_out
+        self._bot_mode = new_mode
+        return
+
+    def _write_output_tag(self, tag_id: str, value: float) -> None:
+        """Handle writes to output tags REFLUX and STEAM."""
         if tag_id == REFLUX:
-            if self._top_mode != MAN:
-                raise PermissionError("Cannot write REFLUX unless top loop is in MAN mode")
-            clamped = float(np.clip(value, 0.0, 5.0))
-            self._reflux_man_out = clamped
-            self._reflux_out = clamped
-            return
-
+            self._set_reflux(value)
         if tag_id == STEAM:
-            if self._bot_mode != MAN:
-                raise PermissionError("Cannot write STEAM unless bottom loop is in MAN mode")
-            clamped = float(np.clip(value, 0.0, 5.0))
-            self._steam_man_out = clamped
-            self._steam_out = clamped
-            return
+            self._set_steam(value)
 
+    def _set_reflux(self, value: float) -> None:
+        """Validate loop mode and store a new reflux output."""
+        if self._top_mode != MAN:
+            raise PermissionError("Cannot write REFLUX unless top loop is in MAN mode")
+        clamped = float(np.clip(value, 0.0, 5.0))
+        self._reflux_man_out = clamped
+        self._reflux_out = clamped
+        return
+
+    def _set_steam(self, value: float) -> None:
+        """Validate loop mode and store a new steam output."""
+        if self._bot_mode != MAN:
+            raise PermissionError("Cannot write STEAM unless bottom loop is in MAN mode")
+        clamped = float(np.clip(value, 0.0, 5.0))
+        self._steam_man_out = clamped
+        self._steam_out = clamped
+        return
+
+    def _write_setpoint_tag(self, tag_id: str, value: float) -> None:
+        """Handle writes to setpoint tags TOP_SP and BOT_SP."""
         if tag_id == TOP_SP:
-            if self._top_mode == CAS:
-                raise PermissionError("Cannot write TOP_SP while top loop is in CAS mode")
-            self._top_sp = float(value)
-            return
-
+            self._set_top_sp(value)
         if tag_id == BOT_SP:
-            if self._bot_mode == CAS:
-                raise PermissionError("Cannot write BOT_SP while bottom loop is in CAS mode")
-            self._bot_sp = float(value)
-            return
+            self._set_bot_sp(value)
 
+    def _set_top_sp(self, value: float) -> None:
+        """Validate loop mode and store a new top setpoint."""
+        if self._top_mode == CAS:
+            raise PermissionError("Cannot write TOP_SP while top loop is in CAS mode")
+        self._top_sp = float(value)
+        return
+
+    def _set_bot_sp(self, value: float) -> None:
+        """Validate loop mode and store a new bottom setpoint."""
+        if self._bot_mode == CAS:
+            raise PermissionError("Cannot write BOT_SP while bottom loop is in CAS mode")
+        self._bot_sp = float(value)
+        return
+
+    def _write_ratio_tag(self, tag_id: str, value: float) -> None:
+        """Handle writes to ratio tags TOP_RSP and BOT_RSP."""
         if tag_id == TOP_RSP:
             self._top_rsp = float(value)
-            return
-
         if tag_id == BOT_RSP:
             self._bot_rsp = float(value)
-            return
+        return
 
+    def _write_feed_tag(self, tag_id: str, value: float) -> None:
+        """Handle writes to the FEED tag."""
         if tag_id == FEED:
             self._feed_base = float(value)
             self._effective_feed = float(value)
-            return
-
-        raise KeyError(f"Unknown tag: {tag_id}")
+        return
 
     def snapshot(self) -> dict[str, tuple[float, int]]:
         """Return {tag_id: (value, quality)} for every tag in catalog order."""

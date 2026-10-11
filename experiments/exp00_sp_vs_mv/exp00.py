@@ -22,7 +22,7 @@ import csv
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from crosscut_sim.dataset import read_dataset, record, to_wide
@@ -36,9 +36,9 @@ HIGHPASS_SAMPLES = 20  # moving-average window removed by the high-pass: 10 min
 
 DRIVERS = ("hpgr_press", "mill_feed", "cyc_water")
 CV = "p80"
-SP_TAGS = {d: f"sim.mc.{d}_sp" for d in DRIVERS}
-PV_TAGS = {d: f"sim.mc.{d}" for d in DRIVERS}
-OUT_TAGS = {d: f"sim.mc.{d}_out" for d in DRIVERS}
+SP_TAGS = {driver: f"sim.mc.{driver}_sp" for driver in DRIVERS}
+PV_TAGS = {driver: f"sim.mc.{driver}" for driver in DRIVERS}
+OUT_TAGS = {driver: f"sim.mc.{driver}_out" for driver in DRIVERS}
 CV_TAG = "sim.mc.p80"
 HARDNESS_EST_TAG = "sim.mc.ore_hardness_est"
 
@@ -62,12 +62,12 @@ def highpass(x: np.ndarray, window: int) -> np.ndarray:
 
 def fir_gains(y: np.ndarray, inputs: Sequence[np.ndarray], n_lags: int) -> np.ndarray:
     """Least-squares FIR fit with an intercept; returns the sum of coefficients per input."""
-    n = len(y)
-    rows = n - n_lags + 1
+    n_samples = len(y)
+    rows = n_samples - n_lags + 1
     columns = [np.ones(rows)]
     for x in inputs:
         for lag in range(n_lags):
-            columns.append(x[n_lags - 1 - lag : n - lag])
+            columns.append(x[n_lags - 1 - lag : n_samples - lag])
     design = np.column_stack(columns)
     coefficients, *_ = np.linalg.lstsq(design, y[n_lags - 1 :], rcond=None)
     gains = []
@@ -77,10 +77,9 @@ def fir_gains(y: np.ndarray, inputs: Sequence[np.ndarray], n_lags: int) -> np.nd
     return np.array(gains)
 
 
-def simulate(seed: int, scenario_name: str, hours: float, workdir: Path) -> dict[str, np.ndarray]:
-    """Record a mill-circuit run through the dataset pipeline and read it back in wide format."""
-    scenario = build_scenario("mill_circuit", scenario_name, duration_s=hours * 3600.0)
-    scenario = type(scenario)(
+def with_simulation_step(scenario: Any) -> Any:
+    """Return a copy of the scenario that runs at the experiment's simulation step DT_S."""
+    return type(scenario)(
         name=scenario.name,
         duration_s=scenario.duration_s,
         dt_s=DT_S,
@@ -90,6 +89,12 @@ def simulate(seed: int, scenario_name: str, hours: float, workdir: Path) -> dict
         events=scenario.events,
         params=scenario.params,
     )
+
+
+def simulate(seed: int, scenario_name: str, hours: float, workdir: Path) -> dict[str, np.ndarray]:
+    """Record a mill-circuit run through the dataset pipeline and read it back in wide format."""
+    scenario = build_scenario("mill_circuit", scenario_name, duration_s=hours * 3600.0)
+    scenario = with_simulation_step(scenario)
     out = workdir / f"{scenario_name}_seed{seed}"
     record(
         MillCircuitPlant(),
@@ -110,7 +115,7 @@ def estimate(wide: dict[str, np.ndarray], variant: str) -> np.ndarray:
     y = wide[CV_TAG]
     family = variant.split()[0]
     tags = {"SP": SP_TAGS, "PV": PV_TAGS, "OUT": OUT_TAGS}[family]
-    inputs = [wide[tags[d]] for d in DRIVERS]
+    inputs = [wide[tags[driver]] for driver in DRIVERS]
     extra: list[np.ndarray] = []
     if variant.endswith("hardness"):
         extra.append(wide[HARDNESS_EST_TAG])
@@ -125,47 +130,90 @@ def estimate(wide: dict[str, np.ndarray], variant: str) -> np.ndarray:
 
 
 def true_gains() -> dict[str, float]:
+    """Ground-truth steady-state gains of the three drivers on p80 at ore hardness 14."""
     plant = MillCircuitPlant()
-    return {d: plant.true_gain(d, CV, 14.0) for d in DRIVERS}
+    return {driver: plant.true_gain(driver, CV, 14.0) for driver in DRIVERS}
 
 
 def run(seeds: int, hours: float, out_dir: Path) -> list[dict[str, object]]:
     """Run all scenarios, seeds and variants; one result row per (scenario, variant, driver)."""
-    estimates: dict[tuple[str, str], list[np.ndarray]] = {}
-    with tempfile.TemporaryDirectory() as tmp:
-        for scenario_name in SCENARIOS:
-            for seed in range(1, seeds + 1):
-                wide = simulate(seed, scenario_name, hours, Path(tmp))
-                for variant in VARIANTS:
-                    estimates.setdefault((scenario_name, variant), []).append(
-                        estimate(wide, variant)
-                    )
-    truth = true_gains()
-    rows: list[dict[str, object]] = []
-    for (scenario_name, variant), runs in estimates.items():
-        stacked = np.vstack(runs)
-        for j, driver in enumerate(DRIVERS):
-            rows.append(
-                {
-                    "scenario": scenario_name,
-                    "variant": variant,
-                    "driver": driver,
-                    "true_gain": truth[driver],
-                    "mean": float(stacked[:, j].mean()),
-                    "std": float(stacked[:, j].std(ddof=1)) if len(runs) > 1 else float("nan"),
-                    "n_runs": len(runs),
-                }
-            )
+    estimates = collect_estimates(seeds, hours)
+    rows = summarize(estimates, true_gains())
     out_dir.mkdir(parents=True, exist_ok=True)
     write_outputs(rows, out_dir, seeds, hours)
     return rows
 
 
+def collect_estimates(seeds: int, hours: float) -> dict[tuple[str, str], list[np.ndarray]]:
+    """Simulate every scenario and seed; group the gain estimates by (scenario, variant)."""
+    estimates: dict[tuple[str, str], list[np.ndarray]] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for scenario_name in SCENARIOS:
+            for seed in range(1, seeds + 1):
+                wide = simulate(seed, scenario_name, hours, Path(tmp))
+                _add_variant_estimates(estimates, scenario_name, wide)
+    return estimates
+
+
+def _add_variant_estimates(
+    estimates: dict[tuple[str, str], list[np.ndarray]],
+    scenario_name: str,
+    wide: dict[str, np.ndarray],
+) -> None:
+    """Append the gain estimate of every signal variant for one simulated run."""
+    for variant in VARIANTS:
+        estimates.setdefault((scenario_name, variant), []).append(estimate(wide, variant))
+
+
+def summarize(
+    estimates: dict[tuple[str, str], list[np.ndarray]], truth: dict[str, float]
+) -> list[dict[str, object]]:
+    """Turn the grouped estimates into one mean/std row per (scenario, variant, driver)."""
+    rows: list[dict[str, object]] = []
+    for (scenario_name, variant), runs in estimates.items():
+        rows.extend(_summary_rows(scenario_name, variant, runs, truth))
+    return rows
+
+
+def _summary_rows(
+    scenario_name: str, variant: str, runs: list[np.ndarray], truth: dict[str, float]
+) -> list[dict[str, object]]:
+    """Mean and sample standard deviation over the runs, for each driver of one variant."""
+    stacked = np.vstack(runs)
+    rows: list[dict[str, object]] = []
+    for j, driver in enumerate(DRIVERS):
+        rows.append(
+            {
+                "scenario": scenario_name,
+                "variant": variant,
+                "driver": driver,
+                "true_gain": truth[driver],
+                "mean": float(stacked[:, j].mean()),
+                "std": float(stacked[:, j].std(ddof=1)) if len(runs) > 1 else float("nan"),
+                "n_runs": len(runs),
+            }
+        )
+    return rows
+
+
 def write_outputs(rows: list[dict[str, object]], out_dir: Path, seeds: int, hours: float) -> None:
+    """Write the run outputs (CSV, markdown report and plot) into out_dir."""
+    write_results_csv(rows, out_dir)
+    lines = build_results_markdown(rows, seeds, hours)
+    (out_dir / "results.md").write_text("\n".join(lines), encoding="utf-8")
+    plot(rows, out_dir)
+
+
+def write_results_csv(rows: list[dict[str, object]], out_dir: Path) -> None:
+    """Write the raw result rows to results.csv, using the first row as the header."""
     with (out_dir / "results.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def build_results_markdown(rows: list[dict[str, object]], seeds: int, hours: float) -> list[str]:
+    """Return the markdown report lines: a header, then one section per driver."""
     lines = [
         f"# Experiment 0 results ({seeds} seeds x {hours:g} h, dt {DT_S:g} s,"
         f" sample {SAMPLE_S:g} s)",
@@ -175,27 +223,55 @@ def write_outputs(rows: list[dict[str, object]], out_dir: Path, seeds: int, hour
         "",
     ]
     for driver in DRIVERS:
-        truth = next(r["true_gain"] for r in rows if r["driver"] == driver)
-        lines += [f"## {driver} -> p80 (true gain at h = 14: {truth:.3f})", ""]
-        lines += ["| variant | " + " | ".join(SCENARIOS) + " |", "|---|" + "---|" * len(SCENARIOS)]
-        for variant in VARIANTS:
-            cells = []
-            for scenario_name in SCENARIOS:
-                r = next(
-                    x
-                    for x in rows
-                    if x["scenario"] == scenario_name
-                    and x["variant"] == variant
-                    and x["driver"] == driver
-                )
-                cells.append(f"{r['mean']:.3f} +/- {r['std']:.3f}")
-            lines.append(f"| {variant} | " + " | ".join(cells) + " |")
-        lines.append("")
-    (out_dir / "results.md").write_text("\n".join(lines), encoding="utf-8")
-    plot(rows, out_dir)
+        lines += build_driver_section(rows, driver)
+    return lines
+
+
+def build_driver_section(rows: list[dict[str, object]], driver: str) -> list[str]:
+    """Return the markdown lines for one driver: its heading plus the variant/scenario table."""
+    # The true gain is a per-driver constant, so any row for this driver carries it.
+    true_gain = next(row["true_gain"] for row in rows if row["driver"] == driver)
+    lines = [f"## {driver} -> p80 (true gain at h = 14: {true_gain:.3f})", ""]
+    lines += ["| variant | " + " | ".join(SCENARIOS) + " |", "|---|" + "---|" * len(SCENARIOS)]
+    for variant in VARIANTS:
+        lines.append(build_variant_row(rows, driver, variant))
+    lines.append("")
+    return lines
+
+
+def build_variant_row(rows: list[dict[str, object]], driver: str, variant: str) -> str:
+    """Return one markdown table row: the variant name followed by a cell per scenario."""
+    cells = [format_cell(rows, driver, variant, scenario_name) for scenario_name in SCENARIOS]
+    return f"| {variant} | " + " | ".join(cells) + " |"
+
+
+def format_cell(
+    rows: list[dict[str, object]], driver: str, variant: str, scenario_name: str
+) -> str:
+    """Return the "mean +/- std" cell for one driver/variant/scenario combination."""
+    measured_row = find_measurement_row(rows, driver, variant, scenario_name)
+    return f"{measured_row['mean']:.3f} +/- {measured_row['std']:.3f}"
+
+
+def find_measurement_row(
+    rows: list[dict[str, object]], driver: str, variant: str, scenario_name: str
+) -> dict[str, object]:
+    """Return the single row matching driver, variant and scenario.
+
+    Raises:
+        StopIteration: when no row matches the given combination.
+    """
+    return next(
+        row
+        for row in rows
+        if row["scenario"] == scenario_name
+        and row["variant"] == variant
+        and row["driver"] == driver
+    )
 
 
 def plot(rows: list[dict[str, object]], out_dir: Path) -> None:
+    """Write a gains.png chart, one subplot per driver, into out_dir."""
     try:
         import matplotlib
 
@@ -204,47 +280,57 @@ def plot(rows: list[dict[str, object]], out_dir: Path) -> None:
     except ImportError:  # plotting is optional
         return
     fig, axes = plt.subplots(1, len(DRIVERS), figsize=(15, 4.5), sharey=False)
-    width = 0.38
     for ax, driver in zip(axes, DRIVERS, strict=True):
-        sel = [r for r in rows if r["driver"] == driver]
-        truth = cast(float, sel[0]["true_gain"])
-        for i, scenario_name in enumerate(SCENARIOS):
-            means = [
-                cast(
-                    float,
-                    next(
-                        r["mean"]
-                        for r in sel
-                        if r["scenario"] == scenario_name and r["variant"] == v
-                    ),
-                )
-                for v in VARIANTS
-            ]
-            stds = [
-                cast(
-                    float,
-                    next(
-                        r["std"]
-                        for r in sel
-                        if r["scenario"] == scenario_name and r["variant"] == v
-                    ),
-                )
-                for v in VARIANTS
-            ]
-            x = np.arange(len(VARIANTS)) + (i - 0.5) * width
-            ax.bar(x, means, width, yerr=np.nan_to_num(stds), label=scenario_name, capsize=2)
-        ax.axhline(truth, color="k", linestyle="--", linewidth=1, label="true gain (h = 14)")
-        ax.set_title(f"{driver} -> p80")
-        ax.set_xticks(np.arange(len(VARIANTS)))
-        ax.set_xticklabels(VARIANTS, rotation=40, ha="right", fontsize=8)
-        ax.axhline(0.0, color="grey", linewidth=0.5)
+        _plot_driver(ax, rows, driver)
     axes[0].legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(out_dir / "gains.png", dpi=130)
     plt.close(fig)
 
 
+def _plot_driver(ax: Any, rows: list[dict[str, object]], driver: str) -> None:
+    """Draw all scenario bars and the true-gain line for one driver on `ax`."""
+    selected_rows = [row for row in rows if row["driver"] == driver]
+    true_gain = cast(float, selected_rows[0]["true_gain"])
+    for scenario_index, scenario_name in enumerate(SCENARIOS):
+        _plot_scenario(ax, selected_rows, scenario_name, scenario_index)
+    ax.axhline(true_gain, color="k", linestyle="--", linewidth=1, label="true gain (h = 14)")
+    ax.set_title(f"{driver} -> p80")
+    ax.set_xticks(np.arange(len(VARIANTS)))
+    ax.set_xticklabels(VARIANTS, rotation=40, ha="right", fontsize=8)
+    ax.axhline(0.0, color="grey", linewidth=0.5)
+
+
+def _plot_scenario(
+    ax: object,
+    selected_rows: list[dict[str, object]],
+    scenario_name: str,
+    scenario_index: int,
+) -> None:
+    """Draw one grouped bar (one bar per variant) for a scenario on `ax`."""
+    width = 0.38
+    means = [_lookup_float(selected_rows, scenario_name, variant, "mean") for variant in VARIANTS]
+    stds = [_lookup_float(selected_rows, scenario_name, variant, "std") for variant in VARIANTS]
+    x = np.arange(len(VARIANTS)) + (scenario_index - 0.5) * width
+    ax.bar(x, means, width, yerr=np.nan_to_num(stds), label=scenario_name, capsize=2)
+
+
+def _lookup_float(
+    selected_rows: list[dict[str, object]],
+    scenario_name: str,
+    variant: str,
+    field: str,
+) -> float:
+    """Return the `field` value of the row matching scenario and variant; raise if missing."""
+    for row in selected_rows:
+        if row["scenario"] == scenario_name and row["variant"] == variant:
+            return cast(float, row[field])
+    raise KeyError(f"no row for scenario={scenario_name!r}, variant={variant!r}, field={field!r}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    """Parse the command line, run the gain identification experiment, and report how many rows
+    were written."""
     parser = argparse.ArgumentParser(
         description="Experiment 0: SP-based versus MV-based gain identification."
     )

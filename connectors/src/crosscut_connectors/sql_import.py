@@ -140,6 +140,15 @@ def _collect_samples(
         tags.append(tag)
         values.append(value)
         qualities.append(quality)
+    return _build_sample_arrays(ts_ns, tags, values, qualities)
+
+def _build_sample_arrays(
+    ts_ns: list[int],
+    tags: list[str],
+    values: list[float],
+    qualities: list[Any],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert the parsed columns into typed numpy arrays."""
     return (
         np.array(ts_ns, dtype=np.int64),
         np.array(tags),

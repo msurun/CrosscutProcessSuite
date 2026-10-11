@@ -162,17 +162,33 @@ def render_messy_csv(
     Raises:
         ValueError: If the style is unknown.
     """
-    if style == "plain":
-        return _render_plain(ts_ns, columns)
-    elif style == "semicolon_comma":
-        return _render_semicolon_comma(ts_ns, columns, local_tz)
-    elif style == "tab_local":
-        return _render_tab_local(ts_ns, columns, local_tz)
-    elif style == "bom_preamble":
-        return _render_bom_preamble(ts_ns, columns)
-    elif style == "text_bad":
-        return _render_text_bad(ts_ns, columns)
-    elif style == "duplicates_unsorted":
-        return _render_duplicates_unsorted(ts_ns, columns)
-    else:
-        raise ValueError(f"Unknown style: {style}")
+    renderer = _select_renderer(style)
+    if (
+        renderer is _render_plain
+        or renderer is _render_bom_preamble
+        or renderer is _render_text_bad
+    ):
+        return renderer(ts_ns, columns)
+    if renderer is _render_duplicates_unsorted:
+        return renderer(ts_ns, columns)
+    return renderer(ts_ns, columns, local_tz)
+
+
+def _select_renderer(style: str):
+    """Return the renderer function matching the style.
+
+    Raises:
+        ValueError: If the style is unknown.
+    """
+    renderers = {
+        "plain": _render_plain,
+        "semicolon_comma": _render_semicolon_comma,
+        "tab_local": _render_tab_local,
+        "bom_preamble": _render_bom_preamble,
+        "text_bad": _render_text_bad,
+        "duplicates_unsorted": _render_duplicates_unsorted,
+    }
+    try:
+        return renderers[style]
+    except KeyError:
+        raise ValueError(f"Unknown style: {style}") from None

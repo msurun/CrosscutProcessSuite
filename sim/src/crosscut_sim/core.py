@@ -40,6 +40,7 @@ class TagSpec:
     sample_period_s: float = 1.0
 
     def to_dict(self, driver: str = "sim") -> dict[str, Any]:
+        """Return the tag as a schema-conformant dict; ``driver`` names the data source."""
         doc: dict[str, Any] = {
             "id": self.id,
             "name": self.id,
@@ -81,11 +82,12 @@ class TagCatalog:
         return self._specs[tag_id]
 
     def ids(self) -> list[str]:
+        """Return the tag ids in catalog order."""
         return list(self._specs)
 
     def to_document(self) -> dict[str, Any]:
         """Return a document that validates against ``schemas/tags.schema.json``."""
-        return {"schema_version": SCHEMA_VERSION, "tags": [s.to_dict() for s in self]}
+        return {"schema_version": SCHEMA_VERSION, "tags": [spec.to_dict() for spec in self]}
 
 
 @dataclass(frozen=True)
@@ -141,11 +143,14 @@ class Fopdt:
             raise ValueError("tau_s and dt_s must be positive and delay_s non-negative")
         self.gain = gain
         self._a = math.exp(-dt_s / tau_s)
-        n = round(delay_s / dt_s)
-        self._buf: deque[float] | None = deque([0.0] * n, maxlen=n) if n > 0 else None
+        delay_steps = round(delay_s / dt_s)
+        self._buf: deque[float] | None = (
+            deque([0.0] * delay_steps, maxlen=delay_steps) if delay_steps > 0 else None
+        )
         self.value = y0
 
     def update(self, u: float) -> float:
+        """Consume the input ``u`` of this step and return the output of the next step."""
         if self._buf is None:
             u_delayed = u
         else:

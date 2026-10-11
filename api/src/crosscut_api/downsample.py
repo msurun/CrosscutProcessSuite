@@ -26,12 +26,12 @@ class Envelope:
     downsampled: bool
 
 
-def downsample_minmax(t: np.ndarray, v: np.ndarray, max_points: int) -> Envelope:
+def downsample_minmax(timestamps: np.ndarray, values: np.ndarray, max_points: int) -> Envelope:
     """Downsample a time series to min/max envelopes.
 
     Args:
-        t: Timestamps of the time series.
-        v: Values of the time series.
+        timestamps: Timestamps of the time series.
+        values: Values of the time series.
         max_points: Maximum number of points in the downsampled series.
 
     Returns:
@@ -43,22 +43,26 @@ def downsample_minmax(t: np.ndarray, v: np.ndarray, max_points: int) -> Envelope
     if max_points < 2:
         raise ValueError("max_points must be at least 2")
 
-    if len(t) <= max_points:
-        return Envelope(t, v, v, v, False)
+    if len(timestamps) <= max_points:
+        return Envelope(timestamps, values, values, values, False)
 
-    n_buckets = max_points
-    bucket_edges = np.linspace(0, len(t), n_buckets + 1, dtype=np.int64)
-    bucket_indices = bucket_edges[:-1]
+    bucket_edges = np.linspace(0, len(timestamps), max_points + 1, dtype=np.int64)
+    bucket_starts = bucket_edges[:-1]
+    min_v, max_v, mean_v = _bucket_stats(values, bucket_starts)
+    return Envelope(timestamps[bucket_starts], min_v, max_v, mean_v, True)
 
-    t_downsampled = t[bucket_indices]
-    v_nan = np.where(np.isnan(v), np.nan, v)
-    counts = np.add.reduceat(np.isfinite(v), bucket_edges[:-1])
-    sum_v = np.add.reduceat(v_nan, bucket_edges[:-1])
-    min_v = np.minimum.reduceat(v_nan, bucket_edges[:-1])
-    max_v = np.maximum.reduceat(v_nan, bucket_edges[:-1])
+
+def _bucket_stats(
+    values: np.ndarray, bucket_starts: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Minimum, maximum and mean per bucket; a bucket without finite samples gives NaN."""
+    v_nan = np.where(np.isnan(values), np.nan, values)
+    counts = np.add.reduceat(np.isfinite(values), bucket_starts)
+    sum_v = np.add.reduceat(v_nan, bucket_starts)
+    min_v = np.minimum.reduceat(v_nan, bucket_starts)
+    max_v = np.maximum.reduceat(v_nan, bucket_starts)
 
     mean_downsampled = np.where(counts > 0, sum_v / counts, np.nan)
     min_downsampled = np.where(counts > 0, min_v, np.nan)
     max_downsampled = np.where(counts > 0, max_v, np.nan)
-
-    return Envelope(t_downsampled, min_downsampled, max_downsampled, mean_downsampled, True)
+    return min_downsampled, max_downsampled, mean_downsampled

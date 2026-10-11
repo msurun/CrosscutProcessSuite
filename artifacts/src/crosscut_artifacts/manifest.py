@@ -37,8 +37,8 @@ def sha256_bytes(data: bytes) -> str:
 def sha256_file(path: Path) -> str:
     """Compute the SHA-256 hex digest of the file at the given path."""
     sha256 = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(8192):
+    with path.open("rb") as binary_file:
+        while chunk := binary_file.read(8192):
             sha256.update(chunk)
     return sha256.hexdigest()
 
@@ -151,6 +151,15 @@ def write_artifact(
 def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     """Read the manifest from the given artifact directory."""
     path = Path(path)
+    doc = _load_manifest_document(path)
+    _validate_manifest_document(doc, path)
+    if verify:
+        _verify_payload_files(doc, path)
+    return doc
+
+
+def _load_manifest_document(path: Path) -> dict[str, Any]:
+    """Load and parse the manifest JSON document."""
     manifest_path = path / "manifest.json"
     if not manifest_path.exists():
         raise ArtifactError(f"Manifest not found at {manifest_path}")
@@ -160,6 +169,12 @@ def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
         raise ArtifactError(f"Invalid manifest at {manifest_path}") from e
     if not isinstance(doc, dict):
         raise ArtifactError(f"Manifest at {manifest_path} is not a JSON object")
+    return doc
+
+
+def _validate_manifest_document(doc: dict[str, Any], path: Path) -> None:
+    """Validate the manifest structure and payload paths."""
+    manifest_path = path / "manifest.json"
     if "schema_version" not in doc or "payload" not in doc:
         raise ArtifactError(f"Invalid manifest at {manifest_path}")
 
@@ -167,12 +182,12 @@ def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     for item in doc["payload"]:
         _validate_payload_path(item["path"], reading=True)
 
-    if verify:
-        for item in doc["payload"]:
-            file_path = path / item["path"]
-            if not file_path.exists():
-                raise ArtifactIntegrityError(f"Payload file not found: {file_path}")
-            if sha256_file(file_path) != item["sha256"]:
-                raise ArtifactIntegrityError(f"Payload file integrity check failed: {file_path}")
 
-    return doc
+def _verify_payload_files(doc: dict[str, Any], path: Path) -> None:
+    """Verify that every payload file exists and matches its recorded hash."""
+    for item in doc["payload"]:
+        file_path = path / item["path"]
+        if not file_path.exists():
+            raise ArtifactIntegrityError(f"Payload file not found: {file_path}")
+        if sha256_file(file_path) != item["sha256"]:
+            raise ArtifactIntegrityError(f"Payload file integrity check failed: {file_path}")

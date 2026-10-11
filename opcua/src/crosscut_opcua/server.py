@@ -76,6 +76,7 @@ class PlantServer:
 
     @property
     def endpoint(self) -> str:
+        """Return the OPC UA endpoint URL for this client's host and port."""
         return f"opc.tcp://{self._host}:{self._port}"
 
     async def __aenter__(self) -> PlantServer:
@@ -204,19 +205,32 @@ class PlantServer:
     def _update_watchdog(self, now: float) -> None:
         alive = self._heartbeat_alive(now)
         if self._heartbeat_ok and not alive:
-            # The DCS takes the loops back: CAS loops fall to AUTO and keep their local SP.
-            for spec in self.plant.tags:
-                if spec.role == "MODE" and self.plant.read(spec.id)[0] == CAS:
-                    try:
-                        self.plant.write(spec.id, float(AUTO))
-                    except (PermissionError, ValueError, KeyError):
-                        pass
+            self._return_cas_loops_to_auto()
         self._heartbeat_ok = alive
+
+    def _return_cas_loops_to_auto(self) -> None:
+        """Put every loop tag currently in CAS back to AUTO.
+
+        The DCS takes the loops back when our heartbeat is gone: CAS loops fall
+        to AUTO and keep their local SP. Tags we are not allowed to write, or
+        whose value cannot be parsed, are skipped on purpose.
+        """
+        for spec in self.plant.tags:
+            if spec.role != "MODE":
+                continue
+            if self.plant.read(spec.id)[0] != CAS:
+                continue
+            try:
+                self.plant.write(spec.id, float(AUTO))
+            except (PermissionError, ValueError, KeyError):
+                pass
 
     # ----- client writes ---------------------------------------------------------------------
 
     def _make_setter(self, tag_id: str) -> Callable[[NodeData, AttributeIds, ua.DataValue], None]:
         def setter(node: NodeData, attr: AttributeIds, value: ua.DataValue) -> None:
+            """Apply a client write to the node, routing it through the plant when the server is
+            not publishing."""
             if self._publishing:
                 node.attributes[attr].value = value
                 return
@@ -252,11 +266,22 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m crosscut_opcua.server",
         description="Serve a simulated plant over OPC UA until interrupted (Ctrl+C).",
     )
+    _add_plant_arguments(parser)
+    _add_timing_arguments(parser)
+    return parser
+
+
+def _add_plant_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the arguments that choose what to simulate and where to listen."""
     parser.add_argument("--plant", required=True, choices=sorted(PLANTS), help="plant identifier")
     parser.add_argument("--scenario", default="nominal", help="scenario name (default: nominal)")
     parser.add_argument("--seed", type=int, default=42, help="random seed (default: 42)")
     parser.add_argument("--host", default="127.0.0.1", help="listen address (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=4840, help="listen port (default: 4840)")
+
+
+def _add_timing_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the arguments that control simulation and publish timing."""
     parser.add_argument(
         "--speed", type=float, default=1.0, help="plant time per wall-clock second (default: 1)"
     )
@@ -269,19 +294,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=10.0,
         help="seconds without heartbeat changes before CAS loops fall back (default: 10)",
     )
-    return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the OPC UA server until interrupted; returns the process exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+    server = _build_server(parser, args)
+    _run_server_until_interrupted(server, args)
+
+    return 0
+
+
+def _build_server(parser: argparse.ArgumentParser, args: argparse.Namespace) -> PlantServer:
+    """Build the server described by the parsed command line arguments.
+
+    Raises SystemExit (through parser.error) when the requested scenario is invalid.
+    """
     try:
         scenario = build_scenario(args.plant, args.scenario, duration_s=24 * 3600.0)
     except ValueError as e:
         parser.error(str(e))
 
-    server = PlantServer(
+    return PlantServer(
         PLANTS[args.plant](),
         scenario,
         seed=args.seed,
@@ -292,7 +327,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         heartbeat_timeout_s=args.heartbeat_timeout,
     )
 
+
+def _run_server_until_interrupted(server: PlantServer, args: argparse.Namespace) -> None:
+    """Serve requests until the user presses Ctrl+C, which ends the process quietly."""
+
     async def serve_forever() -> None:
+        """Run the server until the process is interrupted."""
         async with server:
             print(f"serving {args.plant} at {server.endpoint} (Ctrl+C to stop)", flush=True)
             await asyncio.Event().wait()
@@ -300,8 +340,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         asyncio.run(serve_forever())
     except KeyboardInterrupt:
+        # Ctrl+C is the documented way to stop the server, so it is not an error.
         pass
-    return 0
 
 
 if __name__ == "__main__":

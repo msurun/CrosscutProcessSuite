@@ -104,19 +104,21 @@ class FaultyPlant:
             return
 
         value, quality = self._snapshot[fault.tag_id]
+        self._snapshot[fault.tag_id] = self._corrupt(fault, value, quality)
 
+    def _corrupt(self, fault: Fault, value: float, quality: int) -> tuple[float, int]:
+        """Return the faulted ``(value, quality)`` pair for the kind of ``fault``."""
         if fault.kind == "freeze":
-            value, quality = self._apply_freeze(fault, value, quality)
-        elif fault.kind == "drift":
-            value = self._apply_drift(fault, value)
-        elif fault.kind == "spike":
-            value = self._apply_spike(fault, value)
-        elif fault.kind == "bad_quality":
-            quality = self._apply_bad_quality(quality)
-        elif fault.kind == "dropout":
-            value, quality = self._apply_dropout()
-
-        self._snapshot[fault.tag_id] = (value, quality)
+            return self._apply_freeze(fault, value, quality)
+        if fault.kind == "drift":
+            return self._apply_drift(fault, value), quality
+        if fault.kind == "spike":
+            return self._apply_spike(fault, value), quality
+        if fault.kind == "bad_quality":
+            return value, self._apply_bad_quality(quality)
+        if fault.kind == "dropout":
+            return self._apply_dropout()
+        return value, quality
 
     def _apply_freeze(self, fault: Fault, value: float, quality: int) -> tuple[float, int]:
         """Apply the freeze fault."""

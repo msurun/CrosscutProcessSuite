@@ -85,6 +85,7 @@ class _LoopSpec:
 
     @property
     def tag(self) -> str:
+        """Return the simulator's tag as a Monte Carlo identifier built from its name."""
         return f"sim.mc.{self.name}"
 
 
@@ -136,118 +137,145 @@ _LOOP_KINDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _gain(g0: float, s: float, hardness: float) -> float:
+def _gain(base_gain: float, sensitivity: float, hardness: float) -> float:
     """Return the driver-to-CV gain at the given ore hardness."""
-    return g0 * (1.0 + s * (hardness - REFERENCE_HARDNESS))
+    return base_gain * (1.0 + sensitivity * (hardness - REFERENCE_HARDNESS))
 
 
 def _build_tag_catalog() -> TagCatalog:
     specs: list[TagSpec] = []
     for loop in LOOPS:
-        specs.append(
-            TagSpec(
-                id=loop.tag,
-                unit=loop.unit,
-                role="PV",
-                type="float",
-                description=f"{loop.description} (measured)",
-                eng_min=loop.eng_min,
-                eng_max=loop.eng_max,
-                writable=False,
-            )
-        )
-        specs.append(
-            TagSpec(
-                id=f"{loop.tag}_sp",
-                unit=loop.unit,
-                role="SP",
-                type="float",
-                description=f"{loop.description} active setpoint",
-                eng_min=loop.eng_min,
-                eng_max=loop.eng_max,
-                writable=True,
-            )
-        )
-        specs.append(
-            TagSpec(
-                id=f"{loop.tag}_rsp",
-                unit=loop.unit,
-                role="SP",
-                type="float",
-                description=f"{loop.description} remote setpoint",
-                eng_min=loop.eng_min,
-                eng_max=loop.eng_max,
-                writable=True,
-            )
-        )
-        specs.append(
-            TagSpec(
-                id=f"{loop.tag}_mode",
-                unit="",
-                role="MODE",
-                type="enum",
-                description=f"{loop.description} loop mode (0=MAN, 1=AUTO, 2=CAS)",
-                eng_min=0.0,
-                eng_max=2.0,
-                writable=True,
-            )
-        )
-        specs.append(
-            TagSpec(
-                id=f"{loop.tag}_out",
-                unit="%",
-                role="OUT",
-                type="float",
-                description=f"{loop.description} controller output",
-                eng_min=0.0,
-                eng_max=100.0,
-                writable=True,
-            )
-        )
-    specs.append(
-        TagSpec(
-            id=HARD_MEAN,
-            unit="kWh/t",
-            role="other",
-            type="float",
-            description="Mean of the true ore hardness (writable simulation driver)",
-            eng_min=5.0,
-            eng_max=30.0,
-            writable=True,
-        )
-    )
-    specs.append(
-        TagSpec(
-            id=HARD_EST,
-            unit="kWh/t",
-            role="DV",
-            type="float",
-            description="Ore hardness estimate, sample-and-hold every 30 min",
-        )
-    )
-    specs.append(
-        TagSpec(
-            id=MOIST,
-            unit="%",
-            role="DV",
-            type="float",
-            description="Feed moisture (measured every step)",
-        )
-    )
+        specs.extend(_tag_specs_for_loop(loop))
+    specs.extend(_tag_specs_for_disturbances())
     for cv in CVS:
-        specs.append(
-            TagSpec(
-                id=CV_TAGS[cv],
-                unit=_CV_UNITS[cv],
-                role="CV",
-                type="float",
-                description=_CV_DESCRIPTIONS[cv],
-                eng_min=0.0,
-                eng_max=_CV_ENG_MAX[cv],
-                writable=False,
-            )
-        )
+        specs.append(_tag_spec_for_cv(cv))
     return TagCatalog(specs)
+
+
+def _tag_specs_for_loop(loop: _LoopSpec) -> list[TagSpec]:
+    """Return the five tags describing one control loop, PV first."""
+    return [
+        _loop_pv_spec(loop),
+        _loop_sp_spec(loop, suffix="_sp", description_suffix="active setpoint"),
+        _loop_sp_spec(loop, suffix="_rsp", description_suffix="remote setpoint"),
+        _loop_mode_spec(loop),
+        _loop_out_spec(loop),
+    ]
+
+
+def _loop_pv_spec(loop: _LoopSpec) -> TagSpec:
+    """Return the measured process variable tag of a loop."""
+    return TagSpec(
+        id=loop.tag,
+        unit=loop.unit,
+        role="PV",
+        type="float",
+        description=f"{loop.description} (measured)",
+        eng_min=loop.eng_min,
+        eng_max=loop.eng_max,
+        writable=False,
+    )
+
+
+def _loop_sp_spec(loop: _LoopSpec, suffix: str, description_suffix: str) -> TagSpec:
+    """Return a setpoint tag of a loop; `suffix` distinguishes active from remote."""
+    return TagSpec(
+        id=f"{loop.tag}{suffix}",
+        unit=loop.unit,
+        role="SP",
+        type="float",
+        description=f"{loop.description} {description_suffix}",
+        eng_min=loop.eng_min,
+        eng_max=loop.eng_max,
+        writable=True,
+    )
+
+
+def _loop_mode_spec(loop: _LoopSpec) -> TagSpec:
+    """Return the operating mode tag of a loop, 0=MAN, 1=AUTO, 2=CAS."""
+    return TagSpec(
+        id=f"{loop.tag}_mode",
+        unit="",
+        role="MODE",
+        type="enum",
+        description=f"{loop.description} loop mode (0=MAN, 1=AUTO, 2=CAS)",
+        eng_min=0.0,
+        eng_max=2.0,
+        writable=True,
+    )
+
+
+def _loop_out_spec(loop: _LoopSpec) -> TagSpec:
+    """Return the controller output tag of a loop, in percent."""
+    return TagSpec(
+        id=f"{loop.tag}_out",
+        unit="%",
+        role="OUT",
+        type="float",
+        description=f"{loop.description} controller output",
+        eng_min=0.0,
+        eng_max=100.0,
+        writable=True,
+    )
+
+
+def _tag_specs_for_disturbances() -> list[TagSpec]:
+    """Return the hardness and moisture tags that drive the simulation."""
+    return [
+        _hard_mean_spec(),
+        _hard_est_spec(),
+        _moist_spec(),
+    ]
+
+
+def _hard_mean_spec() -> TagSpec:
+    """Return the writable tag carrying the true ore hardness mean."""
+    return TagSpec(
+        id=HARD_MEAN,
+        unit="kWh/t",
+        role="other",
+        type="float",
+        description="Mean of the true ore hardness (writable simulation driver)",
+        eng_min=5.0,
+        eng_max=30.0,
+        writable=True,
+    )
+
+
+def _hard_est_spec() -> TagSpec:
+    """Return the ore hardness estimate tag, sampled every 30 min."""
+    return TagSpec(
+        id=HARD_EST,
+        unit="kWh/t",
+        role="DV",
+        type="float",
+        description="Ore hardness estimate, sample-and-hold every 30 min",
+    )
+
+
+def _moist_spec() -> TagSpec:
+    """Return the feed moisture tag, measured every step."""
+    return TagSpec(
+        id=MOIST,
+        unit="%",
+        role="DV",
+        type="float",
+        description="Feed moisture (measured every step)",
+    )
+
+
+def _tag_spec_for_cv(cv: str) -> TagSpec:
+    """Return the controlled variable tag for one `cv` key."""
+    return TagSpec(
+        id=CV_TAGS[cv],
+        unit=_CV_UNITS[cv],
+        role="CV",
+        type="float",
+        description=_CV_DESCRIPTIONS[cv],
+        eng_min=0.0,
+        eng_max=_CV_ENG_MAX[cv],
+        writable=False,
+    )
 
 
 class _Loop:
@@ -257,19 +285,40 @@ class _Loop:
         self, spec: _LoopSpec, dt_s: float, inner_scale: float, rng: np.random.Generator
     ) -> None:
         self.spec = spec
-        self.pid = PID(kc=spec.kc, ti_s=60.0, dt_s=dt_s, out_min=0.0, out_max=100.0, direct=False)
+        self.pid = self._build_pid(spec, dt_s)
         nominal = NOMINAL[spec.name]
-        self.pid.update(nominal, nominal, "MAN", man_out=NOMINAL_OUT)
-        self.actuator = Fopdt(
-            gain=spec.actuator_gain, tau_s=spec.actuator_tau_s, delay_s=0.0, dt_s=dt_s
-        )
-        self.inner = OrnsteinUhlenbeck(
+        self.actuator = self._build_actuator(spec, dt_s)
+        self.inner = self._build_inner(spec, inner_scale, dt_s, rng)
+        self._init_signals(nominal)
+
+    def _build_pid(self, spec: _LoopSpec, dt_s: float) -> PID:
+        """Build the PID with the spec gains and seed it in manual at the nominal operating
+        point."""
+        pid = PID(kc=spec.kc, ti_s=60.0, dt_s=dt_s, out_min=0.0, out_max=100.0, direct=False)
+        nominal = NOMINAL[spec.name]
+        pid.update(nominal, nominal, "MAN", man_out=NOMINAL_OUT)
+        return pid
+
+    def _build_actuator(self, spec: _LoopSpec, dt_s: float) -> Fopdt:
+        """Build the actuator model; the delay is already folded into the spec gains, so it is
+        zero here."""
+        return Fopdt(gain=spec.actuator_gain, tau_s=spec.actuator_tau_s, delay_s=0.0, dt_s=dt_s)
+
+    def _build_inner(
+        self, spec: _LoopSpec, inner_scale: float, dt_s: float, rng: np.random.Generator
+    ) -> OrnsteinUhlenbeck:
+        """Build the inner disturbance; inner_scale scales the spec sigma for faster scenario
+        sweeps."""
+        return OrnsteinUhlenbeck(
             mean=0.0,
             sigma=spec.inner_sigma * inner_scale,
             tau_s=120.0,
             dt_s=dt_s,
             rng=rng,
         )
+
+    def _init_signals(self, nominal: float) -> None:
+        """Start the loop in auto, with setpoint, manual output and PV all at the nominal."""
         self.mode = AUTO
         self.local_sp = nominal
         self.rsp = nominal
@@ -326,9 +375,9 @@ class MillCircuitPlant:
         path = _PATHS.get((driver, cv))
         if path is None:
             return 0.0
-        h = self.true_hardness if hardness is None else hardness
-        g0, s, _, _ = path
-        return _gain(g0, s, h)
+        evaluated_hardness = self.true_hardness if hardness is None else hardness
+        reference_gain, hardness_sensitivity, _, _ = path
+        return _gain(reference_gain, hardness_sensitivity, evaluated_hardness)
 
     def reset(self, seed: int, scenario: Scenario | None = None) -> None:
         """Restore the nominal steady state at time 0 and seed all random generators."""
@@ -336,19 +385,40 @@ class MillCircuitPlant:
         dt_s = self._scenario.dt_s
         self.dt_s = dt_s
         self.time_s = 0.0
+        rngs = self._spawn_rngs(seed)
+        self._assign_fixed_rngs(rngs)
+        self._init_loops(dt_s, rngs)
+        self._init_ore_and_moisture(dt_s, rngs)
+        self._init_process_noise(dt_s, rngs)
+        self._init_paths(dt_s)
+        self._init_cv_states()
+        self._init_operator()
+        self._init_events()
 
+    def _spawn_rngs(self, seed: int) -> list[np.random.Generator]:
+        """Create ten independent random generators from the given seed."""
         children = np.random.SeedSequence(seed).spawn(10)
-        rngs = [np.random.default_rng(child) for child in children]
-        # Fixed assignment: 0 measurements, 1-3 inner disturbances, 4 hardness, 5 moisture,
-        # 6-8 process noise per CV, 9 operator.
+        return [np.random.default_rng(child) for child in children]
+
+    def _assign_fixed_rngs(self, rngs: list[np.random.Generator]) -> None:
+        """Store the measurement and operator RNGs.
+
+        Fixed assignment: 0 measurements, 1-3 inner disturbances, 4 hardness, 5 moisture,
+        6-8 process noise per CV, 9 operator.
+        """
         self._meas_rng = rngs[0]
         self._op_rng = rngs[9]
 
+    def _init_loops(self, dt_s: float, rngs: list[np.random.Generator]) -> None:
+        """Build the control loops with their inner-noise RNGs."""
         inner_scale = self._scenario.param("inner_noise", 1.0)
         self._loops: dict[str, _Loop] = {
             loop.name: _Loop(loop, dt_s, inner_scale, rngs[1 + i]) for i, loop in enumerate(LOOPS)
         }
 
+    def _init_ore_and_moisture(self, dt_s: float, rngs: list[np.random.Generator]) -> None:
+        """Set up ore hardness and moisture Ornstein-Uhlenbeck processes, estimates and
+        measurements."""
         self._hard_mean = NOMINAL["ore_hardness"]
         self._hard_ou = OrnsteinUhlenbeck(
             mean=0.0,
@@ -368,6 +438,8 @@ class MillCircuitPlant:
         self._next_est_s = 0.0
         self._moist_meas = NOMINAL["feed_moisture"]
 
+    def _init_process_noise(self, dt_s: float, rngs: list[np.random.Generator]) -> None:
+        """Create the per-CV Ornstein-Uhlenbeck process-noise generators."""
         process_scale = self._scenario.param("process_noise", 1.0)
         self._process_ou: dict[str, OrnsteinUhlenbeck] = {
             cv: OrnsteinUhlenbeck(
@@ -379,33 +451,58 @@ class MillCircuitPlant:
             )
             for i, cv in enumerate(CVS)
         }
+
+    def _init_paths(self, dt_s: float) -> None:
+        """Build the first-order-plus-dead-time models for every driver-CV path."""
         self._paths: list[tuple[str, str, float, float, Fopdt]] = [
             (
                 driver,
                 cv,
-                g0,
-                s,
-                Fopdt(gain=1.0, tau_s=tau * 60.0, delay_s=delay * 60.0, dt_s=dt_s),
+                gain_initial,
+                variance,
+                Fopdt(
+                    gain=1.0,
+                    tau_s=tau_minutes * 60.0,
+                    delay_s=delay_minutes * 60.0,
+                    dt_s=dt_s,
+                ),
             )
-            for (driver, cv), (g0, s, tau, delay) in _PATHS.items()
+            for (driver, cv), (gain_initial, variance, tau_minutes, delay_minutes) in _PATHS.items()
         ]
+
+    def _init_cv_states(self) -> None:
+        """Set the true and measured controlled-variable values to their nominal values."""
         self._cv_true: dict[str, float] = {cv: NOMINAL[cv] for cv in CVS}
         self._cv_meas: dict[str, float] = {cv: NOMINAL[cv] for cv in CVS}
 
+    def _init_operator(self) -> None:
+        """Configure the operator state, noise level and next action time."""
         self._operator_on = self._scenario.param("operator", 1.0) > 0.0
         self._operator_noise = self._scenario.param("operator_noise", 1.0)
         self._next_op_s = OPERATOR_PERIOD_S
 
+    def _init_events(self) -> None:
+        """Validate scenario event tags and store events sorted by their start time."""
         events: Sequence[Event] = self._scenario.events
-        for ev in events:
-            if ev.tag_id not in self.tags:
-                raise KeyError(f"Unknown tag in scenario event: {ev.tag_id}")
-        self._events: list[Event] = sorted(events, key=lambda e: e.t_s)
+        for event in events:
+            if event.tag_id not in self.tags:
+                raise KeyError(f"Unknown tag in scenario event: {event.tag_id}")
+        self._events: list[Event] = sorted(events, key=lambda event: event.t_s)
         self._event_idx = 0
 
     def step(self) -> None:
         """Advance the simulation by scenario.dt_s."""
-        # 1. Apply pending scenario events (bypass permission checks).
+        self._apply_due_events()
+        self._maybe_apply_operator_action()
+        hardness = self._update_process_drivers()
+        self._update_controllers()
+        actual = self._update_actuators()
+        self._update_controlled_variables(actual, hardness)
+        self.time_s += self.dt_s
+
+    def _apply_due_events(self) -> None:
+        """Write every scenario event due at or before the current time."""
+        # Events bypass permission checks: a scenario is an authoritative input.
         while self._event_idx < len(self._events):
             ev = self._events[self._event_idx]
             if ev.t_s > self.time_s:
@@ -413,12 +510,14 @@ class MillCircuitPlant:
             self._write(ev.tag_id, ev.value, enforce=False)
             self._event_idx += 1
 
-        # 2. Operator setpoint changes, confounded by the ore hardness.
+    def _maybe_apply_operator_action(self) -> None:
+        """Fire an operator setpoint change when its period has elapsed."""
         if self._operator_on and self.time_s >= self._next_op_s - _EPS:
             self._next_op_s += OPERATOR_PERIOD_S
             self._operator_act()
 
-        # 3. Hardness and moisture drivers, measured hardness estimate and moisture.
+    def _update_process_drivers(self) -> float:
+        """Update hardness and moisture signals; return the true hardness."""
         self._hard_ou.update()
         self._moist_ou.update()
         hardness = self.true_hardness
@@ -426,8 +525,10 @@ class MillCircuitPlant:
             self._hard_est = hardness + self._noise(0.5)
             self._next_est_s += ESTIMATE_PERIOD_S
         self._moist_meas = self.true_moisture + self._noise(0.1)
+        return hardness
 
-        # 4. Controllers: active setpoint is RSP in CAS, local SP otherwise.
+    def _update_controllers(self) -> None:
+        """Compute each loop output; the active setpoint is RSP in CAS, local SP otherwise."""
         for loop in self._loops.values():
             if loop.mode == CAS:
                 loop.local_sp = loop.rsp
@@ -438,14 +539,17 @@ class MillCircuitPlant:
                 man_out=loop.manual_out,
             )
 
-        # 5. Actuators (lag plus inner disturbance) and measured actuator PVs.
+    def _update_actuators(self) -> dict[str, float]:
+        """Advance actuators and return the measured actuator values by name."""
         actual: dict[str, float] = {}
         for name, loop in self._loops.items():
             deviation = loop.actuator.update(loop.out - NOMINAL_OUT)
             actual[name] = NOMINAL[name] + deviation + loop.inner.update()
             loop.pv = actual[name] + self._noise(loop.spec.meas_sd)
+        return actual
 
-        # 6. Controlled variables from the causal paths, process noise and measurements.
+    def _update_controlled_variables(self, actual: dict[str, float], hardness: float) -> None:
+        """Update the true and measured controlled variables from the causal paths."""
         drivers: dict[str, float] = {
             "hpgr_press": actual["hpgr_press"] - NOMINAL["hpgr_press"],
             "mill_feed": actual["mill_feed"] - NOMINAL["mill_feed"],
@@ -454,15 +558,12 @@ class MillCircuitPlant:
             "feed_moisture": self.true_moisture - NOMINAL["feed_moisture"],
         }
         contributions = {cv: 0.0 for cv in CVS}
-        for driver, cv, g0, s, path in self._paths:
-            xi = path.update(drivers[driver])
-            contributions[cv] += _gain(g0, s, hardness) * xi
+        for driver, cv, gain0, gain_response, path in self._paths:
+            driver_deviation = path.update(drivers[driver])
+            contributions[cv] += _gain(gain0, gain_response, hardness) * driver_deviation
         for cv in CVS:
             self._cv_true[cv] = NOMINAL[cv] + contributions[cv] + self._process_ou[cv].update()
             self._cv_meas[cv] = self._cv_true[cv] + self._noise(_CV_MEAS_SD[cv])
-
-        # 7. Advance simulation time.
-        self.time_s += self.dt_s
 
     def read(self, tag_id: str) -> tuple[float, int]:
         """Return (value, quality); raise KeyError for unknown tags."""
@@ -480,15 +581,19 @@ class MillCircuitPlant:
 
         name, kind = self._loop_tags[tag_id]
         loop = self._loops[name]
+        return self._read_loop_field(loop, kind), GOOD
+
+    def _read_loop_field(self, loop: _Loop, kind: str) -> float:
+        """Return the loop attribute named by kind, in the order read() documents."""
         if kind == "pv":
-            return loop.pv, GOOD
+            return loop.pv
         if kind == "sp":
-            return loop.local_sp, GOOD
+            return loop.local_sp
         if kind == "rsp":
-            return loop.rsp, GOOD
+            return loop.rsp
         if kind == "mode":
-            return float(loop.mode), GOOD
-        return loop.out, GOOD
+            return float(loop.mode)
+        return loop.out
 
     def write(self, tag_id: str, value: float) -> None:
         """Write a tag value adhering to loop permissions and validation rules."""
