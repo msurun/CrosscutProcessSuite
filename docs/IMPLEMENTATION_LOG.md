@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, after T0.5/T0.6)
+Last updated: 2026-10-10 (session 1, after T0.8)
 
 ## Project snapshot
 
@@ -36,7 +36,7 @@ or confirm the result.
 
 ## Task board (stage 0)
 
-Recommended order of the remaining work: T0.8, T0.4, T0.7, T0.9, T0.10, T0.11, T0.12, T0.13 (T0.2 ADRs alongside).
+Recommended order of the remaining work: T0.4, T0.7, T0.9, T0.10, T0.11, T0.12, T0.13 (T0.2 ADRs alongside).
 Status: done / in progress / todo.
 
 | ID | Task | Status | Notes |
@@ -48,7 +48,7 @@ Status: done / in progress / todo.
 | T0.5 | Simulator core: Plant interface, FOPDT with delay, noise, disturbances, determinism | done | `sim/src/crosscut_sim/{core,disturbances}.py` |
 | T0.6 | Wood-Berry plant + PID + scenarios + tests | done | `pid.py`, `plants/wood_berry.py`; scenarios are `Scenario` + `Event` objects, a named-scenario registry comes with T0.8 |
 | T0.7 | Grinding-circuit plant v0 + OperatorPolicy + ground-truth gains | todo | confounding by ore hardness |
-| T0.8 | Parquet recorder and dataset export, validated against schema | todo | |
+| T0.8 | Parquet recorder and dataset export, validated against schema | done | `dataset.py`, `scenarios.py`, `run.py`; `python -m crosscut_sim.run --plant wood_berry --scenario nominal --duration 6h --out data/` is reproducible (same sha256) |
 | T0.9 | OPC UA test server (tags, SP/mode writes, heartbeat) | todo | asyncua |
 | T0.10 | OPC UA collector to Parquet | todo | |
 | T0.11 | C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS | todo | |
@@ -65,6 +65,9 @@ imported from Python, PROVENANCE complete.
 - Simulator: fixed step (default 1 s), deterministic (`numpy.random.Generator`, PCG64), exact discretization.
   `Plant.step()` advances by `scenario.dt_s` (no argument).
 - Loop modes encoded as `0 = MAN`, `1 = AUTO`, `2 = CAS`. In CAS the setpoint follows the remote setpoint tag.
+- Dataset directory: `dataset.json`, `tags.json`, `data/date=YYYY-MM-DD/part-0.parquet` (zstd, one file per UTC day); samples are taken BEFORE each step
+  (sample k has time k*dt); `data_sha256` hashes the logical content (ts int64, tag ids joined by newline, value float64, quality uint8), not the Parquet bytes.
+- Named scenarios per plant in `scenarios.py` (`nominal`, `noisy_feed`, `feed_step`, `excited` for Wood-Berry); `excited` = random-binary setpoint events.
 - Simulator fidelity: believable causal properties and known ground truth, not believable physics.
 - Licence: Apache-2.0.
 - PID: positional form, derivative on measurement, conditional-integration anti-windup, bumpless MAN to AUTO by integral tracking.
@@ -79,7 +82,6 @@ imported from Python, PROVENANCE complete.
 - Trademark registers (EUIPO, UPRP, WIPO, USPTO) for "Crosscut" not checked; firm Crosser is a phonetic neighbour.
 - ADRs 001-006 not written yet.
 - Wood-Berry transfer-function coefficients, nominal values and BLT tuning were typed from memory; verify against the originals.
-- `Scenario` has no registry of named scenarios yet and `python -m crosscut_sim.run` does not exist (T0.8).
 
 ## Session log
 
@@ -91,4 +93,7 @@ imported from Python, PROVENANCE complete.
 - T0.5/T0.6: wrote core primitives and all tests myself, delegated `pid.py`, `disturbances.py` and `plants/wood_berry.py`
   to agentkit (mistral/codestral for the first two, gemini flash for Wood-Berry, about $0.02 in total); all passed on the first try. 71 tests pass, ruff and mypy clean.
 - Git identity is set repo-locally to `msurun <msurun@users.noreply.github.com>`.
-- Next: T0.8 (Parquet recorder, dataset export, `python -m crosscut_sim.run`, named scenarios), then T0.4, T0.7.
+- T0.8: tests written first (dataset, scenarios, run). `scenarios.py` and `run.py` passed on the first try; `dataset.py` failed twice in the verify loop
+  (wrong column lengths, naive local-time parsing, row-wise partitioning, wrong `to_wide`), so I fixed it by hand. 100 tests pass, ruff and mypy clean.
+- Lesson: for code with several array-shape subtleties, specify the shapes explicitly or write the core myself; free models handle isolated functions well.
+- Next: T0.4 (artifact manifest read/write), then T0.7 (grinding circuit with confounding), T0.9/T0.10 (OPC UA).
