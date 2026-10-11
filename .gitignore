@@ -12,7 +12,7 @@ dist/
 
 # C++ / CMake
 /core/build/
-/build/
+/build*/
 cmake-build-*/
 CMakeUserPresets.json
 

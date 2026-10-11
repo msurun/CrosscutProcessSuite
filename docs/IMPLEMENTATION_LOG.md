@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, after T0.10)
+Last updated: 2026-10-10 (session 1, after T0.11)
 
 ## Project snapshot
 
@@ -36,13 +36,13 @@ or confirm the result.
 
 ## Task board (stage 0)
 
-Recommended order of the remaining work: T0.11, T0.12, T0.13 (T0.2 ADRs alongside).
+Recommended order of the remaining work: T0.12, T0.13 (T0.2 ADRs alongside).
 Status: done / in progress / todo.
 
 | ID | Task | Status | Notes |
 |---|---|---|---|
 | T0.1 | Repo scaffold, license, CI, lint config | done | CI not yet observed |
-| T0.2 | PROVENANCE, docs skeleton, ADRs | partly | provenance + this log done; ADRs 001-006 todo |
+| T0.2 | PROVENANCE, docs skeleton, ADRs | partly | provenance + this log done; ADR 001 written (`docs/adr/`); ADRs 002-006 todo |
 | T0.3 | JSON Schemas (tags, dataset, project, artifact manifest) + contract tests | done | `schemas/`, `tests/test_schemas.py` |
 | T0.4 | Artifact manifest read/write, hashing, compatibility rule | done | package `artifacts/` (`crosscut_artifacts.manifest`): deterministic npz, payload path safety, integrity check, major-version rule |
 | T0.5 | Simulator core: Plant interface, FOPDT with delay, noise, disturbances, determinism | done | `sim/src/crosscut_sim/{core,disturbances}.py` |
@@ -51,7 +51,7 @@ Status: done / in progress / todo.
 | T0.8 | Parquet recorder and dataset export, validated against schema | done | `dataset.py`, `scenarios.py`, `run.py`; `python -m crosscut_sim.run --plant wood_berry --scenario nominal --duration 6h --out data/` is reproducible (same sha256) |
 | T0.9 | OPC UA test server (tags, SP/mode writes, heartbeat) | done | `opcua/src/crosscut_opcua/server.py`; tested with an asyncua client only, NOT yet with an external client such as UaExpert |
 | T0.10 | OPC UA collector to Parquet | done | `collector.py`; timestamps follow the plant clock (`sim.time_s`), `dataset.write_dataset` is shared with `record` |
-| T0.11 | C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS | todo | |
+| T0.11 | C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS | done locally | `core/` (`crosscut::Fopdt`, 4 GoogleTest tests, pybind11 module, Python parity test). Built locally with clang via the pip package `ziglang` (no MSVC/GCC here); MSVC and GCC builds, `/W4 /WX` and the sanitizer job are UNVERIFIED until CI runs |
 | T0.12 | README polish, demo notebook | todo | |
 | T0.13 | Stretch: experiment 0 (SP-based vs MV-based identification) | todo | |
 
@@ -89,7 +89,8 @@ imported from Python, PROVENANCE complete.
 - Try the OPC UA server with an external client (UaExpert) once.
 - Verify literature citations in `docs/PROVENANCE.md` and the Wood-Berry parameters against the original paper.
 - Trademark registers (EUIPO, UPRP, WIPO, USPTO) for "Crosscut" not checked; firm Crosser is a phonetic neighbour.
-- ADRs 001-006 not written yet.
+- ADRs 002-006 not written yet.
+- C++ CI job has never run: MSVC (`/W4 /WX`), GCC (`-Werror`), ASan/UBSan and the Windows module path `build/Release` are unverified.
 - Wood-Berry transfer-function coefficients, nominal values and BLT tuning were typed from memory; verify against the originals.
 
 ## Session log
@@ -109,4 +110,6 @@ imported from Python, PROVENANCE complete.
 - T0.7: tests first (19 new + scenario/run tests), `Scenario.params` added; the 560-line plant was implemented by a Haiku subagent (agentkit free models cannot handle files this size reliably)
   and independently re-verified: 146 tests, ruff, mypy clean.
 - T0.9/T0.10: tests first (8 server/collector tests), implemented by a Haiku subagent incl. a `write_dataset` refactor; I fixed two lint/type nits in my own tests. 155 tests, ruff, mypy clean.
-- Next: T0.11 (C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS), T0.12 (README/demo notebook), T0.13 (experiment 0), ADRs 001-006.
+- T0.11: wrote `core/` myself (small); local toolchain via pip (`cmake`, `ninja`, `ziglang`, `pybind11`) with zig wrappers for CC/CXX/AR; 4 C++ tests and 5 parity tests pass locally.
+  Local-only helper scripts live in the session scratchpad, not in the repo. CI job `cpp` added to the workflow. ADR 001 written.
+- Next: T0.12 (README/demo notebook), T0.13 (experiment 0 on the mill circuit), ADRs 002-006; then check CI.

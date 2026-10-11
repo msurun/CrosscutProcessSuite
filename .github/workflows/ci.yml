@@ -26,3 +26,42 @@ jobs:
         run: python -m ruff check .
       - name: Test
         run: python -m pytest
+
+  cpp:
+    name: C++ (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Configure
+        run: cmake -S core -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: C++ unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Python/C++ parity test (Linux)
+        if: runner.os == 'Linux'
+        env:
+          CROSSCUT_CORE_MODULE_DIR: ${{ github.workspace }}/build
+        run: python -m pytest core/tests -rs
+      - name: Python/C++ parity test (Windows)
+        if: runner.os == 'Windows'
+        env:
+          CROSSCUT_CORE_MODULE_DIR: ${{ github.workspace }}/build/Release
+        run: python -m pytest core/tests -rs
+      - name: Sanitizer build and tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S core -B build-asan -DCMAKE_BUILD_TYPE=Debug -DCROSSCUT_SANITIZE=ON -DCROSSCUT_BUILD_PYTHON=OFF
+          cmake --build build-asan
+          ctest --test-dir build-asan --output-on-failure
