@@ -11,3 +11,6 @@ numpy>=1.26
 -e ./artifacts
 asyncua>=1.1
 -e ./opcua
+-e ./api
+fastapi>=0.110
+httpx>=0.27

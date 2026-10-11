@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, stage 0 closed, validation roadmap added)
+Last updated: 2026-10-10 (session 1, stage 1 started: A1 and B1/B2 done)
 
 ## Project snapshot
 
@@ -65,7 +65,7 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 
 | ID | Task | Stage | Status |
 |---|---|---|---|
-| V1 | Fault-injection layer for the simulators (sensor freeze/spike/drift/bad quality, stiction, jitter, dropouts, mode flips) | 1 | todo |
+| V1 | Fault-injection layer for the simulators (sensor freeze/spike/drift/bad quality, stiction, jitter, dropouts, mode flips) | 1 | partly done: `sim/src/crosscut_sim/faults.py` (`FaultyPlant` wrapper: freeze, drift, spike, bad_quality, dropout on what the client reads). Stiction, timestamp jitter and mode flips still todo (stiction needs the actuator inside the plant; mode flips are possible with `Event`s) |
 | V2 | Messy-export corpus generator + importer robustness tests | 1 | todo |
 | V6 | Customer-run validation kit (export guide, readiness checklist, anonymizer, report template) | 1 | todo |
 | V3 | Public dataset benchmarks (flotation quality, anomaly, degradation); add licence rows to PROVENANCE | 1-2 | todo |
@@ -73,6 +73,19 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 | V5 | Virtual DCS with a soft PLC and write-path test suite; must pass before any real write | 2-3 | todo |
 | V7 | Pilot partner package (agreement outline, security checklist) | 3 | todo |
 | V8 | Review ASSUMPTIONS.md at each stage end | continuous | todo |
+
+## Stage 1 task board
+
+| ID | Task | Status | Notes |
+|---|---|---|---|
+| A1 | Fault-injection wrapper (V1) | done (measurement faults) | see V1 |
+| B1/B2 | FastAPI backend: `/health`, `/datasets`, `/datasets/{id}/tags`, `/datasets/{id}/series` with min/max downsampling | done | package `api/` (`crosscut_api.app`, `downsample`); NaN is sent as null; dataset ids are resolved inside the data root only |
+| A2 | Messy-export corpus generator + importer robustness tests (V2) | todo | |
+| A3 | CSV connector | todo | |
+| B3 | OPC UA read connector, SQL connector | todo | GE Historian last (cannot be tested here) |
+| C1-C4 | Loop monitoring (CPM), stiction/oscillation detection, PID tuning report, benefit report | todo | C1 validated on datasets with injected faults |
+| D1-D3 | Screen sketches, trend viewer (React/TS, needs ADR 007 decision), loop views | todo | ask the owner before D2 |
+| E1/E2 | Customer validation kit (V6), public benchmarks (V3) | todo | |
 
 ## Decisions
 
@@ -129,3 +142,10 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 - Stage 0 closed: top-level README, ADRs 001-007 (007 = GUI approach, proposed).
 - Next (stage 1 "Loop & Data Insight", read-only product): connectors (OPC UA read, CSV, SQL, GE Historian), Data Studio with trend viewer, loop monitoring (CPM), PID tuning report,
   benefit report. Start with the backend API and the trend viewer on simulator datasets. Stage plan lives in the private planning documents.
+
+### 2026-10-10, session 1 (stage 1 start)
+- agentkit `budget.daily_usd` raised from 1.0 to 2.0 (monthly stays 5.0).
+- A1: tests first (`sim/tests/test_faults.py`, 15), `faults.py` delegated (mistral/codestral, passed first try, $0); I fixed 3 lint nits.
+- B1/B2: tests first (`api/tests`, 18); `downsample.py` delegated and accepted; the delegated `app.py` passed the tests but used global state,
+  a lexical-only path check and would have emitted invalid JSON for NaN, so I rewrote it by hand and added tests for both cases.
+- Note: the MCP `delegate` tool returned a bare error twice in this session; the CLI (`agentkit delegate ...` via `agentkit.cli.main`) worked.
