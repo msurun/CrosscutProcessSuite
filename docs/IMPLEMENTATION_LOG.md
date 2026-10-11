@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, stage 0 closed)
+Last updated: 2026-10-10 (session 1, stage 0 closed, validation roadmap added)
 
 ## Project snapshot
 
@@ -57,6 +57,22 @@ Status: done / in progress / todo.
 Exit criteria for stage 0 are in the private spec; in short: CI green on both OS, deterministic dataset from
 `python -m crosscut_sim.run`, OPC UA server + collector working with an external client, C++ module built and
 imported from Python, PROVENANCE complete.
+
+## Validation roadmap (testing without a real installation)
+
+Full strategy: `docs/TESTING_STRATEGY.md`; assumptions to retire: `docs/ASSUMPTIONS.md`; UX idea notes for the fuzzy
+editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
+
+| ID | Task | Stage | Status |
+|---|---|---|---|
+| V1 | Fault-injection layer for the simulators (sensor freeze/spike/drift/bad quality, stiction, jitter, dropouts, mode flips) | 1 | todo |
+| V2 | Messy-export corpus generator + importer robustness tests | 1 | todo |
+| V6 | Customer-run validation kit (export guide, readiness checklist, anonymizer, report template) | 1 | todo |
+| V3 | Public dataset benchmarks (flotation quality, anomaly, degradation); add licence rows to PROVENANCE | 1-2 | todo |
+| V4 | Lab testbed bridge via OPC UA (low-cost thermal control kit) | 2 | todo |
+| V5 | Virtual DCS with a soft PLC and write-path test suite; must pass before any real write | 2-3 | todo |
+| V7 | Pilot partner package (agreement outline, security checklist) | 3 | todo |
+| V8 | Review ASSUMPTIONS.md at each stage end | continuous | todo |
 
 ## Decisions
 
