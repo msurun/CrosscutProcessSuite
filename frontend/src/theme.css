@@ -1,0 +1,181 @@
+/* src/theme.css — light/dark tokens and base styling for the process-control web app.
+   JS sets data-theme="light" or "dark" on <html>; the dark block below overrides :root.
+   All colours are defined once here so no component hard-codes a hex value. */
+
+:root {
+  color-scheme: light;
+
+  --bg: #f2f3f5;          /* app background */
+  --surface: #ffffff;     /* cards, panels */
+  --surface-2: #e9ebee;   /* nested/alternate rows */
+  --border: #d0d4d9;
+  --text: #1f2328;        /* 13.6:1 on --surface */
+  --text-muted: #5c6470;  /* 5.9:1 on --surface */
+  --accent: #0b5cab;
+  --focus-ring: #0b5cab;
+
+  /* Status colours are muted on purpose: never pure red or green. */
+  --status-ok: #2f7d4f;        /* 4.6:1 on --surface */
+  --status-ok-bg: #e4f0e7;
+  --status-warning: #8a6100;   /* 5.0:1 on --surface */
+  --status-warning-bg: #f7eed6;
+  --status-problem: #a13a3a;   /* 5.4:1 on --surface */
+  --status-problem-bg: #f6e3e3;
+  --status-unused: #6a7079;    /* 4.9:1 on --surface */
+  --status-unused-bg: #eceef0;
+
+  /* Series palette: Okabe-Ito, distinguishable for colour-vision deficiencies. */
+  --series-1: #0072b2;
+  --series-2: #d55e00;
+  --series-3: #009e73;
+  --series-4: #e69f00;
+  --series-5: #56b4e9;
+  --series-6: #cc79a7;
+  --series-7: #f0e442;
+
+  --grid: #e2e5e9;         /* chart gridlines */
+
+  /* Control-mode bands: subtle backgrounds behind the mode indicator text. */
+  --mode-man: #eef1f4;
+  --mode-auto: #e8f0e9;
+  --mode-cas: #eae8f2;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1b1d21;
+  --surface: #24272c;
+  --surface-2: #2c3036;
+  --border: #3a3f46;
+  --text: #e8eaed;        /* 12.4:1 on --surface */
+  --text-muted: #a2a9b3;  /* 6.2:1 on --surface */
+  --accent: #6fb0e8;
+  --focus-ring: #6fb0e8;
+
+  /* Same hues as light, brightened to keep >= 3:1 against the dark surfaces. */
+  --status-ok: #6cc492;        /* 6.4:1 on --surface */
+  --status-ok-bg: #22322a;
+  --status-warning: #d9a94a;   /* 7.4:1 on --surface */
+  --status-warning-bg: #332c1c;
+  --status-problem: #e08a8a;   /* 6.2:1 on --surface */
+  --status-problem-bg: #352527;
+  --status-unused: #9aa1aa;    /* 5.6:1 on --surface */
+  --status-unused-bg: #2b2f34;
+
+  /* Okabe-Ito hues unchanged, lifted just enough for a dark background. */
+  --series-1: #3d9ed6;
+  --series-2: #ec7b29;
+  --series-3: #33bd92;
+  --series-4: #f2b442;
+  --series-5: #7ccbf0;
+  --series-6: #dd95ba;
+  --series-7: #f4ec72;
+
+  --grid: #33373d;
+
+  --mode-man: #2b2f35;
+  --mode-auto: #26332b;
+  --mode-cas: #2c2939;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Summary badge for a plant or device state. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.15em 0.5em;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Each modifier sets text colour (via currentColor) and its own background. */
+.status-chip--ok      { color: var(--status-ok);      background: var(--status-ok-bg); }
+.status-chip--warning { color: var(--status-warning); background: var(--status-warning-bg); }
+.status-chip--problem { color: var(--status-problem); background: var(--status-problem-bg); }
+.status-chip--unused  { color: var(--status-unused);  background: var(--status-unused-bg); }
+
+/* Page frame: 48px top bar, then a sidebar (dataset and tags) and the main trend area. */
+.app-shell {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.top-bar > strong { margin-right: auto; }
+
+.top-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
+
+.read-only-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.main-area { padding: 12px 16px; overflow: auto; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-label { color: var(--text-muted); font-size: 12px; }
+.field-input, .tag-list input[type="search"], .top-bar select {
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.tag-list { display: flex; flex-direction: column; gap: 8px; }
+.tag-list ul { margin: 0; padding: 0; list-style: none; }
+.tag-list label { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.tag-unit { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+
+.trend-pane { margin-bottom: 12px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.badge { padding: 1px 6px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.status { color: var(--text-muted); }
+.status-error { color: var(--status-problem); }
+
+/* Keyboard users must always see where focus is; mouse clicks stay unchanged. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

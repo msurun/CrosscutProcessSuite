@@ -1,0 +1,129 @@
+// src/components/TrendPane.tsx
+import { useEffect, useRef, useState } from "react";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
+
+/** Minimum pixel width for the chart so uPlot never renders a degenerate canvas. */
+const MIN_WIDTH_PX = 300;
+/** Default height in pixels. */
+const DEFAULT_HEIGHT_PX = 180;
+/** Default cursor sync key: panes sharing it show the same crosshair. */
+const DEFAULT_SYNC_KEY = "crosscut";
+/** Stroke width of the value series lines, in pixels. */
+const SERIES_STROKE_WIDTH = 1.5;
+
+export interface TrendPaneProps {
+  /** uPlot data layout: [timesInSeconds, ...seriesValues]; null values are gaps. */
+  data: (number | null)[][];
+  /** One label per value series, in the same order as the data columns. */
+  labels: string[];
+  /** One CSS variable name per value series, e.g. "--series-1". */
+  colors: string[];
+  /** Optional y-axis unit shown next to the axis label. */
+  unit?: string;
+  /** Chart height in pixels. Defaults to 180. */
+  height?: number;
+  /** Panes with the same key share the crosshair. Defaults to "crosscut". */
+  syncKey?: string;
+  /** Called with the visible x range when the user zooms. */
+  onZoom?: (minSeconds: number, maxSeconds: number) => void;
+}
+
+/** Read a CSS custom property from the document root, trimmed. */
+function readCssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** Build the uPlot options: colours are resolved once, series come from labels/colors. */
+function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
+  const textColor = readCssVar("--text-muted");
+  const gridColor = readCssVar("--grid");
+  const series: uPlot.Series[] = [
+    { label: "time" },
+    ...props.labels.map((label, index) => ({
+      label,
+      stroke: readCssVar(props.colors[index]),
+      width: SERIES_STROKE_WIDTH,
+      spanGaps: false,
+    })),
+  ];
+  return {
+    width,
+    height: props.height ?? DEFAULT_HEIGHT_PX,
+    cursor: { sync: { key: props.syncKey ?? DEFAULT_SYNC_KEY } },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: textColor, grid: { stroke: gridColor } },
+      { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
+    ],
+    series,
+    hooks: {
+      setScale: [
+        (self, scaleKey) => {
+          if (scaleKey !== "x" || !props.onZoom) return;
+          const [min, max] = self.scales.x.min !== undefined
+            ? [self.scales.x.min as number, self.scales.x.max as number]
+            : self.data[0] && [self.data[0][0] as number, self.data[0][self.data[0].length - 1] as number];
+          props.onZoom(min, max);
+        },
+      ],
+    },
+  };
+}
+
+/** Counts theme switches (the `data-theme` attribute of <html>) so the plot can re-read its colours. */
+function useThemeVersion(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setVersion((v) => v + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return version;
+}
+
+/**
+ * A synced, resizable time-series pane backed by uPlot.
+ * Re-creates the plot when labels, colors, height or syncKey change;
+ * calls setData on data changes to avoid flicker.
+ */
+export function TrendPane(props: TrendPaneProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<uPlot | null>(null);
+  const themeVersion = useThemeVersion();
+
+  // Create (or re-create) the plot when structural props change.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const width = Math.max(container.clientWidth, MIN_WIDTH_PX);
+    const plot = new uPlot(buildOptions(props, width), props.data as uPlot.AlignedData, container);
+    plotRef.current = plot;
+
+    const observer = new ResizeObserver(() => {
+      plot.setSize({ width: Math.max(container.clientWidth, MIN_WIDTH_PX), height: plot.height });
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      plot.destroy();
+      plotRef.current = null;
+    };
+    // Deps intentionally exclude `data` and `unit`: those update without re-creating.
+  }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, themeVersion]);
+
+  // Push new data into the existing plot without re-creating it.
+  useEffect(() => {
+    plotRef.current?.setData(props.data as uPlot.AlignedData);
+  }, [props.data]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="trend-pane"
+      role="img"
+      aria-label={props.labels.join(", ")}
+    />
+  );
+}
