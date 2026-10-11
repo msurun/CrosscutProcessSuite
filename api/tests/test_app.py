@@ -203,3 +203,34 @@ def test_tuning_endpoint_is_slower_but_calmer_with_more_robustness(
 def test_tuning_endpoint_returns_404_for_an_unknown_loop(step_test_client: TestClient) -> None:
     dataset = step_test_client.get("/datasets").json()[0]["id"]
     assert step_test_client.get(f"/datasets/{dataset}/loops/nope/tuning").status_code == 404
+
+
+def test_benefit_endpoint_returns_estimate_assumptions_and_curves(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/benefit"
+    body = step_test_client.get(url, params={"value_per_unit_h": 100.0}).json()
+    assert body["assumptions"]["limit_is_default"] is True
+    assert body["estimate"]["std_target"] < body["estimate"]["std_now"]
+    assert body["estimate"]["value_per_h"] >= 0.0 and "no_value" not in body["notes"]
+    curves = body["curves"]
+    assert len(curves["x"]) == len(curves["now"]) == len(curves["after"])
+
+
+def test_benefit_endpoint_uses_the_given_limit_and_flags_a_missing_value(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/benefit"
+    body = step_test_client.get(url, params={"limit": 400.0}).json()
+    assert body["assumptions"]["limit"] == 400.0
+    assert body["assumptions"]["limit_is_default"] is False
+    assert "no_value" in body["notes"]
+
+
+def test_benefit_endpoint_rejects_an_impossible_reduction(step_test_client: TestClient) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/benefit"
+    assert step_test_client.get(url, params={"std_reduction": 1.5}).status_code == 422
+    assert step_test_client.get(f"/datasets/{dataset}/loops/nope/benefit").status_code == 404

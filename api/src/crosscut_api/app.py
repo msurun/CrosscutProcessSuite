@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
+from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_loops import loops_from_project
 from crosscut_loops.tuning_payload import TuningRequest, tuning_payload
 from crosscut_sim.dataset import read_dataset, to_wide
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.downsample import downsample_minmax
 
@@ -52,6 +54,23 @@ def _summary(document: dict[str, Any]) -> dict[str, Any]:
 def _json_floats(values: np.ndarray) -> list[float | None]:
     """Convert to a JSON-safe list: NaN has no JSON representation, so it becomes null."""
     return [None if math.isnan(x) else x for x in values.tolist()]
+
+
+@dataclass
+class BenefitQuery:
+    """Query parameters of the benefit endpoint; every one is optional."""
+
+    limit: float | None = None
+    side: Literal["upper", "lower"] = "upper"
+    value_per_unit_h: Annotated[float, Query(ge=0.0)] = 0.0
+    margin_sigmas: Annotated[float, Query(ge=0.0)] = 2.0
+    std_reduction: Annotated[float, Query(ge=0.0, lt=1.0)] = 0.5
+    start_s: float | None = None
+    end_s: float | None = None
+
+    def to_request(self) -> BenefitRequest:
+        """The same values as the library's request object."""
+        return BenefitRequest(**vars(self))
 
 
 def _loops_of(dataset_dir: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
@@ -159,5 +178,24 @@ def create_app(data_root: Path) -> FastAPI:
         suspected = any(finding["code"] == "stiction" for finding in row["findings"])
         request = TuningRequest(start_s, end_s, robustness, suspected)
         return tuning_payload(loop, t_s, values, request)
+
+    @app.get("/datasets/{dataset_id}/loops/{loop_name}/benefit")
+    def get_benefit(
+        dataset_id: str,
+        loop_name: str,
+        request: Annotated[BenefitQuery, Depends()],
+    ) -> dict[str, Any]:
+        """Estimate what a lower PV variability is worth, from the user's assumptions."""
+        dataset_dir = _dataset_dir(root, dataset_id)
+        tags = _read_json(dataset_dir / "tags.json")["tags"]
+        ts, values = load_wide(dataset_id)
+        t_s = (ts - ts[0]) / NS_PER_SECOND
+        loop = next((one for one in _loops_of(dataset_dir, tags) if one.name == loop_name), None)
+        if loop is None:
+            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
+        try:
+            return benefit_payload(loop, t_s, values, request.to_request())
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     return app

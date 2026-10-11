@@ -215,3 +215,54 @@ export async function fetchTuning(
   const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/tuning`;
   return getJson<TuningPayload>(`${base}?${query.toString()}`);
 }
+
+/** Assumptions the user can change on the benefit screen (all optional; the server fills defaults). */
+export interface BenefitInputs {
+  limit?: number;
+  side?: "upper" | "lower";
+  valuePerUnitH?: number;
+  marginSigmas?: number;
+  stdReduction?: number;
+}
+
+/** Result of `GET /api/datasets/{id}/loops/{loop}/benefit`; notes are codes the UI translates. */
+export interface BenefitPayload {
+  loop: string;
+  unit: string;
+  assumptions: {
+    limit: number;
+    limit_is_default: boolean;
+    side: "upper" | "lower";
+    value_per_unit_h: number;
+    margin_sigmas: number;
+    std_reduction: number;
+  };
+  estimate: {
+    mean: number;
+    std_now: number;
+    std_target: number;
+    current_gap: number;
+    shift: number;
+    value_per_h: number;
+    n_samples_used: number;
+  };
+  notes: string[];
+  curves: { x: number[]; now: number[]; after: number[] };
+  markdown: string;
+}
+
+/** Estimate what lower PV variability is worth (an estimate from assumptions, not a promise). */
+export async function fetchBenefit(
+  datasetId: string,
+  loopName: string,
+  inputs?: BenefitInputs,
+): Promise<BenefitPayload> {
+  const query = new URLSearchParams();
+  if (inputs?.limit !== undefined) query.set("limit", String(inputs.limit));
+  if (inputs?.side !== undefined) query.set("side", inputs.side);
+  if (inputs?.valuePerUnitH !== undefined) query.set("value_per_unit_h", String(inputs.valuePerUnitH));
+  if (inputs?.marginSigmas !== undefined) query.set("margin_sigmas", String(inputs.marginSigmas));
+  if (inputs?.stdReduction !== undefined) query.set("std_reduction", String(inputs.stdReduction));
+  const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/benefit`;
+  return getJson<BenefitPayload>(`${base}?${query.toString()}`);
+}

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { fetchLoops, type LoopSummary } from "../api";
 import type { Translate } from "../findings";
+import { BenefitPage } from "./BenefitPage";
 import { LoopDetail } from "./LoopDetail";
 import { TuningPage } from "./TuningPage";
 import { LoopsOverview } from "./LoopsOverview";
@@ -68,12 +69,12 @@ function useLoops(datasetId: string): LoopsState {
 export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate }) {
   const { loops, status, errorReason } = useLoops(datasetId);
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  const [tuning, setTuning] = useState(false);
+  const [subview, setSubview] = useState<"detail" | "tuning" | "benefit">("detail");
 
   useEffect(() => {
     // A loop selected for another dataset does not exist here.
     setSelectedName(null);
-    setTuning(false);
+    setSubview("detail");
   }, [datasetId]);
 
   if (status === "loading") {
@@ -85,13 +86,23 @@ export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate })
   }
 
   const selectedLoop = loops.find((loop) => loop.name === selectedName);
-  if (selectedLoop !== undefined && tuning) {
+  if (selectedLoop !== undefined && subview === "tuning") {
     return (
       <TuningPage
         datasetId={datasetId}
         loopName={selectedLoop.name}
         t={t}
-        onBack={() => setTuning(false)}
+        onBack={() => setSubview("detail")}
+      />
+    );
+  }
+  if (selectedLoop !== undefined && subview === "benefit") {
+    return (
+      <BenefitPage
+        datasetId={datasetId}
+        loopName={selectedLoop.name}
+        t={t}
+        onBack={() => setSubview("detail")}
       />
     );
   }
@@ -102,7 +113,8 @@ export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate })
         loop={selectedLoop}
         t={t}
         onBack={() => setSelectedName(null)}
-        onOpenTuning={() => setTuning(true)}
+        onOpenTuning={() => setSubview("tuning")}
+        onOpenBenefit={() => setSubview("benefit")}
       />
     );
   }

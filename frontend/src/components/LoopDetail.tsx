@@ -173,12 +173,14 @@ export function LoopDetail({
   t,
   onBack,
   onOpenTuning,
+  onOpenBenefit,
 }: {
   datasetId: string;
   loop: LoopSummary;
   t: Translate;
   onBack: () => void;
   onOpenTuning: () => void;
+  onOpenBenefit: () => void;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
 
@@ -197,6 +199,9 @@ export function LoopDetail({
       <p>
         <button type="button" className="filter-chip" onClick={onOpenTuning}>
           {t("tuning.title")}
+        </button>{" "}
+        <button type="button" className="filter-chip" onClick={onOpenBenefit}>
+          {t("benefit.title")}
         </button>
       </p>
 

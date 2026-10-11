@@ -215,3 +215,10 @@ body {
 .tuning-step label { display: flex; align-items: center; gap: 12px; }
 .hint { color: var(--text-muted); font-size: 12px; }
 .dcs-form .key-numbers { grid-template-columns: auto auto; }
+
+.benefit-grid { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px; margin-bottom: 12px; }
+.benefit-grid section { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.benefit-grid h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-muted); }
+.field-label .badge { margin-left: 6px; }
+.loop-detail-grid > * { min-width: 0; }
+.benefit-grid .field { margin-bottom: 12px; }
