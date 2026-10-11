@@ -158,7 +158,8 @@ def _active_mask(
     valid = ~np.isnan(pv) & ~np.isnan(sp)
     if quality is not None:
         valid &= quality == 0
-    return valid & (mode != MAN)
+    active: np.ndarray = valid & (mode != MAN)
+    return active
 
 
 def _mean_abs_or_zero(error: np.ndarray) -> float:
