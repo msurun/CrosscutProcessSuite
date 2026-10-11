@@ -8,3 +8,4 @@ types-jsonschema
 types-PyYAML
 numpy>=1.26
 -e ./sim
+-e ./artifacts

@@ -3,7 +3,7 @@
 # pyproject.toml under sim/, ident/, ... when they are created.
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "sim/tests"]
+testpaths = ["tests", "sim/tests", "artifacts/tests"]
 addopts = "-q"
 
 [tool.ruff]
