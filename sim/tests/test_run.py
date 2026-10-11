@@ -73,3 +73,13 @@ def test_module_entry_point_prints_help() -> None:
     )
     assert result.returncode == 0
     assert "--plant" in result.stdout
+
+
+def test_main_runs_the_mill_circuit(tmp_path: Path) -> None:
+    args = ["--plant", "mill_circuit", "--scenario", "observational", "--duration", "10m"]
+    assert main([*args, "--seed", "4", "--out", str(tmp_path)]) == 0
+    doc = json.loads(
+        (tmp_path / "mill_circuit_observational_seed4" / "dataset.json").read_text("utf-8")
+    )
+    assert doc["source"]["plant"] == "mill_circuit"
+    assert doc["row_count"] == 600 * 21

@@ -17,10 +17,14 @@ from pathlib import Path
 
 from crosscut_sim.core import Plant
 from crosscut_sim.dataset import DEFAULT_START_UTC, record
+from crosscut_sim.plants.mill_circuit import MillCircuitPlant
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import build_scenario
 
-PLANTS: dict[str, Callable[[], Plant]] = {"wood_berry": WoodBerryPlant}
+PLANTS: dict[str, Callable[[], Plant]] = {
+    "wood_berry": WoodBerryPlant,
+    "mill_circuit": MillCircuitPlant,
+}
 
 
 def parse_duration(text: str) -> float:

@@ -17,6 +17,7 @@ Citations are given from memory and must be verified against the originals befor
 | BLT tuning of the two Wood-Berry loops | W. L. Luyben, "Simple method for tuning SISO controllers in multivariable systems", Ind. Eng. Chem. Process Des. Dev. 25 (1986) | implemented (values to verify) | `sim/src/crosscut_sim/plants/wood_berry.py` |
 | Exact discretization of first-order lag with dead time (zero-order hold) | G. F. Franklin, J. D. Powell, M. Workman, "Digital Control of Dynamic Systems" | implemented | `sim/src/crosscut_sim/core.py` |
 | Ornstein-Uhlenbeck process, exact discretization | D. T. Gillespie, "Exact numerical simulation of the Ornstein-Uhlenbeck process and its integral", Phys. Rev. E 54 (1996) | implemented | `sim/src/crosscut_sim/disturbances.py` |
+| Grinding-circuit simulator (HPGR + ball mill + cyclone) | original synthetic construction with illustrative coefficients; no real plant data or parameters | implemented | `sim/src/crosscut_sim/plants/mill_circuit.py` |
 
 ## Rules
 

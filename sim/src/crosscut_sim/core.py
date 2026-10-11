@@ -108,6 +108,15 @@ class Scenario:
     disturbance_sigma: float = 0.0  # std of the stochastic feed disturbance (engineering units)
     disturbance_tau_s: float = 1800.0  # correlation time of the stochastic disturbance
     events: tuple[Event, ...] = ()
+    # Plant-specific numeric options as (name, value) pairs; the first match wins.
+    params: tuple[tuple[str, float], ...] = ()
+
+    def param(self, name: str, default: float) -> float:
+        """Return the plant-specific option ``name`` or ``default`` when it is not set."""
+        for key, value in self.params:
+            if key == name:
+                return value
+        return default
 
     def __post_init__(self) -> None:
         if self.dt_s <= 0 or self.duration_s <= 0:

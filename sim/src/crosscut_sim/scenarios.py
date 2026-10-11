@@ -19,6 +19,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from .core import Event, Scenario
+from .plants.mill_circuit import NOMINAL as MILL_NOMINAL
 from .plants.wood_berry import NOMINAL
 
 # --------------------------------------------------------------------------- #
@@ -164,9 +165,94 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
     raise ValueError(f"unknown scenario for wood_berry: {scenario_name!r}")
 
 
+def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scenario:
+    """Create a :class:`Scenario` for the grinding-circuit plant.
+
+    Supported ``scenario_name`` values are ``"nominal"``, ``"observational"``, ``"excited"``,
+    ``"quiet"`` and ``"hardness_shift"``.
+    """
+    dt = 1.0
+    if scenario_name == "nominal":
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=1.0,
+            params=(("operator", 0.0),),
+        )
+    if scenario_name == "observational":
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=1.0,
+            params=(("operator", 1.0),),
+        )
+    if scenario_name == "quiet":
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=0.0,
+            params=(
+                ("operator", 0.0),
+                ("inner_noise", 0.0),
+                ("process_noise", 0.0),
+                ("hardness_sigma", 0.0),
+                ("moisture_sigma", 0.0),
+            ),
+        )
+    if scenario_name == "hardness_shift":
+        shift_event = Event(t_s=duration_s / 2.0, tag_id="sim.mc.hardness_mean", value=16.0)
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=1.0,
+            params=(("operator", 0.0),),
+            events=(shift_event,),
+        )
+    if scenario_name == "excited":
+        press_events = random_binary_events(
+            "sim.mc.hpgr_press_sp",
+            center=MILL_NOMINAL["hpgr_press"],
+            amplitude=0.3,
+            switch_period_s=600.0,
+            duration_s=duration_s,
+            seed=301,
+        )
+        feed_events = random_binary_events(
+            "sim.mc.mill_feed_sp",
+            center=MILL_NOMINAL["mill_feed"],
+            amplitude=8.0,
+            switch_period_s=900.0,
+            duration_s=duration_s,
+            seed=302,
+        )
+        water_events = random_binary_events(
+            "sim.mc.cyc_water_sp",
+            center=MILL_NOMINAL["cyc_water"],
+            amplitude=5.0,
+            switch_period_s=1200.0,
+            duration_s=duration_s,
+            seed=303,
+        )
+        merged = tuple(sorted(press_events + feed_events + water_events, key=lambda e: e.t_s))
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=1.0,
+            params=(("operator", 0.0),),
+            events=merged,
+        )
+    raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
+
+
 # Registry mapping plant identifiers to their builder functions.
 _PLANT_BUILDERS: Mapping[str, Callable[[str, float], Scenario]] = {
     "wood_berry": _build_wood_berry_scenario,
+    "mill_circuit": _build_mill_circuit_scenario,
 }
 
 
@@ -182,6 +268,8 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
         raise ValueError(f"unknown plant: {plant_name!r}")
     if plant_name == "wood_berry":
         return ("nominal", "noisy_feed", "feed_step", "excited")
+    if plant_name == "mill_circuit":
+        return ("nominal", "observational", "excited", "quiet", "hardness_shift")
     # Future plants can add their own static tuples here.
     raise ValueError(f"scenario list not defined for plant: {plant_name!r}")
 

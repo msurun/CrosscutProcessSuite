@@ -63,6 +63,15 @@ def test_catalog_rejects_duplicates_and_exports_valid_document() -> None:
         TagCatalog([*specs, TagSpec("a.pv", "wt%", "PV")])
 
 
+def test_scenario_params_lookup() -> None:
+    scenario = Scenario(params=(("operator", 0.0), ("operator", 1.0), ("gain", 2.5)))
+    assert scenario.param("operator", 1.0) == 0.0  # first match wins
+    assert scenario.param("gain", 1.0) == 2.5
+    assert scenario.param("missing", 7.0) == 7.0
+    assert Scenario().param("anything", 3.0) == 3.0
+    assert hash(scenario) == hash(Scenario(params=scenario.params))
+
+
 def test_scenario_validation() -> None:
     assert Scenario().dt_s == 1.0
     with pytest.raises(ValueError):

@@ -84,3 +84,49 @@ def test_excited_scenario_runs_and_moves_the_process() -> None:
         values.append(plant.read("sim.wb.top_comp")[0])
     assert max(values) - min(values) > 0.3
     assert max(abs(v - NOMINAL["top_comp"]) for v in values) < 5.0
+
+
+MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP = (
+    "sim.mc.hpgr_press_sp",
+    "sim.mc.mill_feed_sp",
+    "sim.mc.cyc_water_sp",
+)
+QUIET_PARAMS = ("operator", "inner_noise", "process_noise", "hardness_sigma", "moisture_sigma")
+
+
+def test_mill_circuit_scenarios() -> None:
+    names = ("nominal", "observational", "excited", "quiet", "hardness_shift")
+    assert available_scenarios("mill_circuit") == names
+
+    nominal = build_scenario("mill_circuit", "nominal", duration_s=DAY)
+    assert nominal.param("operator", 1.0) == 0.0
+    assert nominal.measurement_noise == 1.0
+    assert nominal.events == ()
+
+    observational = build_scenario("mill_circuit", "observational", duration_s=DAY)
+    assert observational.param("operator", 0.0) == 1.0
+    assert observational.events == ()
+
+    quiet = build_scenario("mill_circuit", "quiet", duration_s=DAY)
+    assert quiet.measurement_noise == 0.0
+    assert all(quiet.param(name, 1.0) == 0.0 for name in QUIET_PARAMS)
+
+    shift = build_scenario("mill_circuit", "hardness_shift", duration_s=DAY)
+    assert shift.param("operator", 1.0) == 0.0
+    assert len(shift.events) == 1
+    assert shift.events[0].tag_id == "sim.mc.hardness_mean"
+    assert shift.events[0].t_s == pytest.approx(DAY / 2)
+    assert shift.events[0].value == pytest.approx(16.0)
+
+    excited = build_scenario("mill_circuit", "excited", duration_s=DAY)
+    assert excited.param("operator", 1.0) == 0.0
+    assert {e.tag_id for e in excited.events} == {MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP}
+    levels = {
+        tag: {e.value for e in excited.events if e.tag_id == tag}
+        for tag in (MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP)
+    }
+    assert levels[MC_PRESS_SP] == {3.5 - 0.3, 3.5 + 0.3}
+    assert levels[MC_FEED_SP] == {150.0 - 8.0, 150.0 + 8.0}
+    assert levels[MC_WATER_SP] == {100.0 - 5.0, 100.0 + 5.0}
+    assert all(0.0 <= e.t_s < DAY for e in excited.events)
+    assert excited.events == build_scenario("mill_circuit", "excited", duration_s=DAY).events
