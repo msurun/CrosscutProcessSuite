@@ -103,21 +103,88 @@ def record(
                 values[sample_idx, j], qualities[sample_idx, j] = snapshot[tag_id]
         plant.step()
 
-    ts_col = pa.array(np.repeat(ts, len(tag_ids)), type=pa.int64()).cast(
-        pa.timestamp("ns", tz="UTC")
+    source: dict[str, Any] = {"kind": "sim", "plant": plant_name, "seed": seed}
+    if scenario_name is not None:
+        source["scenario"] = scenario_name
+
+    return write_dataset(
+        out_dir,
+        ts,
+        tag_ids,
+        values,
+        qualities,
+        dataset_id=dataset_id,
+        source=source,
+        start_utc=start_utc,
+        tags_document=plant.tags.to_document(),
+        git_commit=git_commit,
+        created_utc=created_utc,
     )
-    tag_id_col = pa.array(tag_ids * n_samples, type=pa.string())
-    value_col = pa.array(values.flatten(), type=pa.float64())
-    quality_col = pa.array(qualities.flatten(), type=pa.uint8())
+
+
+def write_dataset(
+    out_dir: str | Path,
+    ts_ns: np.ndarray,
+    tag_ids: list[str],
+    values: np.ndarray,
+    qualities: np.ndarray,
+    *,
+    dataset_id: str,
+    source: dict[str, Any],
+    start_utc: str,
+    tags_document: dict[str, Any],
+    git_commit: str | None = None,
+    created_utc: str | None = None,
+) -> dict[str, Any]:
+    """Write samples as a Parquet dataset (tags.json, daily partitions, dataset.json).
+
+    Parameters
+    ----------
+    out_dir:
+        Dataset directory; created if missing. Must not already contain ``dataset.json``.
+    ts_ns:
+        Sample timestamps as int64 nanoseconds since the Unix epoch, one per sample.
+    tag_ids:
+        Tag identifiers, one per column of ``values`` and ``qualities``.
+    values:
+        Float64 array of shape ``(n_samples, len(tag_ids))``.
+    qualities:
+        Uint8 array of shape ``(n_samples, len(tag_ids))``; 0 Good, 1 Uncertain, 2 Bad.
+    source:
+        The ``source`` block of the dataset document (``kind`` plus origin details).
+    tags_document:
+        Document written to ``tags.json``; must validate against ``tags.schema.json``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The dataset document that was written to ``dataset.json``.
+
+    Raises
+    ------
+    FileExistsError
+        If ``dataset.json`` already exists in ``out_dir``.
+    """
+    out_dir = Path(out_dir)
+    if (out_dir / "dataset.json").exists():
+        raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
+
+    ts = np.asarray(ts_ns, dtype=np.int64)
+    n_samples = len(ts)
+    n_tags = len(tag_ids)
+    tag_id_list = list(tag_ids)
+
+    ts_col = pa.array(np.repeat(ts, n_tags), type=pa.int64()).cast(pa.timestamp("ns", tz="UTC"))
+    tag_id_col = pa.array(tag_id_list * n_samples, type=pa.string())
+    value_col = pa.array(np.asarray(values, dtype=np.float64).flatten(), type=pa.float64())
+    quality_col = pa.array(np.asarray(qualities, dtype=np.uint8).flatten(), type=pa.uint8())
 
     table = pa.Table.from_arrays(
         [ts_col, tag_id_col, value_col, quality_col], names=["ts", "tag_id", "value", "quality"]
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "tags.json").write_text(
-        json.dumps(plant.tags.to_document(), indent=2) + "\n", encoding="utf-8"
-    )
+    (out_dir / "tags.json").write_text(json.dumps(tags_document, indent=2) + "\n", encoding="utf-8")
 
     # One Parquet file per UTC calendar day; rows are already ordered by time.
     row_ts = table["ts"].cast(pa.int64()).to_numpy()
@@ -142,16 +209,12 @@ def record(
         "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,
         "created_utc": created_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": {
-            "kind": "sim",
-            "plant": plant_name,
-            "seed": seed,
-        },
+        "source": source,
         "time_range": {
             "start_utc": start_utc,
             "end_utc": end_utc,
         },
-        "tags": tag_ids,
+        "tags": tag_id_list,
         "row_count": table.num_rows,
         "storage": {
             "format": "parquet",
@@ -162,8 +225,6 @@ def record(
         "data_sha256": compute_data_sha256(table),
     }
 
-    if scenario_name is not None:
-        doc["source"]["scenario"] = scenario_name
     if git_commit is not None:
         doc["code"] = {"git_commit": git_commit}
 

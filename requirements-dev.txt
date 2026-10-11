@@ -9,3 +9,5 @@ types-PyYAML
 numpy>=1.26
 -e ./sim
 -e ./artifacts
+asyncua>=1.1
+-e ./opcua

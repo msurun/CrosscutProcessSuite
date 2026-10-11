@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, after T0.7)
+Last updated: 2026-10-10 (session 1, after T0.10)
 
 ## Project snapshot
 
@@ -36,7 +36,7 @@ or confirm the result.
 
 ## Task board (stage 0)
 
-Recommended order of the remaining work: T0.9, T0.10, T0.11, T0.12, T0.13 (T0.2 ADRs alongside).
+Recommended order of the remaining work: T0.11, T0.12, T0.13 (T0.2 ADRs alongside).
 Status: done / in progress / todo.
 
 | ID | Task | Status | Notes |
@@ -49,8 +49,8 @@ Status: done / in progress / todo.
 | T0.6 | Wood-Berry plant + PID + scenarios + tests | done | `pid.py`, `plants/wood_berry.py`; scenarios are `Scenario` + `Event` objects, a named-scenario registry comes with T0.8 |
 | T0.7 | Grinding-circuit plant v0 + OperatorPolicy + ground-truth gains | done | `plants/mill_circuit.py`; scenarios `nominal`, `observational`, `excited`, `quiet`, `hardness_shift`; `plant.true_gain(driver, cv, hardness)` and hidden `plant.true_hardness` |
 | T0.8 | Parquet recorder and dataset export, validated against schema | done | `dataset.py`, `scenarios.py`, `run.py`; `python -m crosscut_sim.run --plant wood_berry --scenario nominal --duration 6h --out data/` is reproducible (same sha256) |
-| T0.9 | OPC UA test server (tags, SP/mode writes, heartbeat) | todo | asyncua |
-| T0.10 | OPC UA collector to Parquet | todo | |
+| T0.9 | OPC UA test server (tags, SP/mode writes, heartbeat) | done | `opcua/src/crosscut_opcua/server.py`; tested with an asyncua client only, NOT yet with an external client such as UaExpert |
+| T0.10 | OPC UA collector to Parquet | done | `collector.py`; timestamps follow the plant clock (`sim.time_s`), `dataset.write_dataset` is shared with `record` |
 | T0.11 | C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS | todo | |
 | T0.12 | README polish, demo notebook | todo | |
 | T0.13 | Stretch: experiment 0 (SP-based vs MV-based identification) | todo | |
@@ -73,6 +73,9 @@ imported from Python, PROVENANCE complete.
 - Mill circuit: 3 actuator loops (HPGR press, mill feed, cyclone water) with PV/SP/RSP/MODE/OUT tags `sim.mc.*`; actual actuator state = lag of OUT + OU inner noise (this
   noise-driven variation of the actual PV is the exogenous excitation); CVs p80, mill_power, hpgr_power with hardness-dependent gains (table in the module docstring/tests);
   operator changes local SPs every 30 min as a function of observed hardness (confounder, only for loops in AUTO). Plant-specific options travel in `Scenario.params`.
+- OPC UA server: NodeIds `ns=<idx>;s=<tag_id>` in namespace `urn:crosscut:sim`, anonymous/no security (test server only); extra nodes `sim.heartbeat` (client counter),
+  `sim.heartbeat_ok`, `sim.time_s`. Client writes go through an asyncua value setter into `plant.write`; refused writes revert. Heartbeat loss returns CAS loops to AUTO
+  and blocks selecting CAS until the counter moves again. Run: `python -m crosscut_opcua.server --plant wood_berry --scenario nominal --port 4840 --speed 10`.
 - Simulator fidelity: believable causal properties and known ground truth, not believable physics.
 - Licence: Apache-2.0.
 - PID: positional form, derivative on measurement, conditional-integration anti-windup, bumpless MAN to AUTO by integral tracking.
@@ -82,7 +85,8 @@ imported from Python, PROVENANCE complete.
 
 ## Open items
 
-- Observe the first CI run on both operating systems.
+- Observe the first CI run on both operating systems (CI has not been confirmed green; the OPC UA tests take ~25 s and use local ports).
+- Try the OPC UA server with an external client (UaExpert) once.
 - Verify literature citations in `docs/PROVENANCE.md` and the Wood-Berry parameters against the original paper.
 - Trademark registers (EUIPO, UPRP, WIPO, USPTO) for "Crosscut" not checked; firm Crosser is a phonetic neighbour.
 - ADRs 001-006 not written yet.
@@ -104,4 +108,5 @@ imported from Python, PROVENANCE complete.
 - T0.4: tests first (27), `manifest.py` delegated; it failed the verify loop on an invented extra path rule and a wrong exception type, fixed by hand. Pushed.
 - T0.7: tests first (19 new + scenario/run tests), `Scenario.params` added; the 560-line plant was implemented by a Haiku subagent (agentkit free models cannot handle files this size reliably)
   and independently re-verified: 146 tests, ruff, mypy clean.
-- Next: T0.9/T0.10 (OPC UA server and collector), T0.11 (C++ smoke test), T0.12, T0.13 (experiment 0 on the mill circuit), ADRs.
+- T0.9/T0.10: tests first (8 server/collector tests), implemented by a Haiku subagent incl. a `write_dataset` refactor; I fixed two lint/type nits in my own tests. 155 tests, ruff, mypy clean.
+- Next: T0.11 (C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS), T0.12 (README/demo notebook), T0.13 (experiment 0), ADRs 001-006.
