@@ -50,6 +50,33 @@ class LoopReport:
     stiction_verdict: str = "not_checked"
 
 
+@dataclass(frozen=True)
+class LoopSeries:
+    """The caller-supplied series of one loop, before any per-sample filtering."""
+
+    t_s: np.ndarray
+    pv: np.ndarray
+    sp: np.ndarray
+    out: np.ndarray
+    mode: np.ndarray
+    quality: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class LoopArrays:
+    """Per-loop series and derived values that the draft report is built from."""
+
+    pv: np.ndarray
+    out: np.ndarray
+    mode: np.ndarray
+    active: np.ndarray
+    error: np.ndarray
+    n_samples: int
+    harris: float
+    period_s: float | None
+    stiction: str
+
+
 def _longest_run(mask: np.ndarray) -> slice:
     """Slice covering the longest stretch of consecutive True values (empty if none)."""
     padded = np.concatenate(([False], mask, [False])).astype(np.int8)
@@ -121,6 +148,84 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
     return found
 
 
+def _active_mask(
+    pv: np.ndarray,
+    sp: np.ndarray,
+    mode: np.ndarray,
+    quality: np.ndarray | None,
+) -> np.ndarray:
+    """Samples that count as "active": valid PV and SP, quality 0 when given, and outside MAN."""
+    valid = ~np.isnan(pv) & ~np.isnan(sp)
+    if quality is not None:
+        valid &= quality == 0
+    return valid & (mode != MAN)
+
+
+def _mean_abs_or_zero(error: np.ndarray) -> float:
+    """Mean absolute error, or 0.0 for an empty error series."""
+    return float(np.mean(np.abs(error))) if len(error) else 0.0
+
+
+def _std_or_zero(error: np.ndarray) -> float:
+    """Standard deviation of the error, or 0.0 for an empty error series."""
+    return float(np.std(error)) if len(error) else 0.0
+
+
+def _count_mode_changes(mode: np.ndarray) -> int:
+    """Number of times the controller mode switches between two consecutive samples."""
+    return int(np.count_nonzero(mode[1:] != mode[:-1]))
+
+
+def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
+    """Assemble the unclassified report from the already-derived series metrics."""
+    saturation = saturation_fraction(
+        arrays.out[arrays.active], settings.out_low, settings.out_high
+    )
+    return LoopReport(
+        n_samples=arrays.n_samples,
+        service_factor=float(np.mean(arrays.active)),
+        saturation_fraction=saturation,
+        flatline_fraction=flatline_fraction(arrays.pv),
+        mode_changes=_count_mode_changes(arrays.mode),
+        mean_abs_error=_mean_abs_or_zero(arrays.error),
+        error_std=_std_or_zero(arrays.error),
+        harris_index=arrays.harris,
+        oscillation_period_s=arrays.period_s,
+        classification="",
+        findings=[],
+        stiction_verdict=arrays.stiction,
+    )
+
+
+def _longest_segment_metrics(
+    series: LoopSeries, active: np.ndarray, settings: LoopSettings
+) -> tuple[float, float | None, str]:
+    """Harris index, oscillation period and stiction verdict of the longest active stretch."""
+    dt_s = float(np.median(np.diff(series.t_s)))
+    segment = _longest_run(active)
+    harris, period_s = _segment_metrics((series.pv - series.sp)[segment], dt_s, settings)
+    stiction = _stiction_verdict(series.pv[segment], series.out[segment], dt_s, settings)
+    return harris, period_s, stiction
+
+
+def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
+    """Validate the series, pick the active samples and compute the stuck-out metrics."""
+    active = _active_mask(series.pv, series.sp, series.mode, series.quality)
+    harris, period_s, stiction = _longest_segment_metrics(series, active, settings)
+    return LoopArrays(
+        pv=series.pv,
+        out=series.out,
+        mode=series.mode,
+        active=active,
+        error=(series.pv - series.sp)[active],
+        n_samples=len(series.t_s),
+        harris=harris,
+        period_s=period_s,
+        stiction=stiction,
+    )
+
+
+# codecheck: allow too-many-parameters (public signature used by callers and tests)
 def analyze_loop(
     t_s: np.ndarray,
     pv: np.ndarray,
@@ -137,28 +242,7 @@ def analyze_loop(
     Harris index and oscillation use the longest uninterrupted active stretch, because the
     methods assume a continuous series.
     """
-    valid = ~np.isnan(pv) & ~np.isnan(sp)
-    if quality is not None:
-        valid &= quality == 0
-    active = valid & (mode != MAN)
-    error = (pv - sp)[active]
-    dt_s = float(np.median(np.diff(t_s)))
-    segment = _longest_run(active)
-    harris, period_s = _segment_metrics((pv - sp)[segment], dt_s, settings)
-    stiction = _stiction_verdict(pv[segment], out[segment], dt_s, settings)
-    draft = LoopReport(
-        n_samples=len(t_s),
-        service_factor=float(np.mean(active)),
-        saturation_fraction=saturation_fraction(out[active], settings.out_low, settings.out_high),
-        flatline_fraction=flatline_fraction(pv),
-        mode_changes=int(np.count_nonzero(mode[1:] != mode[:-1])),
-        mean_abs_error=float(np.mean(np.abs(error))) if len(error) else 0.0,
-        error_std=float(np.std(error)) if len(error) else 0.0,
-        harris_index=harris,
-        oscillation_period_s=period_s,
-        classification="",
-        findings=[],
-        stiction_verdict=stiction,
-    )
+    series = LoopSeries(t_s=t_s, pv=pv, sp=sp, out=out, mode=mode, quality=quality)
+    draft = _build_draft(_prepare_arrays(series, settings), settings)
     classified = replace(draft, classification=_classify(draft, settings))
     return replace(classified, findings=_findings(classified, settings))

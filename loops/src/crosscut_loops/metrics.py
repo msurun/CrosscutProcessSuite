@@ -18,6 +18,8 @@ DEFAULT_MIN_EXCEEDANCES = 10
 DEFAULT_WINDOW_HALF_CYCLES = 20
 DEFAULT_MIN_FLAT_RUN = 10
 
+FULL_CIRCLE_RAD = 2.0 * np.pi  # radians in one full oscillation cycle
+
 
 def _fit_ar(x: np.ndarray, order: int) -> tuple[np.ndarray, float]:
     """Least-squares AR fit of a mean-free series: (coefficients a_1..a_p, residual variance)."""
@@ -87,6 +89,23 @@ def _has_dense_exceedances(exceeds: np.ndarray, minimum: int, window: int) -> bo
     return bool(counts.max() >= minimum)
 
 
+def _acceptable_iae(amplitude_limit: float, ultimate_period_s: float) -> float:
+    """IAE a half cycle may reach before it counts as too large.
+
+    A cycle of the loop's natural frequency with the acceptable amplitude has IAE
+    2 * amplitude_limit / omega_u, where omega_u is the ultimate angular frequency.
+    """
+    omega_u = FULL_CIRCLE_RAD / ultimate_period_s
+    return 2.0 * amplitude_limit / omega_u
+
+
+def _oscillation_period_s(lengths: np.ndarray, large: np.ndarray, dt_s: float) -> float:
+    """Dominant oscillation period in seconds: twice the median large half cycle duration."""
+    median_half_cycles = float(np.median(lengths[large]))
+    return 2.0 * median_half_cycles * dt_s
+
+
+# codecheck: allow too-many-parameters (public signature used by callers and tests)
 def hagglund_oscillation(
     error: np.ndarray,
     dt_s: float,
@@ -103,11 +122,10 @@ def hagglund_oscillation(
     """
     x = np.asarray(error, dtype=float)
     iae, lengths = _half_cycles(x, dt_s)
-    iae_limit = 2.0 * amplitude_limit * ultimate_period_s / (2.0 * np.pi)
-    large = iae > iae_limit
+    large = iae > _acceptable_iae(amplitude_limit, ultimate_period_s)
     if not _has_dense_exceedances(large, min_exceedances, window_half_cycles):
         return OscillationResult(detected=False, period_s=None)
-    return OscillationResult(True, float(2.0 * np.median(lengths[large]) * dt_s))
+    return OscillationResult(True, _oscillation_period_s(lengths, large, dt_s))
 
 
 def saturation_fraction(

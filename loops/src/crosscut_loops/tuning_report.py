@@ -29,8 +29,8 @@ from crosscut_loops.tuning_rules import (
     simc_pi,
 )
 
-# The largest dead time to scan during identification, in seconds. Chosen as a
-# fraction of the record length in samples priced below.
+# The largest dead time to scan during identification, as a fraction of the
+# record length in samples. A quarter of the record keeps the scan short.
 MAX_DELAY_FRACTION_OF_RECORD = 0.25
 
 # Fallback sampling period, in seconds, when the caller does not know it.
@@ -58,6 +58,9 @@ MODEL_FAILURE_PREFIX = "model identification failed"
 MIN_ROBUSTNESS = 0.0
 MAX_ROBUSTNESS = 1.0
 
+# Decimals used when formatting floats in the Markdown report.
+REPORT_DECIMALS = 3
+
 
 @dataclass
 class TuningReport:
@@ -84,6 +87,7 @@ class TuningReport:
     notes: list[str] = field(default_factory=list)
 
 
+# codecheck: allow too-many-parameters (public signature used by callers and tests)
 def build_tuning_report(
     loop_name: str,
     u: np.ndarray,
@@ -203,7 +207,7 @@ def _notes(stiction_verdict: str | None) -> list[str]:
     return notes
 
 
-def _format_number(value: float, decimals: int = 3) -> str:
+def _format_number(value: float, decimals: int = REPORT_DECIMALS) -> str:
     """Format a float for the report with a fixed number of decimals."""
     return f"{value:.{decimals}f}"
 
@@ -221,28 +225,41 @@ def _render_model_section(report: TuningReport) -> str:
     """Return the Markdown section describing the identified model."""
     if report.model is None:
         return "## Model\n\nNo model identified.\n"
-    model = report.model
-    return (
-        "## Model\n\n"
-        "| Parameter | Value |\n"
-        "| --- | --- |\n"
-        f"| Gain | {_format_number(model.gain)} |\n"
-        f"| Time constant (s) | {_format_number(model.time_constant_s)} |\n"
-        f"| Dead time (s) | {_format_number(model.delay_s)} |\n"
-    )
+    return "\n".join(_model_section_lines(report.model))
+
+
+def _model_section_lines(model: FopdtModel) -> list[str]:
+    """Return the Markdown lines of the model table."""
+    return [
+        "## Model",
+        "",
+        "| Parameter | Value |",
+        "| --- | --- |",
+        f"| Gain | {_format_number(model.gain)} |",
+        f"| Time constant (s) | {_format_number(model.time_constant_s)} |",
+        f"| Dead time (s) | {_format_number(model.delay_s)} |",
+        "",
+    ]
 
 
 def _render_settings_section(report: TuningReport) -> str:
     """Return the Markdown section with the SIMC and AMIGO settings."""
     if report.simc is None or report.amigo is None:
         return "## Settings\n\nNo settings computed.\n"
-    return (
-        "## Settings\n\n"
-        "| Rule | Gain | Integral time (s) |\n"
-        "| --- | --- | --- |\n"
-        f"| SIMC | {_format_number(report.simc.kc)} | {_format_number(report.simc.ti_s)} |\n"
-        f"| AMIGO | {_format_number(report.amigo.kc)} | {_format_number(report.amigo.ti_s)} |\n"
-    )
+    return "\n".join(_settings_section_lines(report.simc, report.amigo))
+
+
+def _settings_section_lines(simc: PiSettings, amigo: PiSettings) -> list[str]:
+    """Return the Markdown lines of the tuning settings table."""
+    return [
+        "## Settings",
+        "",
+        "| Rule | Gain | Integral time (s) |",
+        "| --- | --- | --- |",
+        f"| SIMC | {_format_number(simc.kc)} | {_format_number(simc.ti_s)} |",
+        f"| AMIGO | {_format_number(amigo.kc)} | {_format_number(amigo.ti_s)} |",
+        "",
+    ]
 
 
 def _render_dcs_section(report: TuningReport) -> str:
@@ -251,12 +268,16 @@ def _render_dcs_section(report: TuningReport) -> str:
         return "## DCS forms\n\nNo DCS forms computed.\n"
     blocks = ["## DCS forms", ""]
     for form in DCS_FORM_NAMES:
-        blocks.append(f"### {form}")
-        blocks.append("")
-        for key, value in report.dcs_forms[form].items():
-            blocks.append(f"- {key}: {_format_number(value)}")
-        blocks.append("")
+        blocks.extend(_dcs_form_lines(form, report.dcs_forms[form]))
     return "\n".join(blocks)
+
+
+def _dcs_form_lines(form: ConversionForm, values: dict[str, float]) -> list[str]:
+    """Return the Markdown lines describing one DCS parameter form."""
+    lines = [f"### {form}", ""]
+    lines.extend(f"- {key}: {_format_number(value)}" for key, value in values.items())
+    lines.append("")
+    return lines
 
 
 def _render_notes_section(report: TuningReport) -> str:
