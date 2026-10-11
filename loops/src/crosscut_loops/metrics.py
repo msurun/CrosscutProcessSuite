@@ -46,7 +46,7 @@ def harris_index(error: np.ndarray, delay_samples: int, ar_order: int = DEFAULT_
     A value near 1 means the loop is as good as a minimum-variance controller could be; a small
     value means the variance could be cut a lot by better tuning (given the process delay).
     The minimum variance is sigma_a^2 * sum(psi_i^2, i < delay): the part of the error that
-    cannot be influenced within the dead time.
+    cannot be influenced within the dead time. A constant error series gives NaN.
     """
     if delay_samples < 1:
         raise ValueError("delay_samples must be at least 1")
@@ -54,9 +54,14 @@ def harris_index(error: np.ndarray, delay_samples: int, ar_order: int = DEFAULT_
     if len(x) < AR_SAMPLES_PER_COEFFICIENT * ar_order:
         raise ValueError("error series is too short for the AR fit")
     x = x - x.mean()
+    variance = float(np.var(x))
+    if variance == 0.0:
+        # A constant error has no variance to benchmark against: the index is undefined (NaN),
+        # the same convention analyze_loop uses for segments with zero variance.
+        return float("nan")
     ar, sigma_a2 = _fit_ar(x, ar_order)
     psi = _impulse_response(ar, delay_samples)
-    index = sigma_a2 * float(np.sum(psi**2)) / float(np.var(x))
+    index = sigma_a2 * float(np.sum(psi**2)) / variance
     return float(np.clip(index, 0.0, 1.0))
 
 

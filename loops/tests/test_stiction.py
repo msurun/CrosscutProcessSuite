@@ -104,3 +104,8 @@ def test_invalid_input_raises_value_error() -> None:
     out = np.zeros(1000)
     with pytest.raises(ValueError):
         detect_stiction(pv, out, -1.0)
+
+
+def test_empty_signal_raises_value_error_instead_of_index_error() -> None:
+    with pytest.raises(ValueError, match="at least"):
+        detect_stiction(np.zeros(0), np.zeros(0), DT)

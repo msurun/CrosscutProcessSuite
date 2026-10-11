@@ -46,6 +46,10 @@ def test_harris_index_rejects_a_series_that_is_too_short() -> None:
         harris_index(np.zeros(10), delay_samples=1)
 
 
+def test_harris_index_of_a_constant_series_is_nan() -> None:
+    assert np.isnan(harris_index(np.full(500, 3.0), delay_samples=1))
+
+
 def test_sustained_sine_is_detected_as_oscillation_with_its_period() -> None:
     t = np.arange(0.0, 6 * 3600.0, 10.0)
     error = np.sin(2 * np.pi * t / 600.0) + RNG.normal(scale=0.05, size=len(t))

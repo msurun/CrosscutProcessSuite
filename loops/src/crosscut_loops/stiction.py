@@ -39,6 +39,9 @@ THD_STICTION_MIN = 0.2
 # Hysteresis for zero crossings.
 HYSTERESIS = 0.1
 
+# Shortest signal that can hold a zero crossing; shorter input has no pair of samples to compare.
+MIN_SAMPLES = 2
+
 
 @dataclass(frozen=True)
 class StictionResult:
@@ -117,9 +120,11 @@ def _validate_input(pv: NDArray[np.float64], out: NDArray[np.float64], dt_s: flo
         dt_s: The sampling time in seconds.
 
     Raises:
-        ValueError: If the PV and OP signals have different lengths, contain NaN, or if
-            dt_s is not positive.
+        ValueError: If the PV and OP signals are shorter than MIN_SAMPLES, have different
+            lengths, contain NaN, or if dt_s is not positive.
     """
+    if len(pv) < MIN_SAMPLES:
+        raise ValueError(f"PV and OP signals need at least {MIN_SAMPLES} samples, got {len(pv)}.")
     if len(pv) != len(out):
         raise ValueError("PV and OP signals must have the same length.")
     if np.isnan(pv).any() or np.isnan(out).any():
