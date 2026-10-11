@@ -13,6 +13,7 @@ from crosscut_loops.metrics import (
     harris_index,
     saturation_fraction,
 )
+from crosscut_loops.stiction import detect_stiction
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class LoopReport:
     oscillation_period_s: float | None
     classification: str
     findings: list[str]
+    stiction_verdict: str = "not_checked"
 
 
 def _longest_run(mask: np.ndarray) -> slice:
@@ -71,6 +73,18 @@ def _segment_metrics(
         error, dt_s, settings.amplitude_limit, settings.ultimate_period_s
     )
     return harris, oscillation.period_s
+
+
+def _stiction_verdict(
+    pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings
+) -> str:
+    """Stiction verdict for one uninterrupted AUTO stretch."""
+    if len(pv) < settings.min_segment_samples or np.any(np.isnan(pv)) or np.any(np.isnan(out)):
+        return "not_checked"
+    try:
+        return detect_stiction(pv, out, dt_s).verdict
+    except ValueError:
+        return "not_checked"
 
 
 def _classify(report: LoopReport, settings: LoopSettings) -> str:
@@ -102,6 +116,8 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
     }
     if report.classification in messages:
         found.append(messages[report.classification])
+    if report.stiction_verdict == "stiction":
+        found.append("stiction suspected: fix the valve before retuning the controller")
     return found
 
 
@@ -129,6 +145,7 @@ def analyze_loop(
     dt_s = float(np.median(np.diff(t_s)))
     segment = _longest_run(active)
     harris, period_s = _segment_metrics((pv - sp)[segment], dt_s, settings)
+    stiction = _stiction_verdict(pv[segment], out[segment], dt_s, settings)
     draft = LoopReport(
         n_samples=len(t_s),
         service_factor=float(np.mean(active)),
@@ -141,6 +158,7 @@ def analyze_loop(
         oscillation_period_s=period_s,
         classification="",
         findings=[],
+        stiction_verdict=stiction,
     )
     classified = replace(draft, classification=_classify(draft, settings))
     return replace(classified, findings=_findings(classified, settings))
