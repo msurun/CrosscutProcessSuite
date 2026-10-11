@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, after T0.13)
+Last updated: 2026-10-10 (session 1, stage 0 closed)
 
 ## Project snapshot
 
@@ -35,13 +35,13 @@ CI (`.github/workflows/ci.yml`) runs ruff and pytest on ubuntu-latest and window
 
 ## Task board (stage 0)
 
-Recommended order of the remaining work: T0.12 (T0.2 ADRs alongside).
+Stage 0 is complete except the demo notebook (optional). Next: stage 1 (see below) (T0.2 ADRs alongside).
 Status: done / in progress / todo.
 
 | ID | Task | Status | Notes |
 |---|---|---|---|
 | T0.1 | Repo scaffold, license, CI, lint config | done | CI green |
-| T0.2 | PROVENANCE, docs skeleton, ADRs | partly | provenance + this log done; ADR 001 written (`docs/adr/`); ADRs 002-006 todo |
+| T0.2 | PROVENANCE, docs skeleton, ADRs | done | ADRs 001-006 accepted, ADR 007 (GUI) proposed in `docs/adr/` |
 | T0.3 | JSON Schemas (tags, dataset, project, artifact manifest) + contract tests | done | `schemas/`, `tests/test_schemas.py` |
 | T0.4 | Artifact manifest read/write, hashing, compatibility rule | done | package `artifacts/` (`crosscut_artifacts.manifest`): deterministic npz, payload path safety, integrity check, major-version rule |
 | T0.5 | Simulator core: Plant interface, FOPDT with delay, noise, disturbances, determinism | done | `sim/src/crosscut_sim/{core,disturbances}.py` |
@@ -51,7 +51,7 @@ Status: done / in progress / todo.
 | T0.9 | OPC UA test server (tags, SP/mode writes, heartbeat) | done | `opcua/src/crosscut_opcua/server.py`; tested with an asyncua client only, NOT yet with an external client such as UaExpert |
 | T0.10 | OPC UA collector to Parquet | done | `collector.py`; timestamps follow the plant clock (`sim.time_s`), `dataset.write_dataset` is shared with `record` |
 | T0.11 | C++ smoke test: CMake, GoogleTest, pybind11, CI on both OS | done | `core/` (`crosscut::Fopdt`, 4 GoogleTest tests, pybind11 module, Python parity test). Built locally with clang via the pip package `ziglang`; MSVC, GCC, `/W4 /WX` and the sanitizer job verified by CI (green) |
-| T0.12 | README polish, demo notebook | todo | |
+| T0.12 | README polish, demo notebook | done (README); notebook skipped | top-level README with quick start and the experiment figure |
 | T0.13 | Stretch: experiment 0 (SP-based vs MV-based identification) | done | `experiments/exp00_sp_vs_mv/` (script, tests, results, README). Finding: with the operator on, raw SP/PV models see ~0 gain; high-pass (10 min) recovers it for SP and PV alike; OUT is a poor input |
 
 Exit criteria for stage 0 are in the private spec; in short: CI green on both OS, deterministic dataset from
@@ -87,7 +87,6 @@ imported from Python, PROVENANCE complete.
 - Try the OPC UA server with an external client (UaExpert) once.
 - Verify literature citations in `docs/PROVENANCE.md` and the Wood-Berry parameters against the original paper.
 - Trademark registers (EUIPO, UPRP, WIPO, USPTO) for "Crosscut" not checked; firm Crosser is a phonetic neighbour.
-- ADRs 002-006 not written yet.
 - Wood-Berry transfer-function coefficients, nominal values and BLT tuning were typed from memory; verify against the originals.
 
 ## Session log
@@ -111,4 +110,6 @@ imported from Python, PROVENANCE complete.
   Local-only helper scripts live in the session scratchpad, not in the repo. CI job `cpp` added to the workflow. ADR 001 written.
 - T0.13: wrote the experiment myself (FIR least squares, 7 signal variants, 2 scenarios, 5 seeds x 48 h, ~30 s). Result is documented honestly in the experiment README,
   including that timescale separation, not SP-vs-PV, is what matters in this simulator. CI confirmed green for runs #1 to #7.
-- Next: T0.12 (top-level README with the experiment figure, demo notebook), ADRs 002-006. Then stage 1 planning (loop monitoring, PID tuning, data studio) in the private plan.
+- Stage 0 closed: top-level README, ADRs 001-007 (007 = GUI approach, proposed).
+- Next (stage 1 "Loop & Data Insight", read-only product): connectors (OPC UA read, CSV, SQL, GE Historian), Data Studio with trend viewer, loop monitoring (CPM), PID tuning report,
+  benefit report. Start with the backend API and the trend viewer on simulator datasets. Stage plan lives in the private planning documents.
