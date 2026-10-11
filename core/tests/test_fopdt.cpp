@@ -7,28 +7,35 @@
 
 namespace {
 
+constexpr double kStepResponseTolerance = 1e-12;  // pure floating point rounding
+constexpr double kSteadyStateTolerance = 1e-9;    // after 500 samples the residue is below this
+
 TEST(Fopdt, MatchesAnalyticStepResponse) {
   for (const double delay_s : {0.0, 5.0, 7.0}) {
     const double gain = 2.5;
-    const double tau = 30.0;
-    const double dt = 1.0;
-    crosscut::Fopdt f(gain, tau, delay_s, dt);
-    const double a = std::exp(-dt / tau);
-    const int n = static_cast<int>(delay_s / dt);
-    for (int j = 1; j < 400; ++j) {
-      const double y = f.update(1.0);
-      const double expected = j <= n ? 0.0 : gain * (1.0 - std::pow(a, j - n));
-      ASSERT_NEAR(y, expected, 1e-12) << "delay " << delay_s << ", sample " << j;
+    const double tau_s = 30.0;
+    const double dt_s = 1.0;
+    crosscut::Fopdt plant(gain, tau_s, delay_s, dt_s);
+    const double decay_per_step = std::exp(-dt_s / tau_s);
+    const int delay_in_samples = static_cast<int>(delay_s / dt_s);
+    for (int sample = 1; sample < 400; ++sample) {
+      const double output = plant.update(1.0);
+      const double expected =
+          sample <= delay_in_samples
+              ? 0.0
+              : gain * (1.0 - std::pow(decay_per_step, sample - delay_in_samples));
+      ASSERT_NEAR(output, expected, kStepResponseTolerance)
+          << "delay " << delay_s << ", sample " << sample;
     }
   }
 }
 
 TEST(Fopdt, ReachesSteadyStateGainAndReturnsToZero) {
-  crosscut::Fopdt f(-3.0, 10.0, 4.0, 1.0);
-  for (int i = 0; i < 500; ++i) f.update(2.0);
-  EXPECT_NEAR(f.value(), -6.0, 1e-9);
-  for (int i = 0; i < 500; ++i) f.update(0.0);
-  EXPECT_NEAR(f.value(), 0.0, 1e-9);
+  crosscut::Fopdt plant(-3.0, 10.0, 4.0, 1.0);
+  for (int step = 0; step < 500; ++step) plant.update(2.0);
+  EXPECT_NEAR(plant.value(), -6.0, kSteadyStateTolerance);
+  for (int step = 0; step < 500; ++step) plant.update(0.0);
+  EXPECT_NEAR(plant.value(), 0.0, kSteadyStateTolerance);
 }
 
 TEST(Fopdt, DelayIsRoundedToWholeSamples) {
