@@ -3,7 +3,7 @@
 **Read this first in every new session.** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-10 (session 1, stage 1 started: A1 and B1/B2 done)
+Last updated: 2026-10-11 (session 2: C2 done; the 4 session-1 commits are pushed)
 
 ## Project snapshot
 
@@ -84,7 +84,8 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 | A3 | CSV connector | done | `csv_import.py`: wide format, first column = timestamp, stdlib csv (fine for MB-sized files; switch to Arrow's CSV reader for GB-sized exports). Not yet: long-format exports, per-column units, DST-ambiguous local times |
 | B3 | OPC UA read connector, SQL connector | todo | OPC UA recording already exists (`crosscut_opcua.collector`, T0.10); SQL (testable with sqlite) and GE Historian last |
 | C1 | Loop monitoring (CPM) | done | package `loops/`: `metrics.py` (Harris index, Hagglund oscillation, saturation, flatline), `monitor.py` (`analyze_loop` -> `LoopReport` with classification manual / saturated / oscillating / poor_performance / ok and findings). Tested on synthetic signals with known answers and on a Wood-Berry run with a frozen sensor. Known limit: Hagglund flags slow wandering errors as oscillation |
-| C2-C4 | Stiction detection, PID tuning report, benefit report | todo | |
+| C2 | Stiction detection | done | `loops/src/crosscut_loops/stiction.py`: THD of the PV oscillation (healthy disturbance-driven cycle ~0.02, stiction 1.0-1.8). Self-regulating process only; `out` validated but unused; not yet wired into `analyze_loop` |
+| C3-C4 | PID tuning report, benefit report | todo | |
 | D1-D3 | Screen sketches, trend viewer (React/TS, needs ADR 007 decision), loop views | todo | ask the owner before D2 |
 | E1/E2 | Customer validation kit (V6), public benchmarks (V3) | todo | |
 
@@ -155,3 +156,7 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 - C1: tests first (10 metrics + 7 monitor). Free models failed `metrics.py` twice (shape errors in the AR fit and windowing) and `hard_code` went to DeepSeek which spent $0.05 and returned nothing
   (reasoning ate the whole 4000-token budget): do not use `hard_code` for numerics with a small output cap. I wrote `metrics.py` by hand. The delegated `monitor.py` passed the tests but had 428 lines
   and 7-parameter helpers, so I rewrote it in ~130 lines.
+
+### 2026-10-11, session 2
+- Pushed the 4 local commits. agentkit: paid models no longer think (DeepSeek thinking disabled at all levels, Gemini sent as `low`).
+- C2: tests written by mistral/codestral (I fixed the simulation: constant load needed, noise 0.005, S=0.5/J=0.25), `stiction.py` by codestral passed first try; lint/type/size fixes by a Haiku subagent. A first attempt with a Claude subagent writing everything was stopped: tests and bulk code go to agentkit free models. MCP `delegate` still errors; CLI works with `PYTHONPATH=<agentkit dir> python -m agentkit.cli delegate ...`.
