@@ -18,6 +18,10 @@ Citations are given from memory and must be verified against the originals befor
 | Exact discretization of first-order lag with dead time (zero-order hold) | G. F. Franklin, J. D. Powell, M. Workman, "Digital Control of Dynamic Systems" | implemented | `sim/src/crosscut_sim/core.py` |
 | Ornstein-Uhlenbeck process, exact discretization | D. T. Gillespie, "Exact numerical simulation of the Ornstein-Uhlenbeck process and its integral", Phys. Rev. E 54 (1996) | implemented | `sim/src/crosscut_sim/disturbances.py` |
 | Grinding-circuit simulator (HPGR + ball mill + cyclone) | original synthetic construction with illustrative coefficients; no real plant data or parameters | implemented | `sim/src/crosscut_sim/plants/mill_circuit.py` |
+| Harris minimum-variance index (AR fit of the error, benchmark from the delay) | T. J. Harris, "Assessment of control loop performance", Can. J. Chem. Eng. 67 (1989); L. Desborough, T. Harris, "Performance assessment measures for univariate feedback control", Can. J. Chem. Eng. 70 (1992) (citations to verify) | implemented | `loops/src/crosscut_loops/metrics.py` |
+| Oscillation detection by IAE between zero crossings | T. Hagglund, "A control-loop performance monitor", Control Eng. Practice 3 (1995) (citation to verify) | implemented | `loops/src/crosscut_loops/metrics.py` |
+| Fault injection on the read path (freeze, drift, spike, bad quality, dropout) and messy-CSV generator | original construction; fault types follow common historian/sensor failure modes | implemented | `sim/src/crosscut_sim/faults.py`, `connectors/src/crosscut_connectors/messy.py` |
+| Min/max envelope downsampling for trend plots | common practice in time-series viewers; no specific source | implemented | `api/src/crosscut_api/downsample.py` |
 
 ## Rules
 

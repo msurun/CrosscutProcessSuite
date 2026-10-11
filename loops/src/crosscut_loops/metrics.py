@@ -1,0 +1,132 @@
+"""Performance metrics for single control loops, each tested on signals with a known answer.
+
+* Harris index: minimum-variance benchmark (Harris 1989; Desborough and Harris 1992).
+* Hagglund oscillation detector: IAE between zero crossings (Hagglund 1995).
+* Saturation and flatline fractions: simple data-quality and actuator checks.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+AR_SAMPLES_PER_COEFFICIENT = 10  # shortest series accepted, in samples per AR coefficient
+DEFAULT_AR_ORDER = 20
+SATURATION_MARGIN_FRACTION = 0.005  # of the output range
+DEFAULT_MIN_EXCEEDANCES = 10
+DEFAULT_WINDOW_HALF_CYCLES = 20
+DEFAULT_MIN_FLAT_RUN = 10
+
+
+def _fit_ar(x: np.ndarray, order: int) -> tuple[np.ndarray, float]:
+    """Least-squares AR fit of a mean-free series: (coefficients a_1..a_p, residual variance)."""
+    lagged = np.column_stack([x[order - j : len(x) - j] for j in range(1, order + 1)])
+    target = x[order:]
+    coefficients, *_ = np.linalg.lstsq(lagged, target, rcond=None)
+    residual = target - lagged @ coefficients
+    return coefficients, float(np.var(residual))
+
+
+def _impulse_response(ar: np.ndarray, length: int) -> np.ndarray:
+    """First ``length`` MA coefficients psi_i of the AR model (psi_0 = 1)."""
+    psi = np.zeros(length)
+    psi[0] = 1.0
+    for i in range(1, length):
+        terms = min(i, len(ar))
+        psi[i] = float(np.dot(ar[:terms], psi[i - 1 :: -1][:terms]))
+    return psi
+
+
+def harris_index(error: np.ndarray, delay_samples: int, ar_order: int = DEFAULT_AR_ORDER) -> float:
+    """Harris index in [0, 1]: minimum achievable variance divided by the actual variance.
+
+    A value near 1 means the loop is as good as a minimum-variance controller could be; a small
+    value means the variance could be cut a lot by better tuning (given the process delay).
+    The minimum variance is sigma_a^2 * sum(psi_i^2, i < delay): the part of the error that
+    cannot be influenced within the dead time.
+    """
+    if delay_samples < 1:
+        raise ValueError("delay_samples must be at least 1")
+    x = np.asarray(error, dtype=float)
+    if len(x) < AR_SAMPLES_PER_COEFFICIENT * ar_order:
+        raise ValueError("error series is too short for the AR fit")
+    x = x - x.mean()
+    ar, sigma_a2 = _fit_ar(x, ar_order)
+    psi = _impulse_response(ar, delay_samples)
+    index = sigma_a2 * float(np.sum(psi**2)) / float(np.var(x))
+    return float(np.clip(index, 0.0, 1.0))
+
+
+@dataclass(frozen=True)
+class OscillationResult:
+    """Outcome of the oscillation detector."""
+
+    detected: bool
+    period_s: float | None
+
+
+def _half_cycles(error: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return (IAE, duration in samples) of every half cycle between zero crossings."""
+    negative = np.signbit(error - error.mean())
+    crossings = np.flatnonzero(negative[1:] != negative[:-1]) + 1
+    edges = crossings
+    if len(edges) < 2:
+        return np.zeros(0), np.zeros(0)
+    absolute = np.abs(error - error.mean())
+    iae = np.add.reduceat(absolute, edges)[:-1] * dt_s
+    return iae, np.diff(edges).astype(float)
+
+
+def _has_dense_exceedances(exceeds: np.ndarray, minimum: int, window: int) -> bool:
+    """True when some window of ``window`` consecutive half cycles holds >= ``minimum`` hits."""
+    if len(exceeds) < minimum:
+        return False
+    width = min(window, len(exceeds))
+    counts = np.convolve(exceeds.astype(int), np.ones(width, dtype=int), mode="valid")
+    return bool(counts.max() >= minimum)
+
+
+def hagglund_oscillation(
+    error: np.ndarray,
+    dt_s: float,
+    amplitude_limit: float,
+    ultimate_period_s: float,
+    min_exceedances: int = DEFAULT_MIN_EXCEEDANCES,
+    window_half_cycles: int = DEFAULT_WINDOW_HALF_CYCLES,
+) -> OscillationResult:
+    """Detect a sustained oscillation by the IAE of the half cycles between zero crossings.
+
+    A half cycle is "large" when its IAE exceeds 2 * amplitude_limit / omega_u, i.e. when a
+    cycle of the loop's natural frequency has more than the acceptable amplitude. Many large
+    half cycles in a short stretch mean a sustained oscillation (Hagglund 1995).
+    """
+    x = np.asarray(error, dtype=float)
+    iae, lengths = _half_cycles(x, dt_s)
+    iae_limit = 2.0 * amplitude_limit * ultimate_period_s / (2.0 * np.pi)
+    large = iae > iae_limit
+    if not _has_dense_exceedances(large, min_exceedances, window_half_cycles):
+        return OscillationResult(detected=False, period_s=None)
+    return OscillationResult(True, float(2.0 * np.median(lengths[large]) * dt_s))
+
+
+def saturation_fraction(
+    out: np.ndarray, low: float, high: float, margin_fraction: float = SATURATION_MARGIN_FRACTION
+) -> float:
+    """Fraction of (non-NaN) samples at either end of the actuator range."""
+    values = np.asarray(out, dtype=float)
+    values = values[~np.isnan(values)]
+    if len(values) == 0:
+        return 0.0
+    margin = margin_fraction * (high - low)
+    return float(np.mean((values <= low + margin) | (values >= high - margin)))
+
+
+def flatline_fraction(x: np.ndarray, min_run: int = DEFAULT_MIN_FLAT_RUN) -> float:
+    """Fraction of samples inside runs of at least ``min_run`` identical values (stuck signal)."""
+    values = np.asarray(x, dtype=float)
+    if len(values) == 0:
+        return 0.0
+    starts = np.flatnonzero(np.append(True, values[1:] != values[:-1]))
+    lengths = np.diff(np.append(starts, len(values)))
+    return float(lengths[lengths >= min_run].sum() / len(values))

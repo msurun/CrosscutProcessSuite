@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosscut-loops"
+version = "0.0.1"
+description = "Control loop performance monitoring for the Crosscut Process Suite"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.26"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

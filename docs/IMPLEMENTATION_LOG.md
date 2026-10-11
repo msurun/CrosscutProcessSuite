@@ -83,7 +83,8 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 | A2 | Messy-export corpus generator + importer robustness tests (V2) | done | `connectors/src/crosscut_connectors/messy.py`, 6 styles (delimiters, decimal comma, local time, BOM + preamble, text for bad values, duplicates + shuffled rows); round-trip tests |
 | A3 | CSV connector | done | `csv_import.py`: wide format, first column = timestamp, stdlib csv (fine for MB-sized files; switch to Arrow's CSV reader for GB-sized exports). Not yet: long-format exports, per-column units, DST-ambiguous local times |
 | B3 | OPC UA read connector, SQL connector | todo | OPC UA recording already exists (`crosscut_opcua.collector`, T0.10); SQL (testable with sqlite) and GE Historian last |
-| C1-C4 | Loop monitoring (CPM), stiction/oscillation detection, PID tuning report, benefit report | todo | C1 validated on datasets with injected faults |
+| C1 | Loop monitoring (CPM) | done | package `loops/`: `metrics.py` (Harris index, Hagglund oscillation, saturation, flatline), `monitor.py` (`analyze_loop` -> `LoopReport` with classification manual / saturated / oscillating / poor_performance / ok and findings). Tested on synthetic signals with known answers and on a Wood-Berry run with a frozen sensor. Known limit: Hagglund flags slow wandering errors as oscillation |
+| C2-C4 | Stiction detection, PID tuning report, benefit report | todo | |
 | D1-D3 | Screen sketches, trend viewer (React/TS, needs ADR 007 decision), loop views | todo | ask the owner before D2 |
 | E1/E2 | Customer validation kit (V6), public benchmarks (V3) | todo | |
 
@@ -151,3 +152,6 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 - Note: the MCP `delegate` tool returned a bare error twice in this session; the CLI (`agentkit delegate ...` via `agentkit.cli.main`) worked.
 - A2/A3: tests first (round trip over 6 messy styles), generator and importer delegated (codestral, gpt-oss-120b). Generator needed one fix (numpy 2 `repr(np.float64)`),
   the importer failed 2 tests (sort before dedup, strptime errors) plus a bare `except`; fixed by hand. 
+- C1: tests first (10 metrics + 7 monitor). Free models failed `metrics.py` twice (shape errors in the AR fit and windowing) and `hard_code` went to DeepSeek which spent $0.05 and returned nothing
+  (reasoning ate the whole 4000-token budget): do not use `hard_code` for numerics with a small output cap. I wrote `metrics.py` by hand. The delegated `monitor.py` passed the tests but had 428 lines
+  and 7-parameter helpers, so I rewrote it in ~130 lines.
