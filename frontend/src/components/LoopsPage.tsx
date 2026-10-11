@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchLoops, type LoopSummary } from "../api";
 import type { Translate } from "../findings";
 import { LoopDetail } from "./LoopDetail";
+import { TuningPage } from "./TuningPage";
 import { LoopsOverview } from "./LoopsOverview";
 
 /** Whether the loop list is being fetched, has arrived, or failed. */
@@ -67,10 +68,12 @@ function useLoops(datasetId: string): LoopsState {
 export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate }) {
   const { loops, status, errorReason } = useLoops(datasetId);
   const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [tuning, setTuning] = useState(false);
 
   useEffect(() => {
     // A loop selected for another dataset does not exist here.
     setSelectedName(null);
+    setTuning(false);
   }, [datasetId]);
 
   if (status === "loading") {
@@ -82,6 +85,16 @@ export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate })
   }
 
   const selectedLoop = loops.find((loop) => loop.name === selectedName);
+  if (selectedLoop !== undefined && tuning) {
+    return (
+      <TuningPage
+        datasetId={datasetId}
+        loopName={selectedLoop.name}
+        t={t}
+        onBack={() => setTuning(false)}
+      />
+    );
+  }
   if (selectedLoop !== undefined) {
     return (
       <LoopDetail
@@ -89,6 +102,7 @@ export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate })
         loop={selectedLoop}
         t={t}
         onBack={() => setSelectedName(null)}
+        onOpenTuning={() => setTuning(true)}
       />
     );
   }

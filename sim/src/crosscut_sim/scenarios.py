@@ -169,7 +169,7 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
     """Create a :class:`Scenario` for the grinding-circuit plant.
 
     Supported ``scenario_name`` values are ``"nominal"``, ``"observational"``, ``"excited"``,
-    ``"quiet"`` and ``"hardness_shift"``.
+    ``"quiet"``, ``"hardness_shift"`` and ``"step_test"`` (open-loop OUT steps for identification).
     """
     dt = 1.0
     if scenario_name == "nominal":
@@ -246,7 +246,37 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
             params=(("operator", 0.0),),
             events=merged,
         )
+    if scenario_name == "step_test":
+        return Scenario(
+            name=scenario_name,
+            duration_s=duration_s,
+            dt_s=dt,
+            measurement_noise=1.0,
+            params=(("operator", 0.0),),
+            events=_mill_step_test_events(),
+        )
     raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
+
+
+# Open-loop step test of the three mill loops, one after the other so that they do not disturb
+# each other's response: all go to MAN, then each OUT steps up and back after a hold.
+STEP_TEST_MAN_AT_S = 300.0
+STEP_TEST_FIRST_STEP_S = 900.0
+STEP_TEST_HOLD_S = 1200.0
+STEP_TEST_BASE_OUT = 50.0
+STEP_TEST_SIZE_PCT = 8.0
+MILL_LOOP_NAMES = ("hpgr_press", "mill_feed", "cyc_water")
+
+
+def _mill_step_test_events() -> tuple[Event, ...]:
+    """Events of the ``step_test`` scenario: MAN for all loops, then staggered OUT steps."""
+    events = [Event(STEP_TEST_MAN_AT_S, f"sim.mc.{name}_mode", 0.0) for name in MILL_LOOP_NAMES]
+    for index, name in enumerate(MILL_LOOP_NAMES):
+        start = STEP_TEST_FIRST_STEP_S + 2 * index * STEP_TEST_HOLD_S
+        out_tag = f"sim.mc.{name}_out"
+        events.append(Event(start, out_tag, STEP_TEST_BASE_OUT + STEP_TEST_SIZE_PCT))
+        events.append(Event(start + STEP_TEST_HOLD_S, out_tag, STEP_TEST_BASE_OUT))
+    return tuple(sorted(events, key=lambda event: event.t_s))
 
 
 # Registry mapping plant identifiers to their builder functions.
@@ -269,7 +299,7 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
     if plant_name == "wood_berry":
         return ("nominal", "noisy_feed", "feed_step", "excited")
     if plant_name == "mill_circuit":
-        return ("nominal", "observational", "excited", "quiet", "hardness_shift")
+        return ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test")
     # Future plants can add their own static tuples here.
     raise ValueError(f"scenario list not defined for plant: {plant_name!r}")
 

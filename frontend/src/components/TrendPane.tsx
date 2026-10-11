@@ -25,6 +25,10 @@ export interface TrendPaneProps {
   height?: number;
   /** Panes with the same key share the crosshair. Defaults to "crosscut". */
   syncKey?: string;
+  /** False draws a plain numeric x axis (e.g. seconds since the start); default true = clock time. */
+  xIsTime?: boolean;
+  /** Label of a numeric x axis. */
+  xLabel?: string;
   /** Called with the visible x range when the user zooms. */
   onZoom?: (minSeconds: number, maxSeconds: number) => void;
 }
@@ -51,9 +55,9 @@ function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
     width,
     height: props.height ?? DEFAULT_HEIGHT_PX,
     cursor: { sync: { key: props.syncKey ?? DEFAULT_SYNC_KEY } },
-    scales: { x: { time: true } },
+    scales: { x: { time: props.xIsTime ?? true } },
     axes: [
-      { stroke: textColor, grid: { stroke: gridColor } },
+      { label: props.xLabel, stroke: textColor, grid: { stroke: gridColor } },
       { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
     ],
     series,
@@ -111,7 +115,7 @@ export function TrendPane(props: TrendPaneProps) {
       plotRef.current = null;
     };
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
-  }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, themeVersion]);
+  }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
 
   // Push new data into the existing plot without re-creating it.
   useEffect(() => {

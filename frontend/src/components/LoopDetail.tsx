@@ -172,11 +172,13 @@ export function LoopDetail({
   loop,
   t,
   onBack,
+  onOpenTuning,
 }: {
   datasetId: string;
   loop: LoopSummary;
   t: Translate;
   onBack: () => void;
+  onOpenTuning: () => void;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
 
@@ -191,6 +193,12 @@ export function LoopDetail({
         <StatusChip level={loop.status} label={t(`status.${loop.status}`)} />
         {loop.health_percent !== null && t("health.label", { percent: loop.health_percent })}
       </h2>
+
+      <p>
+        <button type="button" className="filter-chip" onClick={onOpenTuning}>
+          {t("tuning.title")}
+        </button>
+      </p>
 
       <div className="loop-detail-grid">
         <div>

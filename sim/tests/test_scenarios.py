@@ -95,7 +95,7 @@ QUIET_PARAMS = ("operator", "inner_noise", "process_noise", "hardness_sigma", "m
 
 
 def test_mill_circuit_scenarios() -> None:
-    names = ("nominal", "observational", "excited", "quiet", "hardness_shift")
+    names = ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test")
     assert available_scenarios("mill_circuit") == names
 
     nominal = build_scenario("mill_circuit", "nominal", duration_s=DAY)
@@ -130,3 +130,18 @@ def test_mill_circuit_scenarios() -> None:
     assert levels[MC_WATER_SP] == {100.0 - 5.0, 100.0 + 5.0}
     assert all(0.0 <= e.t_s < DAY for e in excited.events)
     assert excited.events == build_scenario("mill_circuit", "excited", duration_s=DAY).events
+
+
+def test_mill_step_test_scenario_puts_loops_in_manual_and_steps_each_output_in_turn() -> None:
+    scenario = build_scenario("mill_circuit", "step_test", duration_s=3 * 3600.0)
+    modes = [e for e in scenario.events if e.tag_id.endswith("_mode")]
+    assert len(modes) == 3 and all(e.value == 0.0 for e in modes)
+    steps = [e for e in scenario.events if e.tag_id.endswith("_out")]
+    assert len(steps) == 6
+    assert [e.tag_id for e in steps[::2]] == [
+        "sim.mc.hpgr_press_out",
+        "sim.mc.mill_feed_out",
+        "sim.mc.cyc_water_out",
+    ]
+    times = [event.t_s for event in scenario.events]
+    assert times == sorted(times)

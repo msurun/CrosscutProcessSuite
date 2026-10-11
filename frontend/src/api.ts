@@ -178,3 +178,40 @@ export async function fetchLoops(datasetId: string): Promise<LoopSummary[]> {
   const body = await getJson<{ loops: LoopSummary[] }>(`/api/datasets/${encodeURIComponent(datasetId)}/loops`);
   return body.loops;
 }
+
+/** A window of the dataset, in seconds since its first sample. */
+export interface TimeWindow {
+  start_s: number;
+  end_s: number;
+}
+
+/** Result of `GET /api/datasets/{id}/loops/{loop}/tuning`; texts are codes the UI translates. */
+export interface TuningPayload {
+  loop: string;
+  windows: TimeWindow[];
+  window: TimeWindow & { manual_percent: number };
+  warnings: string[];
+  robustness: number;
+  blocked_code: "stiction" | "model_failed" | null;
+  markdown: string;
+  model: { gain: number; time_constant_s: number; delay_s: number } | null;
+  fit: { verdict: "good" | "fair" | "poor"; r_squared: number } | null;
+  check: { t_s: number[]; measured: (number | null)[]; simulated: (number | null)[] } | null;
+  settings: { simc: { kc: number; ti_s: number }; amigo: { kc: number; ti_s: number } } | null;
+  dcs_forms: Record<string, Record<string, number>>;
+  step?: { t_s: number[]; pv: number[]; out: number[] };
+}
+
+/** Identify a loop on a data window and get proposed PI settings (nothing is written to the plant). */
+export async function fetchTuning(
+  datasetId: string,
+  loopName: string,
+  options?: { startS?: number; endS?: number; robustness?: number },
+): Promise<TuningPayload> {
+  const query = new URLSearchParams();
+  if (options?.startS !== undefined) query.set("start_s", String(options.startS));
+  if (options?.endS !== undefined) query.set("end_s", String(options.endS));
+  if (options?.robustness !== undefined) query.set("robustness", String(options.robustness));
+  const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/tuning`;
+  return getJson<TuningPayload>(`${base}?${query.toString()}`);
+}

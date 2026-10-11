@@ -169,3 +169,37 @@ def test_loops_endpoint_uses_the_project_file_with_its_names_and_settings(
         project_file.unlink()
     assert [loop["name"] for loop in loops] == ["Top composition"]
     assert loops[0]["out"] == "sim.wb.reflux"
+
+
+@pytest.fixture(scope="module")
+def step_test_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
+    root = tmp_path_factory.mktemp("steps")
+    argv = ["--plant", "mill_circuit", "--scenario", "step_test", "--duration", "3h"]
+    assert run_simulation([*argv, "--sample-period", "5", "--out", str(root)]) == 0
+    return TestClient(create_app(root))
+
+
+def test_tuning_endpoint_finds_the_step_window_and_proposes_settings(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    body = step_test_client.get(f"/datasets/{dataset}/loops/hpgr_press/tuning").json()
+    assert body["windows"] and body["window"]["manual_percent"] == 100
+    assert body["model"]["gain"] > 0 and body["fit"]["verdict"] in {"good", "fair"}
+    assert body["settings"]["simc"]["kc"] > 0 and body["blocked_code"] is None
+    assert len(body["step"]["t_s"]) == len(body["step"]["pv"]) and "# " in body["markdown"]
+
+
+def test_tuning_endpoint_is_slower_but_calmer_with_more_robustness(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/tuning"
+    fast = step_test_client.get(url, params={"robustness": 0.0}).json()["settings"]["simc"]
+    robust = step_test_client.get(url, params={"robustness": 1.0}).json()["settings"]["simc"]
+    assert robust["kc"] < fast["kc"]
+
+
+def test_tuning_endpoint_returns_404_for_an_unknown_loop(step_test_client: TestClient) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    assert step_test_client.get(f"/datasets/{dataset}/loops/nope/tuning").status_code == 404

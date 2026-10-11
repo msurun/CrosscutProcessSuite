@@ -202,3 +202,16 @@ body {
 .key-numbers dd { margin: 0; font-weight: 600; text-align: right; }
 .loop-header { display: flex; align-items: center; gap: 12px; }
 .loop-header h2 { margin: 0; }
+
+/* Tuning screen */
+.tuning-step { margin-bottom: 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.tuning-step h3 { margin: 0 0 8px; }
+.tuning-step input[type="range"] { width: 320px; }
+.settings-table { border-collapse: collapse; margin: 8px 0; }
+.settings-table th, .settings-table td { padding: 4px 16px 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
+.dcs-form { display: inline-block; min-width: 260px; margin: 0 24px 12px 0; vertical-align: top; }
+.dcs-form h4 { margin: 8px 0 4px; font-size: 13px; color: var(--text-muted); }
+
+.tuning-step label { display: flex; align-items: center; gap: 12px; }
+.hint { color: var(--text-muted); font-size: 12px; }
+.dcs-form .key-numbers { grid-template-columns: auto auto; }
