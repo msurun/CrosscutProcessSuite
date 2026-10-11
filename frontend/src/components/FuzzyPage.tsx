@@ -20,6 +20,7 @@ import type { Translate } from "../findings";
 import { InferencePanel } from "./InferencePanel";
 import { ReplayPanel } from "./ReplayPanel";
 import { RulesEditor } from "./RulesEditor";
+import { VersionsPanel } from "./VersionsPanel";
 import { VariableEditor } from "./VariableEditor";
 
 /** Delay before asking the backend for a new inference, so typing does not fire one call per key. */
@@ -53,6 +54,7 @@ interface LibraryState {
   savedJson: string;
   isDirty: boolean;
   loadError: string | null;
+  saveCount: number;
   selectSystem: (systemId: string) => void;
   setDocument: (document: FuzzyDocument) => void;
   reloadLibrary: () => Promise<void>;
@@ -70,6 +72,7 @@ function useFuzzyLibrary(t: Translate): LibraryState {
   const [document, setDocumentState] = useState<FuzzyDocument | null>(null);
   const [savedJson, setSavedJson] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveCount, setSaveCount] = useState(0);
 
   const reloadLibrary = useCallback(async (): Promise<void> => {
     const list = await fetchFuzzySystems();
@@ -125,6 +128,7 @@ function useFuzzyLibrary(t: Translate): LibraryState {
   const markSaved = useCallback((document: FuzzyDocument): void => {
     setDocumentState(document);
     setSavedJson(JSON.stringify(document));
+    setSaveCount((count) => count + 1);
   }, []);
 
   const isDirty = document !== null && JSON.stringify(document) !== savedJson;
@@ -136,6 +140,7 @@ function useFuzzyLibrary(t: Translate): LibraryState {
     savedJson,
     isDirty,
     loadError,
+    saveCount,
     selectSystem,
     setDocument: setDocumentState,
     reloadLibrary,
@@ -315,6 +320,13 @@ export function FuzzyPage({ datasetId, t }: FuzzyPageProps) {
         values={whatIf.values}
         onValues={whatIf.setValues}
         inference={whatIf.inference}
+        t={t}
+      />
+      <VersionsPanel
+        systemId={library.selectedId}
+        document={library.document}
+        onRestore={library.setDocument}
+        refreshKey={library.saveCount}
         t={t}
       />
       {datasetId !== "" ? (

@@ -341,3 +341,41 @@ export async function replayFuzzy(
   const body = { document, start_s: options?.startS, end_s: options?.endS, max_points: options?.maxPoints };
   return sendJson<FuzzyReplay>("POST", `/api/datasets/${encodeURIComponent(datasetId)}/fuzzy/replay`, body);
 }
+
+/** One structural difference between two rule bases (`POST /api/fuzzy/diff`): a code plus parameters. */
+export interface FuzzyChange {
+  code:
+    | "variable_added"
+    | "variable_removed"
+    | "range_changed"
+    | "term_added"
+    | "term_removed"
+    | "term_changed"
+    | "rule_added"
+    | "rule_removed"
+    | "rule_changed";
+  variable?: string;
+  term?: string;
+  rule?: string;
+  /** Present on `range_changed` ([low, high]) and `term_changed` ({shape, params}). */
+  old?: unknown;
+  new?: unknown;
+  /** Present on `rule_changed`: names among "if", "then", "operator", "weight", "enabled". */
+  fields?: string[];
+}
+
+/** Version ids (UTC `YYYYMMDDTHHMMSSffffffZ`) of the saved snapshots of a rule base, newest first. */
+export async function fetchFuzzyVersions(systemId: string): Promise<string[]> {
+  return getJson<string[]>(`/api/fuzzy/${encodeURIComponent(systemId)}/versions`);
+}
+
+/** One saved snapshot of a rule base. */
+export async function fetchFuzzyVersion(systemId: string, versionId: string): Promise<FuzzyDocument> {
+  const base = `/api/fuzzy/${encodeURIComponent(systemId)}/versions/${encodeURIComponent(versionId)}`;
+  return getJson<FuzzyDocument>(base);
+}
+
+/** What changed from `oldDocument` to `newDocument`. */
+export async function diffFuzzy(oldDocument: FuzzyDocument, newDocument: FuzzyDocument): Promise<FuzzyChange[]> {
+  return sendJson<FuzzyChange[]>("POST", "/api/fuzzy/diff", { old: oldDocument, new: newDocument });
+}
