@@ -15,7 +15,9 @@ RNG = np.random.default_rng(3)
 SETTINGS = LoopSettings(delay_s=DT, ultimate_period_s=600.0, amplitude_limit=0.2)
 
 
-def signals(error: np.ndarray, out: float | np.ndarray = 50.0, mode: int = AUTO):
+def signals(
+    error: np.ndarray, out: float | np.ndarray = 50.0, mode: int = AUTO
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     t = np.arange(N) * DT
     sp = np.full(N, 10.0)
     return t, sp + error, sp, np.broadcast_to(out, N).copy(), np.full(N, mode)

@@ -22,6 +22,7 @@ import csv
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 from crosscut_sim.dataset import read_dataset, record, to_wide
@@ -206,26 +207,28 @@ def plot(rows: list[dict[str, object]], out_dir: Path) -> None:
     width = 0.38
     for ax, driver in zip(axes, DRIVERS, strict=True):
         sel = [r for r in rows if r["driver"] == driver]
-        truth = float(sel[0]["true_gain"])  # type: ignore[arg-type]
+        truth = cast(float, sel[0]["true_gain"])
         for i, scenario_name in enumerate(SCENARIOS):
             means = [
-                float(
+                cast(
+                    float,
                     next(
                         r["mean"]
                         for r in sel
                         if r["scenario"] == scenario_name and r["variant"] == v
-                    )
-                )  # type: ignore[arg-type]
+                    ),
+                )
                 for v in VARIANTS
             ]
             stds = [
-                float(
+                cast(
+                    float,
                     next(
                         r["std"]
                         for r in sel
                         if r["scenario"] == scenario_name and r["variant"] == v
-                    )
-                )  # type: ignore[arg-type]
+                    ),
+                )
                 for v in VARIANTS
             ]
             x = np.arange(len(VARIANTS)) + (i - 0.5) * width
