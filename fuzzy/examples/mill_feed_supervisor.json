@@ -1,0 +1,247 @@
+{
+  "schema_version": "0.1.0",
+  "name": "Mill feed supervisor (synthetic example)",
+  "description": "Illustration on the simulated grinding circuit. Not an operating recommendation: the rules and ranges are invented to show how a fuzzy supervisor is built and read.",
+  "inputs": [
+    {
+      "id": "mill_power",
+      "label": "Mill power",
+      "unit": "kW",
+      "tag": "sim.mc.mill_power",
+      "low": 2600,
+      "high": 3400,
+      "terms": [
+        {
+          "name": "low",
+          "shape": "trap",
+          "params": [
+            2600,
+            2600,
+            2800,
+            2950
+          ]
+        },
+        {
+          "name": "normal",
+          "shape": "tri",
+          "params": [
+            2800,
+            3000,
+            3200
+          ]
+        },
+        {
+          "name": "high",
+          "shape": "trap",
+          "params": [
+            3050,
+            3200,
+            3400,
+            3400
+          ]
+        }
+      ]
+    },
+    {
+      "id": "p80",
+      "label": "Product size P80",
+      "unit": "um",
+      "tag": "sim.mc.p80",
+      "low": 120,
+      "high": 180,
+      "terms": [
+        {
+          "name": "fine",
+          "shape": "trap",
+          "params": [
+            120,
+            120,
+            135,
+            148
+          ]
+        },
+        {
+          "name": "on_target",
+          "shape": "tri",
+          "params": [
+            135,
+            150,
+            165
+          ]
+        },
+        {
+          "name": "coarse",
+          "shape": "trap",
+          "params": [
+            152,
+            165,
+            180,
+            180
+          ]
+        }
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "id": "feed_change",
+      "label": "Mill feed change",
+      "unit": "t/h",
+      "tag": "sim.mc.mill_feed_sp",
+      "low": -10,
+      "high": 10,
+      "terms": [
+        {
+          "name": "decrease_large",
+          "shape": "tri",
+          "params": [
+            -10,
+            -10,
+            -5
+          ]
+        },
+        {
+          "name": "decrease_small",
+          "shape": "tri",
+          "params": [
+            -8,
+            -4,
+            0
+          ]
+        },
+        {
+          "name": "hold",
+          "shape": "tri",
+          "params": [
+            -3,
+            0,
+            3
+          ]
+        },
+        {
+          "name": "increase_small",
+          "shape": "tri",
+          "params": [
+            0,
+            4,
+            8
+          ]
+        },
+        {
+          "name": "increase_large",
+          "shape": "tri",
+          "params": [
+            5,
+            10,
+            10
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "r1",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "high"
+        }
+      ],
+      "then": {
+        "variable": "feed_change",
+        "is": "decrease_large"
+      }
+    },
+    {
+      "id": "r2",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "normal"
+        },
+        {
+          "variable": "p80",
+          "is": "coarse"
+        }
+      ],
+      "operator": "and",
+      "then": {
+        "variable": "feed_change",
+        "is": "decrease_small"
+      }
+    },
+    {
+      "id": "r3",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "normal"
+        },
+        {
+          "variable": "p80",
+          "is": "fine"
+        }
+      ],
+      "operator": "and",
+      "then": {
+        "variable": "feed_change",
+        "is": "increase_small"
+      }
+    },
+    {
+      "id": "r4",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "normal"
+        },
+        {
+          "variable": "p80",
+          "is": "on_target"
+        }
+      ],
+      "operator": "and",
+      "then": {
+        "variable": "feed_change",
+        "is": "hold"
+      }
+    },
+    {
+      "id": "r5",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "low"
+        },
+        {
+          "variable": "p80",
+          "is": "on_target"
+        }
+      ],
+      "operator": "and",
+      "then": {
+        "variable": "feed_change",
+        "is": "increase_large"
+      }
+    },
+    {
+      "id": "r6",
+      "if": [
+        {
+          "variable": "mill_power",
+          "is": "low"
+        },
+        {
+          "variable": "p80",
+          "is": "coarse"
+        }
+      ],
+      "operator": "and",
+      "then": {
+        "variable": "feed_change",
+        "is": "increase_small"
+      }
+    }
+  ]
+}

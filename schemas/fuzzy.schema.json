@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/fuzzy.schema.json",
+  "title": "Fuzzy rule base",
+  "description": "A Mamdani fuzzy system as data: input and output variables with linguistic terms, and IF-THEN rules. Ranges are in engineering units.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "inputs", "outputs", "rules"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "inputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/variable"}},
+    "outputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/variable"}},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Za-z0-9_]+$"},
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "low", "high", "terms"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "label": {"type": "string"},
+        "unit": {"type": "string"},
+        "tag": {"type": "string", "description": "Dataset tag that feeds this variable (inputs) or is compared with it (outputs)."},
+        "low": {"type": "number"},
+        "high": {"type": "number"},
+        "terms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/term"}}
+      }
+    },
+    "term": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "shape", "params"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "shape": {"enum": ["tri", "trap", "gauss"]},
+        "params": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"type": "number"}}
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "if", "then"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "if": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/clause"}},
+        "operator": {"enum": ["and", "or"], "default": "and"},
+        "then": {"$ref": "#/$defs/clause"},
+        "weight": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+        "enabled": {"type": "boolean", "default": true}
+      }
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variable", "is"],
+      "properties": {
+        "variable": {"$ref": "#/$defs/identifier"},
+        "is": {"$ref": "#/$defs/identifier"}
+      }
+    }
+  }
+}

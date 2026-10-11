@@ -26,6 +26,8 @@ Citations are given from memory and must be verified against the originals befor
 | FOPDT identification: least-squares ARX fit with a scanned integer delay | L. Ljung, "System Identification: Theory for the User", 2nd ed. (1999), textbook method | implemented | `loops/src/crosscut_loops/identification.py` |
 | Fault injection on the read path (freeze, drift, spike, bad quality, dropout) and messy-CSV generator | original construction; fault types follow common historian/sensor failure modes | implemented | `sim/src/crosscut_sim/faults.py`, `connectors/src/crosscut_connectors/messy.py` |
 | Min/max envelope downsampling for trend plots | common practice in time-series viewers; no specific source | implemented | `api/src/crosscut_api/downsample.py` |
+| Mamdani fuzzy inference (min for AND, max for OR, clipped consequents, max aggregation) with centroid defuzzification; triangular, trapezoidal and Gaussian membership functions | L. A. Zadeh, "Fuzzy sets", Information and Control 8 (1965); E. H. Mamdani, S. Assilian, "An experiment in linguistic synthesis with a fuzzy logic controller", Int. J. Man-Machine Studies 7 (1975) (citations to verify); textbook method | implemented | `fuzzy/src/crosscut_fuzzy/inference.py` |
+| Rule bases as data (variables, linguistic terms, IF-THEN rules with weights and switches) and the example mill-feed supervisor | original construction for this project; the example rules and ranges are invented for the simulator, not taken from any plant or product | implemented | `fuzzy/src/crosscut_fuzzy/model.py`, `fuzzy/examples/`, `schemas/fuzzy.schema.json` |
 
 ## Rules
 

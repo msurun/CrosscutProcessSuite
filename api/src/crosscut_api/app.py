@@ -17,6 +17,7 @@ from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.downsample import downsample_minmax
+from crosscut_api.fuzzy_routes import build_fuzzy_router
 
 DEFAULT_MAX_POINTS = 2000
 MAX_POINTS_LIMIT = 100_000
@@ -103,6 +104,8 @@ def create_app(data_root: Path) -> FastAPI:
             ts, values = to_wide(read_dataset(_dataset_dir(root, dataset_id)))
             cache[dataset_id] = (ts.astype(np.int64), values)
         return cache[dataset_id]
+
+    app.include_router(build_fuzzy_router(root, load_wide))
 
     @app.get("/health")
     def health() -> dict[str, str]:

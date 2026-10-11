@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosscut-fuzzy"
+version = "0.0.1"
+description = "Mamdani fuzzy inference with rules as data for the Crosscut Process Suite"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["numpy>=1.26"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

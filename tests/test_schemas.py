@@ -94,6 +94,10 @@ def validator(name: str) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+FUZZY_EXAMPLE = Path(__file__).resolve().parents[1] / "fuzzy/examples/mill_feed_supervisor.json"
+FUZZY_DOC: dict[str, Any] = json.loads(FUZZY_EXAMPLE.read_text("utf8"))
+
+
 def mutated(doc: dict[str, Any], path: list[str | int], value: Any) -> dict[str, Any]:
     """Return a deep copy of doc with the value at path replaced (or deleted if value is a
     sentinel string "__delete__")."""
@@ -113,6 +117,7 @@ SCHEMA_FILES = [
     "dataset.schema.json",
     "project.schema.json",
     "artifact-manifest.schema.json",
+    "fuzzy.schema.json",
 ]
 
 
@@ -133,6 +138,7 @@ def test_schema_metadata(name: str) -> None:
         ("dataset.schema.json", DATASET_DOC),
         ("project.schema.json", PROJECT_DOC),
         ("artifact-manifest.schema.json", MANIFEST_DOC),
+        ("fuzzy.schema.json", FUZZY_DOC),
     ],
 )
 def test_valid_documents(name: str, doc: dict[str, Any]) -> None:
@@ -169,6 +175,18 @@ PROJECT_INVALID = [
     mutated(PROJECT_DOC, ["loops", 0, "amplitude_limit"], 0),
 ]
 
+FUZZY_INVALID = [
+    mutated(FUZZY_DOC, ["inputs"], []),
+    mutated(FUZZY_DOC, ["inputs", 0, "terms", 0, "shape"], "bell"),
+    mutated(FUZZY_DOC, ["inputs", 0, "terms", 0, "params"], [1]),
+    mutated(FUZZY_DOC, ["inputs", 0, "id"], "has space"),
+    mutated(FUZZY_DOC, ["rules", 0, "weight"], 1.5),
+    mutated(FUZZY_DOC, ["rules", 0, "operator"], "xor"),
+    mutated(FUZZY_DOC, ["rules", 0, "then"], "__delete__"),
+    mutated(FUZZY_DOC, ["rules", 0, "if"], []),
+    mutated(FUZZY_DOC, ["schema_version"], "1"),
+]
+
 MANIFEST_INVALID = [
     mutated(MANIFEST_DOC, ["payload", 0, "sha256"], "short"),
     mutated(MANIFEST_DOC, ["creator"], "__delete__"),
@@ -192,6 +210,11 @@ def test_dataset_rejects_invalid(doc: dict[str, Any]) -> None:
 @pytest.mark.parametrize("doc", PROJECT_INVALID)
 def test_project_rejects_invalid(doc: dict[str, Any]) -> None:
     assert list(validator("project.schema.json").iter_errors(doc))
+
+
+@pytest.mark.parametrize("doc", FUZZY_INVALID)
+def test_fuzzy_rejects_invalid(doc: dict[str, Any]) -> None:
+    assert list(validator("fuzzy.schema.json").iter_errors(doc))
 
 
 @pytest.mark.parametrize("doc", MANIFEST_INVALID)
