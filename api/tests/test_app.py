@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -141,3 +142,30 @@ def test_loops_endpoint_reports_each_discovered_loop_as_json(loops_client: TestC
 
 def test_loops_endpoint_returns_404_for_an_unknown_dataset(client: TestClient) -> None:
     assert client.get("/datasets/nope/loops").status_code == 404
+
+
+def test_loops_endpoint_uses_the_project_file_with_its_names_and_settings(
+    data_root: Path, client: TestClient
+) -> None:
+    project = {
+        "loops": [
+            {
+                "id": "top",
+                "name": "Top composition",
+                "pv": "sim.wb.top_comp",
+                "sp": "sim.wb.top_comp_sp",
+                "out": "sim.wb.reflux",
+                "mode": "sim.wb.top_comp_mode",
+                "delay_s": 1.0,
+                "ultimate_period_s": 6.0,
+            }
+        ]
+    }
+    project_file = data_root / DATASET / "project.json"
+    project_file.write_text(json.dumps(project))
+    try:
+        loops = client.get(f"/datasets/{DATASET}/loops").json()["loops"]
+    finally:
+        project_file.unlink()
+    assert [loop["name"] for loop in loops] == ["Top composition"]
+    assert loops[0]["out"] == "sim.wb.reflux"

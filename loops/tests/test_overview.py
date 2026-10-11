@@ -297,3 +297,13 @@ def test_finding_percentages_are_whole_numbers():
     report = make_report(classification="saturated", saturation_fraction=0.3611)
     saturated = [f for f in findings_of(report, make_settings()) if f.code == "saturated"]
     assert saturated[0].params == {"percent": 36.0}
+
+
+def test_stiction_is_not_reported_when_saturation_explains_the_cycle():
+    report = make_report(
+        stiction_verdict="stiction",
+        oscillation_period_s=600.0,
+        classification="saturated",
+        saturation_fraction=0.4,
+    )
+    assert "stiction" not in [f.code for f in findings_of(report, make_settings())]

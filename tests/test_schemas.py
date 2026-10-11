@@ -165,6 +165,8 @@ PROJECT_INVALID = [
     mutated(PROJECT_DOC, ["loops", 0, "pv"], "__delete__"),
     mutated(PROJECT_DOC, ["tags_file"], "__delete__"),  # neither tags nor tags_file left
     mutated(PROJECT_DOC, ["schema_version"], "x"),
+    mutated(PROJECT_DOC, ["loops", 0, "delay_s"], -5),
+    mutated(PROJECT_DOC, ["loops", 0, "amplitude_limit"], 0),
 ]
 
 MANIFEST_INVALID = [
@@ -195,6 +197,13 @@ def test_project_rejects_invalid(doc: dict[str, Any]) -> None:
 @pytest.mark.parametrize("doc", MANIFEST_INVALID)
 def test_manifest_rejects_invalid(doc: dict[str, Any]) -> None:
     assert list(validator("artifact-manifest.schema.json").iter_errors(doc))
+
+
+def test_project_accepts_per_loop_settings() -> None:
+    doc = copy.deepcopy(PROJECT_DOC)
+    settings = {"name": "Top composition", "delay_s": 1.0, "ultimate_period_s": 6.0}
+    doc["loops"][0].update(settings, amplitude_limit=0.5)
+    assert not list(validator("project.schema.json").iter_errors(doc))
 
 
 def test_project_inline_catalog() -> None:

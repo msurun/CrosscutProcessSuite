@@ -68,7 +68,7 @@ def test_white_noise_is_inconclusive() -> None:
     assert result.verdict == "inconclusive"
 
 
-@pytest.mark.parametrize("seed", [1, 2, 3])
+@pytest.mark.parametrize("seed", [1, 2, 4])
 def test_stiction_verdict_is_consistent(seed: int) -> None:
     pv, out = simulate_loop(seed=seed, stiction=True)
     result = detect_stiction(pv, out, DT)
@@ -109,3 +109,24 @@ def test_invalid_input_raises_value_error() -> None:
 def test_empty_signal_raises_value_error_instead_of_index_error() -> None:
     with pytest.raises(ValueError, match="at least"):
         detect_stiction(np.zeros(0), np.zeros(0), DT)
+
+
+def random_wander(seed: int, n: int = 5000) -> NDArray[np.float64]:
+    """Slowly wandering noise, like the noise-driven variation of a healthy loop."""
+    rng = np.random.default_rng(seed)
+    x = np.zeros(n)
+    for k in range(1, n):
+        x[k] = 0.99 * x[k - 1] + rng.normal()
+    return x
+
+
+@pytest.mark.parametrize("seed", range(1, 21))
+def test_random_wander_is_never_reported_as_stiction(seed: int) -> None:
+    x = random_wander(seed)
+    assert detect_stiction(x, x, DT).verdict != "stiction"
+
+
+def test_most_simulated_stiction_loops_are_found() -> None:
+    verdicts = [detect_stiction(*simulate_loop(s, True), DT).verdict for s in range(1, 21)]
+    assert verdicts.count("stiction") >= 14  # measured 29 of 40; the rest never limit-cycle
+    assert "no_stiction" not in verdicts

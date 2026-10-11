@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
-from crosscut_loops.overview import analyze_dataset, discover_loops
+from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
+from crosscut_loops.project_loops import loops_from_project
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import FastAPI, HTTPException, Query
 
@@ -17,6 +18,7 @@ from crosscut_api.downsample import downsample_minmax
 DEFAULT_MAX_POINTS = 2000
 MAX_POINTS_LIMIT = 100_000
 NS_PER_SECOND = 1e9
+PROJECT_FILE = "project.json"  # explicit loop definitions placed next to a dataset
 WideTable = tuple[np.ndarray, dict[str, np.ndarray]]
 
 
@@ -49,6 +51,14 @@ def _summary(document: dict[str, Any]) -> dict[str, Any]:
 def _json_floats(values: np.ndarray) -> list[float | None]:
     """Convert to a JSON-safe list: NaN has no JSON representation, so it becomes null."""
     return [None if math.isnan(x) else x for x in values.tolist()]
+
+
+def _loops_of(dataset_dir: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
+    """Loops from the dataset's ``project.json`` when it exists, else found by naming convention."""
+    project_path = dataset_dir / PROJECT_FILE
+    if not project_path.exists():
+        return discover_loops(tags)
+    return loops_from_project(_read_json(project_path), tags)
 
 
 def _window(
@@ -120,10 +130,12 @@ def create_app(data_root: Path) -> FastAPI:
 
     @app.get("/datasets/{dataset_id}/loops")
     def get_loops(dataset_id: str) -> dict[str, Any]:
-        tags = _read_json(_dataset_dir(root, dataset_id) / "tags.json")["tags"]
+        """Analyse every control loop of the dataset (health, findings, key numbers)."""
+        dataset_dir = _dataset_dir(root, dataset_id)
+        tags = _read_json(dataset_dir / "tags.json")["tags"]
         ts, values = load_wide(dataset_id)
         t_s = (ts - ts[0]) / NS_PER_SECOND
-        loops = analyze_dataset(t_s, values, discover_loops(tags))
+        loops = analyze_dataset(t_s, values, _loops_of(dataset_dir, tags))
         return {"dataset_id": dataset_id, "loops": loops}
 
     return app

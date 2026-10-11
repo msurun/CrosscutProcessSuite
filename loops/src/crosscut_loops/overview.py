@@ -66,6 +66,7 @@ WARNING_LEVEL = "warning"
 OK_LEVEL = "ok"
 
 MANUAL_CLASSIFICATION = "manual"
+SATURATED_CLASSIFICATION = "saturated"
 STICTION_VERDICT = "stiction"
 
 # --- Dataset report layout --------------------------------------------------
@@ -85,6 +86,9 @@ class LoopTags:
     unit: str
     eng_min: float | None
     eng_max: float | None
+    delay_s: float | None = None  # per-loop knowledge from the project file; None = use the default
+    ultimate_period_s: float | None = None
+    amplitude_limit: float | None = None
 
 
 @dataclass(frozen=True)
@@ -196,12 +200,16 @@ def _percent(fraction: float) -> float:
 
 
 def _stiction_suspected(report: LoopReport) -> bool:
-    """Stiction counts only together with a sustained oscillation (a limit cycle).
+    """Stiction counts only with a sustained oscillation and without saturation.
 
-    The THD test alone also fires on noise-driven variation (seen on every loop of the simulated
-    mill circuit), so the overview requires the oscillation detector to agree before an alarm.
+    A valve cycling between its stops makes a square PV cycle that looks like stiction, but the
+    saturation finding already explains it. The oscillation detector must agree as a second opinion.
     """
-    return report.stiction_verdict == STICTION_VERDICT and report.oscillation_period_s is not None
+    return (
+        report.stiction_verdict == STICTION_VERDICT
+        and report.oscillation_period_s is not None
+        and report.classification != SATURATED_CLASSIFICATION
+    )
 
 
 def _stiction_finding(report: LoopReport) -> Finding | None:
@@ -302,7 +310,7 @@ def _amplitude_limit(eng_min: float | None, eng_max: float | None) -> float:
 
 
 def default_settings(loop: LoopTags) -> LoopSettings:
-    """Starting settings for a loop we know nothing about beyond its tags.
+    """Settings of a loop: the project-file values where given, otherwise placeholders.
 
     Args:
         loop: the loop to build settings for.
@@ -312,12 +320,19 @@ def default_settings(loop: LoopTags) -> LoopSettings:
         the engineering range is unknown.
     """
     return LoopSettings(
-        delay_s=DELAY_S,
-        ultimate_period_s=ULTIMATE_PERIOD_S,
-        amplitude_limit=_amplitude_limit(loop.eng_min, loop.eng_max),
+        delay_s=_first_given(loop.delay_s, DELAY_S),
+        ultimate_period_s=_first_given(loop.ultimate_period_s, ULTIMATE_PERIOD_S),
+        amplitude_limit=_first_given(
+            loop.amplitude_limit, _amplitude_limit(loop.eng_min, loop.eng_max)
+        ),
         out_low=OUT_LOW,
         out_high=OUT_HIGH,
     )
+
+
+def _first_given(value: float | None, fallback: float) -> float:
+    """The per-loop value from the project file, or the fallback when it was not given."""
+    return fallback if value is None else value
 
 
 def _optional_float(value: float) -> float | None:

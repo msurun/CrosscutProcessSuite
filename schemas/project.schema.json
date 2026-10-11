@@ -61,6 +61,26 @@
           },
           "mode": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name; the id is used when absent."
+          },
+          "delay_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Process dead time in seconds (sets the Harris benchmark)."
+          },
+          "ultimate_period_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Period of the loop's natural oscillation in seconds."
+          },
+          "amplitude_limit": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Acceptable oscillation amplitude in PV units."
           }
         }
       }
