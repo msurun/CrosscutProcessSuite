@@ -44,12 +44,35 @@ class FaultyPlant:
     """Wrapper that corrupts what a client reads from a plant."""
 
     def __init__(self, plant: Plant, faults: list[Fault]) -> None:
+        """Wire a simulator to a plant and its faults, failing fast on bad fault tags.
+
+        Stores the plant and faults for the simulation run and initialises the
+        per-run state used by ``simulate``:
+
+        * ``_rng`` is the random number generator, created lazily so that a
+          caller can seed it before the first draw (None means "not seeded yet").
+        * ``_freeze_memory`` remembers the value a tag held when it was frozen,
+          so it can be restored when the fault is lifted.
+        * ``_snapshot`` holds the pre-fault state of tags for rollback.
+
+        Raises:
+            KeyError: if a fault references a tag id that the plant does not
+                define; the message names the offending tag id.
+        """
         self._plant = plant
         self._faults = faults
         self._rng: np.random.Generator | None = None
+
+        # tag_id -> (frozen value, timestamp), both recalled on unfreeze.
+        # The timestamp is a simulation time in seconds since the run started.
         self._freeze_memory: dict[str, tuple[float, int]] = {}
+
+        # tag_id -> (value, timestamp) captured just before a fault is applied,
+        # used to restore the tag when the fault ends.
         self._snapshot: dict[str, tuple[float, int]] = {}
 
+        # Validate every fault up front so a typo surfaces here, at wiring time,
+        # rather than midway through a simulation run.
         for fault in faults:
             if fault.tag_id not in plant.tags:
                 raise KeyError(f"unknown tag: {fault.tag_id}")
@@ -65,10 +88,27 @@ class FaultyPlant:
         return self._plant.time_s
 
     def reset(self, seed: int, scenario: Scenario | None = None) -> None:
-        """Reset the wrapped plant and the fault RNG."""
+        """Reset the wrapped plant and the fault RNG.
+
+        Called at the start of every episode. The fault RNG is seeded from
+        ``seed`` so that a run is fully reproducible: same seed, same faults.
+        """
+        # Hand the episode seed to the plant first, so plant state and fault
+        # decisions are driven by the same episode identity.
         self._plant.reset(seed, scenario)
+
+        # Separate RNG for the fault injector, seeded from the episode seed and
+        # the constant 0xFA17 (a fixed tag, so the fault stream differs from any
+        # other RNG the plant may build from the same episode seed).
+        # default_rng accepts a list of integers and hashes them into one seed.
         self._rng = np.random.default_rng([seed, 0xFA17])
+
+        # Cooldown bookkeeping, keyed per fault: maps fault -> steps remaining
+        # until that fault may trigger again. Empty means every fault is armed.
         self._freeze_memory.clear()
+
+        # Capture the freshly reset plant state, then inject faults so that the
+        # episode's very first observation already reflects the fault draw.
         self._snapshot = self._plant.snapshot()
         self._apply_faults()
 
@@ -99,25 +139,63 @@ class FaultyPlant:
                 self._apply_fault(fault)
 
     def _apply_fault(self, fault: Fault) -> None:
-        """Apply a single fault to the snapshot."""
+        """Apply a single fault to the snapshot.
+
+        The snapshot maps each tag_id (the unique name of a sensor or device reading) to a
+        (value, quality) pair, and it is the model's current picture of the plant, which the
+        simulation evolves by writing corrupted readings back into it.
+
+        This method is how one fault is injected: when a fault names a tag that is not present
+        it is silently ignored, otherwise the tagged reading is replaced by its corrupted form.
+        It mutates the snapshot in place and returns nothing.
+        """
+        # A fault can reference a tag the model does not have (for example a removed sensor),
+        # so treating a missing tag as "nothing to do" keeps a stale fault from being fatal.
         if fault.tag_id not in self._snapshot:
             return
 
+        # Unpack the reading into its two parts before corrupting it: `value` is the physical
+        # measurement in the tag's own unit (degrees, bar, cubic metres per hour, ...) and
+        # `quality` says how much the reading can be trusted, not its magnitude.
         value, quality = self._snapshot[fault.tag_id]
+        # `_corrupt` decides the corrupted reading; the result is written back under the same
+        # tag, so the snapshot keeps its invariant of exactly one reading per tag_id.
         self._snapshot[fault.tag_id] = self._corrupt(fault, value, quality)
 
     def _corrupt(self, fault: Fault, value: float, quality: int) -> tuple[float, int]:
-        """Return the faulted ``(value, quality)`` pair for the kind of ``fault``."""
+        """Return the faulted ``(value, quality)`` pair for the kind of ``fault``.
+
+        This is the dispatcher of the sensor fault-injection model: a real sensor
+        reports a measured ``value`` together with a quality code, and each
+        ``fault`` alters one of the two. Faults that distort the measurement keep
+        the quality untouched, faults that only damage the quality keep the value
+        untouched, and ``dropout`` (the sensor stops answering) affects both.
+        Unknown kinds are not an error: the input is passed through unchanged, so
+        a misspelled kind degrades to "no fault" instead of crashing the stream.
+        """
+        # "freeze": the sensor keeps reporting whatever it was reading when the
+        # fault started. Only the freeze helper knows that stuck value, so it
+        # owns both the value and the quality.
         if fault.kind == "freeze":
             return self._apply_freeze(fault, value, quality)
+        # "drift": a slow bias is added to the value; the reading is still
+        # considered trustworthy, so the quality code is left as it was.
         if fault.kind == "drift":
             return self._apply_drift(fault, value), quality
+        # "spike": one large outlier is added on top of the value; quality is
+        # again preserved because a spike is a momentary value error.
         if fault.kind == "spike":
             return self._apply_spike(fault, value), quality
+        # "bad_quality": the number is still plausible but must not be trusted,
+        # so only the quality code is downgraded (e.g. to "uncertain" / "bad").
         if fault.kind == "bad_quality":
             return value, self._apply_bad_quality(quality)
+        # "dropout": the sensor sends nothing at all. The helper returns the
+        # conventional (value, quality) pair for a missing sample, hence the
+        # whole result replaces the pair instead of one of its members.
         if fault.kind == "dropout":
             return self._apply_dropout()
+        # Any unrecognised kind: hand the reading back exactly as received.
         return value, quality
 
     def _apply_freeze(self, fault: Fault, value: float, quality: int) -> tuple[float, int]:
@@ -131,10 +209,31 @@ class FaultyPlant:
         return value + fault.magnitude * (self.time_s - fault.start_s) / SECONDS_PER_HOUR
 
     def _apply_spike(self, fault: Fault, value: float) -> float:
-        """Apply the spike fault."""
+        """Apply the spike fault.
+
+        A spike is an occasional, large, symmetric perturbation of a single sample:
+        with probability ``fault.probability`` we add or subtract ``fault.magnitude``,
+        otherwise the sample passes through untouched.
+
+        Args:
+            fault: The spike definition; ``probability`` is a dimensionless
+                fraction in [0, 1] and ``magnitude`` is expressed in the
+                same unit as ``value``.
+            value: The clean sample, in whatever unit the caller uses.
+
+        Returns:
+            The possibly perturbed sample, in the unit of ``value``.
+
+        Raises:
+            RuntimeError: If the random number generator was never initialized.
+        """
         if self._rng is None:
             raise RuntimeError("RNG not initialized")
+        # One uniform draw from [0, 1) decides whether this sample is hit at all:
+        # P(hit) = fault.probability, so a value of 0.02 means roughly 1 in 50 samples.
         if self._rng.random() < fault.probability:
+            # Second independent draw picks the direction; 0.5 gives equal odds of
+            # an upward (+1) and a downward (-1) spike, keeping the distortion unbiased.
             sign = 1.0 if self._rng.random() < 0.5 else -1.0
             return value + fault.magnitude * sign
         return value

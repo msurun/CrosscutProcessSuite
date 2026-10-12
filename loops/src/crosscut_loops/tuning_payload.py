@@ -54,21 +54,46 @@ JsonSeries = list[float] | list[float | None]
 def tuning_payload(
     loop: LoopTags, t_s: np.ndarray, columns: Mapping[str, np.ndarray], request: TuningRequest
 ) -> dict[str, object]:
-    """Everything the tuning screen needs for ``loop`` on the requested window."""
+    """Everything the tuning screen needs for ``loop`` on the requested window.
+
+    ``t_s`` is the shared time axis in seconds, monotonically increasing, one entry per sample.
+    ``columns`` maps a signal name to its sample array on that same axis: ``columns[loop.mode]``
+    is the controller mode code per sample, ``columns[loop.pv]`` the process variable (the
+    measured output) and ``columns[loop.out]`` the controller output (the manipulated variable).
+    The returned dict is the JSON-ready payload the tuning screen renders; keys are added in
+    blocks so each group of fields stays easy to read.
+
+    Returns:
+        A dict with the loop name, the window metadata, the robustness verdict, the blocked-code
+        explanation, the markdown notes, and the fitted model description.
+    """
+    # Search candidate windows on the controller output (the excitation signal) and the process
+    # variable (the response); MIN_WINDOW_S is the shortest window worth fitting, in seconds.
     windows = suggest_windows(t_s, columns[loop.mode], columns[loop.out], MIN_WINDOW_S)
+    # Pick the one window to show, either the caller's explicit start/end or the best suggestion.
     start_s, end_s = _chosen_window(t_s, windows, request)
+    # Boolean mask selecting the samples inside [start_s, end_s]; kept as a mask so all columns
+    # stay aligned sample by sample.
     keep = (t_s >= start_s) & (t_s <= end_s)
+    # u = controller output (manipulated variable), y = process variable (measured response).
     u, y = columns[loop.out][keep], columns[loop.pv][keep]
+    # Sampling period in seconds, taken as the median of the time differences so a single
+    # irregular timestamp (a gap or a duplicate) does not distort it.
     dt_s = float(np.median(np.diff(t_s[keep])))
+    # Bundle the aligned window for the fitting and reporting routines.
     window = WindowData(t_s=t_s[keep], u=u, y=y, dt_s=dt_s)
     report = _report_for(loop, window, request)
+    # Fraction of samples in the window where the controller was in manual mode, in [0, 1]:
+    # a high share means the operator drove the loop, so the data may not reflect the tuning.
     manual_share = float(np.mean(columns[loop.mode][keep] == MANUAL_MODE))
     return {
         "loop": loop.name,
+        # Window-level fields: the suggested windows, the chosen span and the manual share.
         **_window_parts(windows, start_s, end_s, manual_share),
         "robustness": report.robustness,
         "blocked_code": _blocked_code(report),
         "markdown": render_markdown(report),
+        # Model-level fields: the fitted model summary and its quality metrics.
         **_model_parts(report, window),
     }
 
@@ -85,8 +110,21 @@ def _window_parts(
 
 
 def _report_for(loop: LoopTags, window: WindowData, request: TuningRequest) -> TuningReport:
-    """Identification and tuning rules for one window; suspected stiction goes in as a verdict."""
+    """Identify the process from one window's time series and compute tuning parameters.
+
+    TuningReport holds the identified model plus the PID settings derived from it,
+    so one call does both steps. ``stiction`` (valve sticking, a mechanical fault that
+    fakes oscillation) is passed on as evidence the downstream rules use to avoid
+    tuning for what is really a hardware problem.
+
+    Returns the veto-free report; raises whatever build_tuning_report raises on
+    too-few samples or non-excitable data.
+    """
+    # "None" means stiction was not suspected, "stiction" means it was; the report
+    # builder switches on the string, so we never invent a value, we pass a verdict or nothing.
     stiction = "stiction" if request.stiction_suspected else None
+    # u: control output (0-100 %), y: measured process variable (engineering units),
+    # dt_s: sample interval (s). build_tuning_report needs them plus the two user settings.
     return build_tuning_report(
         loop.name,
         window.u,
@@ -100,9 +138,23 @@ def _report_for(loop: LoopTags, window: WindowData, request: TuningRequest) -> T
 def _chosen_window(
     t_s: np.ndarray, windows: list[tuple[float, float]], request: TuningRequest
 ) -> tuple[float, float]:
-    """The user's window, else the best suggestion, else the whole record."""
+    """Pick the time window the tuning should look at.
+
+    `t_s` is the time axis of the record, in seconds, as a 1-D numpy array sorted from
+    oldest to newest. `windows` is a list of candidate intervals, each `(start_s, end_s)`
+    in seconds, ordered from best to worst by the caller (so index 0 is the top
+    suggestion); it may be empty when no candidate was found.
+
+    Returns `(start_s, end_s)` in seconds. Never raises: a missing user request and an
+    empty candidate list simply fall back to the whole record.
+    """
+    # The user is the boss: when they gave both bounds we take them verbatim and ignore
+    # every suggestion, even a better-looking one.
     if request.start_s is not None and request.end_s is not None:
         return request.start_s, request.end_s
+    # No full user request: take the caller's first (best-ranked) suggestion. If there is
+    # none, span the whole record from its first to its last timestamp. `float` guards
+    # against numpy scalars leaking out of this function.
     return windows[0] if windows else (float(t_s[0]), float(t_s[-1]))
 
 
@@ -114,17 +166,41 @@ def _blocked_code(report: TuningReport) -> str | None:
 
 
 def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:
-    """Model, fit check, settings and step preview; all None when no model was identified."""
+    """Model, fit check, settings and step preview; all None when no model was identified.
+
+    `WindowData` holds one experiment: `t_s` (seconds), `u` (input), `y` (measured output)
+    and `dt_s` (sample time in seconds). These arrays are what the identification was
+    fitted on and what the fit check replays the model over.
+    Returning a dict with fixed keys keeps the caller simple: it can render the payload
+    even for a failed run, instead of branching on missing attributes.
+    """
     if report.model is None or report.simc is None or report.amigo is None:
         return {"model": None, "fit": None, "check": None, "settings": None, "dcs_forms": {}}
+
+    # `fit_check` simulates the identified model on the same input `u` and sampling
+    # interval `dt_s` used for identification and compares it with the measured `y`.
+    # `check` holds the scalar quality metrics; `simulated` is the model's response
+    # over the same time base, so it can be drawn next to the real measurement.
     check, simulated = fit_check(report.model, window.u, window.y, window.dt_s)
+
+    # A step response of the closed loop (controller `simc` + model) is the operator's
+    # preview of how the loop would react; `step` carries three aligned arrays.
     step = closed_loop_step(report.model, report.simc)
+
     return {
+        # `_plain` converts model objects (with numpy/array internals) to plain,
+        # JSON-serialisable values for the front end.
         "model": _plain(report.model),
+        # `r_squared` is the coefficient of determination, dimensionless, 1.0 = perfect.
+        # Rounded to 3 decimals because more digits carry no meaning for the operator.
         "fit": {"verdict": check.verdict, "r_squared": round(check.r_squared, 3)},
         "check": _comparison(window.t_s, window.y, simulated),
+        # The two controller settings that were tried, also reduced to plain values.
         "settings": {"simc": _plain(report.simc), "amigo": _plain(report.amigo)},
+        # Alternative discrete controller forms considered, keyed by form name.
         "dcs_forms": report.dcs_forms,
+        # Numpy arrays are not JSON types; `tolist()` gives plain Python lists.
+        # `t_s` is in seconds, `pv` is the process variable and `out` the controller output.
         "step": {"t_s": step.t_s.tolist(), "pv": step.pv.tolist(), "out": step.out.tolist()},
     }
 
@@ -137,9 +213,25 @@ def _plain(value: object) -> dict[str, float]:
 def _comparison(
     t_s: np.ndarray, measured: np.ndarray, simulated: np.ndarray
 ) -> dict[str, JsonSeries]:
-    """Measured and model PV on a common, thinned time axis."""
+    """Measured and model PV on a common, thinned time axis.
+
+    PV means photovoltaic: `measured` is what the plant really produced and
+    `simulated` is what the model predicts, both sampled at the same instants.
+    Building a plant-size report would embed every sample, so the curves are
+    downsampled here to at most MAX_CHECK_POINTS points each.
+
+    Returns a JSON-serialisable mapping, not arrays: the caller writes it to a
+    report file, where numpy scalars would not survive the encoder.
+    """
+    # Indices of the samples to keep. np.linspace walks the whole array from
+    # the first index (0) to the last (len(t_s) - 1) in equal steps, so the
+    # thinned curve preserves the shape of the original; astype(int) turns the
+    # floating fractions into valid positions. When the series is shorter than
+    # MAX_CHECK_POINTS nothing is dropped and every index is returned.
     keep = np.linspace(0, len(t_s) - 1, min(MAX_CHECK_POINTS, len(t_s))).astype(int)
     return {
+        # Same `keep` positions for all three series, so row i of `measured`
+        # and row i of `simulated` refer to the same instant t_s[i].
         "t_s": t_s[keep].tolist(),
         "measured": _json_list(measured[keep]),
         "simulated": _json_list(simulated[keep]),

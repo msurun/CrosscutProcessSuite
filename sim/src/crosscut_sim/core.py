@@ -40,7 +40,21 @@ class TagSpec:
     sample_period_s: float = 1.0
 
     def to_dict(self, driver: str = "sim") -> dict[str, Any]:
-        """Return the tag as a schema-conformant dict; ``driver`` names the data source."""
+        """Return the tag as a schema-conformant dict; ``driver`` names the data source.
+
+        The dict mirrors the tag schema used by the configuration files and the
+        API: ``id``/``name`` carry the tag path, ``source`` tells the poller where
+        to read the value, and the optional engineering-range keys are only
+        included when the tag actually declares a range.
+
+        Returns:
+            A new dict; mutating it does not change the tag object.
+        """
+        # The required schema keys are always present. ``id`` doubles as the
+        # ``name`` and as the driver ``address`` because a tag is addressed by
+        # its full path (e.g. ``line1.tank.level``).
+        # ``unit`` is the physical unit of the value (e.g. ``"degC"``, ``"bar"``);
+        # ``sample_period_s`` is the poll interval in seconds.
         doc: dict[str, Any] = {
             "id": self.id,
             "name": self.id,
@@ -52,6 +66,9 @@ class TagSpec:
             "sample_period_s": self.sample_period_s,
             "writable": self.writable,
         }
+        # ``eng_min`` and ``eng_max`` (the engineering range, in ``unit``) are
+        # optional: they are omitted rather than emitted as ``null`` so consumers
+        # can distinguish "no range declared" from "range bound is zero".
         if self.eng_min is not None:
             doc["eng_min"] = self.eng_min
         if self.eng_max is not None:
@@ -139,23 +156,76 @@ class Fopdt:
     def __init__(
         self, gain: float, tau_s: float, delay_s: float, dt_s: float, y0: float = 0.0
     ) -> None:
+        """Set up a discretised first-order lag (exponential) filter with dead time.
+
+        Models a plant whose continuous transfer function is
+        ``G(s) = gain / (1 + tau_s * s)`` followed by a pure transport delay
+        of ``delay_s`` seconds, sampled every ``dt_s`` seconds.
+
+        Args:
+            gain: Steady-state ratio of output change to input change.
+            tau_s: Time constant of the lag, in seconds; time to reach 63.2%
+                (``1 - 1/e``) of a step response.
+            delay_s: Dead time before the output reacts, in seconds.
+            dt_s: Sampling interval, in seconds.
+            y0: Initial filter output, in the same unit as the output signal.
+
+        Raises:
+            ValueError: If ``tau_s`` or ``dt_s`` is not positive, or ``delay_s``
+                is negative.
+        """
         if tau_s <= 0 or dt_s <= 0 or delay_s < 0:
             raise ValueError("tau_s and dt_s must be positive and delay_s non-negative")
         self.gain = gain
+
+        # Discrete pole of the lag: sampling ``exp(-t/tau)`` at t = dt_s gives
+        # the per-step decay factor, so the recurrence is
+        # ``y[k] = a * y[k-1] + (1 - a) * gain * u[k]``.
         self._a = math.exp(-dt_s / tau_s)
+
+        # Dead time quantised to a whole number of samples; a delay shorter
+        # than one step is dropped because it is not representable.
         delay_steps = round(delay_s / dt_s)
+
+        # Ring buffer holding the last ``delay_steps`` inputs. ``maxlen`` makes
+        # the deque evict the oldest value, so appending one sample per step
+        # leaves the sample that is ``delay_steps`` steps old at the left end.
+        # ``None`` when there is no delay, so the hot path can skip the buffer.
         self._buf: deque[float] | None = (
             deque([0.0] * delay_steps, maxlen=delay_steps) if delay_steps > 0 else None
         )
+
+        # Current filter output, kept between calls so ``step`` is stateful.
         self.value = y0
 
     def update(self, u: float) -> float:
-        """Consume the input ``u`` of this step and return the output of the next step."""
+        """Consume the input ``u`` of this step and return the output of the next step.
+
+        The filter is a first-order exponential moving average (EMA), also called a
+        first-order low-pass filter. In plain words it keeps a running weighted
+        average of past inputs, giving more weight to recent ones, so that abrupt
+        changes are smoothed.
+
+        ``self._a`` is the smoothing factor, unitless, in [0, 1): it is the fraction
+        of the previous output that survives each step. ``self.gain`` is the unitless
+        steady-state gain: after many constant inputs the output tends to
+        ``gain * u``, not ``u``.
+
+        ``self._buf`` is a fixed-length FIFO ring of the last inputs, used to delay
+        the input by ``len(self._buf)`` steps (dead time). When it is ``None`` the
+        filter has no delay and consumes itself.
+
+        Returns the filtered output at this step, in the same unit as ``u``.
+        """
         if self._buf is None:
             u_delayed = u
         else:
+            # Shift the window: drop the oldest sample and store the new one, so the
+            # value read is exactly the input from len(self._buf) steps ago.
             u_delayed = self._buf[0]
             self._buf.append(u)
+        # Weighted recurrence of the EMA: new = a * old + (1 - a) * current input.
+        # (1 - a) is the weight on the fresh sample; ``gain`` rescales the input.
         self.value = self._a * self.value + self.gain * (1.0 - self._a) * u_delayed
         return self.value
 

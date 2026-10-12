@@ -1,6 +1,13 @@
-// First-order lag with dead time (FOPDT), exactly discretized for a piecewise-constant input:
+// First-order lag with dead time (FOPDT): the simplest useful model of an industrial process.
 //   tau * dy/dt + y = gain * u(t - delay)
-// Mirrors crosscut_sim.core.Fopdt so that both implementations can be compared sample by sample.
+// - gain:     by how much the output settles per unit of input (steady-state output = gain * input)
+// - tau_s:    time constant, the time to cover about 63 % of the way to the new steady state
+// - delay_s:  dead time, the time before the output starts to react at all
+// All signals are deviations from the operating point, so a plant at rest has input = output = 0.
+//
+// The class is discretized exactly for an input that is constant between two calls of update().
+// It mirrors crosscut_sim.core.Fopdt so that both implementations can be compared sample by sample
+// (core/tests/test_python_parity.py).
 #pragma once
 
 #include <cstddef>

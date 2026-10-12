@@ -54,25 +54,46 @@ def format_version_id(moment: datetime) -> str:
 
 
 def list_versions(system_id: str, user_dir: Path) -> list[str]:
-    """Version ids of ``system_id``, newest first; empty when it has no history yet."""
+    """Version ids of ``system_id``, newest first; empty when it has no history yet.
+
+    A "system" is a saved model; every save writes one snapshot file named
+    ``<version_id>.json`` into that system's history directory. Version ids are
+    timestamps formatted so that lexicographic order equals chronological order,
+    which is why a plain string sort is enough to get newest first.
+    """
     check_id(system_id)
+    # One history directory per system; ``user_dir`` is the root of the user's workspace.
     directory = _history_dir(system_id, user_dir)
     if not directory.exists():
         return []
+    # ``path.stem`` drops the ".json" suffix, leaving just the version id.
+    # Sorting as text, reversed, is newest first because ids sort chronologically.
     return sorted((path.stem for path in directory.glob("*.json")), reverse=True)
 
 
 def load_version(system_id: str, version_id: str, user_dir: Path) -> dict[str, Any]:
     """The saved document of one version.
 
+    A "system" is a named workspace; each system owns a history directory of versions,
+    one JSON file per version, named after the version id.
+
     Raises:
         FileNotFoundError: when that version does not exist.
     """
     check_id(system_id)
     check_version_id(version_id)
+
+    # History is stored per system inside the user's directory, so the same version id
+    # can exist in two systems without clashing.
     path = _history_dir(system_id, user_dir) / f"{version_id}.json"
+
+    # Checked before reading so the caller gets a clear FileNotFoundError naming the
+    # version, instead of whatever low-level error read_text would raise.
     if not path.exists():
         raise FileNotFoundError(version_id)
+
+    # The document is an arbitrary user-defined structure; json.loads gives plain
+    # dicts, lists and scalars, which is why the return type is bare Any.
     document: dict[str, Any] = json.loads(path.read_text(encoding="utf8"))
     return document
 
@@ -80,9 +101,22 @@ def load_version(system_id: str, version_id: str, user_dir: Path) -> dict[str, A
 def check_version_id(version_id: str) -> str:
     """The version id when it looks like one.
 
+    A version id names a stored snapshot of a model. It must be a short,
+    single-segment token, never a filesystem path, because callers use it to
+    build paths and query strings: letters, digits, dots, dashes, underscores.
+
+    Args:
+        version_id: The candidate id, as typed by the user or read from a config.
+
+    Returns:
+        The same string, unchanged, once it is known to be well formed.
+
     Raises:
-        FuzzyModelError: for anything that could be a path or is not a well-formed id.
+        FuzzyModelError: for anything that could be a path or is not a
+            well-formed id (empty, contains a slash, has unexpected characters).
     """
+    # Anchored-match ("fullmatch" semantics via ^...$ inside the pattern), so a
+    # value that merely contains a valid id somewhere in the middle is rejected.
     if not VERSION_ID_PATTERN.match(version_id):
         raise FuzzyModelError(f"invalid version id: {version_id!r}")
     return version_id
@@ -91,10 +125,24 @@ def check_version_id(version_id: str) -> str:
 def diff_documents(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Differences between two rule bases, as a list of change dictionaries sorted by code.
 
+    A *rule base* is a fuzzy system: named variables (each split into linguistic
+    terms such as "cold", "warm", "hot") plus the rules that connect them.
+
     Each change is a small dict such as
     ``{"code": "term_added", "variable": "temp", "term": "cold"}``.
+    The "code" field says *what kind* of change happened and doubles as the
+    sort key, so callers can group changes by prefix ("rule_*", "term_*", ...).
     An empty list means the two documents describe the same system.
+
+    Returns:
+        All changes in both directions (old -> new only; this is a directed
+        diff, so a removal in one direction shows up as an addition in the
+        other), sorted by ``_sort_key``.
     """
+    # Two independent kinds of change: the variables block (which holds the
+    # terms inside each variable) and the rules block. Each helper returns a
+    # plain list, and concatenation keeps them in a stable, predictable order
+    # before the final sort.
     changes = _variable_changes(old, new) + _rule_changes(old, new)
     return sorted(changes, key=_sort_key)
 
@@ -111,18 +159,42 @@ def _variables_by_id(document: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _variable_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Range and term differences of every variable present in either document."""
+    """Range and term differences of every variable present in either document.
+
+    A "document" here is a parsed optimisation model: a mapping whose keys name the
+    model parts (variables, constraints, ...) and whose values are the parsed
+    content of that part. The mapping is JSON-like (nested dicts, lists, strings),
+    so `Any` is used for the values. The two documents are two revisions of the
+    same model, and this function describes how the variable part differs.
+
+    Returns a list of change records, one dict per change. Each record has a
+    "code" key whose value tells which change happened:
+      * "variable_added"   - present only in the new document, has "variable"
+      * "variable_removed" - present only in the old document, has "variable"
+      * "variable_retyped" - bounds changed kind (e.g. free -> integer)
+      * "lower_bound_changed" / "upper_bound_changed" - moved numeric bound
+    The last three records are produced by `_sorted_variable_changes` and also
+    carry the old and new values.
+    """
     old_variables = _variables_by_id(old)
     new_variables = _variables_by_id(new)
     changes: list[dict[str, Any]] = []
+
+    # Symmetric difference of the two id sets, so each variable is visited once
+    # whether it is only in the old document, only in the new one, or in both.
     for variable_id in set(old_variables) | set(new_variables):
         before = old_variables.get(variable_id)
         after = new_variables.get(variable_id)
+
+        # A missing entry means the variable was not declared in that revision;
+        # `get` returns None because variable ids never map to None.
         if before is None:
             changes.append({"code": "variable_added", "variable": variable_id})
         elif after is None:
             changes.append({"code": "variable_removed", "variable": variable_id})
         else:
+            # Same variable in both revisions: descends into its range type and
+            # its bounds, and returns one record per differing field.
             changes.extend(_sorted_variable_changes(variable_id, before, after))
     return changes
 
@@ -130,30 +202,73 @@ def _variable_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[di
 def _sorted_variable_changes(
     variable_id: str, before: dict[str, Any], after: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """The changes of one variable that still exists: its range, then its terms."""
+    """The changes of one variable that still exists: its range, then its terms.
+
+    A fuzzy variable is defined by two things: its universe of discourse -- the closed
+    interval [low, high] its membership degree is plotted over -- and its terms (the
+    membership functions such as "cold" or "hot") that partition that universe.
+
+    `before` and `after` are the variable's serialised definitions, taken from two
+    successive versions of the model. Returned is a list of change records, ordered so
+    that the range change (if any) comes first and the term changes follow, because a
+    reader should know the universe before reading about its terms.
+
+    Raises nothing: a missing key falls back to the defaults below, so an older
+    definition that predates a key is still comparable.
+    """
     changes: list[dict[str, Any]] = []
+    # A universe of discourse is the interval over which a term's membership function is
+    # evaluated; low and high are both in the variable's own unit. Defaults describe the
+    # normalised universe [0.0, 1.0] used when a definition omits the bounds.
     old_range = [before.get("low", 0.0), before.get("high", 1.0)]
     new_range = [after.get("low", 0.0), after.get("high", 1.0)]
+    # Compare as whole lists, so that swapping low and high counts as a change even when
+    # the pair of numbers is the same.
     if old_range != new_range:
         changes.append(
             {"code": "range_changed", "variable": variable_id, "old": old_range, "new": new_range}
         )
+    # Terms are the named membership functions of this variable; each one maps a value of
+    # the universe to a membership degree in [0.0, 1.0].
     changes.extend(_term_changes(variable_id, before.get("terms", ()), after.get("terms", ())))
     return changes
 
 
 def _term_changes(variable_id: str, old_terms: Any, new_terms: Any) -> list[dict[str, Any]]:
-    """Added, removed and changed terms of one variable, matched by term name."""
+    """Added, removed and changed terms of one variable, matched by term name.
+
+    A "term" is one named polynomial piece of a Pyomo expression, e.g. the cost term
+    ``3 * x`` (coefficient times power of the variable). Terms are matched between the
+    old and the new version of the model by their name, because that name is the only
+    stable identity: the coefficients and exponents inside them may both change.
+
+    Returns one change dict per added term, per removed term and per term whose
+    shape (coefficient and exponent) differs between the two versions. A term that
+    is identical in both versions produces no dict.
+    """
+    # Index both term lists by name so a lookup by name costs O(1) instead of a
+    # linear scan. Invariant: term names are unique inside one model version, so the
+    # dict has exactly one entry per term and no entry is lost to a collision.
     old_by_name = {term["name"]: term for term in old_terms}
     new_by_name = {term["name"]: term for term in new_terms}
+
+    # Names present on only one side cannot be compared, so they are reported here as
+    # added or removed; the loop below only handles names present on both sides.
     changes = _added_and_removed_terms(variable_id, old_by_name, new_by_name)
+
+    # Names in both versions: same name, but possibly a different coefficient or
+    # exponent. We are only interested in the new terms, because every shared name
+    # appears in new_by_name exactly once.
     for name, term in new_by_name.items():
+        # "name in old_by_name" keeps this to shared names; _shape_of returns the
+        # comparable (coefficient, exponent) pair used as the term's fingerprint.
         if name in old_by_name and _shape_of(old_by_name[name]) != _shape_of(term):
             changes.append(
                 {
                     "code": "term_changed",
                     "variable": variable_id,
                     "term": name,
+                    # Both shapes are kept so the caller can show a before/after diff.
                     "old": _shape_of(old_by_name[name]),
                     "new": _shape_of(term),
                 }
@@ -164,11 +279,21 @@ def _term_changes(variable_id: str, old_terms: Any, new_terms: Any) -> list[dict
 def _added_and_removed_terms(
     variable_id: str, old_by_name: dict[str, Any], new_by_name: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Terms that exist in only one of the two versions of a variable."""
+    """Report the terms (categorical values) that only one version of a variable has.
+
+    A variable is a column; a term is one of the values it can take (for example the
+    categories of a "status" column). Both mappings are keyed by term name, so the
+    comparison is a pair of set differences.
+
+    Returns one change dict per term, with keys "code", "variable" and "term".
+    The order is: all removals first, then all additions.
+    """
     changes: list[dict[str, Any]] = []
+    # Terms present in the old version only: each one is a removal.
     for name in old_by_name:
         if name not in new_by_name:
             changes.append({"code": "term_removed", "variable": variable_id, "term": name})
+    # Terms present in the new version only: each one is an addition.
     for name in new_by_name:
         if name not in old_by_name:
             changes.append({"code": "term_added", "variable": variable_id, "term": name})
@@ -186,11 +311,24 @@ def _rules_by_id(document: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _rule_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Added, removed and changed rules, matched by rule id."""
+    """Added, removed and changed rules, matched by rule id.
+
+    Both mappings are firewall-rule collections (the "before" and "after" states of a policy).
+    Each returned change is a dict describing one rule id: it is present only when the rule was
+    added, removed, or its content differs. A rule that is identical on both sides yields no entry.
+
+    Returns:
+        One dict per added/removed/modified rule, in no particular order (a set is iterated).
+    """
+    # Index each collection by rule id so a rule can be looked up in O(1) instead of scanning.
     old_rules = _rules_by_id(old)
     new_rules = _rules_by_id(new)
     changes: list[dict[str, Any]] = []
+    # Symmetric difference: ids that exist on only one side (added or removed) as well as ids
+    # present on both (possible modification). Identical ids are visited once.
     for rule_id in set(old_rules) | set(new_rules):
+        # .get returns None when the id is absent on that side, which is exactly the signal
+        # _rule_change needs to classify the change; it returns None when nothing changed.
         change = _rule_change(rule_id, old_rules.get(rule_id), new_rules.get(rule_id))
         if change is not None:
             changes.append(change)
@@ -200,20 +338,47 @@ def _rule_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[s
 def _rule_change(
     rule_id: str, before: Mapping[str, Any] | None, after: Mapping[str, Any] | None
 ) -> dict[str, Any] | None:
-    """The change of one rule id: added, removed or changed; None when it is unchanged."""
+    """The change of one rule id: added, removed or changed; None when it is unchanged.
+
+    A "rule" is one entry of a detection policy: `rule_id` names it and the mapping holds its
+    settings (severity, pattern, enabled flag...). Callers pass the two sides of a diff:
+    `before` is the rule as it was configured, `after` is how it is configured now. Either side
+    is `None` when the rule does not exist there, which is how "added" and "removed" are told
+    apart from "changed".
+
+    Returns a dict with at least a "code" key ("rule_added", "rule_removed" or "rule_changed")
+    and the "rule" id; a change also carries the list of differing field names under "fields".
+    Returns None when the rule is present and identical on both sides, so callers can skip it.
+    """
+    # The rule exists only after the change: it was introduced, so no field comparison is needed.
     if before is None:
         return {"code": "rule_added", "rule": rule_id}
+    # The rule exists only before the change: it was dropped, so its fields are irrelevant.
     if after is None:
         return {"code": "rule_removed", "rule": rule_id}
+    # Both sides exist, so the rule survived the change and only some fields may differ.
     changed_fields = _changed_rule_fields(before, after)
+    # An empty list means every field compares equal: nothing to report, hence None.
     if not changed_fields:
         return None
     return {"code": "rule_changed", "rule": rule_id, "fields": changed_fields}
 
 
 def _changed_rule_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[str]:
-    """Names of the rule fields that differ, with missing optional fields read as their default."""
+    """Names of the rule fields that differ, with missing optional fields read as their default.
+
+    A "rule" is one entry of a rule file: it has a required condition ("if"), a required action
+    ("then") and optional settings (OPTIONAL_RULE_FIELDS, e.g. a priority) that may be absent.
+    Comparing two versions of a rule is how the tool decides which rules to re-apply.
+
+    Returns the field names whose value changed between the two versions, in a stable order:
+    "if" and "then" first, then the optional fields as listed in OPTIONAL_RULE_FIELDS.
+    """
+    # Required fields: a plain lookup, because absence and a value are already different things.
     fields = [field for field in ("if", "then") if before.get(field) != after.get(field)]
+    # Optional fields: route through _optional_field so that "key missing" is compared as the
+    # field's default value, not as None. Without it, adding an optional field that already held
+    # its default value would look like a change and trigger a needless rule update.
     fields += [
         field
         for field in OPTIONAL_RULE_FIELDS
@@ -229,7 +394,17 @@ def _optional_field(rule: Mapping[str, Any], field: str) -> Any:
 
 
 def _sort_key(change: Mapping[str, Any]) -> tuple[str, str, str, str]:
-    """Sort changes by code, then by the variable, term and rule they mention."""
+    """Build the tuple used to order change records.
+
+    Several change records may share a code, so ties are broken by the variable,
+    then the term, then the rule that each record mentions, comparing the string
+    forms in that order. Python compares tuples element by element from left to
+    right, so one returned tuple is enough to encode the whole priority.
+
+    Returns a 4-tuple ``(code, variable, term, rule)``, all strings, ready to be
+    passed to ``sorted(..., key=...)``. Missing optional fields count as the
+    empty string, which sorts before any real value.
+    """
     return (
         str(change["code"]),
         str(change.get("variable", "")),

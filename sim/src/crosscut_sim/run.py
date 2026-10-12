@@ -50,18 +50,25 @@ def parse_duration(text: str) -> float:
     """
     if not text:
         raise ValueError("empty duration string")
+    # The suffix is optional, so the last character is only a unit if it is one
+    # of the known unit letters. Otherwise the whole text is the number.
     unit = text[-1]
     if unit in ("s", "m", "h"):
         num = text[:-1]
     else:
         num = text
         unit = "s"
+    # float() accepts "1.5" and scientific notation, but rejects anything with
+    # leftover characters, so it doubles as the numeric-syntax check here.
     try:
         seconds = float(num)
     except ValueError as e:
         raise ValueError(f"invalid duration: {text}") from e
+    # A zero or negative duration makes no sense for a timeout or interval, so
+    # it is rejected before the unit conversion.
     if seconds <= 0:
         raise ValueError(f"duration must be positive: {text}")
+    # Convert the number to seconds. Units are: "m" = 60 s, "h" = 3600 s.
     if unit == "m":
         seconds *= 60
     elif unit == "h":
@@ -74,6 +81,9 @@ def parse_duration(text: str) -> float:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the simulation and record the results.
 
+    Parse the command line, build the plant and scenario objects, run the
+    simulation and write the resulting dataset to disk.
+
     Parameters
     ----------
     argv:
@@ -85,10 +95,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         Exit code: 0 for success, 1 if the dataset directory already exists,
         2 if the scenario is unknown.
     """
+    # The parser turns the raw strings from the shell into typed arguments and
+    # exits with its own usage message (code 2) when the command line is wrong.
     parser = argparse.ArgumentParser(
         prog="python -m crosscut_sim.run",
         description="Run the Crosscut simulation suite and record the results.",
     )
+    # --plant is mandatory and must be one of the known plant identifiers;
+    # `choices` makes argparse reject anything else before we build anything.
     parser.add_argument(
         "--plant",
         required=True,
@@ -130,11 +144,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    # Durations arrive as human strings such as "6h"; parse_duration converts
+    # them to seconds. parser.error() prints usage and exits with code 2.
     try:
         duration = parse_duration(args.duration)
     except ValueError as e:
         parser.error(str(e))
 
+    # None means "use the scenario's own default sampling interval"; only an
+    # explicit --sample-period is parsed, so we can tell the two cases apart.
     sample_period_s = None
     if args.sample_period is not None:
         try:
@@ -142,15 +160,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as e:
             parser.error(str(e))
 
+    # An unknown scenario is a user mistake in the scenario file itself, not in
+    # the command line syntax, so we report it ourselves and return code 2.
     try:
         scenario_obj = build_scenario(args.plant, args.scenario, duration_s=duration)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
 
+    # A dataset is identified by plant, scenario and seed so that repeated runs
+    # can be told apart; the directory name repeats that identity on disk.
     dataset_id = f"{args.plant}_{args.scenario}_seed{args.seed}"
     dataset_dir = args.out / dataset_id
 
+    # Record which revision of this repository produced the data, for
+    # reproducibility. No git history (or no git installed) is not fatal:
+    # we fall back to None and let record() store "unknown".
     try:
         git_commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -162,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except subprocess.SubprocessError:
         git_commit = None
 
+    # record() writes the dataset; it refuses to overwrite an existing
+    # dataset_dir and raises FileExistsError, which we translate to code 1.
     try:
         record(
             PLANTS[args.plant](),
@@ -179,6 +206,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(e), file=sys.stderr)
         return 1
 
+    # Print the path on stdout so callers can pipe it into other tools.
     print(str(dataset_dir))
     return 0
 
