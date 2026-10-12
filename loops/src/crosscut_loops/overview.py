@@ -452,19 +452,15 @@ def _sparkline(pv: np.ndarray, points: int = SPARKLINE_POINTS) -> list[float]:
     Returns ``len(pv)`` values when the series is already short enough, otherwise exactly
     ``points`` values, each the mean power (kW) of an equal-sized block of consecutive samples.
     """
-    # Short enough already: pass the samples through unchanged. The early return keeps the
-    # chart honest for tiny windows, where averaging would hide a single peak.
+    # If the series is already short enough, return it unchanged; averaging would hide peaks.
     if len(pv) <= points:
         return [float(value) for value in pv]
-    # Integer floor division: the chart should never gain synthetic samples, so any samples
-    # left over at the tail (len(pv) % points of them) are simply dropped rather than padded.
+    # Floor division avoids padding: leftover samples at the tail are dropped rather than averaged
+    # into a shorter block.
     chunk_size = len(pv) // points
-    # Cut the tail off, then fold the flat series into a (points, chunk_size) matrix whose row i
-    # holds the samples of block i. reshape needs the length to be exactly chunk_size * points,
-    # which is why the trim happens first.
+    # Trim to chunk_size * points, then reshape so row i holds the samples of block i.
     trimmed = pv[: chunk_size * points].reshape(points, chunk_size)
-    # Mean over axis=1, i.e. within each block of consecutive samples, so every block becomes one
-    # point on the chart.
+    # Mean over axis=1 collapses each block of consecutive samples into one chart point.
     return [float(value) for value in trimmed.mean(axis=1)]
 
 
@@ -480,40 +476,29 @@ def _report_row(
     Returns a flat mapping whose keys become columns in the exported table.
     Numerical values are JSON-ready: no numpy scalars, no NaN, no infinities.
     """
-    # The returned mapping is the row. `**_loop_identity(loop)` first spreads in the
-    # identifying columns (tag, description, ...), then each diagnostic is added
-    # under its own key. Keys after the spread win on collision.
+    # Build the row from identifying columns first, then diagnostics; later keys win on collision.
     return {
         **_loop_identity(loop),
-        # Ordinal severity of the loop, derived by comparing the report against the
-        # configured thresholds. Not a number: a level such as "ok"/"warning"/"alert".
+        # Severity level of the loop: one of "unused", "problem", "warning", "ok".
         "status": status_level(report, settings),
-        # Overall health on a 0-100 scale, where 100 means no degradation detected.
+        # Overall health percentage (0-100); 100 means no degradation detected.
         "health_percent": health_percent(report),
-        # Label for the shape of the loop's behaviour, e.g. a well-tuned or an
-        # oscillating loop. Free-form text produced by the classifier.
+        # Classification label of the loop's behavior, e.g. "manual", "saturated", "oscillating".
         "classification": report.classification,
-        # One sub-row per problem detected in the loop, each already JSON-ready.
+        # List of findings, each a dict with "code" and "params".
         "findings": _finding_rows(report, settings),
-        # Fraction of time the controller output sits away from its limits, in
-        # percent. Unit: percent, rounded for display.
+        # Percentage of time the controller is in automatic mode (service factor), rounded.
         "service_percent": _rounded_percent(report.service_factor),
-        # Fraction of time the controller output is pinned at a limit (0% or 100% of
-        # its range): the valve is fully closed or fully open. Unit: percent.
+        # Percentage of time the controller output sits at a limit (0% or 100%), rounded.
         "saturation_percent": _rounded_percent(report.saturation_fraction),
-        # Harris index: the ratio of the loop's achieved output variance to the
-        # minimum variance a best-possible (minimum-variance) controller would
-        # achieve on the same disturbance. Dimensionless; 1.0 means optimal, and
-        # values well above 1 mean there is room for retuning.
+        # Harris index: dimensionless performance metric; higher values indicate worse control.
         "harris_index": _optional_float(report.harris_index),
-        # Dominant period of the oscillation seen in the PV, in seconds. Comes from
-        # the spectral peak of the signal, hence the unit.
+        # Dominant oscillation period in seconds; None if no oscillation was detected.
         "oscillation_period_s": _optional_period(report.oscillation_period_s),
-        # Verdict on valve stiction: the stick-slip friction that makes a control
-        # valve jump instead of moving smoothly. Free-form text, e.g. "sticking".
+        # Verdict on valve stiction; may be None if the loop is not saturated or no oscillation was
+        # found.
         "stiction_verdict": report.stiction_verdict,
-        # Compact summary of the PV trend for inline display. Downsampled series of
-        # (x, y) points, JSON-ready.
+        # Downsampled PV values for the inline sparkline chart.
         "sparkline": _sparkline(pv_values),
     }
 
@@ -608,21 +593,16 @@ def _analyse_one_loop(
         One report row (a plain dict) for this loop, ready to be serialised to
         JSON.
     """
-    # Detection settings (thresholds, minimum hold durations, ...) can differ per
-    # loop, so they are derived from this loop's tags rather than passed in.
+    # Settings may vary per loop, so they are derived from the loop's configuration.
     settings = default_settings(loop)
     report = analyze_loop(
         t_s,
-        # Each argument is this loop's raw signal array, looked up by tag name.
-        # The t_s and columns arrays are positional and share the same indexing,
-        # so passing them together keeps every sample aligned in time.
+        # Raw signal arrays are aligned with t_s by index; look up each by tag name.
         columns[loop.pv],
         columns[loop.sp],
         columns[loop.out],
         columns[loop.mode],
         settings=settings,
     )
-    # Build the tabular report row from the analysis result. The pv array is
-    # passed again so the row can carry summary statistics of the process
-    # variable (min/max/mean, ...) alongside the detected events in `report`.
+    # Include the PV array again for the row's sparkline summary.
     return _report_row(loop, report, settings, columns[loop.pv])

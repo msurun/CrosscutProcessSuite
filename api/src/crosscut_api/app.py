@@ -346,10 +346,6 @@ def create_app(data_root: Path) -> FastAPI:
         `tag` may repeat, so several series are requested in one call. `start` and
         `end` are optional epoch-second bounds; `None` means "no bound on that side".
         """
-        # Validate and normalise the raw query parameters first. SeriesRequest is a
-        # dataclass whose __post_init__ rejects bad input (unknown tag, start after
-        # end, ...) and fills the missing bounds with the dataset's own first and
-        # last timestamps, so every field is concrete from here on.
         request = SeriesRequest(dataset_id, tag, start, end, max_points)
         return {
             # Echo the resolved dataset id so the caller can match the answer to the

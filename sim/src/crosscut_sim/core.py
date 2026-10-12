@@ -180,22 +180,22 @@ class Fopdt:
 
         # Discrete pole of the lag: sampling ``exp(-t/tau)`` at t = dt_s gives
         # the per-step decay factor, so the recurrence is
-        # ``y[k] = a * y[k-1] + (1 - a) * gain * u[k]``.
+        # ``y[k] = a * y[k-1] + gain * (1 - a) * u_delayed[k]``.
         self._a = math.exp(-dt_s / tau_s)
 
-        # Dead time quantised to a whole number of samples; a delay shorter
-        # than one step is dropped because it is not representable.
+        # Dead time quantised to a whole number of samples using round-to-nearest;
+        # a delay shorter than half a step is dropped because it rounds to zero.
         delay_steps = round(delay_s / dt_s)
 
         # Ring buffer holding the last ``delay_steps`` inputs. ``maxlen`` makes
-        # the deque evict the oldest value, so appending one sample per step
-        # leaves the sample that is ``delay_steps`` steps old at the left end.
+        # the deque evict the oldest value automatically when appending to a full
+        # buffer, so the leftmost element is the input from ``delay_steps`` steps ago.
         # ``None`` when there is no delay, so the hot path can skip the buffer.
         self._buf: deque[float] | None = (
             deque([0.0] * delay_steps, maxlen=delay_steps) if delay_steps > 0 else None
         )
 
-        # Current filter output, kept between calls so ``step`` is stateful.
+        # Current filter output, kept between calls so ``update`` is stateful.
         self.value = y0
 
     def update(self, u: float) -> float:
@@ -220,8 +220,8 @@ class Fopdt:
         if self._buf is None:
             u_delayed = u
         else:
-            # Shift the window: drop the oldest sample and store the new one, so the
-            # value read is exactly the input from len(self._buf) steps ago.
+            # Shift the window: the leftmost element is the input from delay_steps steps ago;
+            # store the new input at the right end, dropping the oldest.
             u_delayed = self._buf[0]
             self._buf.append(u)
         # Weighted recurrence of the EMA: new = a * old + (1 - a) * current input.

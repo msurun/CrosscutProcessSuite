@@ -112,13 +112,11 @@ def _pivot_rows(
     # database rows are reduced here to four parallel flat arrays of equal length.
     ts_ns, tag_ids, values, qualities = _collect_samples(rows, tz)
     # Sorting by time first means every later step can assume time increases, which
-    # is what lets _count_duplicates and _widen scan forward without looking back.
+    # allows _count_duplicates and _widen to use sorted data directly.
     ts_ns, tag_ids, values, qualities = _sort_by_time(ts_ns, tag_ids, values, qualities)
-    # Counted before widening: once entries are placed into a grid, the duplicate
-    # rows are overwritten and their number can no longer be recovered.
     n_duplicates_dropped = _count_duplicates(ts_ns, tag_ids)
-    # Shape of the result: wide_values and wide_qualities are both n_timestamps rows
-    # by n_tags columns, with unique_ts indexing the rows and unique_tags the columns.
+    # _widen returns one row per distinct timestamp and one column per distinct tag,
+    # with the value and quality grids sharing that shape.
     unique_ts, unique_tags, wide_values, wide_qualities = _widen(
         ts_ns, tag_ids, values, qualities
     )
@@ -149,16 +147,15 @@ def _clean_value(raw: Any) -> float:
         return float("nan")
     try:
         # float() accepts int, float, numeric strings ("3.14", "1e-3") and also
-        # strings such as "nan" or "inf", which is why the finiteness check below
-        # is still needed.
+        # strings such as "nan" or "inf", so the finiteness check below is still needed.
         value = float(raw)
     except ValueError:
-        # Cell held text that is not a number (e.g. "n/a", "abc"): treat it as
-        # missing rather than aborting the whole import.
+        # Cell held text that is not a number (e.g. "n/a", "abc"): treat it as missing
+        # rather than aborting the whole import.
         return float("nan")
     # np.isfinite() is False for NaN and for +/-inf. Infinities would poison later
-    # arithmetic (0 * inf, inf - inf) and comparisons, so they are folded into NaN
-    # as well: NaN is the one and only "missing" sentinel this function returns.
+    # arithmetic and comparisons, so they are folded into NaN as well: NaN is the one
+    # and only missing sentinel this function returns.
     return value if np.isfinite(value) else float("nan")
 
 
@@ -189,11 +186,11 @@ def _parse_row(row: tuple[Any, ...], tz: str) -> tuple[int, str, float, Any]:
     :raises ValueError: if the row has fewer than three fields, so there is no
         value to read.
     """
-    # ``np.isnan`` needs a float, so a NULL or non-numeric cell becomes NaN here
-    # rather than raising; NaN is how we signal "no usable measurement".
+    # _clean_value returns a float or NaN, so np.isnan needs a float; NULL or
+    # non-numeric cells become NaN here rather than raising.
     value = _clean_value(row[2])
-    # The quality column is optional. Trust it only when we actually have a
-    # number: NaN outranks the historian's own opinion and forces BAD.
+    # The quality column is optional. Trust it only when we have a finite number:
+    # NaN outranks the historian's own opinion and forces BAD.
     quality = BAD if np.isnan(value) else (row[3] if len(row) > 3 else GOOD)
     return _parse_timestamp(row[0], tz), _sanitize_tag_name(row[1]), value, quality
 
@@ -438,10 +435,6 @@ def _tags_document(tag_ids: np.ndarray) -> dict[str, Any]:
     """
     return {
         "schema_version": "0.1.0",
-        # The list comprehension below keeps the input order: tag_ids[i] produces tags[i].
-        # Every field is a placeholder copied from the identifier, because the real metadata
-        # (name, unit, type, role) is not available from the database and so is left generic:
-        # the type is "float" and the role "other" until someone fills them in by hand.
         "tags": [
             {
                 "id": tag_id,

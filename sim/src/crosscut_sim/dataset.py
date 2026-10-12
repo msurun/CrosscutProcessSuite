@@ -32,10 +32,6 @@ def compute_data_sha256(table: pa.Table) -> str:
     # digest becomes stale.
     hasher = hashlib.sha256()
 
-    # "ts" is a timestamp in nanoseconds since the Unix epoch (UTC). The cast to int64
-    # makes the byte layout independent of the timestamp's own resolution: a table
-    # declared in microseconds and one declared in nanoseconds hash alike if they
-    # represent the same instants.
     ts = table["ts"].cast(pa.int64()).to_numpy()
 
     # "tag_id" is a string identifier for the sensor or channel. Python strings are not
@@ -109,8 +105,7 @@ def to_wide(table: pa.Table) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     if n_tags == 0 or len(tag_ids) % n_tags != 0:
         raise ValueError("Row count is not a multiple of the number of distinct tags")
     # The timestamp column repeats once per row within a block, so keep the first row of each
-    # block ([::n_tags]) to get one timestamp per sample. Cast to int64 (ns since the epoch)
-    # because pyarrow durations do not convert to numpy datetime64 directly.
+    # block ([::n_tags]) to get one timestamp per sample.
     ts = table["ts"].cast(pa.int64()).to_numpy()[::n_tags].astype("datetime64[ns]")
     # One row per timestamp, n_tags columns: row i, column j holds tag unique_tags[j] at ts[i].
     values = table["value"].to_numpy().reshape(-1, n_tags)
@@ -151,14 +146,12 @@ def record(
     if (out_dir / "dataset.json").exists():
         raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
 
-    # Default sampling period: keep every simulation step.
     sample_period_s = scenario.dt_s if sample_period_s is None else sample_period_s
 
-    # ratio = how many simulation steps fit in one sampling period (unitless, >= 1).
     ratio = sample_period_s / scenario.dt_s
-    # Reject a period that is not a whole number of steps: otherwise a sample would
-    # have to be read between two steps, which the plant cannot provide.
-    # atol=1e-9 absorbs the rounding error of dividing two floats.
+    # A sample must fall exactly on a simulation step: ratio must be a
+    # whole number >= 1. atol=1e-9 absorbs float rounding error from
+    # dividing two floats.
     if not np.isclose(ratio, round(ratio), atol=1e-9) or ratio < 1:
         raise ValueError("sample_period_s must be an integer multiple of scenario.dt_s")
 
@@ -179,8 +172,9 @@ def record(
     # start_ns is the run start expressed in nanoseconds since the Unix epoch
     # (the unit used by the Arrow/Parquet timestamp column).
     start_ns = int(start_dt.timestamp()) * 10**9
-    # One timestamp per kept sample, in nanoseconds: start plus the simulated
-    # elapsed time i * dt_s seconds. round() avoids float noise such as 999999999.
+    # One timestamp per kept sample, in ns since Unix epoch: start_ns
+    # plus elapsed simulation time i * scenario.dt_s seconds, converted
+    # to nanoseconds. round() avoids float noise such as 999999999.
     ts = np.array(
         [start_ns + round(i * scenario.dt_s * 1e9) for i in range(n_steps) if i % every == 0],
         dtype=np.int64,
@@ -194,9 +188,6 @@ def record(
     # 0 = GOOD, any other value = not trustworthy).
     qualities = np.zeros((n_samples, len(tag_ids)), dtype=np.uint8)
 
-    # Advance the plant one step at a time; on sampling steps, take a snapshot of
-    # all tags at once (a consistent picture of the run at that instant) and store
-    # each tag's (value, quality) pair in the row of that sample.
     for i in range(n_steps):
         if i % every == 0:
             sample_idx = i // every
@@ -205,8 +196,9 @@ def record(
                 values[sample_idx, j], qualities[sample_idx, j] = snapshot[tag_id]
         plant.step()
 
-    # Provenance for the dataset header: how the data was produced. Only defined
-    # keys are written, so a run without a named scenario has no "scenario" key.
+    # Source metadata for dataset.json: what produced the data. Only
+    # defined keys are written, so a run without a named scenario omits
+    # the scenario key.
     source: dict[str, Any] = {"kind": "sim", "plant": plant_name, "seed": seed}
     if scenario_name is not None:
         source["scenario"] = scenario_name
@@ -286,9 +278,10 @@ def write_dataset(
     n_tags = len(tag_ids)
     tag_id_list = list(tag_ids)
 
-    # Long form: every sample is repeated once per tag, and inside one sample the tag ids keep
-    # the column order of the wide arrays. Repeating a timestamp n_tags times and cycling the
-    # tag ids therefore line up element-wise, which is what makes the four columns a table.
+    # Long form: every sample is repeated once per tag, and inside one sample the tag ids
+    # keep the column order of the wide arrays. np.repeat(ts, n_tags) therefore lines up
+    # with tag_id_list * n_samples element-wise, and the flattened wide columns follow the
+    # same row-major order, which is what makes the four columns a table.
     ts_col = pa.array(np.repeat(ts, n_tags), type=pa.int64()).cast(pa.timestamp("ns", tz="UTC"))
     tag_id_col = pa.array(tag_id_list * n_samples, type=pa.string())
     value_col = pa.array(np.asarray(values, dtype=np.float64).flatten(), type=pa.float64())
@@ -304,9 +297,10 @@ def write_dataset(
     # One Parquet file per UTC calendar day; rows are already ordered by time.
     # A row's day is its timestamp floored to a whole day: integer division by 86_400 * 10**9 ns
     # (the number of nanoseconds in 24 h) yields the day number since the epoch, so rows sharing
-    # a day number share a file. diff() is non-zero only where the day changes, giving the first
-    # row index of each new day; concatenating 0 at the front and len(rows) at the back turns
-    # those indices into [start, end) pairs, one per day.
+    # a day number share a file. np.diff(day_index) is non-zero only where the day changes;
+    # adding 1 to the flatnonzero result gives the first row index of each new day. Concatenating
+    # 0 at the front and len(row_ts) at the back turns those indices into [start, end) pairs,
+    # one pair per day.
     row_ts = table["ts"].cast(pa.int64()).to_numpy()
     day_index = row_ts // (86_400 * 10**9)
     boundaries = np.flatnonzero(np.diff(day_index)) + 1
@@ -322,13 +316,9 @@ def write_dataset(
             compression="zstd",
         )
 
-    # The input is time-ordered, so the last sample carries the latest timestamp; truncate from
-    # nanoseconds to seconds before formatting it as the ISO-8601 end of the covered range.
     last_s = int(ts[-1]) // 10**9
     end_utc = datetime.fromtimestamp(last_s, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Manifest describing what was written; ``row_count`` counts long-form rows, i.e. samples
-    # times tags, and ``data_sha256`` hashes the table contents so a reader can detect tampering.
     doc: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,

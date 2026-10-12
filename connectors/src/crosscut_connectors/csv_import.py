@@ -92,15 +92,9 @@ def _detect_delimiter(lines: list[str]) -> str:
     Returns the winning delimiter as a one-character string.
     Raises ValueError when no candidate splits the sample into at least two columns.
     """
-    # The three delimiters we recognise. Order only breaks ties in `best_score`.
     candidates = [",", ";", "\t"]
-    # `best_score` counts LINES (unit: lines), not fields: it is the number of sampled
-    # lines that share the modal field count of the currently best candidate.
-    # Starting at -1 means any candidate with a non-zero score can win.
     best_delim = ""
     best_score = -1
-    # Only the head of the file is inspected: the first 50 lines are representative
-    # and this keeps detection O(1) in the size of the input.
     sample = lines[:50]
 
     for delim in candidates:
@@ -133,7 +127,7 @@ def _modal_field_count(lines: list[str], delimiter: str) -> tuple[int, int]:
     `lines` is empty.
     """
     # counts maps a field count to how many lines have exactly that many fields.
-    # Invariant: for a line with F fields, counts[F] is incremented by 1. UNIT: lines.
+    # UNIT of values: lines.
     counts: dict[int, int] = {}
     for ln in lines:
         cnt = len(ln.split(delimiter))
@@ -141,8 +135,9 @@ def _modal_field_count(lines: list[str], delimiter: str) -> tuple[int, int]:
     if not counts:
         return 0, 0
     # `counts.items()` yields (field_count, line_count) pairs; we want the pair with the
-    # largest line_count. max() keeps the first maximum on ties, so the smallest
-    # field_count wins when two counts are equally frequent.
+    # largest line_count.
+    # max() keeps the first maximum on ties. For dict insertion order, earlier field counts
+    # are encountered first as lines are processed left-to-right.
     return max(counts.items(), key=lambda kv: kv[1])
 
 
@@ -165,10 +160,6 @@ def _extract_header_and_rows(lines: list[str], delimiter: str) -> tuple[list[str
     # field_counts[i] is the field count of lines[i]. Lines are read as plain text, so a blank
     # line counts as 1 field, not 0: splitting an empty string on a delimiter yields [""].
     field_counts = [len(ln.split(delimiter)) for ln in lines]
-    # The modal (most common) value of field_counts is the record width. `max(..., key=...)`
-    # walks the set of distinct counts and returns the first one with the highest number of
-    # occurrences, so ties go to the value that came first in the set. The set makes the
-    # result independent of how often a count appears early in the list.
     modal_cnt = max(set(field_counts), key=field_counts.count)
 
     # --- Step 2: keep only the lines whose field count equals modal_cnt ---
@@ -208,8 +199,6 @@ def _parse_iso8601(value: str) -> datetime | None:
         ``None`` when ``value`` is not a valid ISO‑8601 timestamp.
     """
     try:
-        # "Z" is the ISO‑8601 shorthand for UTC; convert it to the "+00:00" offset
-        # syntax that ``fromisoformat`` accepts on every supported Python version.
         if value.endswith("Z"):
             value = value[:-1] + "+00:00"
         return datetime.fromisoformat(value)
@@ -355,7 +344,7 @@ def _detect_decimal_separator(rows: list[list[str]], delimiter: str) -> str:
     # Full-string match, so "1,234" (a thousands separator) and "a,b" do not qualify.
     comma_number = re.compile(r"^-?\d+,\d+$")
 
-    # row[1:] skips the first cell, which is assumed to be a label/name column and not a number.
+    # row[1:] skips the first cell, which is the timestamp column and not a tag value.
     for row in rows:
         for cell in row[1:]:
             if comma_number.match(cell):
@@ -421,24 +410,11 @@ def _sort_and_deduplicate(
         row per distinct timestamp, plus the number of rows dropped as
         duplicates. All returned arrays stay aligned by index.
     """
-    # Sort the timestamps and, with the resulting index permutation, reorder
-    # values and qualities the same way so the three arrays remain aligned.
-    #
-    # "stable" keeps the original relative order of equal timestamps, so the
-    # LAST index of a run really is the most recently received record.
     order = np.argsort(ts, kind="stable")
     ts, values, qualities = ts[order], values[order], qualities[order]
 
-    # Build a boolean mask marking the last row of each run of equal timestamps.
-    #
-    # ts[1:] != ts[:-1] is a shifted self-comparison: element i is True when a
-    # run ends and a new timestamp begins at i+1. Appending True marks the very
-    # last row (a run always ends at the end of the array). Each True in the
-    # mask therefore identifies the last row of one run.
     is_last_of_run = np.append(ts[1:] != ts[:-1], True)
 
-    # How many rows the mask discards: everything that is not a run's last row.
-    # Masks are booleans, and summing them counts the True entries.
     dropped = int(len(ts) - is_last_of_run.sum())
     return ts[is_last_of_run], values[is_last_of_run], qualities[is_last_of_run], dropped
 

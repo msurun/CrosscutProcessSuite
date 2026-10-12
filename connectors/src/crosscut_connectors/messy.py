@@ -52,19 +52,18 @@ def _format_float(value: float, decimal_comma: bool) -> str:
     on purpose: NaN means "no value", and writing "nan" would be read back as text
     rather than as a missing number.
     """
-    # NaN is unorderable and never equal to itself, so this is the only safe check;
-    # it maps a missing measurement to an empty field instead of the literal "nan".
+    # NaN is the only value for which `value == value` is False, so this check
+    # reliably identifies missing measurements (no "nan" text is written).
     if np.isnan(value):
         return ""
 
-    # repr() on a float gives the shortest text that round-trips back to the exact same
-    # double (Python 3 uses the David Gay / Grisu shortest-representation algorithm),
-    # so no precision is lost when the file is read again. str() would behave the same
-    # here, but repr() makes the intent explicit.
+    # repr() gives the shortest text that round-trips back to the exact same
+    # float. str() would do the same, so either is safe here; we use repr() only
+    # to make the intent explicit.
     formatted = repr(float(value))
 
-    # Swapping the dot for a comma is the whole locale change for a single number:
-    # thousands are not grouped, so the dot is always the decimal mark in `formatted`.
+    # No thousands separators are used, so the only dot in a decimal number is
+    # its decimal mark; replacing that dot with a comma applies the locale change.
     if decimal_comma:
         formatted = formatted.replace(".", ",")
     return formatted
@@ -98,17 +97,16 @@ def _render_plain(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> bytes:
     # The header reuses the dict's own key order so header names and value
     # positions can never drift apart.
     header = "timestamp," + ",".join(columns.keys()) + "\n"
-    # Accumulate full lines (header first) and join once at the end: appending
-    # to a list and doing a single "".join is O(n), whereas += on a str is not.
+    # Build the full output as a list of lines and join once: repeatedly
+    # appending to a string with += would be O(n^2) for this growing buffer.
     lines = [header]
     for i in range(len(ts_ns)):
-        # Epoch nanoseconds -> "YYYY-MM-DDTHH:MM:SS.ffffffZ" (microsecond precision).
+        # Epoch nanoseconds -> ISO-8601 UTC string ending in 'Z' (microsecond precision).
         timestamp = _format_timestamp_iso_utc(ts_ns[i])
         values = [timestamp]
         for col in columns.values():
-            # `False` requests the plain (non-scientific) float spelling.
+            # False asks _format_float to keep the dot as decimal separator (plain style).
             values.append(_format_float(col[i], False))
-        # CSV record terminator: "\n" per row, including the final one.
         lines.append(",".join(values) + "\n")
     return "".join(lines).encode("utf-8")
 
@@ -132,19 +130,17 @@ def _render_semicolon_comma(
     """
     # Header row: first field is the timestamp column, then one field per data column.
     header = "timestamp;" + ";".join(columns.keys()) + "\n"
-    # Accumulate row strings and join once at the end; repeated str concatenation is O(n^2).
+    # Build the full output as a list of lines and join once: repeated str
+    # concatenation with += would be O(n^2).
     lines = [header]
     # One loop iteration builds one row of the CSV, in the order the columns were given.
     for i in range(len(ts_ns)):
         timestamp = _format_timestamp_semicolon_comma(ts_ns[i], local_tz)
-        # The row starts with its timestamp; each data column then appends one field.
         values = [timestamp]
         for col in columns.values():
-            # True asks the formatter for the decimal-comma numeric format of this dialect.
+            # True asks _format_float to use a comma as decimal separator (this dialect).
             values.append(_format_float(col[i], True))
-        # Join fields with ';' and terminate the record with a newline, as CSV requires.
         lines.append(";".join(values) + "\n")
-    # Encoding once at the end avoids decoding/encoding per row; UTF-8 covers all headers.
     return "".join(lines).encode("utf-8")
 
 
@@ -164,18 +160,14 @@ def _render_tab_local(ts_ns: np.ndarray, columns: dict[str, np.ndarray], local_t
     # Tab-separated header: a fixed "timestamp" label first, then the column
     # names in their dict insertion order. The trailing "\n" ends the header row.
     header = "timestamp\t" + "\t".join(columns.keys()) + "\n"
-    # Rows are accumulated as text lines and joined once at the end; joining
-    # repeatedly would be O(n^2) for large tables.
+    # Build the full output as a list of lines and join once: repeated
+    # string concatenation with += would be O(n^2).
     lines = [header]
     # One iteration per sample. Every column array has the same length as
     # ts_ns (invariant guaranteed by the caller).
     for i in range(len(ts_ns)):
-        # ts_ns[i] is a UTC epoch timestamp in nanoseconds; the helper renders
-        # it as a string in the target timezone.
         timestamp = _format_timestamp_local(ts_ns[i], local_tz)
         values = [timestamp]
-        # Append each column's value for this row, formatted as a plain float
-        # (the second argument disables any special formatting such as units).
         for col in columns.values():
             values.append(_format_float(col[i], False))
         lines.append("\t".join(values) + "\n")
@@ -217,26 +209,22 @@ def _render_text_bad(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> bytes
         not a per-column counter.
     """
     header = "timestamp," + ",".join(columns.keys()) + "\n"
-    # A list of already-finished text lines, joined once at the end: string
-    # concatenation in a loop would be quadratic in the number of rows.
     lines = [header]
     # Running index handed to _get_bad_value; counts every NaN emitted so far
     # across the whole file, so no two missing cells share a placeholder.
     bad_count = 0
-    # Iterate by row index rather than zipping the columns, because each
-    # column is indexed in lockstep with its matching timestamp.
     for i in range(len(ts_ns)):
         timestamp = _format_timestamp_iso_utc(ts_ns[i])
         values = [timestamp]
         for col in columns.values():
-            # np.isnan is the only reliable NaN test: NaN != NaN is always
-            # True, so a plain "== nan" comparison would never fire.
+            # np.isnan is the only reliable NaN test because NaN != NaN is
+            # always True; a direct equality comparison would never fire.
             if np.isnan(col[i]):
                 values.append(_get_bad_value(bad_count))
                 bad_count += 1
             else:
-                # False disables scientific notation, keeping values in
-                # plain decimal form for readers of the CSV.
+                # False selects the default float formatting; decimal commas are
+                # not used in this style.
                 values.append(_format_float(col[i], False))
         lines.append(",".join(values) + "\n")
     return "".join(lines).encode("utf-8")
@@ -266,16 +254,13 @@ def _render_duplicates_unsorted(ts_ns: np.ndarray, columns: dict[str, np.ndarray
         for col in columns.values():
             values.append(_format_float(col[i], False))
         lines.append(",".join(values) + "\n")
-        # Duplicate the row a second time when its index is in [10, 14]; the
-        # duplicated pair stays adjacent here because shuffling happens later.
         if 10 <= i <= 14:
             lines.append(",".join(values) + "\n")
-    # Generate a random permutation of the data-row positions. A dedicated
-    # generator seeded with 0 keeps the fixture byte-for-byte identical on
-    # every run, so tests can rely on a fixed output.
+    # Generate a random permutation of the data-row positions.
+    # Seeded with 0 so the output is byte-for-byte identical on every run.
     shuffled_indices = np.random.default_rng(0).permutation(len(lines) - 1)
-    # Rebuild the list with the header first (never shuffled) followed by the
-    # data rows in permuted order; "i + 1" skips over the header in ``lines``.
+    # The header (lines[0]) stays first; data rows follow in shuffled order.
+    # Index i + 1 skips over the header in ``lines``.
     shuffled_lines = [lines[0]] + [lines[i + 1] for i in shuffled_indices]
     return "".join(shuffled_lines).encode("utf-8")
 
@@ -309,13 +294,10 @@ def render_messy_csv(
     Raises:
         ValueError: If the style is unknown.
     """
-    # Renderers are chosen by name, so callers stay free of implementation
-    # details. Lookup fails loudly via ValueError for an unknown style.
     renderer = _select_renderer(style)
 
-    # Two families of renderer exist. The first family needs only the numeric
-    # data: either it emits raw epoch nanoseconds, or it wraps the bytes with
-    # markers (BOM, preamble) without ever interpreting a timestamp.
+    # Plain, BOM-preamble and text-bad renderers never interpret a
+    # timestamp, so they need only the numeric arrays.
     if (
         renderer is _render_plain
         or renderer is _render_bom_preamble
@@ -323,14 +305,11 @@ def render_messy_csv(
     ):
         return renderer(ts_ns, columns)
 
-    # The second family reorders and repeats rows to break the "sorted,
-    # unique" assumption, but still writes raw epoch values, so it also needs
-    # no time zone.
+    # The duplicates_unsorted renderer writes formatted timestamps and
+    # uses no time zone, so it also takes only the numeric arrays.
     if renderer is _render_duplicates_unsorted:
         return renderer(ts_ns, columns)
 
-    # Every remaining renderer formats timestamps for humans and therefore
-    # needs the requested time zone.
     return renderer(ts_ns, columns, local_tz)
 
 
@@ -359,9 +338,8 @@ def _select_renderer(style: str):
     Raises:
         ValueError: If the style is unknown.
     """
-    # The lookup table maps every supported style name to its renderer.
-    # Keeping it inside the function means the table cannot be mutated by
-    # callers, and unknown names fall through to the KeyError handled below.
+    # Lookup table maps style names to renderers. It is local to this
+    # function, so callers cannot alter it; unknown names raise KeyError.
     renderers = {
         "plain": _render_plain,
         "semicolon_comma": _render_semicolon_comma,
@@ -372,9 +350,7 @@ def _select_renderer(style: str):
     }
     try:
         return renderers[style]
-    # A missing key means the caller asked for a dialect we do not know how to
-    # write. We convert the KeyError into a ValueError that lists no internals,
-    # and `from None` hides the original traceback so the message is the only
-    # thing the caller sees.
+    # Unknown style. Convert KeyError to ValueError with a clear message;
+    # from None hides the internal dict lookup from the traceback.
     except KeyError:
         raise ValueError(f"Unknown style: {style}") from None

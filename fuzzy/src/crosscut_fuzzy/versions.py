@@ -139,10 +139,8 @@ def diff_documents(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[
         diff, so a removal in one direction shows up as an addition in the
         other), sorted by ``_sort_key``.
     """
-    # Two independent kinds of change: the variables block (which holds the
-    # terms inside each variable) and the rules block. Each helper returns a
-    # plain list, and concatenation keeps them in a stable, predictable order
-    # before the final sort.
+    # Variable changes and rule changes are computed separately, then concatenated before sorting by
+    # _sort_key.
     changes = _variable_changes(old, new) + _rule_changes(old, new)
     return sorted(changes, key=_sort_key)
 
@@ -180,21 +178,18 @@ def _variable_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[di
     new_variables = _variables_by_id(new)
     changes: list[dict[str, Any]] = []
 
-    # Symmetric difference of the two id sets, so each variable is visited once
-    # whether it is only in the old document, only in the new one, or in both.
+    # Union of the two id sets, so each variable is visited once whether it is only in the old
+    # document, only in the new one, or in both.
     for variable_id in set(old_variables) | set(new_variables):
         before = old_variables.get(variable_id)
         after = new_variables.get(variable_id)
 
-        # A missing entry means the variable was not declared in that revision;
-        # `get` returns None because variable ids never map to None.
         if before is None:
             changes.append({"code": "variable_added", "variable": variable_id})
         elif after is None:
             changes.append({"code": "variable_removed", "variable": variable_id})
         else:
-            # Same variable in both revisions: descends into its range type and
-            # its bounds, and returns one record per differing field.
+            # Same variable in both revisions: compare its range and terms.
             changes.extend(_sorted_variable_changes(variable_id, before, after))
     return changes
 
@@ -217,8 +212,8 @@ def _sorted_variable_changes(
     definition that predates a key is still comparable.
     """
     changes: list[dict[str, Any]] = []
-    # A universe of discourse is the interval over which a term's membership function is
-    # evaluated; low and high are both in the variable's own unit. Defaults describe the
+    # A universe of discourse is the interval over which a variable's membership functions
+    # are evaluated; low and high are both in the variable's own unit. Defaults describe the
     # normalised universe [0.0, 1.0] used when a definition omits the bounds.
     old_range = [before.get("low", 0.0), before.get("high", 1.0)]
     new_range = [after.get("low", 0.0), after.get("high", 1.0)]
@@ -256,12 +251,12 @@ def _term_changes(variable_id: str, old_terms: Any, new_terms: Any) -> list[dict
     # added or removed; the loop below only handles names present on both sides.
     changes = _added_and_removed_terms(variable_id, old_by_name, new_by_name)
 
-    # Names in both versions: same name, but possibly a different coefficient or
-    # exponent. We are only interested in the new terms, because every shared name
-    # appears in new_by_name exactly once.
+    # Names in both versions: same name, but possibly a different shape and/or parameters.
+    # We only iterate over the new terms, because every shared name appears in new_by_name
+    # exactly once; the corresponding old term is looked up below.
     for name, term in new_by_name.items():
-        # "name in old_by_name" keeps this to shared names; _shape_of returns the
-        # comparable (coefficient, exponent) pair used as the term's fingerprint.
+        # 'name in old_by_name' keeps this to shared names; _shape_of returns the comparable
+        # (shape, params) pair used as the term's fingerprint.
         if name in old_by_name and _shape_of(old_by_name[name]) != _shape_of(term):
             changes.append(
                 {
@@ -324,8 +319,8 @@ def _rule_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[s
     old_rules = _rules_by_id(old)
     new_rules = _rules_by_id(new)
     changes: list[dict[str, Any]] = []
-    # Symmetric difference: ids that exist on only one side (added or removed) as well as ids
-    # present on both (possible modification). Identical ids are visited once.
+    # Union of the two rule-id sets, so each id is visited exactly once whether it is only
+    # in the old rules, only in the new rules, or in both.
     for rule_id in set(old_rules) | set(new_rules):
         # .get returns None when the id is absent on that side, which is exactly the signal
         # _rule_change needs to classify the change; it returns None when nothing changed.

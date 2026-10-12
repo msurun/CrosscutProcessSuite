@@ -55,7 +55,7 @@ class PID:
             ValueError: if any of the five settings violates its allowed range.
         """
         # The sample time (in seconds) is how often the controller is called. It must be positive
-        # because the derivative and integral terms divide by it.
+        # because the derivative and integral recursion denominators include it.
         if self.dt_s <= 0:
             raise ValueError("dt_s must be positive")
 
@@ -74,8 +74,8 @@ class PID:
         if self.td_s < 0:
             raise ValueError("td_s must be non-negative")
 
-        # td_filter_n is how many samples the first-order low-pass filter on the derivative term
-        # averages over. It must be at least one sample for the filter to be defined.
+        # td_filter_n is the derivative filter coefficient N: the filter time constant is Td / N,
+        # so a larger N means a faster filter and less noise rejection. It must be positive.
         if self.td_filter_n <= 0:
             raise ValueError("td_filter_n must be positive")
 
@@ -120,20 +120,19 @@ class PID:
         Raises:
             ValueError: If the mode is invalid.
         """
-        # Cheap guard so the caller gets a clear message instead of a silently wrong behaviour.
         if mode not in ("MAN", "AUTO"):
             raise ValueError("mode must be 'MAN' or 'AUTO'")
 
         # Deviation between measurement and setpoint, in engineering units.
-        # In direct action (self.direct is True: output up -> pv up) the controller must react
-        # to the setpoint being *above* the measurement, hence sp - pv.  In reverse action the
-        # sign flips.  Everything downstream only uses this signed deviation.
+        # Direct action (self.direct True) raises the output when pv rises above sp, so the error
+        # is pv - sp. Reverse action raises it when pv falls below sp, so the error is sp - pv.
+        # Everything downstream only uses this signed error.
         error = pv - sp if self.direct else sp - pv
         # Proportional contribution, in output units: Kc [dimensionless] * error [e.u.].
         proportional = self.kc * error
 
         # Derivative term, in output units.  Skipped when Td == 0 because then the filter time
-        # below would be 0 and the formulas would divide by zero / keep a stale value.
+        # constant below would be 0 and the recursion would divide by zero.
         if self.td_s == 0:
             derivative = 0.0
         else:
@@ -145,8 +144,8 @@ class PID:
             # The first call has no previous value, so the change is taken as zero.
             pv_change = pv - self._prev_pv if self._prev_pv is not None else 0.0
             # Because the derivative acts on pv and not on the error, the sign of the
-            # contribution must be corrected: d(error)/dt = -d(pv)/dt in direct action and
-            # +d(pv)/dt in reverse action, hence 1 / -1.
+            # contribution must follow d(error)/dt: with error = pv - sp (direct action) it is
+            # +d(pv)/dt, with error = sp - pv (reverse action, sp held) it is -d(pv)/dt.
             error_sign = 1 if self.direct else -1
             # Discretisation of a filtered derivative by backward Euler.
             # The continuous filter is  D + (Td/N) * dD/dt = Kc * Td * d(error)/dt.

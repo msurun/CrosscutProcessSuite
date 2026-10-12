@@ -213,19 +213,15 @@ def estimate(wide: dict[str, np.ndarray], variant: str) -> np.ndarray:
         Gain (dimensionless, unit of target per unit of driver) for each of the DRIVERS, in order.
     """
     y = wide[CV_TAG]
-    # The variant name is "<family> [modifier]"; the family token picks the tag dictionary that
-    # says which signal tag belongs to each driver.
     family = variant.split()[0]
     tags = {"SP": SP_TAGS, "PV": PV_TAGS, "OUT": OUT_TAGS}[family]
     inputs = [wide[tags[driver]] for driver in DRIVERS]
-    # Regressors that are not driver signals, e.g. a hardness estimate. Empty unless the variant
-    # asks for them.
     extra: list[np.ndarray] = []
     if variant.endswith("hardness"):
         extra.append(wide[HARDNESS_EST_TAG])
     if variant.endswith("high-pass"):
-        # high-pass variants remove the slow drift; run the same filter on target and drivers so
-        # that the fitted gains are not biased by the filter.
+        # high-pass variants remove the slow drift; run the same filter on target and drivers so the
+        # fitted gains are not biased by the filter.
         inputs = [highpass(x, HIGHPASS_SAMPLES) for x in inputs]
         y = highpass(y, HIGHPASS_SAMPLES)
     # The filter has a transient at both ends where its output is not valid; cut the same window
@@ -255,15 +251,16 @@ def run(seeds: int, hours: float, out_dir: Path) -> list[dict[str, object]]:
 
     Returns the list of result rows, one dict per (scenario, variant, driver).
     """
-    # Measure every (scenario, variant, seed) combination. `estimates` holds the measured
-    # gain values; `true_gains` below is the ground truth they will be compared against.
+    # Measure every (scenario, variant, seed) combination. `estimates` holds the measured gain
+    # values; `true_gains()` below is the ground truth they will be compared against.
     estimates = collect_estimates(seeds, hours)
-    # Compare each estimate with the true gain it tries to recover, giving one row per
-    # (scenario, variant, driver) with the error metrics for that combination.
+    # Compare each estimate with the true gain it tries to recover, giving one row per (scenario,
+    # variant, driver) with the summary statistics for that combination.
     rows = summarize(estimates, true_gains())
     # Create the report directory (and any missing parents); harmless if it already exists.
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Persist the rows as files (tables and/or plots) inside `out_dir`, for later reading.
+    # Persist the rows as files (CSV, markdown report, and plot) inside `out_dir`, for later
+    # reading.
     write_outputs(rows, out_dir, seeds, hours)
     return rows
 
@@ -284,21 +281,18 @@ def collect_estimates(seeds: int, hours: float) -> dict[tuple[str, str], list[np
         are ordered by increasing seed, so index 0 is seed 1.
     """
 
-    # Accumulator filled in place by _add_variant_estimates: keys are
-    # (scenario name, variant name) pairs, values are the per-seed gain arrays
-    # appended in seed order.
+    # Accumulator filled in place by _add_variant_estimates: keys are (scenario name, variant name)
+    # pairs, values are the per-seed gain arrays appended in seed order.
     estimates: dict[tuple[str, str], list[np.ndarray]] = {}
 
-    # A TemporaryDirectory cleans up its contents on exit; simulate() writes its
-    # intermediate files there so the grid leaves nothing behind on disk.
+    # A TemporaryDirectory cleans up its contents on exit; simulate() writes its intermediate files
+    # there so the grid leaves nothing behind on disk.
     with tempfile.TemporaryDirectory() as tmp:
         for scenario_name in SCENARIOS:
 
-            # Seeds start at 1 (not 0) so every run is reproducible and seed 0 is
-            # never mistaken for "no seed given".
             for seed in range(1, seeds + 1):
-                # "wide" is the long-format result of one run: one row per
-                # (variant, time step) with the simulated gain.
+                # "wide" is the wide-format result of one run: one column per recorded variable, all
+                # sharing the time axis.
                 wide = simulate(seed, scenario_name, hours, Path(tmp))
                 _add_variant_estimates(estimates, scenario_name, wide)
 
@@ -328,8 +322,8 @@ def _add_variant_estimates(
         Signals of this run in wide format: one array per column name, all sharing the same time
         axis.
     """
-    # One accumulator entry per (scenario, variant) pair; setdefault creates the list the first
-    # time a pair shows up and the loop over runs keeps appending to it afterwards.
+    # One accumulator entry per (scenario, variant) pair; setdefault creates the list the first time
+    # a pair shows up and subsequent runs append to it.
     for variant in VARIANTS:
         estimates.setdefault((scenario_name, variant), []).append(estimate(wide, variant))
 
@@ -345,13 +339,12 @@ def summarize(
     each row a dict describing a single (scenario, variant, driver) combination, so the
     caller can hand it straight to a table or CSV writer.
     """
-    # Flat list of result rows. We build it here and let the per-group helper return
-    # its own rows, then extend (not append) so the nesting of the two dicts disappears:
-    # the final structure is a plain list of independent records, an invariant the
-    # downstream writer relies on.
+    # Flat list of result rows. We build it here and let the per-group helper return its own rows,
+    # then extend (not append) so the nesting disappears: the final structure is a plain list of
+    # independent records.
     rows: list[dict[str, object]] = []
-    # One iteration per (scenario, variant) group. `runs` is the list of arrays for
-    # that group, and the helper expands it into one row per driver.
+    # One iteration per (scenario, variant) group. `runs` is the list of arrays for that group, and
+    # the helper expands it into one row per driver.
     for (scenario_name, variant), runs in estimates.items():
         rows.extend(_summary_rows(scenario_name, variant, runs, truth))
     return rows
@@ -367,32 +360,32 @@ def _summary_rows(
 
     Returns a list of one flat dict per driver, ready to become a row of a results table.
     """
-    # `runs` is one array per repetition of the experiment; each array holds one estimated
-    # gain per driver, in the fixed order given by DRIVERS. Stacking turns the per-run 1-D
-    # arrays into a 2-D array of shape (n_runs, n_drivers), so column j is the whole sample
-    # of the j-th driver across runs -- one column per driver, one row per run.
+    # `runs` is one array per repetition of the experiment; each array holds one estimated gain per
+    # driver, in the fixed order given by DRIVERS. Stacking turns the per-run 1-D arrays into a 2-D
+    # array of shape (n_runs, n_drivers), so column j is the whole sample of the j-th driver across
+    # runs.
     stacked = np.vstack(runs)
     rows: list[dict[str, object]] = []
     for j, driver in enumerate(DRIVERS):
         rows.append(
             {
-                # Which experiment this row belongs to, so rows from several scenarios and
-                # variants can be concatenated into a single table.
+                # Which experiment this row belongs to, so rows from several scenarios and variants
+                # can be concatenated into a single table.
                 "scenario": scenario_name,
                 "variant": variant,
                 # DRIVERS[j] is the name of the driver whose column we are summarising.
                 "driver": driver,
-                # The reference value the estimate is trying to recover (same unit as the
-                # estimate, here a gain ratio, dimensionless). Used later to score accuracy.
+                # The reference value the estimate is trying to recover (same unit as the estimate,
+                # here a gain ratio, dimensionless). Used later to compare against the mean.
                 "true_gain": truth[driver],
-                # Sample mean of that driver over the runs, in the driver's own unit.
+                # Sample mean of that driver over the runs, in the same unit as the true gain.
                 "mean": float(stacked[:, j].mean()),
-                # Sample standard deviation with Bessel's correction (ddof=1 divides by n-1,
-                # the unbiased estimator). With a single run there is no spread to estimate,
-                # so we report nan instead of the 0.0 that ddof=1 would silently produce.
+                # Sample standard deviation with Bessel's correction (ddof=1 divides by n-1, the
+                # unbiased estimator). With a single run there is no spread to estimate, so we
+                # report nan.
                 "std": float(stacked[:, j].std(ddof=1)) if len(runs) > 1 else float("nan"),
-                # How many runs went into `mean` and `std`; kept in the row so downstream
-                # analysis knows how much weight the summary deserves.
+                # How many runs went into `mean` and `std`; kept in the row so downstream analysis
+                # knows how much weight the summary deserves.
                 "n_runs": len(runs),
             }
         )
@@ -489,9 +482,6 @@ def find_measurement_row(
         StopIteration: when no row matches the given combination. Callers
             normally wrap this call in try/except StopIteration.
     """
-    # all() of the three equalities, short-circuiting on the first mismatch.
-    # next() pulls the first (and, by the unique-key invariant, only) match,
-    # or raises StopIteration if the generator is exhausted.
     return next(
         row
         for row in rows
@@ -563,21 +553,22 @@ def _plot_driver(ax: Any, rows: list[dict[str, object]], driver: str) -> None:
     """
     selected_rows = [row for row in rows if row["driver"] == driver]
     # Every measurement of this driver carries the same reference value, so taking it from the
-    # first row is enough; "true_gain" is the gain [target metric units, typically USD] that a
-    # horizon-14 forecast of the real (non-permuted) data achieves.
+    # first row is enough; "true_gain" is the ground-truth steady-state gain from `true_gains()`
+    # (dimensionless, y-units per x-units), not a forecast metric.
     true_gain = cast(float, selected_rows[0]["true_gain"])
     for scenario_index, scenario_name in enumerate(SCENARIOS):
         _plot_scenario(ax, selected_rows, scenario_name, scenario_index)
-    # Horizontal reference line at the honest-model gain, so bars can be read as a fraction of it.
+    # Horizontal reference line at the ground-truth gain, so bars can be read against it.
     # Dashed black, deliberately distinct from the grey zero line drawn below.
     ax.axhline(true_gain, color="k", linestyle="--", linewidth=1, label="true gain (h = 14)")
-    # p80 = the 80th percentile: the y values are quantile statistics, not means.
+    # p80 is the 80th percentile of the product particle size; the y values are estimated
+    # steady-state gains, not quantile statistics.
     ax.set_title(f"{driver} -> p80")
     # X axis is categorical: place one tick at each integer bar position (0..len(VARIANTS)-1),
     # then replace the numbers by the variant names. Rotating 40 deg avoids label overlap.
     ax.set_xticks(np.arange(len(VARIANTS)))
     ax.set_xticklabels(VARIANTS, rotation=40, ha="right", fontsize=8)
-    # Baseline line at gain 0: anything above it is a positive attribution.
+    # Baseline line at gain 0: bars above it are positive gains, bars below it are negative gains.
     ax.axhline(0.0, color="grey", linewidth=0.5)
 
 
@@ -596,7 +587,7 @@ def _plot_scenario(
     # Fraction of a variant's x slot that one scenario bar occupies; the rest
     # of the slot is left blank so neighbouring scenario bars do not touch.
     width = 0.38
-    # Mean metric value for this scenario, one entry per variant. `means` and
+    # Mean gain estimate for this scenario, one entry per variant. `means` and
     # `stds` are aligned with VARIANTS: index i refers to VARIANTS[i].
     means = [_lookup_float(selected_rows, scenario_name, variant, "mean") for variant in VARIANTS]
     # Same alignment, but each entry is the standard deviation of that mean.
@@ -653,11 +644,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns the process exit code: 0 when the experiment completed.
     """
-    # argparse turns the raw command-line tokens (`argv`, or sys.argv[1:] when None) into an
-    # `args` object. `--seeds` is the number of independent runs (Monte-Carlo replicates of the
-    # same scenario, each with its own random noise); `--hours` is the simulated duration in
-    # hours; `--out` is the directory the result CSV/table is written to, defaulting next to
-    # this file so the experiment works no matter the current working directory.
+    # argparse turns the raw command-line tokens (`argv`, or sys.argv[1:] when None)
+    # into an `args` object. `--seeds` is the number of independent replicates per
+    # scenario; `--hours` is the simulated duration in hours; `--out` is the directory
+    # the result files are written to, defaulting next to this file.
     parser = argparse.ArgumentParser(
         description="Experiment 0: SP-based versus MV-based gain identification."
     )
@@ -668,9 +658,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # This is the only place command-line text becomes typed Python values.
     args = parser.parse_args(argv)
 
-    # `run` performs the actual simulation and identification (the side effects: sim, files on
-    # disk). It returns one row per (seed, method) comparison, so `len(rows)` is the number of
-    # SP-versus-MV pairings written, not the number of seeds.
+    # `run` performs the simulation and identification, writes the outputs, and
+    # returns one result row per (scenario, variant, driver). `len(rows)` is the
+    # number of rows written, not the number of seeds.
     rows = run(args.seeds, args.hours, args.out)
     print(f"wrote {len(rows)} rows to {args.out}")
     return 0

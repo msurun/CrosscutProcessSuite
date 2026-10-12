@@ -119,8 +119,8 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         """
         try:
             save_document(system_id, document, user_dir)
-            # History entry timestamped in UTC; `save_version` appends rather than
-            # overwrites, so earlier versions of the same system_id stay readable.
+            # History entry timestamped in UTC; `save_version` appends rather than overwrites, so
+            # earlier versions of the same system_id stay readable.
             save_version(system_id, document, user_dir, now=datetime.now(UTC))
         except FuzzyModelError as error:
             # Translate the domain error into an HTTP status the client can act on,
@@ -131,8 +131,8 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
     @router.get("/fuzzy/{system_id}/versions")
     def get_versions(system_id: str) -> list[str]:
         """Version ids of the saved snapshots, newest first."""
-        # Version ids are opaque strings; their order (newest first) is decided
-        # by `list_versions`, so the client can index `[0]` for the latest one.
+        # Version ids are opaque strings; their order (newest first) is decided by `list_versions`,
+        # so the client can index `[0]` for the latest one.
         try:
             return list_versions(system_id, user_dir)
         except FuzzyModelError as error:
@@ -172,13 +172,11 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         # model; a malformed document is the caller's error, hence 422.
         system = _system_or_422(request.document)
         try:
-            # infer_payload runs the inference and returns the result already
-            # shaped as plain JSON types (crisp outputs, membership degrees, ...).
             return infer_payload(system, request.inputs)
         except FuzzyModelError as error:
-            # A FuzzyModelError means the model itself rejected the inputs (for
-            # example a value outside the variable's universe of discourse), so
-            # it is again a client error, not a server failure.
+            # A FuzzyModelError means the model itself rejected the inputs (for example a value
+            # outside the variable's universe of discourse), so it is again a client error, not a
+            # server failure.
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.post("/datasets/{dataset_id}/fuzzy/replay")
@@ -195,24 +193,17 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         Raises HTTPException with status 422 if the request body does not define a usable fuzzy
         system, or if the replay itself fails on the data (e.g. a variable is missing a range).
         """
-        # Build the inferable model from the JSON document in the body. Returns a ready-to-use
-        # system, or raises 422 when the document is malformed or incomplete.
         system = _system_or_422(request.document)
 
         # Load the stored dataset in wide layout (one row per timestamp, one column per signal)
         # and reduce it to the replay window asked for in the request.
-        # t_ns holds the timestamp of each remaining sample in NANOSECONDS since the Unix epoch;
+        # t_ns holds the timestamp of each remaining sample in nanoseconds since the Unix epoch;
         # columns maps a signal name to its array of sample values over that same window.
         t_ns, columns = _window(load_wide(dataset_id), request)
 
         try:
-            # Run the rule base over the window. max_points caps how many samples are returned,
-            # so the response stays small for long datasets; the payload carries the timestamps,
-            # the inputs and the replayed outputs.
             return replay_payload(system, t_ns, columns, request.max_points)
         except FuzzyModelError as error:
-            # Domain-level failure (bad ranges, unknown variable, ...). Surface it to the client
-            # as a validation error instead of a generic 500, keeping the original as the cause.
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     return router

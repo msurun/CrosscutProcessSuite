@@ -95,7 +95,6 @@ def import_opcua(
     ConnectionError
         If the endpoint cannot be reached, or the connection times out.
     """
-    # Fail fast on bad parameters, before touching the network or the file system.
     _validate_arguments(nodes, n_samples, period_s)
 
     # Tag names come from an external config and may contain characters that are
@@ -104,19 +103,21 @@ def import_opcua(
     tag_ids = [_sanitize_tag_name(tag) for tag in nodes]
 
     # Two distinct tags may normalise to the same id, which would silently merge
-    # two different signals into one column. The helper rejects that and returns
-    # the list of ids with duplicates removed, still in first-seen order.
+    # two different signals into one column. The helper rejects that case;
+    # tag_ids itself has no duplicates when it returns, so the name is not
+    # misleading: the list is the unique identifiers.
     unique_tag_ids = _check_identifier_uniqueness(nodes, tag_ids)
 
-    # Node id strings, in the same order as ``unique_tag_ids``; that shared order
-    # is the invariant that lets the collected columns be matched to the tags.
+    # Node id strings, in the same order as ``nodes``; the parallel order with
+    # ``tag_ids`` (and therefore ``unique_tag_ids``) is what lets the collected
+    # columns be matched to the tags.
     node_ids = [nodes[tag] for tag in nodes]
 
     # One event loop runs the whole acquisition: connect, then read every node
     # ``n_samples`` times, sleeping ``period_s`` between rounds.
-    # ``ts_ns`` are UTC epoch timestamps in nanoseconds (int64), shape (n_samples,);
-    # ``values`` is shape (n_samples, n_tags); ``qualities`` is the same shape and
-    # holds the OPC UA StatusCode of each read (0 = Good, non-zero = bad value).
+    # ``ts_ns`` are UTC epoch timestamps in nanoseconds (int64), shape
+    # (n_samples,); ``values`` is shape (n_tags, n_samples); ``qualities`` is
+    # the same shape and holds local GOOD/BAD ints, not raw OPC UA StatusCodes.
     ts_ns, values, qualities = asyncio.run(
         _collect_samples(endpoint, node_ids, period_s, n_samples)
     )

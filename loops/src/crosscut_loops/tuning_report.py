@@ -112,15 +112,9 @@ def build_tuning_report(
     # It arrives from a caller (config file, GUI slider) and could be any
     # number, so clamp it to [0, 1]: 0 = aggressive/tight, 1 = conservative.
     robustness = _clamp_robustness(robustness)
-    # Fit the process model to the recorded step response. A failure is not an
-    # exception but a reason string, because a bad window of data is expected
-    # and should still produce a report the engineer can read.
     model, failure_reason = _identify_or_reason(u, y, dt_s)
-    # No model means no PI settings can be computed; return the degraded report
-    # that carries ``failure_reason`` in its ``blocked_reason`` field instead.
     if model is None:
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
-    # Happy path: build the full report from the fitted model.
     return _identified_report(loop_name, model, robustness, stiction_verdict)
 
 
@@ -161,8 +155,6 @@ def _unidentified_report(
         simc=None,
         amigo=None,
         robustness=robustness,
-        # Why this loop has no controller parameters: the reason the model could
-        # not be identified, surfaced to whoever reads the report.
         blocked_reason=failure_reason,
         # Stiction symptoms are collected independently of the model fit, so they
         # are still worth reporting on a loop that failed identification.
@@ -335,9 +327,8 @@ def _model_section_lines(model: FopdtModel) -> list[str]:
     curve is approximated by a single time constant in series with a transport delay.
     Its three parameters (gain, time constant, dead time) are printed here as a table.
     """
-    # A Markdown table: the heading, the header row, the separator row, one row per
+    # A Markdown table: heading, header row, separator row, one row per
     # parameter, then a blank line so the next section starts on its own paragraph.
-    # Gain is dimensionless (output units per input units); both times are in seconds.
     return [
         "## Model",
         "",
@@ -442,9 +433,8 @@ def render_markdown(report: TuningReport) -> str:
     Returns:
         A Markdown document with a heading per report section.
     """
-    # Each renderer returns one section of the document. A renderer returns an
-    # empty string when the report has nothing to say for that section, so an
-    # empty string here means "this section is absent", not "an empty section".
+    # Each renderer returns one section of the document, or an empty string
+    # when the report has nothing to say for that section.
     sections = [
         _render_header(report),
         _render_model_section(report),
@@ -452,6 +442,5 @@ def render_markdown(report: TuningReport) -> str:
         _render_dcs_section(report),
         _render_notes_section(report),
     ]
-    # Drop the absent sections instead of emitting stray blank lines. Joining
-    # with "\n" keeps every section a separate Markdown block.
+    # Remove empty sections so the final document has no stray blank sections.
     return "\n".join(section for section in sections if section)

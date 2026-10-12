@@ -64,11 +64,11 @@ def parse_duration(text: str) -> float:
         seconds = float(num)
     except ValueError as e:
         raise ValueError(f"invalid duration: {text}") from e
-    # A zero or negative duration makes no sense for a timeout or interval, so
-    # it is rejected before the unit conversion.
     if seconds <= 0:
         raise ValueError(f"duration must be positive: {text}")
     # Convert the number to seconds. Units are: "m" = 60 s, "h" = 3600 s.
+    # The unknown-unit branch is defensive; parse_duration already rejected
+    # any suffix other than s, m, or h.
     if unit == "m":
         seconds *= 60
     elif unit == "h":
@@ -101,8 +101,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python -m crosscut_sim.run",
         description="Run the Crosscut simulation suite and record the results.",
     )
-    # --plant is mandatory and must be one of the known plant identifiers;
-    # `choices` makes argparse reject anything else before we build anything.
     parser.add_argument(
         "--plant",
         required=True,
@@ -160,8 +158,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as e:
             parser.error(str(e))
 
-    # An unknown scenario is a user mistake in the scenario file itself, not in
-    # the command line syntax, so we report it ourselves and return code 2.
     try:
         scenario_obj = build_scenario(args.plant, args.scenario, duration_s=duration)
     except ValueError as e:

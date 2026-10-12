@@ -80,8 +80,6 @@ class PlantServer:
         self._tick_s = tick_s
         self._heartbeat_timeout_s = heartbeat_timeout_s
 
-        # Runtime state, all empty until start() is called. The underscore names
-        # are private to this class; the public ones are read by other modules.
 
         # The asyncua server object, created lazily in start() so that building
         # the instance is cheap and side-effect free.
@@ -93,8 +91,8 @@ class PlantServer:
         self._task: asyncio.Task[None] | None = None
         # Whether the publish loop is currently allowed to send value updates.
         self._publishing = False
-        # Heartbeat counter mirrored to the client, incremented on every tick;
-        # the client toggles its own copy and the server compares the two.
+        # Heartbeat counter next expected from the client. The server stores the
+        # last client heartbeat; a change marks the client as alive.
         self._heartbeat_value = 0
         # Monotonic timestamp (seconds, from time.monotonic()) of the last time
         # the heartbeat value changed; used to detect a stalled client.
@@ -129,7 +127,6 @@ class PlantServer:
         server = Server()
         await server.init()
         server.set_endpoint(self.endpoint)
-        # No security policy: this server is intended for local/test use only.
         server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
         # Register the namespace; `idx` is the numeric index that every NodeId
         # built from this namespace must carry so clients can resolve it.
@@ -158,9 +155,8 @@ class PlantServer:
                 await node.set_writable()
                 writable.append((spec.id, node))
 
-        # Heartbeat counter: a monotonically increasing Int64 that the supervisor
-        # bumps each tick; a remote watchdog can detect a frozen server by its
-        # failure to change.
+        # Heartbeat variable the client writes: a change proves the client is alive.
+        # The server stores the received value and compares it on each write.
         self._nodes[HEARTBEAT_TAG] = await plant_obj.add_variable(
             _node_id(idx, HEARTBEAT_TAG),
             HEARTBEAT_TAG,
@@ -170,16 +166,14 @@ class PlantServer:
         await self._nodes[HEARTBEAT_TAG].set_writable()
         writable.append((HEARTBEAT_TAG, self._nodes[HEARTBEAT_TAG]))
 
-        # Health flag the supervisor flips to False when the tick loop stalls,
-        # letting a remote client distinguish "alive" from "lagging".
+        # Health flag the server updates. False means the heartbeat has timed out.
         self._nodes[HEARTBEAT_OK_TAG] = await plant_obj.add_variable(
             _node_id(idx, HEARTBEAT_OK_TAG),
             HEARTBEAT_OK_TAG,
             True,
             varianttype=ua.VariantType.Boolean,
         )
-        # Simulated wall-clock time in seconds since plant start, exposed as a
-        # Double so clients can correlate their own timestamps with the plant.
+        # Plant model time, exposed as a Double so clients can correlate with the plant.
         self._nodes[TIME_TAG] = await plant_obj.add_variable(
             _node_id(idx, TIME_TAG),
             TIME_TAG,
@@ -189,7 +183,6 @@ class PlantServer:
 
         await server.start()
         self._server = server
-        # The watchdog clock starts once the server is up: the server start is the first change.
         self._last_heartbeat_change = time.monotonic()
         # A value setter is OPC UA's hook for incoming client writes to a node;
         # it translates a remote write into a plant update for that tag.
@@ -218,13 +211,12 @@ class PlantServer:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        # Stop the HTTP server (unbinds the listening socket, freeing the port) and
+        # Stop the OPC UA server (unbinds the listening socket, freeing the port) and
         # drop the reference so nothing can call methods on a stopped server later.
         if self._server is not None:
             await self._server.stop()
             self._server = None
-        # Forget every registered node: the mapping is invalid once the loop that
-        # kept their heartbeats alive has stopped.
+        # Forget every registered node: the mapping is invalid once the server has stopped.
         self._nodes = {}
 
     # ----- simulation loop -------------------------------------------------------------------
@@ -245,10 +237,11 @@ class PlantServer:
         # How many simulation steps to run per iteration. The plant advances by
         # self._scenario.dt_s seconds (simulation time) per step, so the number
         # of steps that correspond to one wall-clock iteration is:
-        #   steps = speed * tick_s / dt_s
-        # speed is the playback multiplier (1.0 = real time), tick_s is the wall-clock
-        # period of one iteration (seconds), dt_s is the simulation step size (seconds).
-        # max(1, ...) guarantees at least one step even at very low speed factors.
+        # steps = speed * tick_s / dt_s
+        # speed is the playback multiplier (1.0 = real time), tick_s is the
+        # wall-clock period of one iteration (seconds), dt_s is the simulation
+        # step size (seconds). max(1, ...) guarantees at least one step even at
+        # very low speed factors.
         steps = max(1, round(self._speed * self._tick_s / self._scenario.dt_s))
         while True:
             # Monotonic clock, not wall time: it cannot jump backwards on NTP or
@@ -259,9 +252,10 @@ class PlantServer:
             self._update_watchdog(time.monotonic())
             await self._publish()
             elapsed = time.monotonic() - started
-            # Sleep only for the remainder of the tick period. max(0.0, ...) keeps the
-            # argument non-negative when stepping and publishing took longer than
-            # tick_s, in which case we run again immediately instead of raising.
+            # Sleep only for the remainder of the tick period. max(0.0, ...) keeps
+            # the argument non-negative when stepping and publishing took longer
+            # than tick_s, in which case we run again immediately instead of
+            # raising.
             await asyncio.sleep(max(0.0, self._tick_s - elapsed))
 
     async def _publish(self) -> None:
@@ -323,8 +317,8 @@ class PlantServer:
         # keeping the invariant "flag is True only while a server write runs".
         self._publishing = True
         try:
-            # ``DataValue`` wraps the Variant with source/timestamp metadata;
-            # this call performs the actual OPC UA write on the node.
+            # ``DataValue`` wraps the Variant with source/timestamp metadata; this
+            # call performs the actual OPC UA write on the node.
             await self._nodes[tag_id].write_value(ua.DataValue(variant))
         finally:
             self._publishing = False
@@ -362,15 +356,15 @@ class PlantServer:
         for spec in self.plant.tags:
             if spec.role != "MODE":
                 continue
-            # First value of the read tuple is the current mode; a loop already
-            # in AUTO is nobody's business and we leave it untouched.
+            # First value of the read tuple is the current mode; a loop already in
+            # AUTO is nobody's business and we leave it untouched.
             if self.plant.read(spec.id)[0] != CAS:
                 continue
-            # Modes are exchanged as numbers on the wire, so AUTO (an int) is
-            # cast to float to match the numeric type the write expects. An id
-            # the DCS refuses (PermissionError), a non-numeric current value
-            # (ValueError) or an unknown id (KeyError) is a loop we cannot
-            # release; skipping it keeps the remaining loops released.
+            # Modes are exchanged as numbers on the wire, so AUTO (an int) is cast
+            # to float to match the numeric type the write expects. An id the DCS
+            # refuses (PermissionError), a non-numeric current value (ValueError) or
+            # an unknown id (KeyError) is a loop we cannot release; skipping it
+            # keeps the remaining loops released.
             try:
                 self.plant.write(spec.id, float(AUTO))
             except (PermissionError, ValueError, KeyError):
@@ -404,9 +398,10 @@ class PlantServer:
                 node.attributes[attr].value = value
                 return
             self._on_client_write(tag_id, float(value.Value.Value))  # type: ignore[union-attr]
-            # Read back from the plant: `plant.read` returns a tuple, element 0 is the
-            # current value (a float in engineering units), element 1 is its quality.
-            # The node always reflects what the plant holds after the write attempt.
+            # Read back from the plant: `plant.read` returns a tuple, element 0 is
+            # the current value (a float in engineering units), element 1 is its
+            # quality. The node always reflects what the plant holds after the write
+            # attempt.
             stored = float(self.plant.read(tag_id)[0])
             node.attributes[attr].value = ua.DataValue(ua.Variant(stored, ua.VariantType.Double))
 
@@ -430,9 +425,10 @@ class PlantServer:
             value: requested value in the tag's own engineering units.
         """
         spec = self.plant.tags[tag_id]
-        # A MODE write of CAS (cascade) hands control of the loop from the DCS to the
-        # client. The DCS may only keep the loop stable if a fresh heartbeat proves the
-        # we are alive, so a stale heartbeat must not release that interlock.
+        # A MODE write of CAS (cascade) hands control of the loop from the DCS
+        # to the client. The DCS may only keep the loop stable if a fresh
+        # heartbeat proves that we are alive, so a stale heartbeat must not
+        # release that interlock.
         if spec.role == "MODE" and value == CAS and not self._heartbeat_alive(time.monotonic()):
             return  # the DCS holds the loop while the heartbeat is lost
         try:
@@ -455,8 +451,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m crosscut_opcua.server",
         description="Serve a simulated plant over OPC UA until interrupted (Ctrl+C).",
     )
-    # The two helpers below register the individual flags; keeping them in separate functions
-    # lets us reuse the same sets in other entry points (e.g. tests) without duplicating options.
+    # These helpers keep the argument definitions grouped by concern: plant selection
+    # and timing control. Splitting them makes the parser easier to read and test.
     _add_plant_arguments(parser)
     _add_timing_arguments(parser)
     return parser

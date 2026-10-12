@@ -23,8 +23,7 @@ def _check_parameters(sigma: float, tau_s: float, dt_s: float) -> None:
     ValueError
         If any argument is outside its physically meaningful range.
     """
-    # A standard deviation is a square root: negative values have no real number counterpart,
-    # so they would make every downstream noise draw meaningless.
+    # A standard deviation is a square root: negative values have no real number counterpart.
     if sigma < 0:
         raise ValueError("sigma must be non-negative")
     # Both time constants are durations on a clock: zero would mean an instantaneous process,
@@ -86,8 +85,7 @@ class OrnsteinUhlenbeck:
         Raises:
             ValueError: If sigma is negative, or if tau_s or dt_s are not positive.
         """
-        # Fail before storing anything, so a rejected call leaves the instance untouched
-        # instead of half-updated.
+        # Fail before storing anything, so a rejected call leaves the instance untouched.
         _check_parameters(sigma, tau_s, dt_s)
         self.mean = mean
         self.sigma = sigma
@@ -124,18 +122,18 @@ class OrnsteinUhlenbeck:
         Returns:
             The new value of the process.
         """
-        # Autocorrelation over one step: how much of the previous deviation from the
-        # mean survives the step. dt_s is the time step in seconds; because the
-        # process is mean reverting, 0 < phi <= 1, and phi = 1 when dt_s << tau_s.
+        # Autocorrelation over one step: how much of the previous deviation from the mean survives
+        # the step.
+        # dt_s is the time step in seconds; phi close to 1 when dt_s is small relative to tau_s.
         phi = np.exp(-self.dt_s / self.tau_s)
         if self.sigma == 0:
             # No randomness: the process decays deterministically to the mean.
             self.value = self.mean
         else:
-            # Euler-exact update: keep the reverted part of the deviation from the
-            # mean, then add a fresh shock. The shock std is
-            # sigma * sqrt(1 - phi**2) so the process keeps its stationary
-            # standard deviation sigma no matter what dt_s is.
+            # Euler-exact update: keep the reverted part of the deviation from the mean, then add a
+            # fresh shock.
+            # The shock std is sigma * sqrt(1 - phi**2) so the process keeps its stationary
+            # standard deviation sigma regardless of dt_s.
             self.value = (
                 self.mean
                 + phi * (self.value - self.mean)

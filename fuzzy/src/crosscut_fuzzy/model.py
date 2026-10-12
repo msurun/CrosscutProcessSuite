@@ -129,9 +129,8 @@ def _variable(item: Mapping[str, Any]) -> Variable:
     # every membership function degenerate, so fail loudly instead of producing silent nonsense.
     if not low < high:
         raise FuzzyModelError(f"variable {item['id']}: low must be below high")
-    # Each term (fuzzy set) is built once, eagerly. Passing low/high into _term lets it normalise
-    # that term's shape to this variable's range. Stored as a tuple: terms are fixed at build time
-    # and the tuple keeps them immutable and hash-friendly.
+    # Each term (fuzzy set) is built once, eagerly. Stored as a tuple: terms are
+    # fixed at build time and the tuple keeps them immutable and hash-friendly.
     terms = tuple(_term(str(item["id"]), raw, low, high) for raw in item["terms"])
     # Assemble the domain. "label" and "unit" are presentation metadata ("" when absent, so callers
     # never compare against None). "tag" is an optional free-form marker carried through unchanged

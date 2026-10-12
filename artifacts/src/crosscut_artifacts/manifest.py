@@ -54,8 +54,7 @@ def sha256_file(path: Path) -> str:
     Returns:
         The lowercase hexadecimal SHA-256 digest, 64 characters long.
     """
-    # A SHA-256 object is a stateful accumulator: repeated update() calls feed it
-    # successive pieces of the input, and it remembers the running hash state.
+    # A SHA-256 object accumulates input across update() calls.
     sha256 = hashlib.sha256()
     with path.open("rb") as binary_file:
         # The walrus operator assigns the next chunk and tests it in one step. The
@@ -419,15 +418,15 @@ def _verify_payload_files(doc: dict[str, Any], path: Path) -> None:
             hashes to the recorded digest.
     """
     # Paths in the manifest are relative, so they are joined onto the artifact root `path`
-    # to obtain an absolute path. Iterating in manifest order means the first broken entry
-    # is the one reported, which keeps failures deterministic across runs.
+    # to obtain the file location on disk. Iterating in manifest order means the first
+    # broken entry is the one reported, which keeps failures deterministic across runs.
     for item in doc["payload"]:
         file_path = path / item["path"]
         # Existence is checked before hashing because hashing a missing file would raise
         # FileNotFoundError, whose message would not say which manifest entry is at fault.
         if not file_path.exists():
             raise ArtifactIntegrityError(f"Payload file not found: {file_path}")
-        # Constant-time-per-file full read; `item["sha256"]` is the lowercase hex digest
-        # recorded at write time, compared as a string against the freshly computed one.
+        # Full read per file, bounded by file size; `item["sha256"]` is the lowercase hex
+        # digest recorded at write time, compared as a string against the freshly computed one.
         if sha256_file(file_path) != item["sha256"]:
             raise ArtifactIntegrityError(f"Payload file integrity check failed: {file_path}")

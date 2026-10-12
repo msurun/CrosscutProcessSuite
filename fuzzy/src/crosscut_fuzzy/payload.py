@@ -109,8 +109,8 @@ def replay_payload(
     Raises:
         FuzzyModelError: when an input has no tag or a tag is not in the data.
     """
-    # The chart only needs the outer of these two caps, so thinning uses the smaller of the
-    # caller's request and the hard server-side limit.
+    # Thinning uses the smaller of the caller's request and the hard server-side
+    # limit, so the chart receives at most the number of points it needs.
     keep = _thinned_indices(len(t_ns), min(max_points, MAX_REPLAY_POINTS))
     # Read one recording column per model input. Each input is looked up by its tag, then indexed
     # with `keep` so every series in the result is aligned on the same (thinned) time axis.

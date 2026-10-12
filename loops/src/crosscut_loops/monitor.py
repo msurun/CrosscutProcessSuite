@@ -204,9 +204,8 @@ def _classify(report: LoopReport, settings: LoopSettings) -> str:
     Returns one of "manual", "saturated", "oscillating",
     "poor_performance" or "ok".
     """
-    # Service factor (unitless, 0..1): share of the time the loop is left in
-    # automatic mode. A value below manual_limit means the operator keeps
-    # taking the loop by hand, so its tuning is not the real problem yet.
+    # Service factor (unitless, 0..1): share of samples that are active. Below manual_limit the
+    # operator keeps taking the loop by hand, so its tuning is not the real problem yet.
     if report.service_factor < settings.manual_limit:
         return "manual"
 
@@ -222,9 +221,9 @@ def _classify(report: LoopReport, settings: LoopSettings) -> str:
     if report.oscillation_period_s is not None:
         return "oscillating"
 
-    # Harris index (unitless, >= 1): the loop's variance divided by the
-    # variance of a minimum-variance benchmark; 1 is perfect control. Below
-    # harris_poor_threshold the loop is stable but clearly underperforming.
+    # Harris index (dimensionless): the loop's variance divided by the variance of a minimum-
+    # variance benchmark; lower is worse, 1.0 is optimal. Below harris_poor_threshold the loop is
+    # stable but clearly underperforming.
     if report.harris_index < settings.harris_poor_threshold:
         return "poor_performance"
 
@@ -252,30 +251,23 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
             f"flatline: {report.flatline_fraction:.0%} of PV samples are frozen "
             "(stuck sensor or lost data)"
         )
-    # classification is a single label describing how the loop behaves; this table maps each
-    # label to the sentence to print. When the label is absent from the table, the loop is
-    # healthy and contributes no finding.
     messages = {
-        # service_factor is the fraction of time the controller is in automatic mode,
-        # i.e. the share of the time the loop is actually being controlled. It is a ratio
-        # in [0, 1] and is rendered as a percentage. "manual" is the label used when the
-        # operator keeps the loop in manual mode instead of letting the controller act.
+        # service_factor is the fraction of samples that are active (valid PV/SP, quality 0 when
+        # given, and not MAN). It is a ratio in [0, 1] and is rendered as a percentage.
         "manual": f"manual: in use only {report.service_factor:.0%} of the time",
         # saturation_fraction is the share of time the controller output sits at its low or
         # high limit, i.e. the manipulated variable cannot move any further.
         "saturated": f"saturated: output at its limit {report.saturation_fraction:.0%} of the time",
-        # oscillation_period_s is the period of the detected cycle. Plant units are seconds
-        # throughout this project, hence the "_s" suffix.
+        # oscillation_period_s is the period of the detected cycle in seconds; the '_s' suffix
+        # denotes seconds.
         "oscillating": f"oscillating: sustained cycle of {report.oscillation_period_s} s period",
-        # harris_index comes from the Harris index (Harris, 1989): the ratio of the best
-        # achievable output variance to the variance the loop actually delivers. A value
-        # near 1 means the controller is close to optimal, small values mean poor control.
+        # harris_index is the ratio of the best achievable output variance to the variance the loop
+        # actually delivers. A value near 1 means the controller is close to optimal; smaller values
+        # mean poor control.
         "poor_performance": f"poor_performance: Harris index {report.harris_index:.2f}",
     }
     if report.classification in messages:
         found.append(messages[report.classification])
-    # stiction is valve stem friction that makes the valve jump instead of moving smoothly;
-    # it mimics oscillation, so no amount of retuning will cure it.
     if report.stiction_verdict == "stiction":
         found.append("stiction suspected: fix the valve before retuning the controller")
     return found
@@ -321,21 +313,16 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
 
     Returns a ``LoopReport`` with ``classification=""`` and ``findings=[]``.
     """
-    # The saturation fraction is computed over ACTIVE samples only. ``arrays.active`` is a
-    # boolean mask that marks rows with valid data; inactive rows (startup/shutdown gaps)
-    # would otherwise bias the fraction. ``out_low``/``out_high`` are the output limits in
-    # engineering units (%), and the resulting ``saturation`` is a fraction in [0, 1].
+    # The saturation fraction is computed over ACTIVE samples only. arrays.active is a boolean mask;
+    # inactive rows (startup/shutdown gaps) would otherwise bias the fraction. out_low/out_high are
+    # the output limits in percent of output span, and the resulting saturation is a fraction in [0,
+    # 1].
     saturation = saturation_fraction(
         arrays.out[arrays.active], settings.out_low, settings.out_high
     )
     return LoopReport(
         n_samples=arrays.n_samples,
-        # ``active`` is a boolean mask, so its mean is the fraction of samples that are
-        # active (mean of 0/1 values). Cast to float because np.mean returns np.float64
-        # and the report field is typed as a plain float.
         service_factor=float(np.mean(arrays.active)),
-        # All fraction/index fields below are computed from the full series (not masked)
-        # because the helper functions themselves define which rows they use.
         saturation_fraction=saturation,
         # Share of time the process variable stops moving (|delta| below a deadband).
         flatline_fraction=flatline_fraction(arrays.pv),
@@ -385,8 +372,8 @@ def _longest_segment_metrics(
     # the longest unbroken run of True values, i.e. the longest active stretch.
     segment = _longest_run(active)
 
-    # The control error is setpoint minus process variable: how far the measurement is
-    # from where we asked it to be.  Computed sample-wise, then restricted to the segment.
+    # The control error is process variable minus setpoint: how far the measurement is from where we
+    # asked it to be. Computed sample-wise, then restricted to the segment.
     harris, period_s = _segment_metrics((series.pv - series.sp)[segment], dt_s, settings)
 
     # Stiction is detected from the relationship between the controller output (the valve
@@ -409,24 +396,23 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
 
     Raises ``ValueError`` (from ``_active_mask``) when the series is not valid for analysis.
     """
-    # A sample is "active" (the loop is truly under closed-loop control) only when the controller
-    # is in an automatic mode, the signals have good quality, and there is no setpoint step. The
-    # mask is a boolean array of length n_samples that every downstream metric relies on.
+    # A sample is "active" (the loop is truly under closed-loop control) only when the
+    # controller is in an automatic mode, the signals have good quality, and there is no
+    # setpoint step. The mask is a boolean array of length n_samples that every downstream
+    # metric relies on.
     active = _active_mask(series.pv, series.sp, series.mode, series.quality)
 
-    # Stuck-out metrics describe a valve/actuator that fails to move. ``harris`` is the Harris
-    # index (a dimensionless ratio between the achieved and the best-possible variance of the
-    # control error, 0 = perfect, 1 = no better than open loop); ``period_s`` is the dominant
-    # oscillation period in SECONDS; ``stiction`` is the valve stick-slip index (0 = free, higher
-    # means more sticking). They are computed on the longest contiguous run of active samples.
+    # Compute the Harris index, dominant oscillation period, and stiction verdict on the
+    # longest contiguous run of active samples. These three metrics rely on a continuous
+    # AUTO stretch, so they are extracted before the per-sample statistics are assembled.
     harris, period_s, stiction = _longest_segment_metrics(series, active, settings)
     return LoopArrays(
         pv=series.pv,
         out=series.out,
         mode=series.mode,
         active=active,
-        # Error is setpoint minus process variable, kept only where the loop is active; the mask
-        # selects a variable-length subset, so its length is not n_samples.
+        # Error is process variable minus setpoint, kept only where the loop is active; the
+        # mask selects a variable-length subset, so its length is not n_samples.
         error=(series.pv - series.sp)[active],
         n_samples=len(series.t_s),
         harris=harris,
@@ -455,9 +441,9 @@ def analyze_loop(
     # Bundle the five raw channels into one value object so the pipeline below passes a single
     # argument around instead of five parallel arrays (which are easy to mix up).
     series = LoopSeries(t_s=t_s, pv=pv, sp=sp, out=out, mode=mode, quality=quality)
-    # Stage 1 - _prepare_arrays() cleans the signals (unit conversion, masking of bad samples)
-    # and returns plain arrays; _build_draft() computes the raw per-loop statistics and stores
-    # them in a frozen dataclass, the "draft" report.
+    # Stage 1 - _prepare_arrays() validates the signals, computes the active mask and the
+    # longest-stretch metrics, and _build_draft() computes the raw per-loop statistics and
+    # stores them in a frozen dataclass, the "draft" report.
     draft = _build_draft(_prepare_arrays(series, settings), settings)
     # Stage 2 - classification is derived from the draft statistics (e.g. which KPI band the
     # loop falls into). `replace()` returns a copy of the frozen dataclass with just that field

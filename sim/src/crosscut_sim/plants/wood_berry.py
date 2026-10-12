@@ -55,8 +55,8 @@ def _build_tag_catalog() -> TagCatalog:
     # declarative description (name, unit, bounds) that the catalog turns into
     # tags and checks for duplicates; it carries no live value. The order
     # below is the discovery order: top-loop tags first (composition,
-    # setpoint, remote setpoint, mode), then bottoms mirrors of the same four
-    # roles, then the two independent utilities (steam and feed).
+    # setpoint, remote setpoint, mode, output), then bottoms mirrors of the
+    # same five roles, then steam and feed.
     specs = [
         _top_composition_spec(),
         _top_setpoint_spec(),
@@ -211,8 +211,8 @@ def _bottom_composition_spec() -> TagSpec:
     return TagSpec(
         id=BOT,
         unit="wt%",
-        # "PV" = process variable: the simulation computes this value, so the
-        # tag is an output, not an operator-set input.
+        # "PV" = process variable: a value the model computes and reports upward.
+        # The simulation, not the operator, writes this tag.
         role="PV",
         type="float",
         description="Bottom methanol composition",
@@ -237,21 +237,16 @@ def _bottom_setpoint_spec() -> TagSpec:
     """
     return TagSpec(
         id=BOT_SP,
-        # Engineering unit of the value: weight percent of the light key in the
-        # bottom stream (wt% = mass of that component per 100 mass units of stream).
         unit="wt%",
-        # "SP" marks this tag as a setpoint (an operator/controller-written target),
-        # not a "PV" (measured process value) or a controller output.
         role="SP",
         type="float",
         description="Bottom composition active setpoint",
         # Lower bound of the valid range, in wt%. Composition cannot be negative.
         eng_min=0.0,
-        # Upper bound of the valid range, in wt%. A composition is a fraction of the
-        # whole, so 100 wt% is the physical maximum.
+        # eng_max=100.0: compositions are a fraction of the whole stream, so 100 wt% is the physical
+        # maximum.
         eng_max=100.0,
-        # Operators are allowed to write this tag, hence the setpoint can be changed
-        # at runtime; read-only tags would set this to False.
+        # writable=True: an operator may change this setpoint at runtime.
         writable=True,
     )
 
@@ -292,8 +287,6 @@ def _bottom_mode_spec() -> TagSpec:
         TagSpec: spec for the bottom composition loop mode.
     """
     return TagSpec(
-        # TagSpec fields below are keyword arguments; each one is required
-        # metadata for a single tag.
         id=BOT_MODE,  # Stable internal identifier for the tag. BOT_MODE is the
                       # registry key; ids never change once published, because
                       # historical data is stored against them.
@@ -306,14 +299,12 @@ def _bottom_mode_spec() -> TagSpec:
         type="enum",  # Data type of the tag. "enum" means a closed set of
                       # integer codes with names, so the UI shows the names and
                       # the data layer rejects anything outside the set.
-        # Human-readable description shown in operator displays and docs. The
-        # parenthesised list spells out the enum mapping:
+        # Human-readable description shown in operator displays and docs. The codes:
         #   0 = MAN  -> manual, operator sets the loop output directly
         #   1 = AUTO -> automatic, the controller computes the output
         #   2 = CAS  -> cascade, another controller supplies the setpoint
         description="Bottom composition loop mode (0=MAN, 1=AUTO, 2=CAS)",
-        # Allowed numeric range for the raw value, in enum codes (unitless).
-        # Floor and ceiling of the enum, so a value outside 0..2 is a fault.
+        # Valid range for the raw value, in enum codes (unitless): 0..2.
         eng_min=0.0,
         eng_max=2.0,
         # True: operators may write this tag. Mode selection is a deliberate
@@ -349,16 +340,14 @@ def _feed_spec() -> TagSpec:
     """
     return TagSpec(
         id=FEED,
-        # Engineering unit of the values written to this tag: pounds (mass) per minute.
+        # Engineering unit of the values written to this tag: mass flow rate in
+        # pounds (mass) per minute.
         unit="lb/min",
         # "DV" = disturbance variable: an input the controller may drive, but that
-        # the plant does not measure as a controlled output. Other roles would be
-        # "MV" (manipulated) or "CV" (controlled).
+        # the plant does not measure as a controlled output.
         role="DV",
         type="float",
         description="Column feed flow rate disturbance",
-        # Allowed range of the raw value, in the same unit as above. Clients that
-        # clamp or validate a setpoint rely on these two bounds.
         eng_min=0.0,
         eng_max=10.0,
         writable=True,
@@ -395,8 +384,6 @@ class WoodBerryPlant:
         )
 
         # Process model transfer functions: (gain, delay_min, tau_min)
-        # G11 = (12.8, 1, 16.7), G12 = (-18.9, 3, 21), Gd1 = (3.8, 8.1, 14.9)
-        # G21 = (6.6, 7, 10.9),  G22 = (-19.4, 3, 14.4), Gd2 = (4.9, 3.4, 13.2)
         self._g11 = Fopdt(gain=12.8, tau_s=16.7 * 60.0, delay_s=1.0 * 60.0, dt_s=dt_s)
         self._g12 = Fopdt(gain=-18.9, tau_s=21.0 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
         self._gd1 = Fopdt(gain=3.8, tau_s=14.9 * 60.0, delay_s=8.1 * 60.0, dt_s=dt_s)
@@ -405,7 +392,6 @@ class WoodBerryPlant:
         self._g22 = Fopdt(gain=-19.4, tau_s=14.4 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
         self._gd2 = Fopdt(gain=4.9, tau_s=13.2 * 60.0, delay_s=3.4 * 60.0, dt_s=dt_s)
 
-        # Loop state variables
         self._top_mode = AUTO
         self._top_sp = NOMINAL["top_comp"]
         self._top_rsp = NOMINAL["top_comp"]
@@ -475,9 +461,8 @@ class WoodBerryPlant:
                 the tag (e.g. bar for pressures, degC for temperatures); setpoint
                 modes use a small integer enum (0 = local, 1 = remote, ...).
         """
-        # A distillation column has a top (overhead) and a bottom section; each has
-        # a setpoint (SP), a remote setpoint (RSP, written by the plant-wide
-        # controller instead of the operator) and a mode (whether SP or RSP is used).
+        # Top and bottom loops each expose a setpoint (SP), a remote setpoint (RSP),
+        # and a mode that selects between them.
         if tag_id == TOP_SP:
             self._top_sp = float(value)
         elif tag_id == TOP_RSP:
@@ -485,8 +470,6 @@ class WoodBerryPlant:
         elif tag_id == TOP_MODE:
             self._top_mode = int(value)
         elif tag_id == REFLUX:
-            # Reflux is the condensed liquid sent back down the column; flow writes
-            # need extra handling, hence the dedicated helper.
             self._apply_reflux_write(value)
         elif tag_id == BOT_SP:
             self._bot_sp = float(value)
@@ -524,14 +507,10 @@ class WoodBerryPlant:
         clock. Each call moves the simulation forward by exactly one sample
         period, self._scenario.dt_s (UNIT: s).
         """
-        # 1. Apply pending events
-        # Events are stored in the list self._events sorted by their timestamp
-        # ev.t_s (UNIT: s, simulation time). self._event_idx is the cursor into
-        # that list: it always points at the next event that has NOT been
-        # applied yet. Invariant: every event before _event_idx has been applied.
-        # We consume all events whose time has already arrived (t_s <= now) and
-        # stop at the first one still in the future, so the cursor only moves
-        # forward and no event is ever applied twice.
+        # 1. Apply pending events at or before the current time.
+        # self._events is sorted by event.t_s; self._event_idx is the cursor to the
+        # first un-applied event. Consume every event whose time has arrived, then
+        # stop at the first future event.
         while self._event_idx < len(self._events):
             ev = self._events[self._event_idx]
             if ev.t_s <= self.time_s:
@@ -540,23 +519,17 @@ class WoodBerryPlant:
             else:
                 break
 
-        # 2. Update stochastic disturbance and effective feed
-        # The feed rate wanders randomly instead of staying at its setpoint.
-        # self._feed_ou is an Ornstein-Uhlenbeck process: a mean-reverting
-        # random walk, the continuous-time analogue of an AR(1) filter.
-        # ou_val is its current draw (UNIT: same units as the feed rate).
-        # NOMINAL["feed_rate"] is the steady-state design feed rate. The update
-        # is applied as a DEVIATION from that nominal (ou_val - nominal), so
-        # the process model below is fed a deviation, not an absolute value.
+        # 2. Update stochastic disturbance and effective feed.
+        # The Ornstein-Uhlenbeck process models feed rate wandering around the nominal.
+        # self._effective_feed = feed_base + (ou_value - nominal), so only the
+        # deviation from nominal is added to the base feed.
         ou_val = self._feed_ou.update()
         self._effective_feed = self._feed_base + (ou_val - NOMINAL["feed_rate"])
 
-        # 3. Controller execution
-        # Each controller has a local setpoint (sp, written by the operator)
-        # and a remote/cascade setpoint (rsp, driven by another controller or a
-        # recipe). In CAScade mode the remote setpoint wins; otherwise the local
-        # one does. self._top_sp keeps whichever was chosen so operators and
-        # logs see the setpoint actually in effect.
+        # 3. Controller execution.
+        # In CAS mode the remote setpoint drives the loop; otherwise the local
+        # operator setpoint does. Cache the active setpoint in _top_sp so readers
+        # log one consistent value.
         top_active_sp = self._top_rsp if self._top_mode == CAS else self._top_sp
         self._top_sp = top_active_sp
         # The PID object only understands the strings "MAN" and "AUTO", while
@@ -572,8 +545,7 @@ class WoodBerryPlant:
             man_out=self._reflux_man_out,
         )
 
-        # Same setpoint-selection and mode-conversion logic as the top loop,
-        # applied to the bottom loop whose manipulated variable is the steam flow.
+        # Bottom loop mirrors the top loop, with steam as the manipulated variable.
         bot_active_sp = self._bot_rsp if self._bot_mode == CAS else self._bot_sp
         self._bot_sp = bot_active_sp
         bot_mode_str = "MAN" if self._bot_mode == MAN else "AUTO"
@@ -584,18 +556,11 @@ class WoodBerryPlant:
             man_out=self._steam_man_out,
         )
 
-        # 4. Process simulation via FOPDT transfer functions
-        # FOPDT = First-Order Plus Dead Time: the simplest linear model of a
-        # real process, gain * (1 - exp(-t/tau)) delayed by theta seconds.
-        # Each _gNN object holds that model's gain, time constant and dead time
-        # and its .update() returns the output DEVIATION caused by the input
-        # deviation passed in. Working in deviations from the nominal operating
-        # point keeps the linear model valid around that point.
-        # u1/u2/d are the input deviations (UNIT: same units as each flow);
-        # y1_dev is the deviation of the top composition and y2_dev the bottom
-        # composition. Each output sums the contributions of: u1 = reflux,
-        # u2 = steam, d = feed. g11, g12, g21, g22, gd1, gd2 name the pairing
-        # (first index = output, second = input, d = disturbance).
+        # 4. Process simulation via FOPDT transfer functions.
+        # FOPDT = First-Order Plus Dead Time. Each model outputs a deviation from
+        # nominal for its input deviation. u1 = reflux deviation, u2 = steam
+        # deviation, d = feed deviation. y1_dev and y2_dev are the resulting
+        # deviations in top and bottom composition.
         u1_dev = self._reflux_out - NOMINAL["reflux"]
         u2_dev = self._steam_out - NOMINAL["steam"]
         d_dev = self._effective_feed - NOMINAL["feed_rate"]
@@ -603,19 +568,13 @@ class WoodBerryPlant:
         y1_dev = self._g11.update(u1_dev) + self._g12.update(u2_dev) + self._gd1.update(d_dev)
         y2_dev = self._g21.update(u1_dev) + self._g22.update(u2_dev) + self._gd2.update(d_dev)
 
-        # Add the deviations back onto the nominal compositions to recover the
-        # actual (true) process values the sensors will then sample.
+        # Convert deviations back to absolute compositions for the sensors.
         true_top = NOMINAL["top_comp"] + y1_dev
         true_bot = NOMINAL["bottom_comp"] + y2_dev
 
-        # 5. Sensor measurements with optional Gaussian noise
-        # The transmitter reading = true value + N(0, sigma) with
-        # sigma = base_std * measurement_noise. The base standard deviations
-        # are per-tag constants; the scenario factor scales the noise for
-        # sensitivity studies (0.0 disables it entirely). self._sensor_rng is a
-        # dedicated generator so the sensor noise stays reproducible and
-        # independent of any other randomness in the simulation. These
-        # measurements are what the controllers see on the NEXT step.
+        # 5. Sensor measurements with optional Gaussian noise.
+        # A separate RNG keeps sensor noise reproducible and independent of other
+        # random draws. The controllers will see these measurements on the next step.
         if self._scenario.measurement_noise > 0.0:
             scale = self._scenario.measurement_noise
             top_noise = TOP_NOISE_STD * scale * float(self._sensor_rng.standard_normal())
@@ -626,9 +585,7 @@ class WoodBerryPlant:
             self._top_pv_meas = true_top
             self._bot_pv_meas = true_bot
 
-        # 6. Advance simulation time
-        # The clock moves by exactly one sample period, so every quantity above
-        # (event times, dead times, controller integrals) shares this time base.
+        # 6. Advance the simulation clock by one sample period.
         self.time_s += self._scenario.dt_s
 
     def read(self, tag_id: str) -> tuple[float, int]:
@@ -642,13 +599,11 @@ class WoodBerryPlant:
         sections first, then the derived feed field, so a tag that exists in a
         section is never shadowed by the same name elsewhere.
         """
-        # self.tags holds the raw device map and is the single source of truth
-        # for which tags exist; asking it first keeps KeyError honest.
+        # Raise first for unknown tags so callers get a clear KeyError.
         if tag_id not in self.tags:
             raise KeyError(f"Unknown tag: {tag_id}")
 
-        # Section helpers return None when they do not know the tag, so a None
-        # here is not an error but "try the next section".
+        # _read_top_tag returns None for non-top tags; None means try the next section.
         top_value = self._read_top_tag(tag_id)
         if top_value is not None:
             return top_value, GOOD
@@ -657,13 +612,11 @@ class WoodBerryPlant:
         if bottom_value is not None:
             return bottom_value, GOOD
 
-        # FEED is a computed quantity (not a measured device), so it is cached
-        # on the instance instead of living in self.tags' device map.
+        # FEED is a derived value stored on the instance, not a section tag.
         if tag_id == FEED:
             return self._effective_feed, GOOD
 
-        # Reached only when the tag was in self.tags but no section claims it,
-        # i.e. the map and the readers have drifted apart.
+        # Tag exists in catalog but is not handled by top, bottom, or FEED readers.
         raise KeyError(f"Unknown tag: {tag_id}")
 
     def _read_top_tag(self, tag_id: str) -> float | None:
@@ -721,7 +674,7 @@ class WoodBerryPlant:
             KeyError: if tag_id is not registered in self.tags.
             PermissionError: if the tag spec is not writable.
         """
-        # A tag must be known before anything else can be checked about it.
+        # A tag must be registered before any permission or dispatch checks can run;
         if tag_id not in self.tags:
             raise KeyError(f"Unknown tag: {tag_id}")
 
@@ -732,9 +685,9 @@ class WoodBerryPlant:
         if not tag_spec.writable:
             raise PermissionError(f"Tag {tag_id} is read-only")
 
-        # Each _write_* helper claims the tag if it belongs to that category and
-        # is a no-op otherwise; they are tried in a fixed order so the result is
-        # reproducible when a tag matches several categories.
+        # Each _write_* helper handles exactly one tag category and does nothing for
+        # other tags. The fixed order below means the outcome is deterministic when a
+        # tag belongs to more than one category; later helpers see earlier writes.
         self._write_mode_tag(tag_id, value)
         self._write_output_tag(tag_id, value)
         self._write_setpoint_tag(tag_id, value)
@@ -762,12 +715,12 @@ class WoodBerryPlant:
         Raises:
             ValueError: if `value` is not one of the three known modes.
         """
-        # Guard against typos and unknown protocol codes: only the three enumerated
-        # modes are valid, and the float equivalents (0.0, 1.0, 2.0) are treated as the
-        # same modes because they compare equal to their integer forms in Python.
+        # Reject anything outside the three known mode codes before converting to int.
+        # The tuple contains both int and float forms because callers send either; the
+        # exact membership test also keeps bools out (True == 1 would pass a range check).
         if value not in (0, 1, 2, 0.0, 1.0, 2.0):
             raise ValueError(f"Invalid mode value: {value}")
-        # Store the mode as an int, never as a float, so `_top_mode` has one exact type.
+        # Normalise to int so `_top_mode` always has one type, regardless of caller input.
         new_mode = int(value)
         # Entering MAN hands control to the operator. Bumpless transfer: the manual
         # output starts at the controller output that was active until now, so the valve
@@ -790,8 +743,7 @@ class WoodBerryPlant:
         Raises:
             ValueError: If `value` is not one of the three valid mode codes.
         """
-        # Exact membership test: modes arrive as int or float depending on the
-        # caller, and `True == 1` would otherwise sneak through an ordered check.
+        # Validate by exact membership, not a range: `True == 1` must not slip through.
         if value not in (0, 1, 2, 0.0, 1.0, 2.0):
             raise ValueError(f"Invalid mode value: {value}")
         new_mode = int(value)
@@ -820,16 +772,15 @@ class WoodBerryPlant:
         Raises:
             PermissionError: if the top loop is not in MAN mode.
         """
-        # Safety interlock: in AUTO/CAS the controller owns this output, so a
-        # manual write would fight the controller and be overwritten anyway.
+        # Operator writes to the manipulated variable are only valid when the loop is
+        # in MAN; in AUTO/CAS the PID owns the output and a manual write would conflict.
         if self._top_mode != MAN:
             raise PermissionError("Cannot write REFLUX unless top loop is in MAN mode")
-        # Cfg ``REFLUX_MAX`` (in the SP bounds table) is fixed at 5.0 m3/h for
-        # this column, so clipping to [0, 5] is written literally here.
+        # REFLUX is bounded by the pump/valve range 0..5 lb/min (see REFLUX tag spec).
         clamped = float(np.clip(value, 0.0, 5.0))
-        # Two copies are kept in sync: ``_reflux_man_out`` is the operator's
-        # manual demand (remembered across AUTO/MAN switches), ``_reflux_out``
-        # is the value actually sent to the valve each scan.
+        # Keep the manual demand (_reflux_man_out) equal to the actual output
+        # (_reflux_out): the manual value is remembered for bumpless transfer when
+        # the loop later returns to MAN.
         self._reflux_man_out = clamped
         self._reflux_out = clamped
         return
@@ -842,16 +793,15 @@ class WoodBerryPlant:
         the bottom loop is not in manual mode is refused with a PermissionError,
         so the operator cannot fight the automatic controller for the actuator.
         """
-        # Interlocks: the loop must be in MAN (manual) before an operator write is allowed.
+        # STEAM may only be written by the operator when the bottom loop is in MAN.
         if self._bot_mode != MAN:
             raise PermissionError("Cannot write STEAM unless bottom loop is in MAN mode")
-        # Saturation block: physical actuator range is 0..5 t/h, so the request is
-        # clipped rather than rejected -- an out-of-range value is silently held at
-        # the nearest acceptable output.
+        # The steam valve/actuator accepts 0..5 lb/min; clip rather than reject so an
+        # out-of-range request is held at the nearest valid output.
         clamped = float(np.clip(value, 0.0, 5.0))
-        # Two copies are kept on purpose: _steam_man_out is the operator's manual
-        # setpoint (remembered even while the loop runs in AUTO), _steam_out is the
-        # value actually applied to the actuator this scan.
+        # Keep the manual demand separate from the applied output: _steam_man_out is
+        # remembered for a future bumpless transfer to MAN, while _steam_out is what
+        # the loop uses every scan.
         self._steam_man_out = clamped
         self._steam_out = clamped
         return
@@ -892,8 +842,8 @@ class WoodBerryPlant:
         Returns:
             None.
         """
-        # Each tag maps to one attribute, so the two independent checks below let a caller write
-        # either setpoint (or both, if the caller passes a tag that oddly matches both constants).
+        # TOP_RSP and BOT_RSP are independent attributes; each check below writes only
+        # its own tag.
         if tag_id == TOP_RSP:
             self._top_rsp = float(value)
         if tag_id == BOT_RSP:

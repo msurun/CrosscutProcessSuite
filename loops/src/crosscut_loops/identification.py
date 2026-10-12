@@ -77,8 +77,6 @@ def identify_fopdt(u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float
     # from seconds to a sample count. Example: 1.0 s bound at dt_s = 0.1 s
     # gives 10 samples, i.e. candidates 0..10.
     max_delay_samples = int(round(max_delay_s / dt_s))
-    # Scan every candidate delay; the helper returns (model, fit_error) tuples
-    # and this one is the winner, so the first element is the model itself.
     best = _fit_best_delay(u, y, dt_s, max_delay_samples)
     return best[0]
 
@@ -112,8 +110,6 @@ def _validate_inputs(
         If the signals are mismatched or non-finite, or if the sampling
         arguments are non-positive.
     """
-    # Signals first (shape/finiteness), then scalars (positivity): the two
-    # checks are independent and each raises its own ValueError.
     _check_signals(controller_output, process_value)
     _check_sampling(dt_s, max_delay_s)
 
@@ -136,7 +132,6 @@ def _check_signals(controller_output: np.ndarray, process_value: np.ndarray) -> 
     controller = np.asarray(controller_output, dtype=float)
     process = np.asarray(process_value, dtype=float)
 
-    # The pairing u[i] -> y[i] only holds if both arrays have identical shapes.
     if controller.shape != process.shape:
         raise ValueError(
             f"u and y must have the same shape, got {controller.shape} and {process.shape}"
@@ -203,14 +198,9 @@ def _fit_best_delay(
     process_value = np.asarray(process_value, dtype=float)
     if float(np.var(process_value)) <= 0.0:
         raise ValueError("Output y is constant, so a FOPDT model cannot be identified")
-    # best keeps the champion so far as (model, normalised_error). Comparing
-    # against None first is needed because there is no winner during the first pass.
     best: tuple[FopdtModel, float] | None = None
-    # Try each integer dead time in samples; range is inclusive of max_delay_samples.
     for delay_samples in range(max_delay_samples + 1):
         candidate = _model_for_delay(controller_output, process_value, dt_s, delay_samples)
-        # A candidate is None when that delay yields a degenerate fit (e.g. a
-        # division by zero), so it is simply discarded here.
         if candidate is not None and (best is None or candidate[1] < best[1]):
             best = candidate
     if best is None:
@@ -244,18 +234,18 @@ def _model_for_delay(
     if fitted is None:
         return None
 
-    # A first-order-plus-dead-time (FOPDT) process, discretised, has the form
-    # a*y[k] + b*u[k - d], so the fit returns the two coefficients a, b and the
-    # squared prediction residual summed over the samples.
+    # The discrete ARX model y[k+1] = a*y[k] + b*u[k-d] + c is fitted
+    # with three coefficients, but only a and b matter here; the constant
+    # c absorbs any offset between u and y.
     discrete_a, discrete_b, per_sample_error = fitted
 
-    # Coefficient of determination R^2 = 1 - SSE/SST: the share of the PV's
-    # variance that the model explains. output_variance is the SST term (mean of
-    # squared deviations, same normalisation as per_sample_error), in PV^2.
+    # R^2 = 1 - MSE/VAR: how much of the PV's variance the model explains.
+    # Both per_sample_error and output_variance are mean-squared (not summed),
+    # so the ratio is scale-free.
     output_variance = float(np.var(process_value))
 
-    # Reject a fit that explains less than MIN_FIT_QUALITY of the PV variance:
-    # such a model would be fitting the disturbance, not the process.
+    # Reject a fit explaining less than MIN_FIT_QUALITY of the PV variance:
+    # such a model would be fitting noise, not the process.
     if 1.0 - per_sample_error / output_variance < MIN_FIT_QUALITY:
         return None
 
@@ -298,8 +288,8 @@ def _fit_one_delay(
     # the process value itself. Dividing by len(target) makes it comparable
     # across delays with different numbers of samples.
     error = float(np.sum((target - predicted) ** 2) / len(target))
-    # coefficients[0] is the intercept (a) and coefficients[1] the controller
-    # coefficient (b) in the model; both are dimensionless, error is dimensionless^2.
+    # The regression columns are [y[k], u[k-delay], 1], so coefficients[0] is
+    # a and coefficients[1] is b. Per-sample error is in PV units squared.
     return float(coefficients[0]), float(coefficients[1]), error
 
 
@@ -333,9 +323,9 @@ def _build_regression(
     last_k = len(controller_output) - 2
     # Need at least one k with k >= delay_samples, hence delay_samples <= n-2.
     if last_k < delay_samples:
-        # _REGRESSION_COLUMNS keeps the empty array's width consistent with real ones.
+        # Keep the empty regression matrix wide enough for the solver's 3 columns.
         return np.empty((0, _REGRESSION_COLUMNS)), np.empty(0)
-    # Row indices k. Indexing here is positional into the sample arrays.
+    # Valid row indices k, from the delay up to the last usable index.
     indices = np.arange(delay_samples, last_k + 1)
     # Present output y[k]: the autoregressive term.
     current_output = process_value[indices]
@@ -367,16 +357,15 @@ def _to_fopdt(
     "first order plus dead time": a continuous-time model with three parameters,
     a steady-state gain, one time constant and a pure transport delay.
     """
-    # FOPDT is a continuous-time model, so discrete_a must map to a real, stable
-    # continuous pole. a <= 0 would be a pole at or beyond the Nyquist boundary
-    # (an oscillating or unstable discrete system); a >= 1 is unstable or a pure
-    # integrator. "0.0 < a < 1.0" is the discrete-time stability condition.
+    # Discrete-time stability for a first-order model requires 0 < a < 1:
+    # a < 0 corresponds to oscillation at the Nyquist frequency and a > 1
+    # to instability. Values outside this range would give a non-physical
+    # continuous-time time constant.
     if not 0.0 < discrete_a < 1.0:
         return None
 
-    # Steady-state gain: the output change per unit input change once the transient
-    # has died out. Setting y[k] = y[k-1] = y_ss and u = 1 gives y_ss = a * y_ss + b,
-    # so y_ss = b / (1 - a). Gain is dimensionless (output units / input units).
+    # Steady-state gain: with y[k] = y[k-1] = y_ss and u = 1,
+    # y_ss = a*y_ss + b, giving gain = b/(1-a). Units: output per input.
     gain = discrete_b / (1.0 - discrete_a)
 
     # A negative or zero gain is not a physical process for this caller, so the
@@ -384,16 +373,15 @@ def _to_fopdt(
     if gain <= 0.0:
         return None
 
-    # Time constant of the equivalent continuous first-order system, in seconds.
-    # The discrete pole is a = exp(-dt_s / tau), so solving for tau gives
-    # tau = -dt_s / ln(a). With 0 < a < 1, ln(a) is negative, so tau is positive.
+    # The discrete pole a corresponds to a continuous-time pole through
+    # z = exp(s*dt_s), so a = exp(-dt_s / tau). Solving for tau gives
+    # tau = -dt_s / ln(a); with 0 < a < 1, ln(a) < 0, so tau > 0.
     time_constant_s = -dt_s / np.log(discrete_a)
 
-    # Dead time in seconds. delay_samples is an integer count of sampling periods;
-    # multiplying by dt_s (seconds per sample) converts it to seconds. max(..., 1)
-    # enforces at least one sample because FopdtModel requires delay_s > 0.
+    # Dead time in seconds. A zero-sample delay is bumped to one sample
+    # so the FOPDT model has a strictly positive delay_s.
     delay_s = max(delay_samples, 1) * dt_s
 
-    # Explicit float() on the numpy scalars: np.log returns np.float64, and the
-    # caller expects plain Python floats.
+    # Return plain Python floats because FopdtModel expects them; numpy
+    # scalars would be valid but less predictable for the caller.
     return FopdtModel(gain=gain, time_constant_s=float(time_constant_s), delay_s=float(delay_s))

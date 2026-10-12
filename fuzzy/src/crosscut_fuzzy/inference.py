@@ -44,8 +44,6 @@ def membership(term: Term, x: np.ndarray) -> np.ndarray:
 
     Returns a float array with one degree per element of ``x``, same shape.
     """
-    # Work on a plain float array so the arithmetic below is well defined even when
-    # the caller passes a list or an integer array.
     x = np.asarray(x, dtype=float)
     if term.shape == "gauss":
         # A Gaussian (normal) bell centred on ``mean`` with standard deviation ``sigma``

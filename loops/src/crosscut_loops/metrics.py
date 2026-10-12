@@ -37,10 +37,10 @@ def _fit_ar(x: np.ndarray, order: int) -> tuple[np.ndarray, float]:
         coefficients: array of shape (p,), holding a_1..a_p (same units as x divided by x).
         residual variance: the variance of the residuals e[t] (units: x squared).
     """
-    # Build the design matrix (a.k.a. lag matrix) with one column per lag. Row t holds the p
-    # past samples that predict x[order + t]; column j holds lag j+1, so column 0 is x[t-1].
-    # The slices stop at len(x) - j so every predictor lines up with its target in `target`.
-    # Invariant: `lagged` and `target` have the same number of rows, len(x) - order.
+    # Build the lag matrix: one column per lag. Column j (0-based) holds x shifted
+    # by j+1 samples forward, so row t contains the p values that predict x[order + t].
+    # Each column has len(x) - order rows, matching target; the slices stop at len(x) - j
+    # only to make that column align with the predictor values, not to set a shared length.
     lagged = np.column_stack([x[order - j : len(x) - j] for j in range(1, order + 1)])
     # The values being predicted: everything from index `order` onwards.
     target = x[order:]
@@ -192,35 +192,29 @@ def _half_cycles(error: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray
         `iae`: integral of the absolute error of each truncated half cycle, in
         engineering-units * seconds. `duration`: length of each half cycle in samples.
     """
-    # `np.signbit` is used instead of `error > 0` so that a sample exactly equal to the
-    # mean is classified with the positive side rather than left unclassified; it returns
-    # True where the sample sits below the mean. `negative[i]` is the sign of sample i.
+    # `np.signbit` returns True for values below zero. A sample exactly at the
+    # mean is not below zero, so it is classified as non-negative.
     negative = np.signbit(error - error.mean())
 
     # An index i > 0 belongs to `crossings` when samples i-1 and i lie on opposite sides
-    # of the mean, i.e. the signal crossed the mean somewhere in between. The `+ 1` shifts
-    # from the pair index (i-1, i) back to the index i of the first sample after the cross.
+    # of the mean, i.e. the signal crossed the mean somewhere in between. The + 1 shifts
+    # the crossing index to the first sample after the crossing.
     crossings = np.flatnonzero(negative[1:] != negative[:-1]) + 1
 
-    # Each crossing opens one half cycle, so every crossing can be used as a segment edge;
-    # fewer than two edges means there is no half cycle fully contained in the record.
     edges = crossings
     if len(edges) < 2:
         return np.zeros(0), np.zeros(0)
 
-    # Recomputing the distance to the mean makes each sample a positive deviation, so the
-    # sum over a segment is the absolute error of that half cycle regardless of its sign.
     absolute = np.abs(error - error.mean())
 
     # `reduceat` sums `absolute` between consecutive edges: segment k covers samples
-    # edges[k] .. edges[k+1] - 1. The trailing `[:-1]` drops the last segment, which runs
-    # from the final edge to the end of the array and is therefore a partial half cycle.
-    # Multiplying by the sampling period turns the sample-wise sum into an integral in
-    # seconds (rectangle rule; each sample stands for the interval that follows it).
+    # edges[k] .. edges[k+1] - 1. The trailing [:-1] drops the last segment, which runs
+    # from the final edge to the end and is truncated. Multiplying by dt_s converts the
+    # sample-wise sum into an integral in seconds.
     iae = np.add.reduceat(absolute, edges)[:-1] * dt_s
 
-    # Distance between consecutive edges in samples, i.e. the half cycle length in samples;
-    # `astype(float)` avoids integer division or truncation once the caller divides by time.
+    # Distance between consecutive edges in samples, i.e. the half cycle length in samples.
+    # `.astype(float)` keeps the division in `_oscillation_period_s` from using integer division.
     return iae, np.diff(edges).astype(float)
 
 
@@ -243,16 +237,8 @@ def _has_dense_exceedances(exceeds: np.ndarray, minimum: int, window: int) -> bo
     """
     if len(exceeds) < minimum:
         return False
-    # Shrink the window to the array length: a window longer than the data would make the
-    # "valid" convolution below produce an empty result, and the clamp is harmless because
-    # no window can hold more hits than the whole array anyway.
     width = min(window, len(exceeds))
-    # Sliding-window sum, computed by convolution: convolving the 0/1 exceedance array with
-    # a kernel of `width` ones (mode="valid" keeps only fully overlapping positions) yields,
-    # at each output index i, the number of hits in half cycles i .. i + width - 1.
     counts = np.convolve(exceeds.astype(int), np.ones(width, dtype=int), mode="valid")
-    # counts.max() is the densest run of exceedances found anywhere; `bool` because NumPy
-    # scalars compare to Python ints but should be returned as a plain bool.
     return bool(counts.max() >= minimum)
 
 
@@ -276,13 +262,7 @@ def _acceptable_iae(amplitude_limit: float, ultimate_period_s: float) -> float:
     Returns:
         The acceptable IAE of one half cycle, in (controlled variable unit * second).
     """
-    # The ultimate angular frequency, in radians per second. One full oscillation
-    # cycle spans FULL_CIRCLE_RAD radians (2 * pi), so dividing the constant by the
-    # period converts a period in seconds into a rate in radians per second.
     omega_u = FULL_CIRCLE_RAD / ultimate_period_s
-    # For a sinusoid of peak amplitude A at angular frequency omega, the absolute
-    # error over one half cycle integrates to the triangle-like area 2 * A / omega.
-    # Hence dividing twice the amplitude limit by omega_u yields that half-cycle IAE.
     return 2.0 * amplitude_limit / omega_u
 
 
@@ -325,7 +305,7 @@ def hagglund_oscillation(
     """
     x = np.asarray(error, dtype=float)
     # iae[k] is the integral of |error| over the k-th half cycle, in (units * seconds);
-    # lengths[k] is that half cycle's duration, in seconds.
+    # lengths[k] is that half cycle's duration, in samples.
     iae, lengths = _half_cycles(x, dt_s)
     large = iae > _acceptable_iae(amplitude_limit, ultimate_period_s)
     if not _has_dense_exceedances(large, min_exceedances, window_half_cycles):
@@ -363,8 +343,6 @@ def saturation_fraction(
         return 0.0
     # Distance from each end that still counts as saturated, in actuator units.
     margin = margin_fraction * (high - low)
-    # Boolean per sample: at the low end or at the high end. np.mean turns
-    # True into 1.0 and False into 0.0, so the mean is the saturated fraction.
     return float(np.mean((values <= low + margin) | (values >= high - margin)))
 
 
@@ -385,9 +363,9 @@ def flatline_fraction(x: np.ndarray, min_run: int = DEFAULT_MIN_FLAT_RUN) -> flo
     values = np.asarray(x, dtype=float)
     if len(values) == 0:
         return 0.0
-    # A run starts where the value changes from the previous sample. Prepending True marks
-    # the very first sample as a start, because it has no predecessor to compare against.
-    # starts then holds the index of every run start, in increasing order.
+    # A run starts where the value changes from the previous sample. Prepending True marks the very
+    # first sample as a start, because it has no predecessor to compare against. starts then holds
+    # the index of every run start, in increasing order.
     starts = np.flatnonzero(np.append(True, values[1:] != values[:-1]))
     # The length of one run is the distance to the next run start. Appending len(values)
     # supplies the end position for the final, otherwise unterminated run, so

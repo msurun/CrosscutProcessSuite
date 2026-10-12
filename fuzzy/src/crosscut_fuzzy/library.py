@@ -35,8 +35,8 @@ def check_id(system_id: str) -> str:
     Raises:
         FuzzyModelError: for anything that could be a path or is empty or too long.
     """
-    # ID_PATTERN is anchored, so match() succeeds only when the whole string is a plain
-    # identifier; anything empty, too long, or path-like ('.', '/', '\') fails here.
+    # ID_PATTERN is anchored, so match() succeeds only when the whole string is a plain identifier;
+    # anything empty, too long, or containing non-identifier characters fails here.
     if not ID_PATTERN.match(system_id):
         raise FuzzyModelError(f"invalid system id: {system_id!r}")
     return system_id
@@ -96,10 +96,9 @@ def save_document(system_id: str, document: Mapping[str, Any], user_dir: Path) -
     Raises:
         FuzzyModelError: when the id or the document is not valid; nothing is written then.
     """
-    # Fail fast: both checks raise FuzzyModelError, so reaching the next line means
-    # the id is a legal file name and the document can be rebuilt into a system.
-    # system_from_dict() is called only for its side effect of validating; its returned
-    # object is discarded on purpose, the original mapping is what gets serialised.
+    # Both checks raise FuzzyModelError, so reaching the next line means the id is a legal file name
+    # and the document is a valid system. system_from_dict() is called only to validate; its
+    # returned object is discarded, and the original mapping is what gets serialised.
     check_id(system_id)
     system_from_dict(document)
 
@@ -107,9 +106,9 @@ def save_document(system_id: str, document: Mapping[str, Any], user_dir: Path) -
     # the directory is already there, so saving twice in a row is fine.
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    # The file is UTF-8 JSON, indented by 2 spaces for readability; ensure_ascii=False
-    # keeps non-Latin variable names human-readable. The trailing "\n" (LF) makes the
-    # file end with a newline, as POSIX tools and diff expect.
+    # The file is UTF-8 JSON, indented by 2 spaces for readability; ensure_ascii=False keeps non-
+    # ASCII characters human-readable. The trailing "\n" (LF) makes the file end with a newline, as
+    # POSIX tools and diff expect.
     (user_dir / f"{system_id}.json").write_text(
         json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf8"
     )

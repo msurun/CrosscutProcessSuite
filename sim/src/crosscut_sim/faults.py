@@ -63,12 +63,12 @@ class FaultyPlant:
         self._faults = faults
         self._rng: np.random.Generator | None = None
 
-        # tag_id -> (frozen value, timestamp), both recalled on unfreeze.
-        # The timestamp is a simulation time in seconds since the run started.
+        # tag_id -> (frozen value, quality) captured when the freeze began; the
+        # value is recalled on every later read while the fault is active.
         self._freeze_memory: dict[str, tuple[float, int]] = {}
 
-        # tag_id -> (value, timestamp) captured just before a fault is applied,
-        # used to restore the tag when the fault ends.
+        # tag_id -> (value, quality) of the current faulted snapshot. This cache
+        # is what read() and snapshot() return.
         self._snapshot: dict[str, tuple[float, int]] = {}
 
         # Validate every fault up front so a typo surfaces here, at wiring time,
@@ -103,8 +103,6 @@ class FaultyPlant:
         # default_rng accepts a list of integers and hashes them into one seed.
         self._rng = np.random.default_rng([seed, 0xFA17])
 
-        # Cooldown bookkeeping, keyed per fault: maps fault -> steps remaining
-        # until that fault may trigger again. Empty means every fault is armed.
         self._freeze_memory.clear()
 
         # Capture the freshly reset plant state, then inject faults so that the

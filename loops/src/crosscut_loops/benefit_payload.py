@@ -248,19 +248,18 @@ def _curves(estimate: BenefitEstimate, assumptions: BenefitAssumptions) -> dict[
     and ``"after"``; each value is a list of floats because the result is meant
     to be JSON-serialised for the front end, not fed back into numpy.
     """
-    # The shift always moves the mean towards the limit being tested, so its
-    # sign depends on which side we are testing: +1 for an upper limit, -1 for
-    # a lower one. Multiplying here saves branching on every use below.
+    # direction is positive for an upper limit so the mean moves up, and negative for a lower limit
+    # so the mean moves down.
     direction = 1.0 if assumptions.side == SIDE_UPPER else -1.0
     mean_after = estimate.mean + direction * estimate.shift
 
-    # Grid bounds: cover both means with CURVE_SPAN_SIGMAS standard deviations
-    # of the wider, "now" curve on each side, which keeps both tails visible.
+    # Grid bounds: cover both means with CURVE_SPAN_SIGMAS times the wider ('now') standard
+    # deviation on each side, so neither curve's tails are cut off.
     low = min(estimate.mean, mean_after) - CURVE_SPAN_SIGMAS * estimate.std_now
     high = max(estimate.mean, mean_after) + CURVE_SPAN_SIGMAS * estimate.std_now
 
-    # np.linspace gives CURVE_POINTS evenly spaced x values in [low, high];
-    # the same grid for both curves so they share one x axis when plotted.
+    # Generate CURVE_POINTS evenly spaced x values between low and high; both densities are
+    # evaluated on this same grid for plotting.
     x = np.linspace(low, high, CURVE_POINTS)
     return {
         "x": x.tolist(),

@@ -27,23 +27,22 @@ import numpy as np
 from numpy.fft import irfft, rfft
 from numpy.typing import NDArray
 
-# Minimum number of cycles to consider the signal periodic.
+# Minimum number of zero-crossing cycles required to consider the signal periodic.
 MIN_CYCLES = 5
 
 # Minimum height of the first autocorrelation repeat peak to consider the signal periodic
 # (measured: simulated stiction 0.25-0.35, noise-driven wander and random noise below 0.06).
 AUTOCORR_MIN = 0.15
 
-# Minimum THD to consider the loop to have stiction.
 THD_STICTION_MIN = 0.2
 
-# Largest accepted ratio of zero-crossing cycles to the repeats implied by the autocorrelation peak.
+# Largest accepted ratio of zero-crossing cycles to the cycles implied by the autocorrelation peak.
 MAX_CYCLE_RATIO = 3.5
 
-# Hysteresis for zero crossings.
+# Hysteresis multiplier applied to the signal standard deviation for zero crossing detection.
 HYSTERESIS = 0.1
 
-# Shortest signal that can hold a zero crossing; shorter input has no pair of samples to compare.
+# Minimum number of samples required for zero-crossing detection and period estimation.
 MIN_SAMPLES = 2
 
 
@@ -96,19 +95,14 @@ def detect_stiction(
         ValueError: If the inputs are invalid (see _validate_input).
     """
     _validate_input(pv, out, dt_s)
-    # Mean-centred PV: removing the mean leaves only the oscillation, so the
-    # zero crossings used below are crossings of the oscillation itself.
+    # Remove the mean to leave only the oscillation, so that zero crossings
+    # represent crossings of the oscillation around its own average.
     centered_pv = pv - np.mean(pv)
-    # The oscillating part of the PV is what carries the stiction signature, so
-    # every later step works on centered_pv, not on the raw signal.
     n_cycles, period_s = _count_cycles(centered_pv, dt_s)
-    # A stiction-induced oscillation is self-sustaining: it must repeat with a
-    # stable period. Without that, any harmonic content is just noise.
     if not _is_periodic(centered_pv, n_cycles):
         return _inconclusive_result(n_cycles, period_s)
-    # Total Harmonic Distortion, the RMS energy of the harmonics divided by that
-    # of the fundamental: 0.0 for a pure sine, larger the more the waveform
-    # deviates from a sine. Unitless ratio.
+    # Total Harmonic Distortion: ratio of harmonic amplitude to fundamental amplitude.
+    # A pure sine has THD near zero; a non-sinusoidal waveform has a larger value.
     thd = _calculate_thd(centered_pv)
     return _verdict_from_thd(thd, n_cycles, period_s)
 
@@ -157,8 +151,6 @@ def _verdict_from_thd(thd: float, n_cycles: int, period_s: float | None) -> Stic
         StictionResult with the verdict, the THD stored as the score, and a
         human-readable reason.
     """
-    # Single threshold comparison: at or below the cut-off the loop is deemed
-    # clean, above it the harmonic content is blamed on stiction.
     if thd > THD_STICTION_MIN:
         verdict = "stiction"
         reason = f"High THD ({thd:.2f}) and {n_cycles} cycles."
@@ -186,23 +178,12 @@ def _validate_input(pv: NDArray[np.float64], out: NDArray[np.float64], dt_s: flo
         ValueError: If the PV and OP signals are shorter than MIN_SAMPLES, have different
             lengths, contain NaN, or if dt_s is not positive.
     """
-    # MIN_SAMPLES is the smallest number of samples from which the identification
-    # algorithm can estimate a model; below it, the estimate is meaningless rather
-    # than merely inaccurate, so we refuse to run at all.
     if len(pv) < MIN_SAMPLES:
         raise ValueError(f"PV and OP signals need at least {MIN_SAMPLES} samples, got {len(pv)}.")
-    # pv and out must be paired sample-by-sample: row i of each is the process
-    # variable and the controller output at the same instant, so the arrays have
-    # to stay aligned.
     if len(pv) != len(out):
         raise ValueError("PV and OP signals must have the same length.")
-    # NaN would silently poison every sum and regression that follows, turning a
-    # data problem into a wrong model, so it is caught here at the boundary.
     if np.isnan(pv).any() or np.isnan(out).any():
         raise ValueError("PV and OP signals must not contain NaN.")
-    # dt_s (seconds, unit: s) is the fixed interval between consecutive samples and
-    # is used to build the time base. A zero or negative value would make the time
-    # axis non-monotonic and the derived time constants meaningless.
     if dt_s <= 0:
         raise ValueError("Sampling time must be positive.")
 
@@ -225,8 +206,9 @@ def _count_cycles(centered_pv: NDArray[np.float64], dt_s: float) -> tuple[int, f
     if std_pv == 0:
         return 0, None
 
-    # A zero crossing here is a point where the signal crosses +/- 1 std of its own noise
-    # band, not just the mean line; this filters out tiny jitter around zero.
+    # A zero crossing here is a point where the signal changes sign and is further
+    # from zero than a dead band based on the signal's own standard deviation;
+    # this filters out tiny jitter around zero.
     crossings = _find_zero_crossings(centered_pv, std_pv)
 
     # Each cycle needs two crossings: one going up and one coming back down.

@@ -117,19 +117,17 @@ async def collect(
     TimeoutError
         If ``sim_duration_s`` of plant time has not elapsed within ``timeout_s`` wall seconds.
     """
-    # Reject impossible sampling settings before touching the network. Checking one condition
-    # keeps the error message focused; a negative poll_s would busy-loop, so it is rejected too.
+    # Reject impossible sampling settings before touching the network: a negative
+    # poll_s would busy-loop, and zero or negative durations would never make progress.
+    # Error message is intentionally minimal because one check covers all four cases.
     if sim_duration_s <= 0 or sample_period_s <= 0 or poll_s < 0:
         raise ValueError("sim_duration_s and sample_period_s must be positive")
 
-    # `start_ns` is the Unix epoch timestamp of the dataset's first instant, in nanoseconds, so
-    # that sample times can later be reconstructed as `start_ns + elapsed*1e9` without doing
-    # floating-point time arithmetic on absolute dates.
     start_ns = _utc_to_ns(start_utc)
-    # One entry per recorded sample, in the same order across all four structures below.
+    # One entry per recorded sample, in the same order across all three structures below.
     # ts_ns: sample time in Unix nanoseconds since the epoch.
     # rows: one row of float tag values per sample, in `tag_ids` order.
-    # quality_rows: one row of 0/1 quality flags per sample, aligned column-wise with `rows`.
+    # quality_rows: one row of 0/1 quality flags per sample, aligned with `rows`.
     ts_ns: list[int] = []
     rows: list[list[float]] = []
     quality_rows: list[list[int]] = []
@@ -142,28 +140,26 @@ async def collect(
     deadline = time.monotonic() + timeout_s
 
     async with Client(endpoint) as client:
-        # Namespace indices are assigned per server; the returned index is the numeric prefix used
-        # in OPC UA node ids for this application's own nodes.
         idx = await client.get_namespace_index(NAMESPACE_URI)
         time_node, tag_nodes, tag_ids = await _discover_plant_nodes(client, idx)
-        # One single read call is issued for the clock and every tag, so all values in a row come
-        # from the same server-side instant.
+        # One single read call is issued for the clock and every tag, so all values in a
+        # row come from the same server-side instant.
         all_nodes = [time_node, *tag_nodes]
 
         while True:
             # `data_values` is parallel to `all_nodes`: index 0 is the clock, the rest are tags.
             data_values = await client.read_attributes(all_nodes, AttributeIds.Value)
-            # Plant time in seconds. It starts near zero at simulation start and advances with the
-            # simulation, unrelated to wall-clock time.
+            # Plant time in seconds. It starts near zero at simulation start and advances with
+            # the simulation, unrelated to wall-clock time.
             plant_time = float(data_values[0].Value.Value)  # type: ignore[union-attr]
             if first_plant_time is None:
                 first_plant_time = plant_time
-            # Record when the plant clock has moved at least `sample_period_s` since the previous
-            # recorded sample. The `1e-9` slack absorbs float rounding so an exactly-on-period
-            # advance is not skipped.
+            # Record when the plant clock has moved at least `sample_period_s` since the
+            # previous recorded sample. The `1e-9` slack absorbs float rounding so an exactly-on-
+            # period advance is not skipped.
             if last_recorded is None or plant_time - last_recorded >= sample_period_s - 1e-9:
                 # Plant seconds since the first sample, converted to the dataset's epoch-relative
-                # nanoseconds: elapsed_ns = elapsed_s * 1e9.
+                # nanoseconds: elapsed_ns = round(elapsed_s * 1e9).
                 elapsed = plant_time - first_plant_time
                 ts_ns.append(start_ns + round(elapsed * 1e9))
                 # Tag values for this sample, in `tag_ids` order (element 0 of the read is the
@@ -191,17 +187,18 @@ async def collect(
                 )
             await asyncio.sleep(poll_s)
 
-    # Provenance recorded with the dataset: which plant was sampled, and optionally which scenario
-    # and RNG seed produced it, so the run can be reproduced.
+    # Provenance recorded with the dataset: which plant was sampled, and optionally
+    # which scenario and RNG seed produced it, so the run can be reproduced.
     source: dict[str, Any] = {"kind": "opcua", "plant": plant_name}
     if scenario_name is not None:
         source["scenario"] = scenario_name
     if seed is not None:
         source["seed"] = seed
 
-    # Every tag discovered on the server becomes a dataset column. Units and roles are unknown from
-    # OPC UA alone, so they are left empty/`other` for the user to fill in later. The `address`
-    # string is the canonical OPC UA node id ("ns=<namespace index>;s=<string id>").
+    # Every tag discovered on the server becomes a dataset column. Units and roles are
+    # unknown from OPC UA alone, so they are left empty/`other` for the user to fill in
+    # later. The `address` string is the canonical OPC UA node id ("ns=<namespace index>;s=<string
+    # id>").
     tags_document: dict[str, Any] = {
         "schema_version": "0.1.0",
         "tags": [
@@ -217,8 +214,9 @@ async def collect(
         ],
     }
 
-    # The collected lists are turned into fixed-dtype arrays once, at the end: int64 nanoseconds,
-    # float64 values and uint8 quality flags match what the dataset format expects on disk.
+    # The collected lists are turned into fixed-dtype arrays once, at the end: int64
+    # nanoseconds, float64 values and uint8 quality flags match what the dataset format
+    # expects on disk.
     return write_dataset(
         out_dir,
         np.asarray(ts_ns, dtype=np.int64),
@@ -253,15 +251,15 @@ def _git_commit() -> str | None:
             subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
                 cwd=Path(__file__).parent,
-                # capture_output keeps git's chatter off stdout; text=True decodes
-                # bytes to str; check=True raises CalledProcessError on a non-zero
-                # exit status (not a repo, no commits yet, git not installed).
+                # capture_output keeps git's chatter off stdout; text=True decodes bytes to str;
+                # check=True raises CalledProcessError on a non-zero exit status (not a repo, no
+                # commits yet, git not installed).
                 capture_output=True,
                 text=True,
                 check=True,
             ).stdout.strip()
-            # An empty string means git printed nothing useful. Normalise it to None
-            # so callers have a single "unknown" value rather than two ("" and None).
+            # An empty string means git printed nothing useful. Normalise it to None so
+            # callers have a single "unknown" value rather than two ("" and None).
             or None
         )
     except (subprocess.SubprocessError, OSError):
@@ -343,7 +341,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         duration_s = parse_duration(args.duration)
         sample_period_s = parse_duration(args.sample_period)
     except ValueError as e:
-        # BAD: an unrecognised duration string is a user mistake, so show usage.
         parser.error(str(e))
 
     if args.scenario is not None:
@@ -354,8 +351,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as e:
             parser.error(str(e))
 
-    # If the user gave no id, derive one from what identifies the recording; the
-    # "opcua" fallback means "took live values instead of replaying a scenario".
+    # If the user gave no id, derive one from what identifies the recording. The fallback
+    # 'opcua' means live values were recorded, not a scenario replay.
     dataset_id = args.dataset_id or f"{args.plant}_{args.scenario or 'opcua'}_collected"
     # The dataset_id doubles as the folder name, so `args.out / dataset_id`
     # is the directory that collection creates (and refuses to overwrite).
