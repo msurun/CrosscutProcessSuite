@@ -1,3 +1,6 @@
+// Unit tests for findings.ts: translated finding text, next-step hints and loop sort order.
+// They check that the first finding is shown, that a loop without findings gets the ok hint,
+// and that loops sort by status (problem, warning, ok, unused) and then by health.
 import { describe, expect, it } from "vitest";
 
 import type { LoopSummary } from "./api";

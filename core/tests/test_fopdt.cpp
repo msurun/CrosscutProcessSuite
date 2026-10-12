@@ -1,3 +1,5 @@
+// GoogleTest suite for the FOPDT model: step response against the analytic formula,
+// steady-state gain, return to zero, dead-time rounding and rejection of bad parameters.
 #include <gtest/gtest.h>
 
 #include <cmath>

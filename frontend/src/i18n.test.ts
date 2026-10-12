@@ -1,3 +1,7 @@
+// Unit tests for i18n.ts: language list, key lookup with English fallback, placeholder
+// substitution, locale number formatting and language detection.
+// It also checks that the Polish and Spanish catalogues cover every English key with the same
+// placeholder names, so a missing or renamed translation fails the test instead of the UI.
 import { describe, it, expect } from "vitest";
 import { translate, formatNumber, detectLanguage, availableLanguages, FALLBACK_LANGUAGE } from "./i18n";
 import englishCatalogue from "./locales/en.json";

@@ -13,3 +13,5 @@
    formula, the units and the data structure where it is used. When delegating, ask for them in the prompt and attach the
    whole file (or the contract files) as context; a model that sees one function writes comments that are wrong or vacuous.
    `tools/comment_review.py` re-checks comments with whole-file context.
+10. Every source file starts with a short header (2-4 lines) saying what the file does and why it exists: a module
+    docstring in Python, a `//` comment block in TypeScript and C++. The style gate enforces it for Python only.

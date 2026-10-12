@@ -1,3 +1,6 @@
+// Unit tests for the LoopsOverview table, which lists every control loop with its status.
+// They check row order, status filters, the attention count, the empty state and cell text.
+// A fake translator is used, so assertions compare translation keys and their parameters.
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

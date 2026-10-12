@@ -1,3 +1,6 @@
+// Unit tests for useTheme.ts: resolving the light, dark and system preference, saving and
+// loading it in localStorage (garbage or blocked storage falls back to system), and applying
+// the data-theme attribute to the root element.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {

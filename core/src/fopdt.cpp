@@ -1,3 +1,5 @@
+// Implementation of the FOPDT plant model declared in crosscut/fopdt.hpp.
+// Validates the parameters, rounds the dead time to whole samples and steps the exact decay.
 #include "crosscut/fopdt.hpp"
 
 #include <cmath>

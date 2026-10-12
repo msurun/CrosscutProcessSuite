@@ -1,3 +1,6 @@
+// Unit tests for fuzzy.ts: membership curves (triangle, trapezoid, shoulders, gaussian), curve
+// sampling for plots, series colour cycling, rule id generation and name slugs.
+// They pin the formulas so the plotted curves and generated identifiers do not drift silently.
 import { describe, expect, it } from "vitest";
 import {
   SHAPE_PARAMETER_COUNTS,

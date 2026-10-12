@@ -1,3 +1,5 @@
+// Python binding (pybind11) that exposes the C++ Fopdt model as the crosscut_core module.
+// Lets Python use the same model as the C++ core, with keyword names matching the Python twin.
 #include <pybind11/pybind11.h>
 
 #include "crosscut/fopdt.hpp"
