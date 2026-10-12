@@ -9,6 +9,7 @@ from crosscut_sim.pid import PID
 
 
 def make(**kwargs: float | bool) -> PID:
+    """Build a PID controller from the given parameters, using defaults for any that are omitted."""
     params: dict[str, float | bool] = {
         "kc": 2.0,
         "ti_s": math.inf,

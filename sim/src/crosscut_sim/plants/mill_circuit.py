@@ -1150,10 +1150,7 @@ class MillCircuitPlant:
             PermissionError: the tag is read-only, or the loop's current mode forbids the write.
             ValueError: a mode tag is written with a value that is not one of MAN, AUTO or CAS.
         """
-        if tag_id not in self.tags:
-            raise KeyError(f"Unknown tag: {tag_id}")
-        if enforce and not self.tags[tag_id].writable:
-            raise PermissionError(f"Tag {tag_id} is read-only")
+        self._check_tag_is_writable(tag_id, enforce=enforce)
 
         # The plant-wide mean is a single scalar rather than a loop member, so it is handled before
         # the loop dispatch below. It has no writability or mode rules beyond the check above.
@@ -1171,33 +1168,69 @@ class MillCircuitPlant:
         name, kind = self._loop_tags[tag_id]
         loop = self._loops[name]
         if kind == "out":
-            # Manual output may only be moved while the loop is under operator control (MAN);
-            # in AUTO or CAS the controller owns the output and a write would fight it.
-            if enforce and loop.mode != MAN:
-                raise PermissionError(f"Cannot write {tag_id} unless the loop is in MAN mode")
-            # Outputs are actuator percentages, saturated to the 0-100 % physical travel range.
-            clamped = float(np.clip(value, 0.0, 100.0))
-            loop.manual_out = clamped
-            loop.out = clamped
+            self._write_output(loop, tag_id, value, enforce=enforce)
         elif kind == "sp":
-            # In CAS (cascade) the setpoint is driven by the upstream loop, so an operator write
-            # would be immediately overwritten; only MAN and AUTO accept local setpoint changes.
-            if enforce and loop.mode == CAS:
-                raise PermissionError(f"Cannot write {tag_id} while the loop is in CAS mode")
-            loop.local_sp = float(value)
+            self._write_setpoint(loop, tag_id, value, enforce=enforce)
         elif kind == "rsp":
             # The remote setpoint is written by the supervisory layer, which is trusted, so it is
             # not subject to the mode rules above.
             loop.rsp = float(value)
         elif kind == "mode":
-            if value not in (MAN, AUTO, CAS):
-                raise ValueError(f"Invalid mode value: {value}")
-            new_mode = int(value)
-            # Bumpless transfer: entering MAN, the manual output is seeded from the current output
-            # so the actuator does not jump at the moment of the mode switch.
-            if new_mode == MAN:
-                loop.manual_out = loop.out
-            loop.mode = new_mode
+            self._write_mode(loop, value)
+
+    def _check_tag_is_writable(self, tag_id: str, *, enforce: bool) -> None:
+        """Reject an unknown tag, and a read-only tag when the caller is not privileged.
+
+        Raises:
+            KeyError: ``tag_id`` is not a tag known to this model.
+            PermissionError: ``enforce`` is set and the tag is read-only.
+        """
+        if tag_id not in self.tags:
+            raise KeyError(f"Unknown tag: {tag_id}")
+        if enforce and not self.tags[tag_id].writable:
+            raise PermissionError(f"Tag {tag_id} is read-only")
+
+    def _write_output(self, loop: _Loop, tag_id: str, value: float, *, enforce: bool) -> None:
+        """Write a controller output, saturating it to the 0-100 % actuator travel range.
+
+        Raises:
+            PermissionError: ``enforce`` is set and the loop is not in MAN mode.
+        """
+        # Manual output may only be moved while the loop is under operator control (MAN);
+        # in AUTO or CAS the controller owns the output and a write would fight it.
+        if enforce and loop.mode != MAN:
+            raise PermissionError(f"Cannot write {tag_id} unless the loop is in MAN mode")
+        # Outputs are actuator percentages, saturated to the 0-100 % physical travel range.
+        clamped = float(np.clip(value, 0.0, 100.0))
+        loop.manual_out = clamped
+        loop.out = clamped
+
+    def _write_setpoint(self, loop: _Loop, tag_id: str, value: float, *, enforce: bool) -> None:
+        """Write the active setpoint of a loop.
+
+        Raises:
+            PermissionError: ``enforce`` is set and the loop is in CAS mode.
+        """
+        # In CAS (cascade) the setpoint is driven by the upstream loop, so an operator write
+        # would be immediately overwritten; only MAN and AUTO accept local setpoint changes.
+        if enforce and loop.mode == CAS:
+            raise PermissionError(f"Cannot write {tag_id} while the loop is in CAS mode")
+        loop.local_sp = float(value)
+
+    def _write_mode(self, loop: _Loop, value: float) -> None:
+        """Switch a loop's mode, seeding the manual output on entry to MAN for bumpless transfer.
+
+        Raises:
+            ValueError: ``value`` is not one of MAN, AUTO or CAS.
+        """
+        if value not in (MAN, AUTO, CAS):
+            raise ValueError(f"Invalid mode value: {value}")
+        new_mode = int(value)
+        # Bumpless transfer: entering MAN, the manual output is seeded from the current output
+        # so the actuator does not jump at the moment of the mode switch.
+        if new_mode == MAN:
+            loop.manual_out = loop.out
+        loop.mode = new_mode
 
     def _noise(self, sd: float) -> float:
         """Return measurement noise with standard deviation ``sd`` scaled by the scenario."""

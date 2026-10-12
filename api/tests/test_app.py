@@ -15,6 +15,7 @@ TOP = "sim.wb.top_comp"
 
 @pytest.fixture(scope="module")
 def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Create a temporary folder holding datasets from a nominal 10-minute simulation."""
     root = tmp_path_factory.mktemp("datasets")
     code = run_simulation(
         ["--plant", "wood_berry", "--scenario", "nominal", "--duration", "10m", "--out", str(root)]
@@ -25,6 +26,7 @@ def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def client(data_root: Path) -> TestClient:
+    """Create a test HTTP client backed by an app rooted at the given data directory."""
     return TestClient(create_app(data_root))
 
 
@@ -36,14 +38,16 @@ def test_health_reports_ok(client: TestClient) -> None:
 
 
 def test_datasets_lists_recorded_datasets(client: TestClient) -> None:
-    body = client.get("/datasets").json()
-    assert [d["id"] for d in body] == [DATASET]
-    assert body[0]["n_tags"] > 0 and body[0]["n_samples"] == 600
+    """The /datasets endpoint lists the recorded dataset with its tag and sample counts."""
+    datasets = client.get("/datasets").json()
+    assert [dataset["id"] for dataset in datasets] == [DATASET]
+    assert datasets[0]["n_tags"] > 0 and datasets[0]["n_samples"] == 600
 
 
 def test_tags_returns_the_tag_catalog(client: TestClient) -> None:
+    """The tags endpoint returns the catalog containing the top tag."""
     tags = client.get(f"/datasets/{DATASET}/tags").json()
-    assert TOP in {t["id"] for t in tags}
+    assert TOP in {tag["id"] for tag in tags}
 
 
 def test_series_returns_raw_points_when_the_window_is_small(client: TestClient) -> None:
@@ -74,7 +78,7 @@ def test_series_supports_several_tags_and_a_time_window(client: TestClient) -> N
         },
     )
     series = resp.json()["series"]
-    assert [s["tag"] for s in series] == [TOP, "sim.wb.bottom_comp"]
+    assert [one_series["tag"] for one_series in series] == [TOP, "sim.wb.bottom_comp"]
     assert series[0]["t"] == all_t[100:200]
 
 
@@ -115,6 +119,7 @@ def test_a_dotdot_dataset_id_is_not_found(data_root: Path) -> None:
 
 @pytest.fixture(scope="module")
 def loops_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
+    """Run a short mill circuit simulation and return a test client reading its results."""
     root = tmp_path_factory.mktemp("mill")
     argv = [
         "--plant",
@@ -147,7 +152,19 @@ def test_loops_endpoint_returns_404_for_an_unknown_dataset(client: TestClient) -
 def test_loops_endpoint_uses_the_project_file_with_its_names_and_settings(
     data_root: Path, client: TestClient
 ) -> None:
-    project = {
+    project = _build_loops_project()
+    project_file = _write_project_file(data_root, project)
+    try:
+        loops = _fetch_loops(client)
+    finally:
+        project_file.unlink()
+    assert [loop["name"] for loop in loops] == ["Top composition"]
+    assert loops[0]["out"] == "sim.wb.reflux"
+
+
+def _build_loops_project() -> dict:
+    """Return the project payload with a single loop definition, as stored on disk."""
+    return {
         "loops": [
             {
                 "id": "top",
@@ -161,18 +178,23 @@ def test_loops_endpoint_uses_the_project_file_with_its_names_and_settings(
             }
         ]
     }
+
+
+def _write_project_file(data_root: Path, project: dict) -> Path:
+    """Write the project payload to the dataset's project.json and return its path."""
     project_file = data_root / DATASET / "project.json"
     project_file.write_text(json.dumps(project))
-    try:
-        loops = client.get(f"/datasets/{DATASET}/loops").json()["loops"]
-    finally:
-        project_file.unlink()
-    assert [loop["name"] for loop in loops] == ["Top composition"]
-    assert loops[0]["out"] == "sim.wb.reflux"
+    return project_file
+
+
+def _fetch_loops(client: TestClient) -> list:
+    """Return the loops the endpoint reports for the dataset."""
+    return client.get(f"/datasets/{DATASET}/loops").json()["loops"]
 
 
 @pytest.fixture(scope="module")
 def step_test_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
+    """Run the step-test simulation into a temp folder and return a client for its data."""
     root = tmp_path_factory.mktemp("steps")
     argv = ["--plant", "mill_circuit", "--scenario", "step_test", "--duration", "3h"]
     assert run_simulation([*argv, "--sample-period", "5", "--out", str(root)]) == 0

@@ -17,6 +17,7 @@ INPUTS = {"mill_power": 3300.0, "p80": 150.0}
 
 @pytest.fixture(scope="module")
 def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Provide the output directory of one shared 1-hour mill_circuit simulation."""
     root = tmp_path_factory.mktemp("fuzzy")
     argv = ["--plant", "mill_circuit", "--duration", "1h", "--sample-period", "10"]
     assert run_simulation([*argv, "--out", str(root)]) == 0
@@ -25,11 +26,13 @@ def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def client(data_root: Path) -> TestClient:
+    """Provide a FastAPI test client wired to the app built from the given data root."""
     return TestClient(create_app(data_root))
 
 
 @pytest.fixture(scope="module")
 def document(data_root: Path) -> dict:
+    """Load the example fuzzy-test document from the test data directory."""
     return load_document(EXAMPLE_ID, data_root / "_fuzzy")
 
 

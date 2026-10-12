@@ -35,6 +35,7 @@ def make(
     sigma: float = 0.0,
     events: tuple[Event, ...] = (),
 ) -> WoodBerryPlant:
+    """Build a WoodBerryPlant configured with the given seed, noise, disturbance and events."""
     plant = WoodBerryPlant()
     plant.reset(
         seed=seed,
@@ -44,15 +45,18 @@ def make(
 
 
 def run(plant: WoodBerryPlant, minutes: float) -> None:
+    """Advance the plant simulation by the given number of minutes."""
     for _ in range(round(minutes * 60)):
         plant.step()
 
 
 def val(plant: WoodBerryPlant, tag: str) -> float:
+    """Return the first value recorded for the given tag on the plant."""
     return plant.read(tag)[0]
 
 
 def to_manual(plant: WoodBerryPlant) -> None:
+    """Switch every boiler of the plant to manual mode."""
     plant.write(TOP_MODE, MAN)
     plant.write(BOT_MODE, MAN)
 
@@ -60,8 +64,8 @@ def to_manual(plant: WoodBerryPlant) -> None:
 def test_catalog_is_valid_and_complete() -> None:
     plant = make()
     schema = json.loads((REPO_ROOT / "schemas" / "tags.schema.json").read_text(encoding="utf-8"))
-    errors = list(Draft202012Validator(schema).iter_errors(plant.tags.to_document()))
-    assert errors == [], [e.message for e in errors]
+    validation_errors = list(Draft202012Validator(schema).iter_errors(plant.tags.to_document()))
+    assert validation_errors == [], [error.message for error in validation_errors]
     expected = {
         TOP, TOP_SP, TOP_RSP, TOP_MODE, REFLUX, BOT, BOT_SP, BOT_RSP, BOT_MODE, STEAM, FEED,
     }  # fmt: skip
@@ -186,6 +190,7 @@ def test_manual_switch_is_bumpless() -> None:
 
 def test_determinism_and_seed_sensitivity_with_noise_and_disturbance() -> None:
     def trace(seed: int) -> list[float]:
+        """Record the value at the top of a freshly made plant over 1800 steps."""
         plant = make(seed=seed, noise=1.0, sigma=0.02)
         out = []
         for _ in range(1800):

@@ -30,6 +30,7 @@ CREATED = "2026-10-10T12:00:00Z"
 
 
 def manifest_validator() -> Draft202012Validator:
+    """Build the JSON Schema validator for the artifact manifest schema in this repository."""
     schema = json.loads(
         (REPO_ROOT / "schemas" / "artifact-manifest.schema.json").read_text(encoding="utf-8")
     )
@@ -37,6 +38,7 @@ def manifest_validator() -> Draft202012Validator:
 
 
 def make(out: Path, **kwargs: Any) -> dict[str, Any]:
+    """Write the sample model artifact to ``out`` with two member files."""
     payload = {
         "model.npz": npz_bytes({"gain": np.array([[1.0, 2.0], [3.0, 4.0]])}),
         "notes/readme.txt": b"hello",
@@ -56,6 +58,7 @@ def test_supported_version_matches_schema_version_in_use() -> None:
 
 
 def test_round_trip_validates_against_schema(tmp_path: Path) -> None:
+    """Test that a manifest round-trip preserves all data and validates against the schema."""
     doc = make(
         tmp_path,
         inputs=[{"dataset_hash": "a" * 64}],
@@ -65,12 +68,42 @@ def test_round_trip_validates_against_schema(tmp_path: Path) -> None:
     )
     on_disk = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == doc
+
+    validate_manifest(doc)
+    validate_schema_version(doc)
+    validate_artifact_type(doc)
+    validate_created_utc(doc)
+    validate_signature(doc)
+    validate_payload_paths(doc, tmp_path)
+
+def validate_manifest(doc: dict) -> None:
+    """Validate the manifest against the schema.
+
+    Raises:
+        AssertionError: if the manifest violates the schema; the message lists
+            every validation error found.
+    """
     errors = list(manifest_validator().iter_errors(doc))
-    assert errors == [], [e.message for e in errors]
+    assert errors == [], [error.message for error in errors]
+
+def validate_schema_version(doc: dict) -> None:
+    """Validate the schema version."""
     assert doc["schema_version"] == SUPPORTED_SCHEMA_VERSION
+
+def validate_artifact_type(doc: dict) -> None:
+    """Validate the artifact type."""
     assert doc["artifact_type"] == "model"
+
+def validate_created_utc(doc: dict) -> None:
+    """Validate the created UTC timestamp."""
     assert doc["created_utc"] == CREATED
+
+def validate_signature(doc: dict) -> None:
+    """Validate the signature."""
     assert doc["signature"] is None
+
+def validate_payload_paths(doc: dict, tmp_path: Path) -> None:
+    """Validate the payload paths and their contents."""
     paths = {item["path"]: item["sha256"] for item in doc["payload"]}
     assert set(paths) == {"model.npz", "notes/readme.txt"}
     assert paths["notes/readme.txt"] == sha256_bytes(b"hello")
@@ -178,8 +211,8 @@ def test_invalid_artifact_type_is_rejected(tmp_path: Path) -> None:
 
 
 def test_tags_signature_is_stable_order_sensitive_and_hex() -> None:
-    a = tags_signature(["sim.a", "sim.b"])
-    assert a == tags_signature(["sim.a", "sim.b"])
-    assert a != tags_signature(["sim.b", "sim.a"])
-    assert len(a) == 64
-    assert set(a) <= set("0123456789abcdef")
+    signature = tags_signature(["sim.a", "sim.b"])
+    assert signature == tags_signature(["sim.a", "sim.b"])
+    assert signature != tags_signature(["sim.b", "sim.a"])
+    assert len(signature) == 64
+    assert set(signature) <= set("0123456789abcdef")

@@ -11,25 +11,30 @@ from exp00 import DRIVERS, VARIANTS, fir_gains, highpass, main, true_gains
 
 def test_fir_gains_recover_a_known_two_input_system() -> None:
     rng = np.random.default_rng(0)
-    n = 4000
-    x1 = rng.normal(size=n)
-    x2 = rng.normal(size=n)
+    sample_count = 4000
+    x1 = rng.normal(size=sample_count)
+    x2 = rng.normal(size=sample_count)
     h1 = 0.5 * 0.8 ** np.arange(30)  # gain 0.5 / (1 - 0.8) = 2.5 (truncated)
     h2 = -0.3 * 0.7 ** np.arange(30)
-    y = np.convolve(x1, h1)[:n] + np.convolve(x2, h2)[:n] + 1.0 + 0.01 * rng.normal(size=n)
+    y = (
+        np.convolve(x1, h1)[:sample_count]
+        + np.convolve(x2, h2)[:sample_count]
+        + 1.0
+        + 0.01 * rng.normal(size=sample_count)
+    )
     gains = fir_gains(y, [x1, x2], n_lags=40)
     assert gains[0] == pytest.approx(h1.sum(), abs=0.03)
     assert gains[1] == pytest.approx(h2.sum(), abs=0.03)
 
 
 def test_highpass_removes_slow_components_and_keeps_fast_ones() -> None:
-    t = np.arange(2000)
-    slow = np.sin(2 * np.pi * t / 2000)
-    fast = np.sin(2 * np.pi * t / 6)
-    filtered = highpass(slow + fast, 20)
+    sample_indices = np.arange(2000)
+    slow_component = np.sin(2 * np.pi * sample_indices / 2000)
+    fast_component = np.sin(2 * np.pi * sample_indices / 6)
+    filtered = highpass(slow_component + fast_component, 20)
     middle = slice(100, -100)
-    assert np.abs(filtered[middle] - fast[middle]).max() < 0.5
-    assert np.abs(highpass(slow, 20)[middle]).max() < 0.01
+    assert np.abs(filtered[middle] - fast_component[middle]).max() < 0.5
+    assert np.abs(highpass(slow_component, 20)[middle]).max() < 0.01
 
 
 def test_true_gains_use_the_plant_ground_truth() -> None:

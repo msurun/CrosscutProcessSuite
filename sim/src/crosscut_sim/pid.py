@@ -123,68 +123,96 @@ class PID:
         if mode not in ("MAN", "AUTO"):
             raise ValueError("mode must be 'MAN' or 'AUTO'")
 
-        # Deviation between measurement and setpoint, in engineering units.
-        # Direct action (self.direct True) raises the output when pv rises above sp, so the error
-        # is pv - sp. Reverse action raises it when pv falls below sp, so the error is sp - pv.
-        # Everything downstream only uses this signed error.
-        error = pv - sp if self.direct else sp - pv
-        # Proportional contribution, in output units: Kc [dimensionless] * error [e.u.].
+        error = self._signed_error(pv, sp)
         proportional = self.kc * error
+        derivative = self._update_derivative(pv)
+        integral_increment = self._integral_increment(error)
 
-        # Derivative term, in output units.  Skipped when Td == 0 because then the filter time
-        # constant below would be 0 and the recursion would divide by zero.
-        if self.td_s == 0:
-            derivative = 0.0
-        else:
-            # Time constant of the 1st-order filter applied to the derivative, in seconds.
-            # The filter is the usual "Td/N" one: N (td_filter_n) trades noise rejection
-            # (small N) against derivative speed (large N).  N = 8..10 is typical.
-            filter_time_s = self.td_s / self.td_filter_n
-            # Change of the measurement since the previous step, in engineering units.
-            # The first call has no previous value, so the change is taken as zero.
-            pv_change = pv - self._prev_pv if self._prev_pv is not None else 0.0
-            # Because the derivative acts on pv and not on the error, the sign of the
-            # contribution must follow d(error)/dt: with error = pv - sp (direct action) it is
-            # +d(pv)/dt, with error = sp - pv (reverse action, sp held) it is -d(pv)/dt.
-            error_sign = 1 if self.direct else -1
-            # Discretisation of a filtered derivative by backward Euler.
-            # The continuous filter is  D + (Td/N) * dD/dt = Kc * Td * d(error)/dt.
-            # Backward Euler with step dt gives the recursion below:
-            #   D_k = a * D_{k-1} + error_sign * Kc * Td / (Td/N + dt) * (pv_k - pv_{k-1})
-            # with a = (Td/N) / (Td/N + dt) the filter's weight on the previous value.
-            # D is stored in output units so it can be added directly to Kc*e.
-            derivative = (
-                filter_time_s / (filter_time_s + self.dt_s) * self._d
-                + error_sign
-                * self.kc
-                * self.td_s
-                / (filter_time_s + self.dt_s)
-                * pv_change
-            )
-            # Remember D_k for the next call (the filter's state).
-            self._d = derivative
-
-        # Integral increment, in output units, added during this step of dt_s seconds.
-        # The continuous integral contribution is (Kc / Ti) * integral(error) dt; sampled with
-        # backward Euler this adds Kc * error * dt / Ti per step.
-        # Ti = inf means "no integral action requested", so the increment stays 0.
-        if math.isinf(self.ti_s):
-            integral_increment = 0.0
-        else:
-            integral_increment = self.kc * error * self.dt_s / self.ti_s
-
-        # --- Manual mode: the operator dictates the output. ---
         if mode == "MAN":
-            output = self._clip(man_out)
-            # Back-calculate the integral state so that, at the switch back to AUTO, the
-            # controller resumes exactly from the manual output instead of jumping
-            # (this is the standard "bumpless transfer" trick):
-            #   out = P + I + D + dI  =>  I = out - P - D - dI
-            self._i = output - proportional - derivative - integral_increment
-            return output
+            return self._apply_manual_output(man_out, proportional, derivative, integral_increment)
 
-        # --- Automatic mode: the controller computes the output. ---
-        # Try the integrator first, then check whether the resulting output saturates.
+        output = self._compute_auto_output(proportional, derivative, integral_increment)
+        self._prev_pv = pv
+        return output
+
+    def _signed_error(self, pv: float, sp: float) -> float:
+        """Deviation between measurement and setpoint, in engineering units.
+
+        Direct action (``self.direct`` True) raises the output when pv rises above sp, so the
+        error is pv - sp.  Reverse action raises it when pv falls below sp, so the error is
+        sp - pv.  Everything downstream only uses this signed error.
+        """
+        return pv - sp if self.direct else sp - pv
+
+    def _update_derivative(self, pv: float) -> float:
+        """Compute the filtered derivative term in output units, and store it as ``self._d``.
+
+        Skipped when Td == 0 because then the filter time constant would be 0 and the recursion
+        would divide by zero.
+        """
+        if self.td_s == 0:
+            return 0.0
+
+        # Time constant of the 1st-order filter applied to the derivative, in seconds.
+        # The filter is the usual "Td/N" one: N (td_filter_n) trades noise rejection
+        # (small N) against derivative speed (large N).  N = 8..10 is typical.
+        filter_time_s = self.td_s / self.td_filter_n
+        # Change of the measurement since the previous step, in engineering units.
+        # The first call has no previous value, so the change is taken as zero.
+        pv_change = pv - self._prev_pv if self._prev_pv is not None else 0.0
+        # Because the derivative acts on pv and not on the error, the sign of the
+        # contribution must follow d(error)/dt: with error = pv - sp (direct action) it is
+        # +d(pv)/dt, with error = sp - pv (reverse action, sp held) it is -d(pv)/dt.
+        error_sign = 1 if self.direct else -1
+        # Discretisation of a filtered derivative by backward Euler.
+        # The continuous filter is  D + (Td/N) * dD/dt = Kc * Td * d(error)/dt.
+        # Backward Euler with step dt gives the recursion below:
+        #   D_k = a * D_{k-1} + error_sign * Kc * Td / (Td/N + dt) * (pv_k - pv_{k-1})
+        # with a = (Td/N) / (Td/N + dt) the filter's weight on the previous value.
+        # D is stored in output units so it can be added directly to Kc*e.
+        derivative = (
+            filter_time_s / (filter_time_s + self.dt_s) * self._d
+            + error_sign
+            * self.kc
+            * self.td_s
+            / (filter_time_s + self.dt_s)
+            * pv_change
+        )
+        # Remember D_k for the next call (the filter's state).
+        self._d = derivative
+        return derivative
+
+    def _integral_increment(self, error: float) -> float:
+        """Integral increment in output units, added during this step of ``dt_s`` seconds.
+
+        The continuous integral contribution is (Kc / Ti) * integral(error) dt; sampled with
+        backward Euler this adds Kc * error * dt / Ti per step.
+        Ti = inf means "no integral action requested", so the increment stays 0.
+        """
+        if math.isinf(self.ti_s):
+            return 0.0
+        return self.kc * error * self.dt_s / self.ti_s
+
+    def _apply_manual_output(
+        self, man_out: float, proportional: float, derivative: float, integral_increment: float
+    ) -> float:
+        """In manual mode the operator dictates the output; store the matching integral state.
+
+        Back-calculates the integral state so that, at the switch back to AUTO, the controller
+        resumes exactly from the manual output instead of jumping (the standard "bumpless
+        transfer" trick):  out = P + I + D + dI  =>  I = out - P - D - dI
+        """
+        output = self._clip(man_out)
+        self._i = output - proportional - derivative - integral_increment
+        return output
+
+    def _compute_auto_output(
+        self, proportional: float, derivative: float, integral_increment: float
+    ) -> float:
+        """In automatic mode the controller computes the output, with anti-windup.
+
+        Tries the integrator first, then checks whether the resulting output saturates.
+        """
         candidate_integral = self._i + integral_increment
         unclipped_output = proportional + candidate_integral + derivative
         output = self._clip(unclipped_output)
@@ -197,11 +225,6 @@ class PID:
         else:
             # Output not (or no longer) saturated in that direction: keep the new integral.
             self._i = candidate_integral
-
-        # Store the measurement so the next call can differentiate it.  Note this happens
-        # after manual mode returned early: in "MAN" the derivative state is left untouched on
-        # purpose, so switching back to "AUTO" does not create a derivative bump.
-        self._prev_pv = pv
         return output
 
     def _clip(self, value: float) -> float:

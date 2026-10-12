@@ -52,6 +52,7 @@ def run_against_server(
     """Start the async server, run the sync `call` against its endpoint, stop the server."""
 
     async def main() -> OpcUaImportReport:
+        """Run the OPC UA import against the server and return the resulting report."""
         async with server:
             return await asyncio.to_thread(call, server.endpoint)
 
@@ -123,6 +124,7 @@ def test_import_does_not_write_to_the_plant(tmp_path: Path) -> None:
     original_on_client_write = server._on_client_write
 
     def recording_on_client_write(tag_id: str, value: float) -> None:
+        """Record a client write and forward it to the original handler."""
         client_writes.append((tag_id, value))
         original_on_client_write(tag_id, value)
 

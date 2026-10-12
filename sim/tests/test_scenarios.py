@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from crosscut_sim.core import Scenario
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
 from crosscut_sim.scenarios import available_scenarios, build_scenario, random_binary_events
 
@@ -48,28 +49,35 @@ def test_feed_step_has_one_event_at_a_quarter_of_the_run() -> None:
 
 
 def test_random_binary_events_are_deterministic_and_binary() -> None:
-    a = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
-                             duration_s=10000.0, seed=1)  # fmt: skip
-    b = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
-                             duration_s=10000.0, seed=1)  # fmt: skip
-    c = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
-                             duration_s=10000.0, seed=2)  # fmt: skip
-    assert a == b
-    assert a != c
-    assert len(a) == 100
-    assert [e.t_s for e in a] == [100.0 * k for k in range(100)]
-    assert {e.tag_id for e in a} == {"x"}
-    assert {e.value for e in a} == {9.0, 11.0}
+    """Same seed gives same events; a different seed diverges; values stay binary."""
+    same_seed_events = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
+                                            duration_s=10000.0, seed=1)  # fmt: skip
+    repeated_same_seed_events = random_binary_events(
+        "x",
+        center=10.0,
+        amplitude=1.0,
+        switch_period_s=100.0,
+        duration_s=10000.0,
+        seed=1,
+    )  # fmt: skip
+    other_seed_events = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
+                                             duration_s=10000.0, seed=2)  # fmt: skip
+    assert same_seed_events == repeated_same_seed_events
+    assert same_seed_events != other_seed_events
+    assert len(same_seed_events) == 100
+    assert [event.t_s for event in same_seed_events] == [100.0 * k for k in range(100)]
+    assert {event.tag_id for event in same_seed_events} == {"x"}
+    assert {event.value for event in same_seed_events} == {9.0, 11.0}
 
 
 def test_excited_scenario_perturbs_both_setpoints() -> None:
     scenario = build_scenario("wood_berry", "excited", duration_s=DAY)
-    tags = {e.tag_id for e in scenario.events}
+    tags = {event.tag_id for event in scenario.events}
     assert tags == {TOP_SP, BOT_SP}
-    assert all(0.0 <= e.t_s < DAY for e in scenario.events)
-    top_values = {e.value for e in scenario.events if e.tag_id == TOP_SP}
+    assert all(0.0 <= event.t_s < DAY for event in scenario.events)
+    top_values = {event.value for event in scenario.events if event.tag_id == TOP_SP}
     assert top_values == {NOMINAL["top_comp"] - 0.5, NOMINAL["top_comp"] + 0.5}
-    bottom_values = {e.value for e in scenario.events if e.tag_id == BOT_SP}
+    bottom_values = {event.value for event in scenario.events if event.tag_id == BOT_SP}
     assert bottom_values == {NOMINAL["bottom_comp"] - 0.1, NOMINAL["bottom_comp"] + 0.1}
     assert scenario.events == build_scenario("wood_berry", "excited", duration_s=DAY).events
 
@@ -78,12 +86,22 @@ def test_excited_scenario_runs_and_moves_the_process() -> None:
     scenario = build_scenario("wood_berry", "excited", duration_s=3600.0)
     plant = WoodBerryPlant()
     plant.reset(seed=1, scenario=scenario)
-    values = []
-    for _ in range(3600):
+    top_comp_trace = simulate_top_comp_trace(plant, steps=3600)
+    assert max(top_comp_trace) - min(top_comp_trace) > 0.3
+    assert max(abs(top_comp - NOMINAL["top_comp"]) for top_comp in top_comp_trace) < 5.0
+
+
+def simulate_top_comp_trace(plant, steps: int) -> list[float]:
+    """Return the top composition recorded at every simulated step.
+
+    `plant` is advanced `steps` times, one step at a time, so the trace keeps
+    the exact per-step order of the original loop. Returns one float per step.
+    """
+    top_comp_trace = []
+    for _ in range(steps):
         plant.step()
-        values.append(plant.read("sim.wb.top_comp")[0])
-    assert max(values) - min(values) > 0.3
-    assert max(abs(v - NOMINAL["top_comp"]) for v in values) < 5.0
+        top_comp_trace.append(plant.read("sim.wb.top_comp")[0])
+    return top_comp_trace
 
 
 MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP = (
@@ -98,6 +116,17 @@ def test_mill_circuit_scenarios() -> None:
     names = ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test")
     assert available_scenarios("mill_circuit") == names
 
+    assert_baseline_scenarios()
+
+    shift = build_scenario("mill_circuit", "hardness_shift", duration_s=DAY)
+    assert_hardness_shift_scenario(shift)
+
+    excited = build_scenario("mill_circuit", "excited", duration_s=DAY)
+    assert_excited_scenario(excited)
+
+
+def assert_baseline_scenarios() -> None:
+    """Check the nominal, observational and quiet scenarios share the baseline parameters."""
     nominal = build_scenario("mill_circuit", "nominal", duration_s=DAY)
     assert nominal.param("operator", 1.0) == 0.0
     assert nominal.measurement_noise == 1.0
@@ -111,34 +140,50 @@ def test_mill_circuit_scenarios() -> None:
     assert quiet.measurement_noise == 0.0
     assert all(quiet.param(name, 1.0) == 0.0 for name in QUIET_PARAMS)
 
-    shift = build_scenario("mill_circuit", "hardness_shift", duration_s=DAY)
+
+def assert_hardness_shift_scenario(shift: Scenario) -> None:
+    """Check the hardness_shift scenario keeps the operator level and schedules one mid-day step."""
     assert shift.param("operator", 1.0) == 0.0
     assert len(shift.events) == 1
     assert shift.events[0].tag_id == "sim.mc.hardness_mean"
     assert shift.events[0].t_s == pytest.approx(DAY / 2)
     assert shift.events[0].value == pytest.approx(16.0)
 
-    excited = build_scenario("mill_circuit", "excited", duration_s=DAY)
+
+def assert_excited_scenario(excited: Scenario) -> None:
+    """Excited scenario moves three setpoints off baseline and stays reproducible."""
     assert excited.param("operator", 1.0) == 0.0
-    assert {e.tag_id for e in excited.events} == {MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP}
-    levels = {
-        tag: {e.value for e in excited.events if e.tag_id == tag}
-        for tag in (MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP)
-    }
+    assert {event.tag_id for event in excited.events} == {MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP}
+
+    levels = _excited_levels_per_tag(excited)
     assert levels[MC_PRESS_SP] == {3.5 - 0.3, 3.5 + 0.3}
     assert levels[MC_FEED_SP] == {150.0 - 8.0, 150.0 + 8.0}
     assert levels[MC_WATER_SP] == {100.0 - 5.0, 100.0 + 5.0}
-    assert all(0.0 <= e.t_s < DAY for e in excited.events)
+    assert all(0.0 <= event.t_s < DAY for event in excited.events)
     assert excited.events == build_scenario("mill_circuit", "excited", duration_s=DAY).events
 
 
+def _excited_levels_per_tag(excited: Scenario) -> dict[str, set[float]]:
+    """Return, per setpoint tag, the distinct event values seen in the excited scenario."""
+    return {
+        tag: _distinct_event_values_for_tag(excited, tag)
+        for tag in (MC_PRESS_SP, MC_FEED_SP, MC_WATER_SP)
+    }
+
+
+def _distinct_event_values_for_tag(scenario: Scenario, tag: str) -> set[float]:
+    """Return the distinct event values in the scenario whose tag matches the given setpoint tag."""
+    return {event.value for event in scenario.events if event.tag_id == tag}
+
+
 def test_mill_step_test_scenario_puts_loops_in_manual_and_steps_each_output_in_turn() -> None:
+    """Check the mill step test puts control loops in manual and steps each output in turn."""
     scenario = build_scenario("mill_circuit", "step_test", duration_s=3 * 3600.0)
-    modes = [e for e in scenario.events if e.tag_id.endswith("_mode")]
-    assert len(modes) == 3 and all(e.value == 0.0 for e in modes)
-    steps = [e for e in scenario.events if e.tag_id.endswith("_out")]
-    assert len(steps) == 6
-    assert [e.tag_id for e in steps[::2]] == [
+    mode_events = [event for event in scenario.events if event.tag_id.endswith("_mode")]
+    assert len(mode_events) == 3 and all(event.value == 0.0 for event in mode_events)
+    output_events = [event for event in scenario.events if event.tag_id.endswith("_out")]
+    assert len(output_events) == 6
+    assert [event.tag_id for event in output_events[::2]] == [
         "sim.mc.hpgr_press_out",
         "sim.mc.mill_feed_out",
         "sim.mc.cyc_water_out",

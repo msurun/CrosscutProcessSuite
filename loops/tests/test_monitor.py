@@ -18,9 +18,16 @@ SETTINGS = LoopSettings(delay_s=DT, ultimate_period_s=600.0, amplitude_limit=0.2
 def signals(
     error: np.ndarray, out: float | np.ndarray = 50.0, mode: int = AUTO
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    t = np.arange(N) * DT
-    sp = np.full(N, 10.0)
-    return t, sp + error, sp, np.broadcast_to(out, N).copy(), np.full(N, mode)
+    """Build the time, setpoint, measurement, output and mode signals of a simulation run."""
+    time_signal = np.arange(N) * DT
+    setpoint_signal = np.full(N, 10.0)
+    return (
+        time_signal,
+        setpoint_signal + error,
+        setpoint_signal,
+        np.broadcast_to(out, N).copy(),
+        np.full(N, mode),
+    )
 
 
 def test_healthy_loop_is_classified_ok() -> None:
@@ -43,8 +50,8 @@ def test_loop_with_output_at_the_limit_is_classified_saturated() -> None:
 
 
 def test_oscillating_loop_is_classified_oscillating_with_its_period() -> None:
-    t = np.arange(N) * DT
-    error = np.sin(2 * np.pi * t / 600.0) + RNG.normal(scale=0.05, size=N)
+    time_s = np.arange(N) * DT
+    error = np.sin(2 * np.pi * time_s / 600.0) + RNG.normal(scale=0.05, size=N)
     report = analyze_loop(*signals(error), settings=SETTINGS)
     assert report.classification == "oscillating"
     assert report.oscillation_period_s == pytest.approx(600.0, rel=0.05)
@@ -60,9 +67,11 @@ def test_sluggish_loop_is_classified_poor_performance() -> None:
 
 
 def test_mode_changes_and_mean_error_are_reported() -> None:
-    t, pv, sp, out, mode = signals(np.full(N, 0.5))
+    time_s, process_variable, setpoint, controller_output, mode = signals(np.full(N, 0.5))
     mode[1000:1100] = MAN
-    report = analyze_loop(t, pv, sp, out, mode, settings=SETTINGS)
+    report = analyze_loop(
+        time_s, process_variable, setpoint, controller_output, mode, settings=SETTINGS
+    )
     assert report.mode_changes == 2
     assert report.mean_abs_error == pytest.approx(0.5)
 
@@ -82,13 +91,13 @@ def test_simulated_loop_with_a_frozen_sensor_reports_the_flatline() -> None:
             ]
         )
         plant.step()
-    t, pv, sp, out, mode = np.array(rows).T
+    time_s, top_pv, top_sp, reflux_out, top_mode = np.array(rows).T
     report = analyze_loop(
-        t,
-        pv,
-        sp,
-        out,
-        mode,
+        time_s,
+        top_pv,
+        top_sp,
+        reflux_out,
+        top_mode,
         settings=LoopSettings(
             delay_s=60.0,
             ultimate_period_s=600.0,
@@ -98,4 +107,6 @@ def test_simulated_loop_with_a_frozen_sensor_reports_the_flatline() -> None:
         ),
     )
     assert report.flatline_fraction == pytest.approx(1 / 3, abs=0.02)
-    assert any("frozen" in f.lower() or "flatline" in f.lower() for f in report.findings)
+    assert any(
+        "frozen" in finding.lower() or "flatline" in finding.lower() for finding in report.findings
+    )

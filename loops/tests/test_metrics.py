@@ -14,10 +14,11 @@ from crosscut_loops.metrics import (
 RNG = np.random.default_rng(7)
 
 
-def ar1(phi: float, n: int = 60_000) -> np.ndarray:
-    shocks = RNG.normal(size=n)
-    x = np.zeros(n)
-    for k in range(1, n):
+def ar1(phi: float, time_steps: int = 60_000) -> np.ndarray:
+    """Simulate an AR(1) process with autoregressive coefficient phi."""
+    shocks = RNG.normal(size=time_steps)
+    x = np.zeros(time_steps)
+    for k in range(1, time_steps):
         x[k] = phi * x[k - 1] + shocks[k]
     return x
 
@@ -51,8 +52,8 @@ def test_harris_index_of_a_constant_series_is_nan() -> None:
 
 
 def test_sustained_sine_is_detected_as_oscillation_with_its_period() -> None:
-    t = np.arange(0.0, 6 * 3600.0, 10.0)
-    error = np.sin(2 * np.pi * t / 600.0) + RNG.normal(scale=0.05, size=len(t))
+    time_s = np.arange(0.0, 6 * 3600.0, 10.0)
+    error = np.sin(2 * np.pi * time_s / 600.0) + RNG.normal(scale=0.05, size=len(time_s))
     result = hagglund_oscillation(error, dt_s=10.0, amplitude_limit=0.2, ultimate_period_s=600.0)
     assert result.detected is True
     assert result.period_s == pytest.approx(600.0, rel=0.05)
@@ -65,8 +66,9 @@ def test_noise_is_not_an_oscillation() -> None:
 
 
 def test_a_few_cycles_are_not_enough_to_call_it_an_oscillation() -> None:
-    t = np.arange(0.0, 3600.0, 10.0)
-    error = np.where(t < 2400.0, 0.0, np.sin(2 * np.pi * t / 600.0))
+    """An oscillation needs the minimum number of cycles before it is flagged."""
+    time_s = np.arange(0.0, 3600.0, 10.0)
+    error = np.where(time_s < 2400.0, 0.0, np.sin(2 * np.pi * time_s / 600.0))
     result = hagglund_oscillation(error, dt_s=10.0, amplitude_limit=0.2, ultimate_period_s=600.0)
     assert result.detected is False
 

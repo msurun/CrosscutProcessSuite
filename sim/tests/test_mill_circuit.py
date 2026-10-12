@@ -64,25 +64,30 @@ def make(
     noise: float = 0.0,
     dt_s: float = 1.0,
 ) -> MillCircuitPlant:
+    """Return a reset mill circuit plant built from the given seed, noise and time step."""
     plant = MillCircuitPlant()
     plant.reset(seed=seed, scenario=Scenario(dt_s=dt_s, measurement_noise=noise, params=params))
     return plant
 
 
 def run(plant: MillCircuitPlant, minutes: float) -> None:
+    """Advance the plant simulation by the given number of minutes."""
     for _ in range(round(minutes * 60 / plant_dt(plant))):
         plant.step()
 
 
 def plant_dt(plant: MillCircuitPlant) -> float:
+    """Return the plant sampling interval in seconds."""
     return plant.dt_s
 
 
 def val(plant: MillCircuitPlant, tag: str) -> float:
+    """Return the current numeric value of the plant tag's most recent reading."""
     return plant.read(tag)[0]
 
 
 def to_manual(plant: MillCircuitPlant) -> None:
+    """Set every operating mode of the given plant to manual."""
     for mode in MODES:
         plant.write(mode, MAN)
 
@@ -90,8 +95,10 @@ def to_manual(plant: MillCircuitPlant) -> None:
 def test_catalog_is_valid_and_complete() -> None:
     plant = make()
     schema = json.loads((REPO_ROOT / "schemas" / "tags.schema.json").read_text(encoding="utf-8"))
-    errors = list(Draft202012Validator(schema).iter_errors(plant.tags.to_document()))
-    assert errors == [], [e.message for e in errors]
+    validation_errors = list(Draft202012Validator(schema).iter_errors(plant.tags.to_document()))
+    assert validation_errors == [], [
+        validation_error.message for validation_error in validation_errors
+    ]
     assert set(plant.tags.ids()) == ALL_TAGS
     assert set(plant.snapshot()) == ALL_TAGS
     assert not any("true" in tag_id for tag_id in plant.tags.ids())  # hidden state stays hidden
@@ -182,10 +189,22 @@ def test_inner_loops_track_setpoints() -> None:
 
 def test_cascade_and_write_permissions() -> None:
     plant = make()
+    _assert_cascade_value_is_tracked(plant)
+    _assert_protected_tags_reject_writes(plant)
+    _assert_unknown_tags_are_rejected(plant)
+    _assert_manual_mode_allows_writes(plant)
+
+
+def _assert_cascade_value_is_tracked(plant) -> None:
+    """Assert that a cascade setpoint drives the process value it controls."""
     plant.write(PRESS_MODE, CAS)
     plant.write(PRESS_RSP, 3.7)
     run(plant, 1)
     assert val(plant, PRESS_SP) == pytest.approx(3.7)
+
+
+def _assert_protected_tags_reject_writes(plant) -> None:
+    """Assert that internal setpoints and read-only measurements refuse writes."""
     with pytest.raises(PermissionError):
         plant.write(PRESS_SP, 3.0)
     with pytest.raises(PermissionError):
@@ -193,12 +212,20 @@ def test_cascade_and_write_permissions() -> None:
     for read_only in (PRESS, P80, MILL_POWER, HPGR_POWER, HARD_EST, MOIST):
         with pytest.raises(PermissionError):
             plant.write(read_only, 1.0)
+
+
+def _assert_unknown_tags_are_rejected(plant) -> None:
+    """Assert that invalid modes and unknown tags raise instead of silently failing."""
     with pytest.raises(ValueError):
         plant.write(FEED_MODE, 7)
     with pytest.raises(KeyError):
         plant.write("sim.mc.unknown", 1.0)
     with pytest.raises(KeyError):
         plant.read("sim.mc.unknown")
+
+
+def _assert_manual_mode_allows_writes(plant) -> None:
+    """Assert that manual mode lets the operator drive the output tag."""
     plant.write(FEED_MODE, MAN)
     plant.write(FEED_OUT, 55.0)
     assert val(plant, FEED_OUT) == pytest.approx(55.0)
@@ -221,6 +248,7 @@ NOISY = (("operator", 1.0),)
 
 def test_determinism_and_seed_sensitivity_with_all_noise_sources() -> None:
     def trace(seed: int) -> list[tuple[float, float, float]]:
+        """Run one hour and record P80, pressure and pressure setpoint at each step."""
         plant = make(seed=seed, params=NOISY, noise=1.0)
         out = []
         for _ in range(3600):
@@ -246,24 +274,33 @@ def test_process_has_noise_driven_variation_even_with_constant_setpoints() -> No
     assert abs(np.mean(press[600:]) - NOMINAL["hpgr_press"]) < 0.1  # loop keeps it near SP
 
 
+def _correlations_with_hardness(seed: int) -> tuple[float, float]:
+    """Run one 24 h simulation; return hardness/pressure and hardness/feed correlations."""
+    scenario = Scenario(dt_s=10.0, params=(("operator", 1.0),), measurement_noise=1.0)
+    plant = MillCircuitPlant()
+    plant.reset(seed=seed, scenario=scenario)
+    hardness_samples, pressure_setpoints, feed_setpoints = [], [], []
+    for step in range(24 * 360):  # 24 h at 10 s
+        plant.step()
+        if (step + 1) % 180 == 0:  # sample every 30 min
+            hardness_samples.append(plant.true_hardness)
+            pressure_setpoints.append(val(plant, PRESS_SP))
+            feed_setpoints.append(val(plant, FEED_SP))
+    return (
+        np.corrcoef(hardness_samples, pressure_setpoints)[0, 1],
+        np.corrcoef(hardness_samples, feed_setpoints)[0, 1],
+    )
+
+
 def test_operator_confounds_setpoints_with_hardness() -> None:
     """With the operator on, setpoints follow the (partly unobserved) ore hardness."""
-    corr_press, corr_feed = [], []
+    pressure_correlations, feed_correlations = [], []
     for seed in (1, 2, 3):
-        scenario = Scenario(dt_s=10.0, params=(("operator", 1.0),), measurement_noise=1.0)
-        plant = MillCircuitPlant()
-        plant.reset(seed=seed, scenario=scenario)
-        hardness, press_sp, feed_sp = [], [], []
-        for k in range(24 * 360):  # 24 h at 10 s
-            plant.step()
-            if (k + 1) % 180 == 0:  # every 30 min
-                hardness.append(plant.true_hardness)
-                press_sp.append(val(plant, PRESS_SP))
-                feed_sp.append(val(plant, FEED_SP))
-        corr_press.append(np.corrcoef(hardness, press_sp)[0, 1])
-        corr_feed.append(np.corrcoef(hardness, feed_sp)[0, 1])
-    assert all(c > 0 for c in corr_press) and np.mean(corr_press) > 0.5
-    assert all(c < 0 for c in corr_feed) and np.mean(corr_feed) < -0.5
+        pressure_corr, feed_corr = _correlations_with_hardness(seed)
+        pressure_correlations.append(pressure_corr)
+        feed_correlations.append(feed_corr)
+    assert all(corr > 0 for corr in pressure_correlations) and np.mean(pressure_correlations) > 0.5
+    assert all(corr < 0 for corr in feed_correlations) and np.mean(feed_correlations) < -0.5
 
 
 def test_operator_off_leaves_setpoints_alone() -> None:

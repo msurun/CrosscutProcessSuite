@@ -13,29 +13,37 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize(("delay_s", "n"), [(0.0, 0), (5.0, 5), (7.0, 7)])
-def test_fopdt_matches_analytic_step_response(delay_s: float, n: int) -> None:
+@pytest.mark.parametrize(("delay_s", "delay_steps"), [(0.0, 0), (5.0, 5), (7.0, 7)])
+def test_fopdt_matches_analytic_step_response(delay_s: float, delay_steps: int) -> None:
+    """The discrete FOPDT update must match the exact series and the step response."""
     gain, tau, dt = 2.5, 30.0, 1.0
-    f = Fopdt(gain, tau, delay_s, dt)
-    a = math.exp(-dt / tau)
-    for j in range(1, 400):
-        y = f.update(1.0)
-        expected = 0.0 if j <= n else gain * (1.0 - a ** (j - n))
+    model = Fopdt(gain, tau, delay_s, dt)
+    pole = math.exp(-dt / tau)
+    for step_index in range(1, 400):
+        y = model.update(1.0)
+        expected = (
+            0.0 if step_index <= delay_steps else gain * (1.0 - pole ** (step_index - delay_steps))
+        )
         assert y == pytest.approx(expected, abs=1e-12)
-        # continuous-time reference at t = j * dt
-        t = j * dt
-        continuous = 0.0 if t <= delay_s else gain * (1.0 - math.exp(-(t - delay_s) / tau))
+        # continuous-time reference at elapsed_time = step_index * dt
+        elapsed_time = step_index * dt
+        continuous = (
+            0.0
+            if elapsed_time <= delay_s
+            else gain * (1.0 - math.exp(-(elapsed_time - delay_s) / tau))
+        )
         assert y == pytest.approx(continuous, abs=1e-9)
 
 
 def test_fopdt_steady_state_gain_and_zero_input() -> None:
-    f = Fopdt(-3.0, 10.0, 4.0, 1.0)
+    """The output settles at gain*input, then decays back to zero on a zero input."""
+    fopdt_model = Fopdt(-3.0, 10.0, 4.0, 1.0)
     for _ in range(500):
-        f.update(2.0)
-    assert f.value == pytest.approx(-6.0, abs=1e-9)
+        fopdt_model.update(2.0)
+    assert fopdt_model.value == pytest.approx(-6.0, abs=1e-9)
     for _ in range(500):
-        f.update(0.0)
-    assert f.value == pytest.approx(0.0, abs=1e-9)
+        fopdt_model.update(0.0)
+    assert fopdt_model.value == pytest.approx(0.0, abs=1e-9)
 
 
 @pytest.mark.parametrize(
@@ -57,8 +65,8 @@ def test_catalog_rejects_duplicates_and_exports_valid_document() -> None:
     assert "a.pv" in catalog
     assert len(catalog) == 3
     schema = json.loads((REPO_ROOT / "schemas" / "tags.schema.json").read_text(encoding="utf-8"))
-    errors = list(Draft202012Validator(schema).iter_errors(catalog.to_document()))
-    assert errors == [], [e.message for e in errors]
+    validation_errors = list(Draft202012Validator(schema).iter_errors(catalog.to_document()))
+    assert validation_errors == [], [error.message for error in validation_errors]
     with pytest.raises(ValueError):
         TagCatalog([*specs, TagSpec("a.pv", "wt%", "PV")])
 

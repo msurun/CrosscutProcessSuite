@@ -11,24 +11,24 @@ SETTINGS = LoopSettings(delay_s=1.0, ultimate_period_s=100.0, amplitude_limit=0.
 
 def run_report(pv: np.ndarray, out: np.ndarray, mode_value: int = AUTO) -> LoopReport:
     """Run analyze_loop with the given PV, OUT and MODE, and default settings."""
-    t = np.arange(len(pv)) * 1.0
-    sp = np.zeros(len(pv))
+    time_s = np.arange(len(pv)) * 1.0
+    setpoint = np.zeros(len(pv))
     mode = np.full(len(pv), mode_value)
-    return analyze_loop(t, pv, sp, out, mode, settings=SETTINGS)
+    return analyze_loop(time_s, pv, setpoint, out, mode, settings=SETTINGS)
 
 def test_stiction_loop_is_detected() -> None:
     """Stiction loop is detected and reported."""
-    pv, out = simulate_loop(seed=1, stiction=True)
-    report = run_report(pv, out)
+    process_values, controller_output = simulate_loop(seed=1, stiction=True)
+    report = run_report(process_values, controller_output)
     assert report.stiction_verdict == "stiction"
-    assert any("stiction" in f.lower() for f in report.findings)
+    assert any("stiction" in message.lower() for message in report.findings)
 
 def test_healthy_valve_with_disturbance_is_not_detected() -> None:
     """Healthy valve with disturbance is not detected as stiction."""
-    pv, out = simulate_loop(seed=2, stiction=False, disturbance_amp=0.3)
-    report = run_report(pv, out)
+    process_value, controller_output = simulate_loop(seed=2, stiction=False, disturbance_amp=0.3)
+    report = run_report(process_value, controller_output)
     assert report.stiction_verdict == "no_stiction"
-    assert not any("stiction" in f.lower() for f in report.findings)
+    assert not any("stiction" in finding.lower() for finding in report.findings)
 
 def test_white_noise_pv_with_constant_out_is_inconclusive() -> None:
     """White noise PV with constant OUT is inconclusive."""

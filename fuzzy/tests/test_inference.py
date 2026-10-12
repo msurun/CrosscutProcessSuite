@@ -111,33 +111,46 @@ def _two_condition_system(operator: str, weight: float = 1.0, enabled: bool = Tr
     return system_from_dict(
         {
             "name": "two_conditions",
-            "inputs": [
-                {"id": "a", "low": 0.0, "high": 10.0, "terms": [FALLING_TERM]},
-                {"id": "b", "low": 0.0, "high": 10.0, "terms": [RISING_TERM]},
-            ],
-            "outputs": [
-                {
-                    "id": "y",
-                    "low": 0.0,
-                    "high": 10.0,
-                    "terms": [{"name": "small", "shape": "tri", "params": [0.0, 0.0, 5.0]}],
-                }
-            ],
-            "rules": [
-                {
-                    "id": "r",
-                    "if": [
-                        {"variable": "a", "is": "falling"},
-                        {"variable": "b", "is": "rising"},
-                    ],
-                    "then": {"variable": "y", "is": "small"},
-                    "operator": operator,
-                    "weight": weight,
-                    "enabled": enabled,
-                }
-            ],
+            "inputs": _two_condition_inputs(),
+            "outputs": _two_condition_outputs(),
+            "rules": [_two_condition_rule(operator, weight, enabled)],
         }
     )
+
+
+def _two_condition_inputs() -> list:
+    """Return the two input definitions: "a" falls over 0..10, "b" rises over 0..10."""
+    return [
+        {"id": "a", "low": 0.0, "high": 10.0, "terms": [FALLING_TERM]},
+        {"id": "b", "low": 0.0, "high": 10.0, "terms": [RISING_TERM]},
+    ]
+
+
+def _two_condition_outputs() -> list:
+    """Return the single output "y", a triangular term peaking at 0.0 with width 5.0."""
+    return [
+        {
+            "id": "y",
+            "low": 0.0,
+            "high": 10.0,
+            "terms": [{"name": "small", "shape": "tri", "params": [0.0, 0.0, 5.0]}],
+        }
+    ]
+
+
+def _two_condition_rule(operator: str, weight: float, enabled: bool) -> dict:
+    """Return the rule combining the falling "a" and rising "b" into output "y"."""
+    return {
+        "id": "r",
+        "if": [
+            {"variable": "a", "is": "falling"},
+            {"variable": "b", "is": "rising"},
+        ],
+        "then": {"variable": "y", "is": "small"},
+        "operator": operator,
+        "weight": weight,
+        "enabled": enabled,
+    }
 
 
 def test_an_and_rule_fires_at_the_minimum_of_its_condition_degrees():

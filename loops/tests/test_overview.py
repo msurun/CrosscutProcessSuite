@@ -282,28 +282,34 @@ def test_default_settings_keep_the_standard_timing_values():
 
 def test_stiction_without_a_sustained_oscillation_raises_no_alarm():
     report = make_report(stiction_verdict="stiction", oscillation_period_s=None)
-    assert "stiction" not in [f.code for f in findings_of(report, make_settings())]
+    assert "stiction" not in [finding.code for finding in findings_of(report, make_settings())]
     assert status_level(report, make_settings()) == "ok"
     assert health_percent(report) == 100
 
 
 def test_stiction_with_a_sustained_oscillation_makes_the_loop_a_problem():
+    """A stiction verdict with a sustained oscillation is flagged as a problem finding."""
     report = make_report(stiction_verdict="stiction", oscillation_period_s=600.0)
-    assert "stiction" in [f.code for f in findings_of(report, make_settings())]
+    finding_codes = [finding.code for finding in findings_of(report, make_settings())]
+    assert "stiction" in finding_codes
     assert status_level(report, make_settings()) == "problem"
 
 
 def test_finding_percentages_are_whole_numbers():
     report = make_report(classification="saturated", saturation_fraction=0.3611)
-    saturated = [f for f in findings_of(report, make_settings()) if f.code == "saturated"]
-    assert saturated[0].params == {"percent": 36.0}
+    saturation_findings = [
+        finding for finding in findings_of(report, make_settings()) if finding.code == "saturated"
+    ]
+    assert saturation_findings[0].params == {"percent": 36.0}
 
 
 def test_stiction_is_not_reported_when_saturation_explains_the_cycle():
+    """A cycle caused by valve saturation must not raise a stiction finding."""
     report = make_report(
         stiction_verdict="stiction",
         oscillation_period_s=600.0,
         classification="saturated",
         saturation_fraction=0.4,
     )
-    assert "stiction" not in [f.code for f in findings_of(report, make_settings())]
+    finding_codes = [finding.code for finding in findings_of(report, make_settings())]
+    assert "stiction" not in finding_codes

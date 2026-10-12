@@ -463,20 +463,40 @@ class WoodBerryPlant:
         """
         # Top and bottom loops each expose a setpoint (SP), a remote setpoint (RSP),
         # and a mode that selects between them.
+        if self._apply_top_event_write(tag_id, value):
+            return
+        if self._apply_bottom_event_write(tag_id, value):
+            return
+        self._apply_flow_event_write(tag_id, value)
+
+    def _apply_top_event_write(self, tag_id: str, value: float) -> bool:
+        """Write the top loop tags; return True when tag_id matched one of them."""
         if tag_id == TOP_SP:
             self._top_sp = float(value)
         elif tag_id == TOP_RSP:
             self._top_rsp = float(value)
         elif tag_id == TOP_MODE:
             self._top_mode = int(value)
-        elif tag_id == REFLUX:
-            self._apply_reflux_write(value)
-        elif tag_id == BOT_SP:
+        else:
+            return False
+        return True
+
+    def _apply_bottom_event_write(self, tag_id: str, value: float) -> bool:
+        """Write the bottom loop tags; return True when tag_id matched one of them."""
+        if tag_id == BOT_SP:
             self._bot_sp = float(value)
         elif tag_id == BOT_RSP:
             self._bot_rsp = float(value)
         elif tag_id == BOT_MODE:
             self._bot_mode = int(value)
+        else:
+            return False
+        return True
+
+    def _apply_flow_event_write(self, tag_id: str, value: float) -> None:
+        """Write the flow tags, each routed to its own dedicated helper."""
+        if tag_id == REFLUX:
+            self._apply_reflux_write(value)
         elif tag_id == STEAM:
             self._apply_steam_write(value)  # reheating steam flow, handled like reflux
         elif tag_id == FEED:
@@ -507,29 +527,43 @@ class WoodBerryPlant:
         clock. Each call moves the simulation forward by exactly one sample
         period, self._scenario.dt_s (UNIT: s).
         """
-        # 1. Apply pending events at or before the current time.
-        # self._events is sorted by event.t_s; self._event_idx is the cursor to the
-        # first un-applied event. Consume every event whose time has arrived, then
-        # stop at the first future event.
+        self._apply_pending_events()
+        self._update_disturbance_and_feed()
+        self._run_top_controller()
+        self._run_bottom_controller()
+        self._run_process_models()
+        self._update_sensor_measurements()
+        self.time_s += self._scenario.dt_s
+
+    def _apply_pending_events(self) -> None:
+        """Consume every scheduled event whose time has already arrived.
+
+        self._events is sorted by event.t_s; self._event_idx is the cursor to
+        the first un-applied event. Stops at the first future event.
+        """
         while self._event_idx < len(self._events):
-            ev = self._events[self._event_idx]
-            if ev.t_s <= self.time_s:
-                self._apply_event_write(ev.tag_id, ev.value)
-                self._event_idx += 1
-            else:
+            event = self._events[self._event_idx]
+            if event.t_s > self.time_s:
                 break
+            self._apply_event_write(event.tag_id, event.value)
+            self._event_idx += 1
 
-        # 2. Update stochastic disturbance and effective feed.
-        # The Ornstein-Uhlenbeck process models feed rate wandering around the nominal.
-        # self._effective_feed = feed_base + (ou_value - nominal), so only the
-        # deviation from nominal is added to the base feed.
-        ou_val = self._feed_ou.update()
-        self._effective_feed = self._feed_base + (ou_val - NOMINAL["feed_rate"])
+    def _update_disturbance_and_feed(self) -> None:
+        """Draw a new feed disturbance and update the effective feed rate.
 
-        # 3. Controller execution.
-        # In CAS mode the remote setpoint drives the loop; otherwise the local
-        # operator setpoint does. Cache the active setpoint in _top_sp so readers
-        # log one consistent value.
+        self._effective_feed = feed_base + (ou_value - nominal), so only the
+        deviation from nominal is added to the base feed.
+        """
+        ou_value = self._feed_ou.update()
+        self._effective_feed = self._feed_base + (ou_value - NOMINAL["feed_rate"])
+
+    def _run_top_controller(self) -> None:
+        """Run the top (reflux) PID loop and store its output.
+
+        In CAS mode the remote setpoint drives the loop; otherwise the local
+        operator setpoint does. The active setpoint is cached in _top_sp so
+        readers log one consistent value.
+        """
         top_active_sp = self._top_rsp if self._top_mode == CAS else self._top_sp
         self._top_sp = top_active_sp
         # The PID object only understands the strings "MAN" and "AUTO", while
@@ -545,7 +579,11 @@ class WoodBerryPlant:
             man_out=self._reflux_man_out,
         )
 
-        # Bottom loop mirrors the top loop, with steam as the manipulated variable.
+    def _run_bottom_controller(self) -> None:
+        """Run the bottom (steam) PID loop and store its output.
+
+        Mirrors _run_top_controller with steam as the manipulated variable.
+        """
         bot_active_sp = self._bot_rsp if self._bot_mode == CAS else self._bot_sp
         self._bot_sp = bot_active_sp
         bot_mode_str = "MAN" if self._bot_mode == MAN else "AUTO"
@@ -556,11 +594,14 @@ class WoodBerryPlant:
             man_out=self._steam_man_out,
         )
 
-        # 4. Process simulation via FOPDT transfer functions.
-        # FOPDT = First-Order Plus Dead Time. Each model outputs a deviation from
-        # nominal for its input deviation. u1 = reflux deviation, u2 = steam
-        # deviation, d = feed deviation. y1_dev and y2_dev are the resulting
-        # deviations in top and bottom composition.
+    def _run_process_models(self) -> None:
+        """Run the FOPDT models and store the true compositions.
+
+        FOPDT = First-Order Plus Dead Time. Each model outputs a deviation from
+        nominal for its input deviation. u1 = reflux deviation, u2 = steam
+        deviation, d = feed deviation. y1_dev and y2_dev are the resulting
+        deviations in top and bottom composition.
+        """
         u1_dev = self._reflux_out - NOMINAL["reflux"]
         u2_dev = self._steam_out - NOMINAL["steam"]
         d_dev = self._effective_feed - NOMINAL["feed_rate"]
@@ -568,25 +609,25 @@ class WoodBerryPlant:
         y1_dev = self._g11.update(u1_dev) + self._g12.update(u2_dev) + self._gd1.update(d_dev)
         y2_dev = self._g21.update(u1_dev) + self._g22.update(u2_dev) + self._gd2.update(d_dev)
 
-        # Convert deviations back to absolute compositions for the sensors.
-        true_top = NOMINAL["top_comp"] + y1_dev
-        true_bot = NOMINAL["bottom_comp"] + y2_dev
+        self._true_top = NOMINAL["top_comp"] + y1_dev
+        self._true_bot = NOMINAL["bottom_comp"] + y2_dev
 
-        # 5. Sensor measurements with optional Gaussian noise.
-        # A separate RNG keeps sensor noise reproducible and independent of other
-        # random draws. The controllers will see these measurements on the next step.
+    def _update_sensor_measurements(self) -> None:
+        """Sample the sensors, adding Gaussian noise when configured.
+
+        A separate RNG keeps sensor noise reproducible and independent of other
+        random draws. The controllers will see these measurements on the next
+        step.
+        """
         if self._scenario.measurement_noise > 0.0:
             scale = self._scenario.measurement_noise
             top_noise = TOP_NOISE_STD * scale * float(self._sensor_rng.standard_normal())
             bot_noise = BOT_NOISE_STD * scale * float(self._sensor_rng.standard_normal())
-            self._top_pv_meas = true_top + top_noise
-            self._bot_pv_meas = true_bot + bot_noise
+            self._top_pv_meas = self._true_top + top_noise
+            self._bot_pv_meas = self._true_bot + bot_noise
         else:
-            self._top_pv_meas = true_top
-            self._bot_pv_meas = true_bot
-
-        # 6. Advance the simulation clock by one sample period.
-        self.time_s += self._scenario.dt_s
+            self._top_pv_meas = self._true_top
+            self._bot_pv_meas = self._true_bot
 
     def read(self, tag_id: str) -> tuple[float, int]:
         """Return (value, quality); raise KeyError for unknown tags.

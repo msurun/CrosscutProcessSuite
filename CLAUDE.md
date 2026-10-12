@@ -9,3 +9,7 @@
 6. Do not publish packages to PyPI/npm. Do not commit generated data (`data/`, `*.parquet`, `.agent-out/`).
 7. Private planning documents (Polish) are intentionally not in this repo; never copy their personal or strategic content here.
 8. Prefer small, verified steps: write the tests first, then the implementation.
+9. Write teaching comments together with the code, not in a later pass: numerical and domain code states the model, the
+   formula, the units and the data structure where it is used. When delegating, ask for them in the prompt and attach the
+   whole file (or the contract files) as context; a model that sees one function writes comments that are wrong or vacuous.
+   `tools/comment_review.py` re-checks comments with whole-file context.

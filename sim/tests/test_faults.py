@@ -24,6 +24,7 @@ def run(faults: list[Fault], steps: int, seed: int = 5) -> list[tuple[float, int
 
 
 def clean(steps: int, seed: int = 5) -> list[tuple[float, int]]:
+    """Run an empty simulation for a fixed number of steps and return the per-step results."""
     return run([], steps, seed)
 
 

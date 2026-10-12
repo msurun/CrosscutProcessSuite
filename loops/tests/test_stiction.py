@@ -13,40 +13,59 @@ RNG = np.random.default_rng(3)
 
 
 def simulate_loop(
-    seed: int, stiction: bool, disturbance_amp: float = 0.0, n: int = N
+    seed: int, stiction: bool, disturbance_amp: float = 0.0, sample_count: int = N
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Simulate a PI control loop and return the process variable and controller output traces."""
     rng = np.random.default_rng(seed)
-    pv = np.zeros(n)
-    out = np.zeros(n)
-    integral = 0.0
-    x_old = 0.0
-    a = np.exp(-1 / 20)
+    process_variable = np.zeros(sample_count)
+    controller_output = np.zeros(sample_count)
+    integral_error = 0.0
+    previous_valve_position = 0.0
+    process_filter_alpha = np.exp(-1 / 20)
     kc = 0.5
     ti = 20
-    S = 0.5
-    J = 0.25
+    valve_deadband = 0.5
+    valve_jump = 0.25
     load = 1.0  # constant load disturbance: without it the valve never leaves its rest position
 
-    for k in range(1, n):
-        e = -pv[k - 1]
-        integral += e * DT
-        u = kc * (e + integral / ti)
+    for k in range(1, sample_count):
+        error = -process_variable[k - 1]
+        integral_error += error * DT
+        raw_output = kc * (error + integral_error / ti)
 
         if stiction:
-            if abs(u - x_old) > S:
-                x = u - np.sign(u - x_old) * (S - J)
-                x_old = x
-            else:
-                x = x_old
+            valve_position = _move_valve_with_stiction(
+                raw_output, previous_valve_position, valve_deadband, valve_jump
+            )
+            previous_valve_position = valve_position
         else:
-            x = u
+            valve_position = raw_output
 
         disturbance = disturbance_amp * np.sin(2 * np.pi * k / 150)
         noise = rng.normal(scale=0.005)
-        pv[k] = a * pv[k - 1] + (1 - a) * (x + load + disturbance) + noise
-        out[k] = u
+        process_variable[k] = (
+            process_filter_alpha * process_variable[k - 1]
+            + (1 - process_filter_alpha) * (valve_position + load + disturbance)
+            + noise
+        )
+        controller_output[k] = raw_output
 
-    return pv[1000:], out[1000:]
+    return process_variable[1000:], controller_output[1000:]
+
+
+def _move_valve_with_stiction(
+    raw_output: float, previous_valve_position: float, deadband: float, jump: float
+) -> float:
+    """Return the new valve position once stiction is applied to the controller output.
+
+    Stiction is modelled as a deadband: a large enough change in the controller output
+    moves the valve, and it moves by the full deadband width minus the jump, as the
+    valve sticks and then breaks free. Otherwise the valve stays where it was.
+    """
+    if abs(raw_output - previous_valve_position) > deadband:
+        return raw_output - np.sign(raw_output - previous_valve_position) * (deadband - jump)
+
+    return previous_valve_position
 
 
 def test_stiction_loop_is_detected() -> None:
@@ -111,13 +130,13 @@ def test_empty_signal_raises_value_error_instead_of_index_error() -> None:
         detect_stiction(np.zeros(0), np.zeros(0), DT)
 
 
-def random_wander(seed: int, n: int = 5000) -> NDArray[np.float64]:
+def random_wander(seed: int, sample_count: int = 5000) -> NDArray[np.float64]:
     """Slowly wandering noise, like the noise-driven variation of a healthy loop."""
     rng = np.random.default_rng(seed)
-    x = np.zeros(n)
-    for k in range(1, n):
-        x[k] = 0.99 * x[k - 1] + rng.normal()
-    return x
+    samples = np.zeros(sample_count)
+    for sample_index in range(1, sample_count):
+        samples[sample_index] = 0.99 * samples[sample_index - 1] + rng.normal()
+    return samples
 
 
 @pytest.mark.parametrize("seed", range(1, 21))
@@ -127,6 +146,9 @@ def test_random_wander_is_never_reported_as_stiction(seed: int) -> None:
 
 
 def test_most_simulated_stiction_loops_are_found() -> None:
-    verdicts = [detect_stiction(*simulate_loop(s, True), DT).verdict for s in range(1, 21)]
+    verdicts = [
+        detect_stiction(*simulate_loop(random_seed, True), DT).verdict
+        for random_seed in range(1, 21)
+    ]
     assert verdicts.count("stiction") >= 14  # measured 29 of 40; the rest never limit-cycle
     assert "no_stiction" not in verdicts

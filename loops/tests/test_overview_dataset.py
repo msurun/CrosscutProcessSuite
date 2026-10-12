@@ -106,17 +106,28 @@ def test_the_result_has_one_entry_per_loop():
 
 def test_the_report_carries_all_expected_keys():
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_report_input_columns()
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
 
-    assert set(result) == {
+    assert set(result) == _expected_report_keys()
+
+
+def _make_report_input_columns():
+    """Build the sample columns fed to the analyzer in this test."""
+    auto_loop_columns = _make_auto_loop_columns()
+    return {
+        "PV": auto_loop_columns["pv"],
+        "SP": np.full(SAMPLE_COUNT, SP_BASE),
+        "OUT": auto_loop_columns["out"],
+        "MODE": _make_mode(MODE_AUTO),
+    }
+
+
+def _expected_report_keys():
+    """Return the set of keys every analysis report must expose."""
+    return {
         "name",
         "pv",
         "sp",

@@ -7,16 +7,17 @@ import pytest
 from crosscut_sim.disturbances import OrnsteinUhlenbeck
 
 
-def run(ou: OrnsteinUhlenbeck, n: int) -> np.ndarray:
-    return np.array([ou.update() for _ in range(n)])
+def run(ornstein_uhlenbeck: OrnsteinUhlenbeck, sample_count: int) -> np.ndarray:
+    """Return the next sample_count values produced by the Ornstein-Uhlenbeck process."""
+    return np.array([ornstein_uhlenbeck.update() for _ in range(sample_count)])
 
 
 def test_starts_at_mean_and_zero_sigma_is_constant() -> None:
-    ou = OrnsteinUhlenbeck(
+    temperature = OrnsteinUhlenbeck(
         mean=2.45, sigma=0.0, tau_s=600.0, dt_s=1.0, rng=np.random.default_rng(1)
     )
-    assert ou.value == 2.45
-    assert all(v == 2.45 for v in run(ou, 100))
+    assert temperature.value == 2.45
+    assert all(value == 2.45 for value in run(temperature, 100))
 
 
 def test_stationary_statistics() -> None:
@@ -33,13 +34,18 @@ def test_stationary_statistics() -> None:
 
 def test_determinism_and_seed_sensitivity() -> None:
     def make(seed: int) -> OrnsteinUhlenbeck:
+        """Build an Ornstein-Uhlenbeck process with fixed parameters and a seeded RNG."""
         return OrnsteinUhlenbeck(
             mean=0.0, sigma=1.0, tau_s=100.0, dt_s=1.0, rng=np.random.default_rng(seed)
         )
 
-    a, b, c = run(make(3), 500), run(make(3), 500), run(make(4), 500)
-    assert np.array_equal(a, b)
-    assert not np.array_equal(a, c)
+    path_from_seed_three, repeat_from_seed_three, path_from_seed_four = (
+        run(make(3), 500),
+        run(make(3), 500),
+        run(make(4), 500),
+    )
+    assert np.array_equal(path_from_seed_three, repeat_from_seed_three)
+    assert not np.array_equal(path_from_seed_three, path_from_seed_four)
 
 
 def test_invalid_parameters() -> None:

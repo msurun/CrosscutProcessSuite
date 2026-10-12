@@ -50,30 +50,74 @@ def parse_duration(text: str) -> float:
     """
     if not text:
         raise ValueError("empty duration string")
+    number_text, unit = _split_number_and_unit(text)
+    seconds = _to_positive_seconds(number_text, text)
+    return _convert_to_seconds(seconds, unit)
+
+
+def _split_number_and_unit(text: str) -> tuple[str, str]:
+    """Split a duration string into its number part and its unit letter.
+
+    A missing suffix means seconds, so the unit defaults to "s".
+
+    Returns
+    -------
+    tuple[str, str]
+        The number text and the unit letter.
+    """
     # The suffix is optional, so the last character is only a unit if it is one
     # of the known unit letters. Otherwise the whole text is the number.
     unit = text[-1]
     if unit in ("s", "m", "h"):
-        num = text[:-1]
-    else:
-        num = text
-        unit = "s"
+        return text[:-1], unit
+    return text, "s"
+
+
+def _to_positive_seconds(number_text: str, text: str) -> float:
+    """Convert the number part of a duration string to a positive float.
+
+    Returns
+    -------
+    float
+        The parsed number.
+
+    Raises
+    ------
+    ValueError
+        If the number is not numeric, or is zero or negative.
+    """
     # float() accepts "1.5" and scientific notation, but rejects anything with
     # leftover characters, so it doubles as the numeric-syntax check here.
     try:
-        seconds = float(num)
+        seconds = float(number_text)
     except ValueError as e:
         raise ValueError(f"invalid duration: {text}") from e
     if seconds <= 0:
         raise ValueError(f"duration must be positive: {text}")
-    # Convert the number to seconds. Units are: "m" = 60 s, "h" = 3600 s.
-    # The unknown-unit branch is defensive; parse_duration already rejected
-    # any suffix other than s, m, or h.
+    return seconds
+
+
+def _convert_to_seconds(seconds: float, unit: str) -> float:
+    """Scale a number expressed in the given unit to seconds.
+
+    Units are: "s" = 1 s, "m" = 60 s, "h" = 3600 s.
+
+    Returns
+    -------
+    float
+        The duration in seconds.
+
+    Raises
+    ------
+    ValueError
+        If the unit is not one of "s", "m", or "h".
+    """
     if unit == "m":
-        seconds *= 60
-    elif unit == "h":
-        seconds *= 3600
-    elif unit != "s":
+        return seconds * 60
+    if unit == "h":
+        return seconds * 3600
+    if unit != "s":
+        # Defensive: the caller only ever passes s, m, or h.
         raise ValueError(f"unknown unit: {unit}")
     return seconds
 

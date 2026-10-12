@@ -21,11 +21,12 @@ GAP = slice(100, 110)
 
 @pytest.fixture(scope="module")
 def truth() -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Return reference timestamps and per-tag signals from a 600-step wood berry run."""
     plant = WoodBerryPlant()
     plant.reset(4, Scenario(duration_s=600.0))
     rows = []
     for _ in range(600):
-        rows.append([plant.read(t)[0] for t in TAGS])
+        rows.append([plant.read(tag)[0] for tag in TAGS])
         plant.step()
     values = np.array(rows)
     values[GAP, 0] = np.nan
@@ -36,6 +37,7 @@ def truth() -> tuple[np.ndarray, dict[str, np.ndarray]]:
 def imported(
     style: str, truth: tuple[np.ndarray, dict[str, np.ndarray]], tmp_path: Path
 ) -> tuple[np.ndarray, dict[str, np.ndarray], object, Path]:
+    """Round-trip a truth table through CSV export and import; return the reimported parts."""
     ts_ns, columns = truth
     csv_path = tmp_path / "export.csv"
     csv_path.write_bytes(render_messy_csv(ts_ns, columns, style, local_tz=LOCAL_TZ))
