@@ -7,7 +7,7 @@ name = "crosscut-api"
 version = "0.0.1"
 description = "Read-only HTTP API over Crosscut datasets (backend of the trend viewer)"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 dependencies = ["fastapi>=0.110", "crosscut-sim", "pyarrow>=15", "numpy>=1.26"]
 
 [tool.setuptools.packages.find]

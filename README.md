@@ -64,4 +64,4 @@ All data in this repository is synthetic.
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 (AGPL-3.0-only), see [LICENSE](LICENSE).

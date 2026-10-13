@@ -7,7 +7,7 @@ name = "crosscut-fuzzy"
 version = "0.0.1"
 description = "Mamdani fuzzy inference with rules as data for the Crosscut Process Suite"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 dependencies = ["numpy>=1.26"]
 
 [tool.setuptools.packages.find]

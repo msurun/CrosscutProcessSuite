@@ -114,7 +114,7 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
   `sim.heartbeat_ok`, `sim.time_s`. Client writes go through an asyncua value setter into `plant.write`; refused writes revert. Heartbeat loss returns CAS loops to AUTO
   and blocks selecting CAS until the counter moves again. Run: `python -m crosscut_opcua.server --plant wood_berry --scenario nominal --port 4840 --speed 10`.
 - Simulator fidelity: believable causal properties and known ground truth, not believable physics.
-- Licence: Apache-2.0.
+- Licence: AGPL-3.0-only (changed from Apache-2.0 on 2026-10-13, see ADR 008).
 - PID: positional form, derivative on measurement, conditional-integration anti-windup, bumpless MAN to AUTO by integral tracking.
 - Wood-Berry plant: six FOPDT transfer functions in deviation variables; two PID loops with BLT tuning; feed disturbance is additive (base value + OU deviation);
   writes: OUT only in MAN, local SP not in CAS, PV never. Tag ids are `sim.wb.*`.

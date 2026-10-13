@@ -7,7 +7,7 @@ name = "crosscut-artifacts"
 version = "0.0.1"
 description = "Reading, writing and verifying offline artifacts (models, operating-range sets) for the Crosscut Process Suite"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 dependencies = ["numpy>=1.26"]
 
 [tool.setuptools.packages.find]
