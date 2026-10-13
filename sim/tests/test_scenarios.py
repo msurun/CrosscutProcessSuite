@@ -110,7 +110,7 @@ QUIET_PARAMS = ("operator", "inner_noise", "process_noise", "hardness_sigma", "m
 
 
 def test_mill_circuit_scenarios() -> None:
-    names = ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test")
+    names = ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test", "stiction")
     assert available_scenarios("mill_circuit") == names
 
     assert_baseline_scenarios()
@@ -187,3 +187,11 @@ def test_mill_step_test_scenario_puts_loops_in_manual_and_steps_each_output_in_t
     ]
     times = [event.t_s for event in scenario.events]
     assert times == sorted(times)
+
+
+def test_mill_stiction_scenario_sticks_the_hpgr_valve_and_keeps_the_rest_of_nominal() -> None:
+    scenario = build_scenario("mill_circuit", "stiction", duration_s=DAY)
+    params = dict(scenario.params)
+    assert params["stiction_band_hpgr_press"] > params["stiction_jump_hpgr_press"] > 0
+    assert params["operator"] == 0.0
+    assert not any(key.startswith("stiction") and "mill_feed" in key for key in params)

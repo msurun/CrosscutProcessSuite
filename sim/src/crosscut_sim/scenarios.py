@@ -363,7 +363,7 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
     (``params``) are overridden, and which scheduled setpoint changes (``events``) occur.
 
     Supported ``scenario_name`` values are ``"nominal"``, ``"observational"``, ``"excited"``,
-    ``"quiet"``, ``"hardness_shift"`` and ``"step_test"`` (open-loop OUT steps for identification).
+    ``"quiet"``, ``"hardness_shift"`` and ``"step_test"`` (open-loop OUT steps for identification) and ``"stiction"`` (sticking HPGR valve).
 
     Args:
         scenario_name: Which experiment to build; must be one of the supported names.
@@ -390,8 +390,18 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
         return _mill_scenario(scenario_name, duration_s, events=_mill_excitation_events(duration_s))
     if scenario_name == "step_test":
         return _mill_scenario(scenario_name, duration_s, events=_mill_step_test_events())
+    if scenario_name == "stiction":
+        return _mill_scenario(scenario_name, duration_s, params=_STICTION_PARAMS)
     raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
 
+
+# The "stiction" scenario sticks the HPGR pressure valve: a 3 % deadband and a 1.5 % slip jump
+# (both in % of valve travel) make its loop swing in the stick-slip cycle a detector must find.
+_STICTION_PARAMS = (
+    ("operator", 0.0),
+    ("stiction_band_hpgr_press", 3.0),
+    ("stiction_jump_hpgr_press", 1.5),
+)
 
 # The "quiet" scenario switches every noise source off (operator included).
 _QUIET_PARAMS = (
@@ -479,7 +489,7 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
     if plant_name == "wood_berry":
         return ("nominal", "noisy_feed", "feed_step", "excited")
     if plant_name == "mill_circuit":
-        return ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test")
+        return ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test", "stiction")
     raise ValueError(f"scenario list not defined for plant: {plant_name!r}")
 
 
