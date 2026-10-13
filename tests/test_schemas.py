@@ -160,6 +160,8 @@ TAGS_INVALID = [
 
 DATASET_INVALID = [
     mutated(DATASET_DOC, ["source", "kind"], "magic"),
+    mutated(DATASET_DOC, ["source", "ground_truth"], {"loop": {"stiction_band": "wide"}}),
+    mutated(DATASET_DOC, ["source", "ground_truth"], ["stiction"]),
     mutated(DATASET_DOC, ["storage", "layout"], "diagonal"),
     mutated(DATASET_DOC, ["row_count"], -1),
     mutated(DATASET_DOC, ["data_sha256"], "abc"),
@@ -240,3 +242,8 @@ def test_project_inline_catalog() -> None:
 def test_manifest_accepts_string_signature() -> None:
     doc = mutated(MANIFEST_DOC, ["signature"], "base64:AAAA")
     assert list(validator("artifact-manifest.schema.json").iter_errors(doc)) == []
+
+
+def test_dataset_accepts_ground_truth_of_injected_faults() -> None:
+    doc = mutated(DATASET_DOC, ["source", "ground_truth"], {"hpgr_press": {"stiction_band": 2.0}})
+    assert list(validator("dataset.schema.json").iter_errors(doc)) == []

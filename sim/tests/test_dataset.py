@@ -19,6 +19,7 @@ from crosscut_sim.dataset import (
     record,
     to_wide,
 )
+from crosscut_sim.plants.mill_circuit import MillCircuitPlant
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
 from jsonschema import Draft202012Validator
 
@@ -167,3 +168,23 @@ def test_to_wide_matches_manual_stepping_sampled_before_each_step(tmp_path: Path
         plant.step()
     assert wide[TOP][0] == pytest.approx(NOMINAL["top_comp"])
     assert (ts[1] - ts[0]) == np.timedelta64(1, "s")
+
+
+def test_a_plant_with_injected_faults_stores_its_ground_truth(tmp_path: Path) -> None:
+    scenario = Scenario(
+        duration_s=60.0,
+        params=(("stiction_band_hpgr_press", 2.0), ("stiction_jump_hpgr_press", 1.0)),
+    )
+    run = RunInfo(seed=1, dataset_id="mill_fault", plant_name="mill_circuit")
+    doc = record(MillCircuitPlant(), scenario, tmp_path, run)
+    expected = {"hpgr_press": {"stiction_band": 2.0, "stiction_jump": 1.0}}
+    assert doc["source"]["ground_truth"] == expected
+    assert list(Draft202012Validator(schema("dataset.schema.json")).iter_errors(doc)) == []
+
+
+def test_a_healthy_plant_stores_no_ground_truth(tmp_path: Path) -> None:
+    doc = record(
+        MillCircuitPlant(), Scenario(duration_s=60.0), tmp_path,
+        RunInfo(seed=1, dataset_id="mill_ok", plant_name="mill_circuit"),
+    )
+    assert "ground_truth" not in doc["source"]

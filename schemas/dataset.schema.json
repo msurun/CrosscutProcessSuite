@@ -57,6 +57,16 @@
         },
         "seed": {
           "type": "integer"
+        },
+        "ground_truth": {
+          "description": "Faults injected into a simulated plant, by loop name; what a detector is judged against.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
         }
       }
     },

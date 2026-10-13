@@ -224,14 +224,18 @@ def _refuse_existing_dataset(out_dir: Path) -> None:
         raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
 
 
-def _run_source(run: RunInfo) -> dict[str, Any]:
+def _run_source(run: RunInfo, plant: Plant) -> dict[str, Any]:
     """Return the ``source`` block of a simulated run.
 
-    Only defined keys are written, so a run without a named scenario omits the scenario key.
+    Only defined keys are written: a run without a named scenario omits the scenario key, and
+    ``ground_truth`` appears only when the plant reports injected faults.
     """
     source: dict[str, Any] = {"kind": "sim", "plant": run.plant_name, "seed": run.seed}
     if run.scenario_name is not None:
         source["scenario"] = run.scenario_name
+    ground_truth: dict[str, dict[str, float]] = getattr(plant, "ground_truth", dict)()
+    if ground_truth:
+        source["ground_truth"] = ground_truth
     return source
 
 
@@ -263,7 +267,7 @@ def record(plant: Plant, scenario: Scenario, out_dir: str | Path, run: RunInfo) 
 
     info = DatasetInfo(
         dataset_id=run.dataset_id,
-        source=_run_source(run),
+        source=_run_source(run, plant),
         start_utc=run.start_utc,
         tags_document=plant.tags.to_document(),
         git_commit=run.git_commit,
