@@ -15,6 +15,7 @@ import numpy as np
 from crosscut_sim.core import AUTO, CAS, GOOD, MAN, Event, Fopdt, Scenario, TagCatalog, TagSpec
 from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
 from crosscut_sim.pid import PID, OutputLimits, PidTuning
+from crosscut_sim.valve import StictionSpec, StictionValve
 
 NOMINAL: dict[str, float] = {
     "hpgr_press": 3.5,
@@ -479,6 +480,9 @@ class _Loop:
         # Actuator turns the PID's command into a physical input, with its own
         # gain, rate limit and dead time. Runs at the outer sample time dt_s.
         self.actuator = self._build_actuator(spec, dt_s)
+        # Valve between the controller command and the actuator; healthy unless the scenario
+        # asks for stiction (see MillCircuitPlant._init_loops).
+        self.valve = StictionValve(StictionSpec())
         # Inner loop: the fast dynamics between actuator and plant output.
         # inner_scale sets how many inner steps happen per outer step, so the
         # inner block is integrated at dt_s / inner_scale to stay stable.
@@ -740,6 +744,28 @@ class MillCircuitPlant:
         inner_scale = self._scenario.param("inner_noise", 1.0)
         self._loops: dict[str, _Loop] = {
             loop.name: _Loop(loop, dt_s, inner_scale, rngs[1 + i]) for i, loop in enumerate(LOOPS)
+        }
+        for name, loop_state in self._loops.items():
+            loop_state.valve = StictionValve(self._stiction_spec(name))
+
+    def _stiction_spec(self, loop_name: str) -> StictionSpec:
+        """Read the loop's stiction from the scenario params (both in % of valve travel).
+
+        ``stiction_band_<loop>`` is the deadband and ``stiction_jump_<loop>`` the slip jump;
+        a missing band means a healthy valve.
+        """
+        band = self._scenario.param(f"stiction_band_{loop_name}", 0.0)
+        return StictionSpec(band, self._scenario.param(f"stiction_jump_{loop_name}", 0.0))
+
+    def ground_truth(self) -> dict[str, dict[str, float]]:
+        """Return the faults injected in this run, by loop name (empty for a healthy plant).
+
+        This is what a stiction detector is judged against; it is not visible to a DCS client.
+        """
+        return {
+            name: {"stiction_band": loop.valve.spec.deadband, "stiction_jump": loop.valve.spec.jump}
+            for name, loop in self._loops.items()
+            if loop.valve.spec.active
         }
 
     def _init_ore_and_moisture(self, dt_s: float, rngs: list[np.random.Generator]) -> None:
@@ -1029,7 +1055,8 @@ class MillCircuitPlant:
         """
         actual: dict[str, float] = {}
         for name, loop in self._loops.items():
-            deviation = loop.actuator.update(loop.out - NOMINAL_OUT)
+            valve_position = loop.valve.move(loop.out - NOMINAL_OUT)
+            deviation = loop.actuator.update(valve_position)
 
             # Measured actuator output: nominal plus controller deviation plus inner-loop
             # correction, all in the actuator's engineering unit.
