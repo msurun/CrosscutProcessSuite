@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from crosscut_connectors.import_target import ImportTarget
 from crosscut_connectors.sql_import import SqlImportReport, import_sql
 from crosscut_sim.core import BAD, GOOD, UNCERTAIN
 from crosscut_sim.dataset import read_dataset, to_wide
@@ -82,7 +83,7 @@ def import_query(
     database: Path, query: str, out_dir: Path, tz: str = UTC_TZ
 ) -> tuple[np.ndarray, dict[str, np.ndarray], SqlImportReport]:
     """Run import_sql, read the dataset back and return (timestamps, wide frame, report)."""
-    report = import_sql(database, query, out_dir, dataset_id="sql", tz=tz)
+    report = import_sql(database, query, ImportTarget(out_dir, "sql", tz))
     timestamps, wide = to_wide(read_dataset(out_dir))
     return timestamps.astype(np.int64), wide, report
 
@@ -220,7 +221,7 @@ def test_a_non_select_statement_is_rejected_and_leaves_the_database_unchanged(
 ) -> None:
     before = table_snapshot(iso_database)
     with pytest.raises(ValueError):
-        import_sql(iso_database, "DROP TABLE t", tmp_path / "ds", dataset_id="sql")
+        import_sql(iso_database, "DROP TABLE t", ImportTarget(tmp_path / "ds", "sql"))
     assert table_snapshot(iso_database) == before
 
 
@@ -228,21 +229,21 @@ def test_an_empty_result_is_rejected(tmp_path: Path) -> None:
     database = tmp_path / "sim.sqlite"
     build_database(database, [])
     with pytest.raises(ValueError):
-        import_sql(database, SELECT_ALL, tmp_path / "ds", dataset_id="sql")
+        import_sql(database, SELECT_ALL, ImportTarget(tmp_path / "ds", "sql"))
 
 
 def test_fewer_than_three_columns_is_rejected(tmp_path: Path) -> None:
     database = tmp_path / "sim.sqlite"
     build_database(database, [(iso_text(0), TAGS[0], 1.0)])
     with pytest.raises(ValueError):
-        import_sql(database, "SELECT ts, tag FROM t", tmp_path / "ds", dataset_id="sql")
+        import_sql(database, "SELECT ts, tag FROM t", ImportTarget(tmp_path / "ds", "sql"))
 
 
 def test_an_unparseable_timestamp_is_rejected(tmp_path: Path) -> None:
     database = tmp_path / "sim.sqlite"
     build_database(database, [("not-a-timestamp", TAGS[0], 1.0)])
     with pytest.raises(ValueError):
-        import_sql(database, SELECT_ALL, tmp_path / "ds", dataset_id="sql")
+        import_sql(database, SELECT_ALL, ImportTarget(tmp_path / "ds", "sql"))
 
 
 def test_report_counts_rows_tags_and_bad_values(tmp_path: Path) -> None:

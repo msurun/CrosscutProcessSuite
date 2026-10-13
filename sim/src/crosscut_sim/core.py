@@ -153,9 +153,7 @@ class Fopdt:
     ``n = round(theta/dt)``. Variables are deviations from the operating point.
     """
 
-    def __init__(
-        self, gain: float, tau_s: float, delay_s: float, dt_s: float, y0: float = 0.0
-    ) -> None:
+    def __init__(self, gain: float, tau_s: float, delay_s: float, dt_s: float) -> None:
         """Set up a discretised first-order lag (exponential) filter with dead time.
 
         Models a plant whose continuous transfer function is
@@ -168,7 +166,6 @@ class Fopdt:
                 (``1 - 1/e``) of a step response.
             delay_s: Dead time before the output reacts, in seconds.
             dt_s: Sampling interval, in seconds.
-            y0: Initial filter output, in the same unit as the output signal.
 
         Raises:
             ValueError: If ``tau_s`` or ``dt_s`` is not positive, or ``delay_s``
@@ -195,8 +192,9 @@ class Fopdt:
             deque([0.0] * delay_steps, maxlen=delay_steps) if delay_steps > 0 else None
         )
 
-        # Current filter output, kept between calls so ``update`` is stateful.
-        self.value = y0
+        # Current filter output, kept between calls so ``update`` is stateful. It starts at the
+        # operating point (deviation 0); assign ``value`` to start elsewhere.
+        self.value = 0.0
 
     def update(self, u: float) -> float:
         """Consume the input ``u`` of this step and return the output of the next step.

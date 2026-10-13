@@ -9,6 +9,8 @@ or invalid inputs raise `ValueError`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 from crosscut_loops.identification import identify_fopdt
@@ -22,14 +24,28 @@ HOLD_SAMPLES = 20
 OUTPUT_OFFSET = 5.0
 
 
+@dataclass(frozen=True)
+class SimulationSettings:
+    """Sampling and noise settings of a simulated FOPDT run.
+
+    Attributes:
+        seed: Seed for the random number generator, for reproducible tests.
+        sample_count: Number of samples to generate.
+        dt_s: Sampling period in seconds.
+        noise: Standard deviation of the white noise added to the output.
+    """
+
+    seed: int = 0
+    sample_count: int = 3000
+    dt_s: float = 1.0
+    noise: float = 0.01
+
+
 def simulate_fopdt(
     gain: float,
     time_constant_s: float,
     delay_s: float,
-    seed: int,
-    n: int = 3000,
-    dt_s: float = 1.0,
-    noise: float = 0.01,
+    settings: SimulationSettings | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Simulate a FOPDT loop with a piecewise-constant random input.
 
@@ -40,46 +56,43 @@ def simulate_fopdt(
         gain: Steady-state gain of the plant.
         time_constant_s: Time constant T in seconds.
         delay_s: Dead time in seconds.
-        seed: Seed for the random number generator, for reproducible tests.
-        n: Number of samples to generate.
-        dt_s: Sampling period in seconds.
-        noise: Standard deviation of the white noise added to the output.
+        settings: Number of samples, sampling period and output noise level.
 
     Returns:
-        A tuple (u, y) of the input and the output arrays, both of length n.
+        A tuple (u, y) of the input and the output arrays, both of length settings.sample_count.
     """
-    rng = np.random.default_rng(seed)
-    u = _random_holds(rng, n)
-    delay_samples = round(delay_s / dt_s)
-    decay = np.exp(-dt_s / time_constant_s)
-    y = _simulate_response(u, gain, decay, delay_samples, noise, rng)
+    settings = settings or SimulationSettings()
+    rng = np.random.default_rng(settings.seed)
+    u = _random_holds(rng, settings.sample_count)
+    delay_samples = round(delay_s / settings.dt_s)
+    decay = np.exp(-settings.dt_s / time_constant_s)
+    # Delaying u by padding zeros in front keeps the recurrence free of index tests.
+    delayed_u = np.concatenate([np.zeros(delay_samples), u])[: len(u)]
+    noise_samples = settings.noise * rng.standard_normal(len(u) - 1)
+    y = _simulate_response(delayed_u, decay, gain * (1.0 - decay), noise_samples)
     return u, y + OUTPUT_OFFSET
 
 
-def _random_holds(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Return n samples where each random value is held for HOLD_SAMPLES."""
-    holds = rng.uniform(-1.0, 1.0, size=n // HOLD_SAMPLES + 1)
-    return np.repeat(holds, HOLD_SAMPLES)[:n]
+def _random_holds(rng: np.random.Generator, sample_count: int) -> np.ndarray:
+    """Return sample_count samples where each random value is held for HOLD_SAMPLES."""
+    holds = rng.uniform(-1.0, 1.0, size=sample_count // HOLD_SAMPLES + 1)
+    return np.repeat(holds, HOLD_SAMPLES)[:sample_count]
 
 
 def _simulate_response(
-    u: np.ndarray,
-    gain: float,
-    decay: float,
-    delay_samples: int,
-    noise: float,
-    rng: np.random.Generator,
+    delayed_u: np.ndarray, decay: float, input_weight: float, noise_samples: np.ndarray
 ) -> np.ndarray:
-    """Apply the discretised FOPDT recurrence to u, returning y before offset."""
-    y = np.zeros_like(u)
-    for k in range(len(u) - 1):
-        delayed_u = u[k - delay_samples] if k - delay_samples >= 0 else 0.0
-        y[k + 1] = decay * y[k] + gain * (1.0 - decay) * delayed_u + noise * rng.standard_normal()
+    """Apply the discretised FOPDT recurrence to the delayed input, before the offset."""
+    y = np.zeros_like(delayed_u)
+    for k in range(len(delayed_u) - 1):
+        y[k + 1] = decay * y[k] + input_weight * delayed_u[k] + noise_samples[k]
     return y
 
 
 def test_a_first_order_plant_is_recovered_within_tolerance() -> None:
-    u, y = simulate_fopdt(gain=2.0, time_constant_s=30.0, delay_s=8.0, seed=1)
+    u, y = simulate_fopdt(
+        gain=2.0, time_constant_s=30.0, delay_s=8.0, settings=SimulationSettings(seed=1)
+    )
 
     model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
 
@@ -89,7 +102,12 @@ def test_a_first_order_plant_is_recovered_within_tolerance() -> None:
 
 
 def test_a_slower_plant_with_a_longer_delay_is_recovered() -> None:
-    u, y = simulate_fopdt(gain=0.5, time_constant_s=100.0, delay_s=15.0, seed=2, n=6000)
+    u, y = simulate_fopdt(
+        gain=0.5,
+        time_constant_s=100.0,
+        delay_s=15.0,
+        settings=SimulationSettings(seed=2, sample_count=6000),
+    )
 
     model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
 
@@ -100,7 +118,9 @@ def test_a_slower_plant_with_a_longer_delay_is_recovered() -> None:
 
 @pytest.mark.parametrize("seed", [3, 4, 5])
 def test_gain_recovery_is_stable_over_seeds(seed: int) -> None:
-    u, y = simulate_fopdt(gain=2.0, time_constant_s=30.0, delay_s=8.0, seed=seed)
+    u, y = simulate_fopdt(
+        gain=2.0, time_constant_s=30.0, delay_s=8.0, settings=SimulationSettings(seed=seed)
+    )
 
     model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
 
@@ -108,7 +128,12 @@ def test_gain_recovery_is_stable_over_seeds(seed: int) -> None:
 
 
 def test_a_negative_gain_plant_is_rejected() -> None:
-    u, y = simulate_fopdt(gain=-1.0, time_constant_s=30.0, delay_s=8.0, seed=6, n=6000)
+    u, y = simulate_fopdt(
+        gain=-1.0,
+        time_constant_s=30.0,
+        delay_s=8.0,
+        settings=SimulationSettings(seed=6, sample_count=6000),
+    )
 
     with pytest.raises(ValueError):
         identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
@@ -125,7 +150,9 @@ def test_pure_white_noise_cannot_be_identified() -> None:
 
 def _valid_signals() -> tuple[np.ndarray, np.ndarray]:
     """Return a valid (u, y) pair used as the base case for invalid-input tests."""
-    return simulate_fopdt(gain=2.0, time_constant_s=30.0, delay_s=8.0, seed=1)
+    return simulate_fopdt(
+        gain=2.0, time_constant_s=30.0, delay_s=8.0, settings=SimulationSettings(seed=1)
+    )
 
 
 def test_signals_of_different_lengths_are_rejected() -> None:
@@ -145,7 +172,7 @@ def test_signals_containing_nan_are_rejected() -> None:
 
 
 @pytest.mark.parametrize(
-    ("dt_s", "max_delay_s", "n"),
+    ("dt_s", "max_delay_s", "sample_count"),
     [
         (0.0, 20.0, 3000),
         (-1.0, 20.0, 3000),
@@ -153,8 +180,8 @@ def test_signals_containing_nan_are_rejected() -> None:
         (1.0, 20.0, 20),
     ],
 )
-def test_invalid_arguments_are_rejected(dt_s: float, max_delay_s: float, n: int) -> None:
+def test_invalid_arguments_are_rejected(dt_s: float, max_delay_s: float, sample_count: int) -> None:
     u, y = _valid_signals()
 
     with pytest.raises(ValueError):
-        identify_fopdt(u[:n], y[:n], dt_s=dt_s, max_delay_s=max_delay_s)
+        identify_fopdt(u[:sample_count], y[:sample_count], dt_s=dt_s, max_delay_s=max_delay_s)

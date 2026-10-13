@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ import numpy as np
 from asyncua import Client, ua
 from asyncua.common.node import Node
 from asyncua.ua.attribute_ids import AttributeIds
-from crosscut_sim.dataset import DEFAULT_START_UTC, write_dataset
+from crosscut_sim.dataset import DEFAULT_START_UTC, DatasetInfo, Samples, write_dataset
 from crosscut_sim.run import PLANTS, parse_duration
 from crosscut_sim.scenarios import build_scenario
 
@@ -30,6 +31,7 @@ BAD_QUALITY = 2
 
 
 def _utc_to_ns(text: str) -> int:
+    """Convert ``YYYY-MM-DDTHH:MM:SSZ`` to Unix nanoseconds."""
     dt = datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     return int(dt.timestamp()) * 10**9
 
@@ -66,32 +68,9 @@ async def _collect_plant_tags(plant_obj: Node, idx: int) -> tuple[Node, list[Nod
     return time_node, tag_nodes, tag_ids
 
 
-async def collect(
-    endpoint: str,
-    out_dir: str | Path,
-    *,
-    sim_duration_s: float,
-    sample_period_s: float,
-    dataset_id: str,
-    plant_name: str,
-    scenario_name: str | None = None,
-    seed: int | None = None,
-    start_utc: str = DEFAULT_START_UTC,
-    timeout_s: float = 3600.0,
-    poll_s: float = 0.01,
-    git_commit: str | None = None,
-) -> dict[str, Any]:
-    """Record plant samples from an OPC UA server into ``out_dir`` and return the dataset document.
-
-    OPC UA is an industrial protocol: the client connects to an ``endpoint`` URL and reads
-    *nodes*, each addressed by a numeric node id. Here one node carries the plant clock (simulated
-    seconds, not wall-clock time) and the remaining nodes carry the tag values recorded in the
-    dataset.
-
-    Sampling rule: samples are taken whenever the plant clock has advanced by ``sample_period_s``
-    since the last sample; the first poll is always recorded. Sample timestamps are ``start_utc``
-    plus the plant time elapsed since the first sample, so the dataset is reproducible regardless
-    of how fast the simulation actually runs.
+@dataclass(frozen=True)
+class CollectorConfig:
+    """What to record and how, independent of the server address.
 
     Parameters
     ----------
@@ -100,106 +79,133 @@ async def collect(
         this far past the first sample.
     sample_period_s
         Minimum plant-time step (s) between two recorded samples; sets the dataset's sampling rate.
+    dataset_id, plant_name, scenario_name, seed, start_utc, git_commit
+        Provenance written into the dataset (``seed`` and ``scenario_name`` are optional).
     timeout_s
         Wall-clock budget (s) for the whole collection, independent of ``sim_duration_s``.
     poll_s
         Idle sleep (s) between two reads of the OPC UA server; 0 means "poll as fast as possible".
 
-    Returns
-    -------
-    dict[str, Any]
-        The dataset document written by :func:`write_dataset` (metadata plus file references).
-
     Raises
     ------
     ValueError
         If ``sim_duration_s``, ``sample_period_s`` or ``poll_s`` is not usable.
-    TimeoutError
-        If ``sim_duration_s`` of plant time has not elapsed within ``timeout_s`` wall seconds.
     """
-    # Reject impossible sampling settings before touching the network: a negative
-    # poll_s would busy-loop, and zero or negative durations would never make progress.
-    # Error message is intentionally minimal because one check covers all four cases.
-    if sim_duration_s <= 0 or sample_period_s <= 0 or poll_s < 0:
-        raise ValueError("sim_duration_s and sample_period_s must be positive")
 
-    start_ns = _utc_to_ns(start_utc)
-    # One entry per recorded sample, in the same order across all three structures below.
-    # ts_ns: sample time in Unix nanoseconds since the epoch.
-    # rows: one row of float tag values per sample, in `tag_ids` order.
-    # quality_rows: one row of 0/1 quality flags per sample, aligned with `rows`.
-    ts_ns: list[int] = []
-    rows: list[list[float]] = []
-    quality_rows: list[list[int]] = []
-    # Plant clock value (s) at the very first poll; this is the dataset's time origin.
+    sim_duration_s: float
+    sample_period_s: float
+    dataset_id: str
+    plant_name: str
+    scenario_name: str | None = None
+    seed: int | None = None
+    start_utc: str = DEFAULT_START_UTC
+    timeout_s: float = 3600.0
+    poll_s: float = 0.01
+    git_commit: str | None = None
+
+    def __post_init__(self) -> None:
+        # Reject impossible sampling settings before touching the network: a negative
+        # poll_s would busy-loop, and zero or negative durations would never make progress.
+        # Error message is intentionally minimal because one check covers all the cases.
+        if self.sim_duration_s <= 0 or self.sample_period_s <= 0 or self.poll_s < 0:
+            raise ValueError("sim_duration_s and sample_period_s must be positive")
+
+
+@dataclass
+class _Recording:
+    """Samples gathered so far; the three lists have one entry per recorded sample, same order.
+
+    ``ts_ns`` holds Unix nanoseconds, ``rows`` the float tag values in ``tag_ids`` order and
+    ``quality_rows`` the 0/1 quality flags aligned with ``rows``.
+    """
+
+    start_ns: int
+    sample_period_s: float
+    ts_ns: list[int] = field(default_factory=list)
+    rows: list[list[float]] = field(default_factory=list)
+    quality_rows: list[list[int]] = field(default_factory=list)
+    # Plant clock (s) at the very first poll: the dataset's time origin.
     first_plant_time: float | None = None
-    # Plant clock value (s) of the most recent recorded sample; drives the sampling period check.
+    # Plant clock (s) of the most recent recorded sample; drives the sampling period check.
     last_recorded: float | None = None
-    # Wall-clock deadline (monotonic seconds). Monotonic time is used because it is immune to
-    # system clock adjustments and only ever moves forward.
-    deadline = time.monotonic() + timeout_s
 
-    async with Client(endpoint) as client:
-        idx = await client.get_namespace_index(NAMESPACE_URI)
-        time_node, tag_nodes, tag_ids = await _discover_plant_nodes(client, idx)
-        # One single read call is issued for the clock and every tag, so all values in a
-        # row come from the same server-side instant.
-        all_nodes = [time_node, *tag_nodes]
+    def elapsed_s(self, plant_time: float) -> float:
+        """Plant seconds since the first poll (the first poll defines the origin)."""
+        if self.first_plant_time is None:
+            self.first_plant_time = plant_time
+        return plant_time - self.first_plant_time
 
-        while True:
-            # `data_values` is parallel to `all_nodes`: index 0 is the clock, the rest are tags.
-            data_values = await client.read_attributes(all_nodes, AttributeIds.Value)
-            # Plant time in seconds. It starts near zero at simulation start and advances with
-            # the simulation, unrelated to wall-clock time.
-            plant_time = float(data_values[0].Value.Value)  # type: ignore[union-attr]
-            if first_plant_time is None:
-                first_plant_time = plant_time
-            # Record when the plant clock has moved at least `sample_period_s` since the
-            # previous recorded sample. The `1e-9` slack absorbs float rounding so an exactly-on-
-            # period advance is not skipped.
-            if last_recorded is None or plant_time - last_recorded >= sample_period_s - 1e-9:
-                # Plant seconds since the first sample, converted to the dataset's epoch-relative
-                # nanoseconds: elapsed_ns = round(elapsed_s * 1e9).
-                elapsed = plant_time - first_plant_time
-                ts_ns.append(start_ns + round(elapsed * 1e9))
-                # Tag values for this sample, in `tag_ids` order (element 0 of the read is the
-                # clock, hence the `[1:]`).
-                rows.append([float(dv.Value.Value) for dv in data_values[1:]])  # type: ignore[union-attr]
-                # A tag is good unless the server reports an explicit non-good status code.
-                # `BAD_QUALITY` rows are still stored, so downstream code can skip or flag them.
-                quality_rows.append(
-                    [
-                        GOOD_QUALITY
-                        if dv.StatusCode is None or dv.StatusCode.is_good()
-                        else BAD_QUALITY
-                        for dv in data_values[1:]
-                    ]
-                )
-                last_recorded = plant_time
-            # Stop once the requested span of plant time has been observed.
-            if plant_time - first_plant_time >= sim_duration_s:
-                break
-            # The simulation may be slower than real time, so guard against running forever.
-            if time.monotonic() > deadline:
-                raise TimeoutError(
-                    f"plant time {plant_time - first_plant_time:.1f}s of {sim_duration_s:.1f}s "
-                    f"after {timeout_s:.0f} wall seconds"
-                )
-            await asyncio.sleep(poll_s)
+    def offer(self, plant_time: float, tag_values: Sequence[ua.DataValue]) -> None:
+        """Record the tag values when the plant clock advanced by one sample period.
 
-    # Provenance recorded with the dataset: which plant was sampled, and optionally
-    # which scenario and RNG seed produced it, so the run can be reproduced.
-    source: dict[str, Any] = {"kind": "opcua", "plant": plant_name}
-    if scenario_name is not None:
-        source["scenario"] = scenario_name
-    if seed is not None:
-        source["seed"] = seed
+        The ``1e-9`` slack absorbs float rounding so an exactly-on-period advance is not skipped.
+        """
+        elapsed = self.elapsed_s(plant_time)
+        if (
+            self.last_recorded is not None
+            and plant_time - self.last_recorded < self.sample_period_s - 1e-9
+        ):
+            return
+        # Epoch-relative nanoseconds: elapsed_ns = round(elapsed_s * 1e9).
+        self.ts_ns.append(self.start_ns + round(elapsed * 1e9))
+        self.rows.append([float(dv.Value.Value) for dv in tag_values])  # type: ignore[union-attr]
+        # A tag is good unless the server reports an explicit non-good status code.
+        # `BAD_QUALITY` rows are still stored, so downstream code can skip or flag them.
+        self.quality_rows.append([_quality_flag(dv) for dv in tag_values])
+        self.last_recorded = plant_time
 
-    # Every tag discovered on the server becomes a dataset column. Units and roles are
-    # unknown from OPC UA alone, so they are left empty/`other` for the user to fill in
-    # later. The `address` string is the canonical OPC UA node id ("ns=<namespace index>;s=<string
-    # id>").
-    tags_document: dict[str, Any] = {
+
+def _quality_flag(data_value: ua.DataValue) -> int:
+    """Return GOOD_QUALITY unless the server reported an explicit non-good status code."""
+    status = data_value.StatusCode
+    return GOOD_QUALITY if status is None or status.is_good() else BAD_QUALITY
+
+
+async def _poll_until_done(
+    client: Client, all_nodes: list[Node], config: CollectorConfig, recording: _Recording
+) -> None:
+    """Read the clock and every tag repeatedly until ``sim_duration_s`` of plant time passed.
+
+    One single read call is issued for the clock and every tag, so all values in a row come
+    from the same server-side instant. ``data_values[0]`` is the clock, the rest are tags.
+    Raises TimeoutError when the wall-clock budget ``timeout_s`` runs out first (the simulation
+    may be slower than real time). The deadline uses monotonic time, which is immune to system
+    clock adjustments.
+    """
+    deadline = time.monotonic() + config.timeout_s
+    while True:
+        data_values = await client.read_attributes(all_nodes, AttributeIds.Value)
+        # Plant time in seconds; unrelated to wall-clock time.
+        plant_time = float(data_values[0].Value.Value)  # type: ignore[union-attr]
+        recording.offer(plant_time, data_values[1:])
+        elapsed = recording.elapsed_s(plant_time)
+        if elapsed >= config.sim_duration_s:
+            return
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"plant time {elapsed:.1f}s of {config.sim_duration_s:.1f}s "
+                f"after {config.timeout_s:.0f} wall seconds"
+            )
+        await asyncio.sleep(config.poll_s)
+
+
+def _build_source(config: CollectorConfig) -> dict[str, Any]:
+    """Provenance of the dataset: the plant and, when known, the scenario and RNG seed."""
+    source: dict[str, Any] = {"kind": "opcua", "plant": config.plant_name}
+    if config.scenario_name is not None:
+        source["scenario"] = config.scenario_name
+    if config.seed is not None:
+        source["seed"] = config.seed
+    return source
+
+
+def _build_tags_document(tag_ids: list[str], idx: int) -> dict[str, Any]:
+    """Describe every discovered tag as a dataset column.
+
+    Units and roles are unknown from OPC UA alone, so they are left empty/`other` for the user
+    to fill in later. The `address` is the canonical OPC UA node id ("ns=<namespace index>;s=<id>").
+    """
+    return {
         "schema_version": "0.1.0",
         "tags": [
             {
@@ -214,21 +220,53 @@ async def collect(
         ],
     }
 
+
+async def collect(endpoint: str, out_dir: str | Path, config: CollectorConfig) -> dict[str, Any]:
+    """Record plant samples from an OPC UA server into ``out_dir`` and return the dataset document.
+
+    OPC UA is an industrial protocol: the client connects to an ``endpoint`` URL and reads
+    *nodes*, each addressed by a numeric node id. Here one node carries the plant clock (simulated
+    seconds, not wall-clock time) and the remaining nodes carry the tag values recorded in the
+    dataset.
+
+    Sampling rule: samples are taken whenever the plant clock has advanced by
+    ``config.sample_period_s`` since the last sample; the first poll is always recorded. Sample
+    timestamps are ``config.start_utc`` plus the plant time elapsed since the first sample, so the
+    dataset is reproducible regardless of how fast the simulation actually runs.
+
+    Returns
+    -------
+    dict[str, Any]
+        The dataset document written by :func:`write_dataset` (metadata plus file references).
+
+    Raises
+    ------
+    TimeoutError
+        If ``sim_duration_s`` of plant time has not elapsed within ``timeout_s`` wall seconds.
+    """
+    recording = _Recording(_utc_to_ns(config.start_utc), config.sample_period_s)
+    async with Client(endpoint) as client:
+        idx = await client.get_namespace_index(NAMESPACE_URI)
+        time_node, tag_nodes, tag_ids = await _discover_plant_nodes(client, idx)
+        await _poll_until_done(client, [time_node, *tag_nodes], config, recording)
+
     # The collected lists are turned into fixed-dtype arrays once, at the end: int64
     # nanoseconds, float64 values and uint8 quality flags match what the dataset format
     # expects on disk.
-    return write_dataset(
-        out_dir,
-        np.asarray(ts_ns, dtype=np.int64),
+    samples = Samples(
+        np.asarray(recording.ts_ns, dtype=np.int64),
         tag_ids,
-        np.asarray(rows, dtype=np.float64),
-        np.asarray(quality_rows, dtype=np.uint8),
-        dataset_id=dataset_id,
-        source=source,
-        start_utc=start_utc,
-        tags_document=tags_document,
-        git_commit=git_commit,
+        np.asarray(recording.rows, dtype=np.float64),
+        np.asarray(recording.quality_rows, dtype=np.uint8),
     )
+    info = DatasetInfo(
+        dataset_id=config.dataset_id,
+        source=_build_source(config),
+        start_utc=config.start_utc,
+        tags_document=_build_tags_document(tag_ids, idx),
+        git_commit=config.git_commit,
+    )
+    return write_dataset(out_dir, samples, info)
 
 
 def _git_commit() -> str | None:
@@ -324,6 +362,53 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _parse_durations(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> tuple[float, float]:
+    """Return ``(duration_s, sample_period_s)`` from the command line; exit on a bad value."""
+    try:
+        return parse_duration(args.duration), parse_duration(args.sample_period)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def _validate_scenario(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, duration_s: float
+) -> None:
+    """Exit with a usage error when ``--scenario`` is given but cannot be built.
+
+    A scenario describes how the simulated plant behaves over time; building it writes the
+    scenario files into the plant folder and validates its name.
+    """
+    if args.scenario is None:
+        return
+    try:
+        build_scenario(args.plant, args.scenario, duration_s=duration_s)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def _build_config(
+    args: argparse.Namespace, duration_s: float, sample_period_s: float
+) -> CollectorConfig:
+    """Translate the parsed command line into a :class:`CollectorConfig`."""
+    # If the user gave no id, derive one from what identifies the recording. The fallback
+    # 'opcua' means live values were recorded, not a scenario replay. The dataset_id doubles
+    # as the folder name that collection creates (and refuses to overwrite).
+    dataset_id = args.dataset_id or f"{args.plant}_{args.scenario or 'opcua'}_collected"
+    return CollectorConfig(
+        sim_duration_s=duration_s,
+        sample_period_s=sample_period_s,
+        dataset_id=dataset_id,
+        plant_name=args.plant,
+        scenario_name=args.scenario,
+        seed=args.seed,
+        start_utc=args.start_utc,
+        timeout_s=args.timeout,
+        git_commit=_git_commit(),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Collect a dataset from a running server; returns the process exit code.
 
@@ -335,51 +420,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments it prints usage and exits (via `parser.error`, which never returns).
     """
     parser = _build_parser()
-    # argv is the argument list "without the program name", e.g. ["--plant", "north"].
     args = parser.parse_args(argv)
-    try:
-        duration_s = parse_duration(args.duration)
-        sample_period_s = parse_duration(args.sample_period)
-    except ValueError as e:
-        parser.error(str(e))
+    duration_s, sample_period_s = _parse_durations(parser, args)
+    _validate_scenario(parser, args, duration_s)
 
-    if args.scenario is not None:
-        # A scenario describes how the simulated plant behaves over time; building it
-        # writes the scenario files into the plant folder and validates its name.
-        try:
-            build_scenario(args.plant, args.scenario, duration_s=duration_s)
-        except ValueError as e:
-            parser.error(str(e))
-
-    # If the user gave no id, derive one from what identifies the recording. The fallback
-    # 'opcua' means live values were recorded, not a scenario replay.
-    dataset_id = args.dataset_id or f"{args.plant}_{args.scenario or 'opcua'}_collected"
-    # The dataset_id doubles as the folder name, so `args.out / dataset_id`
-    # is the directory that collection creates (and refuses to overwrite).
-    dataset_dir = args.out / dataset_id
+    config = _build_config(args, duration_s, sample_period_s)
+    dataset_dir = args.out / config.dataset_id
     try:
-        doc = asyncio.run(
-            collect(
-                args.endpoint,
-                dataset_dir,
-                sim_duration_s=duration_s,
-                sample_period_s=sample_period_s,
-                dataset_id=dataset_id,
-                plant_name=args.plant,
-                scenario_name=args.scenario,
-                seed=args.seed,
-                start_utc=args.start_utc,
-                timeout_s=args.timeout,
-                git_commit=_git_commit(),
-            )
-        )
-    except FileExistsError as e:
+        doc = asyncio.run(collect(args.endpoint, dataset_dir, config))
+    except FileExistsError as error:
         # We never merge into an existing dataset: half-old, half-new rows would be
         # unusable, so tell the user and report failure.
-        print(str(e), file=sys.stderr)
+        print(str(error), file=sys.stderr)
         return 1
-    # doc is the dataset's metadata document; row_count is how many samples were
-    # written, i.e. duration_s / sample_period_s for a clean run.
     print(f"{dataset_dir} ({doc['row_count']} rows)")
     return 0
 

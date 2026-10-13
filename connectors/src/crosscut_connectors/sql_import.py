@@ -23,13 +23,14 @@ from typing import Any
 
 import numpy as np
 from crosscut_sim.core import BAD, GOOD
-from crosscut_sim.dataset import write_dataset
+from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_import import (
     _parse_iso8601,
     _sanitize_tag_name,
     _to_utc_nanoseconds,
 )
+from crosscut_connectors.import_target import ImportTarget
 
 NS_PER_S = 1_000_000_000
 
@@ -117,9 +118,7 @@ def _pivot_rows(
     n_duplicates_dropped = _count_duplicates(ts_ns, tag_ids)
     # _widen returns one row per distinct timestamp and one column per distinct tag,
     # with the value and quality grids sharing that shape.
-    unique_ts, unique_tags, wide_values, wide_qualities = _widen(
-        ts_ns, tag_ids, values, qualities
-    )
+    unique_ts, unique_tags, wide_values, wide_qualities = _widen(ts_ns, tag_ids, values, qualities)
     return unique_ts, unique_tags, wide_values, wide_qualities, n_duplicates_dropped
 
 
@@ -240,6 +239,7 @@ def _collect_samples(
     # pure data gathering and this function stays short.
     return _build_sample_arrays(ts_ns, tags, values, qualities)
 
+
 def _build_sample_arrays(
     ts_ns: list[int],
     tags: list[str],
@@ -350,14 +350,7 @@ def _read_rows(database: Path, query: str) -> list[tuple[Any, ...]]:
             return rows
 
 
-def import_sql(
-    database: Path,
-    query: str,
-    out_dir: Path,
-    *,
-    dataset_id: str,
-    tz: str = "UTC",
-) -> SqlImportReport:
+def import_sql(database: Path, query: str, target: ImportTarget) -> SqlImportReport:
     """Import a dataset from a sqlite database using a query.
 
     The query is expected to return one long-format row per (timestamp, tag) pair; this
@@ -370,47 +363,36 @@ def import_sql(
         Path to the sqlite database.
     query: str
         Query to execute on the database.
-    out_dir: Path
-        Destination directory for the created dataset.
-    dataset_id: str
-        Identifier used inside the dataset metadata.
-    tz: str
-        Timezone name used for naive timestamps (see _pivot_rows: it decides whether a
-        timestamp without an offset is localised to this zone or shifted from UTC).
+    target: ImportTarget
+        Output directory, dataset id and the timezone applied to timestamps
+        without a UTC offset.
 
     Returns
     -------
     SqlImportReport
         Summary of the import operation.
     """
-    # Read the query result into memory; row order is preserved here but not relied upon.
     rows = _read_rows(database, query)
-    # Pivot from long format to the wide layout the writer takes. The numpy arrays all
-    # share the same row axis (one entry per timestamp) and the same column axis
-    # (one entry per tag_id); a row that repeats a (timestamp, tag) pair is dropped and
-    # only counted, so the returned arrays stay rectangular.
-    #   ts_ns        int64[num_rows]    timestamps in nanoseconds since the Unix epoch (UTC)
-    #   tag_ids      str[num_tags]      tag identifiers, one per column of `values`
-    #   values       float64[num_rows, num_tags]   measured values; NaN = no sample or invalid
-    #   qualities    str[num_rows, num_tags]       quality flag per cell
-    #   n_duplicates_dropped   int                 how many repeated pairs were discarded,
-    #                                              reported to the caller instead of raising
-    ts_ns, tag_ids, values, qualities, n_duplicates_dropped = _pivot_rows(rows, tz)
+    # Pivot from long to wide. The arrays share the row axis (one entry per timestamp)
+    # and the column axis (one entry per tag_id); a repeated (timestamp, tag) pair is
+    # dropped and only counted, so the arrays stay rectangular.
+    #   ts_ns      int64[num_rows]               nanoseconds since the Unix epoch (UTC)
+    #   tag_ids    str[num_tags]                 one per column of `values`
+    #   values     float64[num_rows, num_tags]   NaN = no sample or invalid
+    #   qualities  uint8[num_rows, num_tags]     quality flag per cell
+    ts_ns, tag_ids, values, qualities, n_duplicates_dropped = _pivot_rows(rows, target.tz)
 
-    # Persist the dataset; every argument is passed explicitly so this function owns no
-    # state and stays a thin driver on top of the pure helpers below.
     write_dataset(
-        out_dir,
-        ts_ns,
-        tag_ids.tolist(),
-        values,
-        qualities,
-        dataset_id=dataset_id,
-        source={"kind": "sql"},
-        # start_utc is the dataset's first instant in ISO-8601 form; derived from ts_ns
-        # rather than from `rows` so it matches the stored timestamps exactly.
-        start_utc=_start_iso(ts_ns),
-        tags_document=_tags_document(tag_ids),
+        target.out_dir,
+        Samples(ts_ns, tag_ids.tolist(), values, qualities),
+        DatasetInfo(
+            dataset_id=target.dataset_id,
+            source={"kind": "sql"},
+            # start_utc is the dataset's first instant in ISO-8601 form; derived from ts_ns
+            # rather than from `rows` so it matches the stored timestamps exactly.
+            start_utc=_start_iso(ts_ns),
+            tags_document=_tags_document(tag_ids),
+        ),
     )
 
     return _make_report(ts_ns, tag_ids, values, n_duplicates_dropped)

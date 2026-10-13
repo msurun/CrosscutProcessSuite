@@ -85,9 +85,7 @@ def _analysable_entries(
     # A list comprehension, not a loop with append: order is preserved by definition, and
     # `_is_analysable` holds the whole decision (pure predicate), so this function stays
     # free of any side effect.
-    return [
-        entry for entry in project.get(LOOPS_KEY, []) if _is_analysable(entry, tag_rows)
-    ]
+    return [entry for entry in project.get(LOOPS_KEY, []) if _is_analysable(entry, tag_rows)]
 
 
 def _index_tags_by_id(tags: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:

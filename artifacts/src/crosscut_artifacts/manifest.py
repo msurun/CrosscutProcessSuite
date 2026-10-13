@@ -8,6 +8,7 @@ import json
 import re
 import zipfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -195,18 +196,34 @@ def npz_bytes(arrays: Mapping[str, np.ndarray]) -> bytes:
     return buffer.getvalue()
 
 
+@dataclass(frozen=True)
+class ArtifactMetadata:
+    """Provenance and optional descriptive fields recorded in an artifact manifest.
+
+    Attributes:
+        creator: Who produced the artifact (tool name, version, ...).
+        inputs: Provenance records of the inputs; ``None`` leaves the key out.
+        tags_signature: Digest from :func:`tags_signature`; ``None`` leaves the key out.
+        metrics: Quality figures of the artifact; ``None`` leaves the key out.
+        valid_context: Operating context the artifact is valid for; ``None`` leaves it out.
+        created_utc: ISO-8601 UTC timestamp; ``None`` means "now".
+        signature: Detached signature; ``None`` is written as an explicit null (unsigned).
+    """
+
+    creator: Mapping[str, str]
+    inputs: Sequence[Mapping[str, str]] | None = None
+    tags_signature: str | None = None
+    metrics: Mapping[str, Any] | None = None
+    valid_context: Mapping[str, Any] | None = None
+    created_utc: str | None = None
+    signature: str | None = None
+
+
 def write_artifact(
     out_dir: str | Path,
     artifact_type: str,
     payload: Mapping[str, bytes],
-    *,
-    creator: Mapping[str, str],
-    inputs: Sequence[Mapping[str, str]] | None = None,
-    tags_signature: str | None = None,
-    metrics: Mapping[str, Any] | None = None,
-    valid_context: Mapping[str, Any] | None = None,
-    created_utc: str | None = None,
-    signature: str | None = None,
+    metadata: ArtifactMetadata,
 ) -> dict[str, Any]:
     """Write an artifact to the given directory.
 
@@ -218,6 +235,25 @@ def write_artifact(
     payload maps a relative file path to the raw bytes of that file; nested
     paths such as "data/table.csv" are allowed. Returns the manifest as a dict.
     """
+    _validate_artifact_request(artifact_type, payload)
+    out_dir = Path(out_dir)
+
+    # The manifest is the sentinel for "an artifact already lives here". Writing
+    # over an existing artifact would silently mix two payloads, so refuse.
+    manifest_path = out_dir / "manifest.json"
+    if manifest_path.exists():
+        raise FileExistsError(f"Artifact already exists at {out_dir}")
+
+    _write_payload_files(out_dir, payload)
+    doc = _build_manifest_document(artifact_type, payload, metadata)
+    # Trailing newline after the JSON, so the file is a well-formed text file
+    # for tools such as `git diff` and line-based readers.
+    manifest_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    return doc
+
+
+def _validate_artifact_request(artifact_type: str, payload: Mapping[str, bytes]) -> None:
+    """Reject an artifact type or payload that must never reach the disk."""
     # The type becomes part of a filename and of lookups elsewhere, so it is
     # restricted to a lowercase "snake_case" identifier: no path separators,
     # no dots, nothing that could escape the artifact directory.
@@ -231,15 +267,9 @@ def write_artifact(
     for path in payload:
         _validate_payload_path(path)
 
-    out_dir = Path(out_dir)
 
-    # The manifest is the sentinel for "an artifact already lives here". Writing
-    # over an existing artifact would silently mix two payloads, so refuse.
-    manifest_path = out_dir / "manifest.json"
-    if manifest_path.exists():
-        raise FileExistsError(f"Artifact already exists at {out_dir}")
-
-    # Write the payload first, the manifest afterwards (see the docstring).
+def _write_payload_files(out_dir: Path, payload: Mapping[str, bytes]) -> None:
+    """Write every payload file under ``out_dir``, creating nested directories as needed."""
     # parents=True creates intermediate directories so a nested relative path
     # such as "a/b/c.bin" can be stored as-is.
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -247,42 +277,42 @@ def write_artifact(
         (out_dir / path).parent.mkdir(parents=True, exist_ok=True)
         (out_dir / path).write_bytes(data)
 
-    # Built up field by field: required fields always present, optional ones
-    # only when the caller supplied them, so absent means "not applicable"
-    # rather than null.
+
+def _build_manifest_document(
+    artifact_type: str, payload: Mapping[str, bytes], metadata: ArtifactMetadata
+) -> dict[str, Any]:
+    """Assemble the manifest dict: required fields always, optional ones only when supplied."""
+    # Absent means "not applicable" rather than null, except for the signature below.
     doc: dict[str, Any] = {
         "schema_version": SUPPORTED_SCHEMA_VERSION,
         "artifact_type": artifact_type,
         # created_utc is an ISO-8601 UTC timestamp, e.g. "2024-05-01T09:30:00Z".
-        "created_utc": created_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "creator": dict(creator),
+        "created_utc": metadata.created_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "creator": dict(metadata.creator),
+        # Payload index: one entry per file with its relative path and the SHA-256 of its
+        # bytes, sorted by path so the manifest is byte-for-byte reproducible.
+        "payload": sorted(
+            [{"path": path, "sha256": sha256_bytes(data)} for path, data in payload.items()],
+            key=lambda entry: entry["path"],
+        ),
+        # signature may be None: then the key exists with a null value, meaning
+        # "this artifact was written unsigned".
+        "signature": metadata.signature,
     }
-    if inputs is not None:
-        doc["inputs"] = [dict(input_) for input_ in inputs]
-    if tags_signature is not None:
-        doc["tags_signature"] = tags_signature
-
-    # Payload index: one entry per file with its path (relative, as given by the
-    # caller) and the SHA-256 of its bytes, sorted by path so the manifest is
-    # byte-for-byte reproducible for the same payload. sha256_bytes returns the
-    # digest as a lowercase hex string.
-    doc["payload"] = sorted(
-        [{"path": path, "sha256": sha256_bytes(data)} for path, data in payload.items()],
-        key=lambda x: x["path"],
-    )
-    if metrics is not None:
-        doc["metrics"] = metrics
-    if valid_context is not None:
-        doc["valid_context"] = valid_context
-
-    # signature may be None: then the key exists with a null value, meaning
-    # "this artifact was written unsigned".
-    doc["signature"] = signature
-
-    # Trailing newline after the JSON, so the file is a well-formed text file
-    # for tools such as `git diff` and line-based readers.
-    manifest_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    doc.update(_optional_manifest_fields(metadata))
     return doc
+
+
+def _optional_manifest_fields(metadata: ArtifactMetadata) -> dict[str, Any]:
+    """The manifest entries the caller chose to supply; ``None`` fields are left out."""
+    fields: dict[str, Any] = {
+        "tags_signature": metadata.tags_signature,
+        "metrics": metadata.metrics,
+        "valid_context": metadata.valid_context,
+    }
+    if metadata.inputs is not None:
+        fields["inputs"] = [dict(input_) for input_ in metadata.inputs]
+    return {key: value for key, value in fields.items() if value is not None}
 
 
 def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:

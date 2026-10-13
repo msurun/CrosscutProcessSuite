@@ -72,9 +72,9 @@ def read_findings(path: Path) -> list[Finding]:
     output = run([sys.executable, "-m", "agentkit.cli", "check", str(path)]).stdout
     matches = (FINDING_PATTERN.match(line) for line in output.splitlines())
     style = [
-        Finding(path, int(m["line"]), m["code"], m["message"])
-        for m in matches
-        if m and m["code"] in INSTRUCTIONS
+        Finding(path, int(match["line"]), match["code"], match["message"])
+        for match in matches
+        if match and match["code"] in INSTRUCTIONS
     ]
     return style + read_lint_findings(path)
 
@@ -86,14 +86,14 @@ def read_lint_findings(path: Path) -> list[Finding]:
     ).stdout
     mypy = run([sys.executable, "-m", "mypy", str(path)]).stdout
     found = [
-        Finding(path, int(m["line"]), "line-too-long", m["message"])
-        for m in map(RUFF_PATTERN.match, ruff.splitlines())
-        if m
+        Finding(path, int(match["line"]), "line-too-long", match["message"])
+        for match in map(RUFF_PATTERN.match, ruff.splitlines())
+        if match
     ]
     found += [
-        Finding(path, int(m["line"]), "type-error", m["message"])
-        for m in map(MYPY_PATTERN.match, mypy.splitlines())
-        if m
+        Finding(path, int(match["line"]), "type-error", match["message"])
+        for match in map(MYPY_PATTERN.match, mypy.splitlines())
+        if match
     ]
     return found
 
@@ -103,7 +103,7 @@ def enclosing_function(source: str, line: int) -> Span | None:
     best: Span | None = None
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+            first = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
             if first <= line <= (node.end_lineno or node.lineno) and (
                 best is None or first >= best.first
             ):
@@ -186,7 +186,11 @@ def clean_file(path: Path, tests: str) -> tuple[int, int]:
     """Work through the findings of one file; returns (fixed, skipped)."""
     fixed, skipped = 0, set()
     while True:
-        open_findings = [f for f in read_findings(path) if (f.code, f.message) not in skipped]
+        open_findings = [
+            finding
+            for finding in read_findings(path)
+            if (finding.code, finding.message) not in skipped
+        ]
         if not open_findings:
             return fixed, len(skipped)
         finding = open_findings[0]

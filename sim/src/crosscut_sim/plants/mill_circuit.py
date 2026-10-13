@@ -13,8 +13,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from crosscut_sim.core import AUTO, CAS, GOOD, MAN, Event, Fopdt, Scenario, TagCatalog, TagSpec
-from crosscut_sim.disturbances import OrnsteinUhlenbeck
-from crosscut_sim.pid import PID
+from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
+from crosscut_sim.pid import PID, OutputLimits, PidTuning
 
 NOMINAL: dict[str, float] = {
     "hpgr_press": 3.5,
@@ -192,7 +192,6 @@ def _tag_specs_for_loop(loop: _LoopSpec) -> list[TagSpec]:
     return [
         # The process variable: the measured value the loop is trying to hold.
         _loop_pv_spec(loop),
-
         # Two setpoints coexist rather than one, because a loop can be under
         # local or remote control at any moment and operators compare both:
         # "_sp" is the setpoint the loop is actually using right now,
@@ -200,12 +199,10 @@ def _tag_specs_for_loop(loop: _LoopSpec) -> list[TagSpec]:
         # setpoint). When the loop runs locally the two diverge.
         _loop_sp_spec(loop, suffix="_sp", description_suffix="active setpoint"),
         _loop_sp_spec(loop, suffix="_rsp", description_suffix="remote setpoint"),
-
         # The mode tag says which source is in charge (auto, manual, cascade...).
         # It is what makes the other four tags readable: a sp that looks wrong
         # often just means the loop was in manual at the time.
         _loop_mode_spec(loop),
-
         # The controller output: what the loop commands its final element to do
         # (valve position, motor speed), i.e. the PV's manipulated variable.
         _loop_out_spec(loop),
@@ -505,7 +502,7 @@ class _Loop:
         #   out_min/out_max - output clamps in PERCENT (0..100), the controller's 0-100% range
         #   direct=False    - reverse acting: the output falls when the measurement rises
         #                     above setpoint, the usual convention for a heating loop
-        pid = PID(kc=spec.kc, ti_s=60.0, dt_s=dt_s, out_min=0.0, out_max=100.0, direct=False)
+        pid = PID(PidTuning(kc=spec.kc, ti_s=60.0), dt_s=dt_s, limits=OutputLimits(0.0, 100.0))
         # Nominal steady-state operating point for this loop: measurement and setpoint in
         # engineering units (whatever quantity the loop controls).
         nominal = NOMINAL[spec.name]
@@ -533,16 +530,11 @@ class _Loop:
 
         Returns an OrnsteinUhlenbeck already parameterised for the current simulation step.
         """
-        return OrnsteinUhlenbeck(
-            mean=0.0,
-            # sigma is the stationary standard deviation of the process (same unit as the
-            # disturbed quantity); scaling it scales the whole noise amplitude linearly.
-            sigma=spec.inner_sigma * inner_scale,
-            tau_s=120.0,
-            # dt_s is the integration step in seconds; the process is sampled on this grid.
-            dt_s=dt_s,
-            rng=rng,
-        )
+        # sigma is the stationary standard deviation of the process (same unit as the
+        # disturbed quantity); scaling it scales the whole noise amplitude linearly.
+        shape = OuShape(mean=0.0, sigma=spec.inner_sigma * inner_scale, tau_s=120.0)
+        # dt_s is the integration step in seconds; the process is sampled on this grid.
+        return OrnsteinUhlenbeck(shape, dt_s=dt_s, rng=rng)
 
     def _init_signals(self, nominal: float) -> None:
         """Start the loop in auto, with setpoint, manual output and PV all at the nominal.
@@ -773,9 +765,7 @@ class MillCircuitPlant:
         # the deviation over a 4-hour time constant, so consecutive samples are
         # strongly related. dt_s is the simulation step in seconds.
         self._hard_ou = OrnsteinUhlenbeck(
-            mean=0.0,
-            sigma=self._scenario.param("hardness_sigma", 1.5),
-            tau_s=14400.0,
+            OuShape(mean=0.0, sigma=self._scenario.param("hardness_sigma", 1.5), tau_s=14400.0),
             dt_s=dt_s,
             rng=rngs[4],
         )
@@ -783,9 +773,7 @@ class MillCircuitPlant:
         # percent-by-mass and tau_s = 7200 (2-hour time constant), i.e. moisture
         # wanders about four times faster than hardness.
         self._moist_ou = OrnsteinUhlenbeck(
-            mean=0.0,
-            sigma=self._scenario.param("moisture_sigma", 0.4),
-            tau_s=7200.0,
+            OuShape(mean=0.0, sigma=self._scenario.param("moisture_sigma", 0.4), tau_s=7200.0),
             dt_s=dt_s,
             rng=rngs[5],
         )
@@ -828,12 +816,10 @@ class MillCircuitPlant:
             # i is the CV's position in CVS (0-based); +6 maps it to that CV's
             # dedicated generator in rngs, giving each CV an independent stream.
             cv: OrnsteinUhlenbeck(
-                mean=0.0,
                 # Per-CV base sigma scaled by the scenario factor; same unit as the CV.
-                sigma=_CV_PROCESS_SIGMA[cv] * process_scale,
-                # Mean-reversion time constant in SECONDS (5 min): the bias drifts over that
-                # horizon, i.e. a slow disturbance, not fast sensor noise.
-                tau_s=300.0,
+                # tau_s is the mean-reversion time constant in SECONDS (5 min): the bias drifts
+                # over that horizon, i.e. a slow disturbance, not fast sensor noise.
+                OuShape(mean=0.0, sigma=_CV_PROCESS_SIGMA[cv] * process_scale, tau_s=300.0),
                 dt_s=dt_s,
                 rng=rngs[6 + i],
             )
@@ -1162,20 +1148,29 @@ class MillCircuitPlant:
         if tag_id not in self._loop_tags:
             return  # read-only measured tag reached by an event: nothing to write
 
-        # _loop_tags maps each loop tag to the pair (loop name, kind), where kind is one of
-        # "out" (controller output, %), "sp" (active setpoint, same unit as the loop PV),
-        # "rsp" (remote setpoint, same unit as the loop PV), or "mode" (MAN / AUTO / CAS).
+        self._write_loop_tag(tag_id, value, enforce=enforce)
+
+    def _write_loop_tag(self, tag_id: str, value: float, *, enforce: bool) -> None:
+        """Dispatch a write on one loop member.
+
+        ``_loop_tags`` maps each loop tag to the pair (loop name, kind), where kind is one of
+        "out" (controller output, %), "sp" (active setpoint, same unit as the loop PV),
+        "rsp" (remote setpoint, same unit as the loop PV), or "mode" (MAN / AUTO / CAS).
+        """
         name, kind = self._loop_tags[tag_id]
         loop = self._loops[name]
         if kind == "out":
             self._write_output(loop, tag_id, value, enforce=enforce)
-        elif kind == "sp":
+            return
+        if kind == "sp":
             self._write_setpoint(loop, tag_id, value, enforce=enforce)
-        elif kind == "rsp":
+            return
+        if kind == "rsp":
             # The remote setpoint is written by the supervisory layer, which is trusted, so it is
-            # not subject to the mode rules above.
+            # not subject to the mode rules of out/sp.
             loop.rsp = float(value)
-        elif kind == "mode":
+            return
+        if kind == "mode":
             self._write_mode(loop, value)
 
     def _check_tag_is_writable(self, tag_id: str, *, enforce: bool) -> None:

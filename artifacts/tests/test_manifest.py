@@ -14,6 +14,7 @@ from crosscut_artifacts.manifest import (
     SUPPORTED_SCHEMA_VERSION,
     ArtifactError,
     ArtifactIntegrityError,
+    ArtifactMetadata,
     ArtifactVersionError,
     check_schema_version,
     npz_bytes,
@@ -27,6 +28,7 @@ from jsonschema import Draft202012Validator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CREATOR = {"tool": "crosscut-ident", "version": "0.1.0"}
 CREATED = "2026-10-10T12:00:00Z"
+METADATA = ArtifactMetadata(creator=CREATOR, created_utc=CREATED)
 
 
 def manifest_validator() -> Draft202012Validator:
@@ -47,9 +49,7 @@ def make(out: Path, **kwargs: Any) -> dict[str, Any]:
         out,
         "model",
         payload,
-        creator=CREATOR,
-        created_utc=CREATED,
-        **kwargs,
+        ArtifactMetadata(creator=CREATOR, created_utc=CREATED, **kwargs),
     )
 
 
@@ -76,6 +76,7 @@ def test_round_trip_validates_against_schema(tmp_path: Path) -> None:
     validate_signature(doc)
     validate_payload_paths(doc, tmp_path)
 
+
 def validate_manifest(doc: dict) -> None:
     """Validate the manifest against the schema.
 
@@ -86,21 +87,26 @@ def validate_manifest(doc: dict) -> None:
     errors = list(manifest_validator().iter_errors(doc))
     assert errors == [], [error.message for error in errors]
 
+
 def validate_schema_version(doc: dict) -> None:
     """Validate the schema version."""
     assert doc["schema_version"] == SUPPORTED_SCHEMA_VERSION
+
 
 def validate_artifact_type(doc: dict) -> None:
     """Validate the artifact type."""
     assert doc["artifact_type"] == "model"
 
+
 def validate_created_utc(doc: dict) -> None:
     """Validate the created UTC timestamp."""
     assert doc["created_utc"] == CREATED
 
+
 def validate_signature(doc: dict) -> None:
     """Validate the signature."""
     assert doc["signature"] is None
+
 
 def validate_payload_paths(doc: dict, tmp_path: Path) -> None:
     """Validate the payload paths and their contents."""
@@ -186,7 +192,7 @@ def test_reading_a_manifest_with_a_newer_major_version_fails(tmp_path: Path) -> 
 )
 def test_unsafe_payload_paths_are_rejected_on_write(tmp_path: Path, name: str) -> None:
     with pytest.raises(ValueError):
-        write_artifact(tmp_path / "x", "model", {name: b"x"}, creator=CREATOR, created_utc=CREATED)
+        write_artifact(tmp_path / "x", "model", {name: b"x"}, METADATA)
     assert not (tmp_path / "evil.bin").exists()
 
 
@@ -202,12 +208,12 @@ def test_unsafe_payload_paths_are_rejected_on_read(tmp_path: Path) -> None:
 
 def test_empty_payload_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        write_artifact(tmp_path / "x", "model", {}, creator=CREATOR, created_utc=CREATED)
+        write_artifact(tmp_path / "x", "model", {}, METADATA)
 
 
 def test_invalid_artifact_type_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        write_artifact(tmp_path / "x", "Bad Type", {"a": b"1"}, creator=CREATOR)
+        write_artifact(tmp_path / "x", "Bad Type", {"a": b"1"}, ArtifactMetadata(creator=CREATOR))
 
 
 def test_tags_signature_is_stable_order_sensitive_and_hex() -> None:

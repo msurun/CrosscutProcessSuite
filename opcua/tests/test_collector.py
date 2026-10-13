@@ -11,8 +11,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from crosscut_opcua.collector import collect
-from crosscut_opcua.server import HEARTBEAT_OK_TAG, HEARTBEAT_TAG, TIME_TAG, PlantServer
+from crosscut_opcua.collector import CollectorConfig, collect
+from crosscut_opcua.server import (
+    HEARTBEAT_OK_TAG,
+    HEARTBEAT_TAG,
+    TIME_TAG,
+    PlantServer,
+    ServerConfig,
+)
 from crosscut_sim.core import Scenario
 from crosscut_sim.dataset import compute_data_sha256, read_dataset, to_wide
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
@@ -51,12 +57,14 @@ def _create_server() -> PlantServer:
     return PlantServer(
         WoodBerryPlant(),
         Scenario(measurement_noise=1.0),
-        seed=3,
-        host="127.0.0.1",
-        port=free_port(),
-        speed=50.0,
-        tick_s=0.02,
-        heartbeat_timeout_s=60.0,
+        ServerConfig(
+            seed=3,
+            host="127.0.0.1",
+            port=free_port(),
+            speed=50.0,
+            tick_s=0.02,
+            heartbeat_timeout_s=60.0,
+        ),
     )
 
 
@@ -64,9 +72,7 @@ async def _collect_from_server(
     server: PlantServer, out_dir: Path, sim_duration_s: float
 ) -> dict[str, object]:
     """Collect data from a running PlantServer into the output directory."""
-    return await collect(
-        server.endpoint,
-        out_dir,
+    config = CollectorConfig(
         sim_duration_s=sim_duration_s,
         sample_period_s=1.0,
         dataset_id="wb_opcua_test",
@@ -75,6 +81,7 @@ async def _collect_from_server(
         seed=3,
         timeout_s=30.0,
     )
+    return await collect(server.endpoint, out_dir, config)
 
 
 def test_collector_records_a_valid_dataset(tmp_path: Path) -> None:

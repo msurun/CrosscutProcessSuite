@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from crosscut_sim.disturbances import OrnsteinUhlenbeck
+from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
 
 
 def run(ornstein_uhlenbeck: OrnsteinUhlenbeck, sample_count: int) -> np.ndarray:
@@ -14,7 +14,7 @@ def run(ornstein_uhlenbeck: OrnsteinUhlenbeck, sample_count: int) -> np.ndarray:
 
 def test_starts_at_mean_and_zero_sigma_is_constant() -> None:
     temperature = OrnsteinUhlenbeck(
-        mean=2.45, sigma=0.0, tau_s=600.0, dt_s=1.0, rng=np.random.default_rng(1)
+        OuShape(mean=2.45, sigma=0.0, tau_s=600.0), dt_s=1.0, rng=np.random.default_rng(1)
     )
     assert temperature.value == 2.45
     assert all(value == 2.45 for value in run(temperature, 100))
@@ -23,7 +23,7 @@ def test_starts_at_mean_and_zero_sigma_is_constant() -> None:
 def test_stationary_statistics() -> None:
     mean, sigma, tau = 2.45, 0.1, 60.0
     ou = OrnsteinUhlenbeck(
-        mean=mean, sigma=sigma, tau_s=tau, dt_s=1.0, rng=np.random.default_rng(7)
+        OuShape(mean=mean, sigma=sigma, tau_s=tau), dt_s=1.0, rng=np.random.default_rng(7)
     )
     x = run(ou, 300_000)[1000:]
     assert x.mean() == pytest.approx(mean, abs=0.01)
@@ -36,7 +36,7 @@ def test_determinism_and_seed_sensitivity() -> None:
     def make(seed: int) -> OrnsteinUhlenbeck:
         """Build an Ornstein-Uhlenbeck process with fixed parameters and a seeded RNG."""
         return OrnsteinUhlenbeck(
-            mean=0.0, sigma=1.0, tau_s=100.0, dt_s=1.0, rng=np.random.default_rng(seed)
+            OuShape(mean=0.0, sigma=1.0, tau_s=100.0), dt_s=1.0, rng=np.random.default_rng(seed)
         )
 
     path_from_seed_three, repeat_from_seed_three, path_from_seed_four = (
@@ -51,8 +51,8 @@ def test_determinism_and_seed_sensitivity() -> None:
 def test_invalid_parameters() -> None:
     rng = np.random.default_rng(0)
     with pytest.raises(ValueError):
-        OrnsteinUhlenbeck(mean=0.0, sigma=-1.0, tau_s=10.0, dt_s=1.0, rng=rng)
+        OrnsteinUhlenbeck(OuShape(0.0, -1.0, 10.0), dt_s=1.0, rng=rng)
     with pytest.raises(ValueError):
-        OrnsteinUhlenbeck(mean=0.0, sigma=1.0, tau_s=0.0, dt_s=1.0, rng=rng)
+        OrnsteinUhlenbeck(OuShape(0.0, 1.0, 0.0), dt_s=1.0, rng=rng)
     with pytest.raises(ValueError):
-        OrnsteinUhlenbeck(mean=0.0, sigma=1.0, tau_s=10.0, dt_s=0.0, rng=rng)
+        OrnsteinUhlenbeck(OuShape(0.0, 1.0, 10.0), dt_s=0.0, rng=rng)

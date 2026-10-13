@@ -160,9 +160,7 @@ def _segment_metrics(
     return harris, oscillation.period_s
 
 
-def _stiction_verdict(
-    pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings
-) -> str:
+def _stiction_verdict(pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings) -> str:
     """Stiction verdict for one uninterrupted AUTO stretch.
 
     Stiction is valve stick-slip: the controller output moves but the process
@@ -317,9 +315,7 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
     # inactive rows (startup/shutdown gaps) would otherwise bias the fraction. out_low/out_high are
     # the output limits in percent of output span, and the resulting saturation is a fraction in [0,
     # 1].
-    saturation = saturation_fraction(
-        arrays.out[arrays.active], settings.out_low, settings.out_high
-    )
+    saturation = saturation_fraction(arrays.out[arrays.active], settings.out_low, settings.out_high)
     return LoopReport(
         n_samples=arrays.n_samples,
         service_factor=float(np.mean(arrays.active)),

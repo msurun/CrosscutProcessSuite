@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from asyncua import Server, ua
 from asyncua.common.node import Node
@@ -35,6 +36,33 @@ def _node_id(idx: int, identifier: str) -> ua.NodeId:
     return ua.NodeId.from_string(f"ns={idx};s={identifier}")
 
 
+@dataclass(frozen=True)
+class ServerConfig:
+    """Network and timing settings of a :class:`PlantServer`.
+
+    The scenario is replayed in real time, scaled by ``speed``: 1.0 means one simulated second
+    per wall-clock second, 2.0 runs it at double rate. ``tick_s`` is the period of the
+    simulation loop in wall-clock seconds. The client is expected to change the heartbeat
+    variable at least once every ``heartbeat_timeout_s`` seconds; if it does not, CAS loops
+    fall back to AUTO.
+
+    Raises:
+        ValueError: if speed, tick_s or heartbeat_timeout_s is not positive, because a zero or
+            negative interval would make the loop spin forever or run backwards in time.
+    """
+
+    seed: int
+    host: str = "127.0.0.1"
+    port: int = 4840
+    speed: float = 1.0
+    tick_s: float = 0.1
+    heartbeat_timeout_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        if self.speed <= 0 or self.tick_s <= 0 or self.heartbeat_timeout_s <= 0:
+            raise ValueError("speed, tick_s and heartbeat_timeout_s must be positive")
+
+
 class PlantServer:
     """Serve a plant over OPC UA (anonymous, no security) while it runs in the background.
 
@@ -43,43 +71,15 @@ class PlantServer:
     is stored unchanged, which avoids any feedback loop.
     """
 
-    def __init__(
-        self,
-        plant: Plant,
-        scenario: Scenario,
-        *,
-        seed: int,
-        host: str = "127.0.0.1",
-        port: int = 4840,
-        speed: float = 1.0,
-        tick_s: float = 0.1,
-        heartbeat_timeout_s: float = 10.0,
-    ) -> None:
+    def __init__(self, plant: Plant, scenario: Scenario, config: ServerConfig) -> None:
         """Create the OPC UA server that mirrors the plant and runs the scenario.
 
-        The scenario is replayed in real time, scaled by ``speed``: a value of
-        1.0 means one simulated second per wall-clock second, 2.0 runs it at
-        double rate. ``tick_s`` is the period of the simulation loop, in
-        seconds. The client is expected to flip a heartbeat variable at least
-        once every ``heartbeat_timeout_s`` seconds; if it doesn't, the server
-        considers the client gone and stops publishing.
-
-        Raises:
-            ValueError: if speed, tick_s or heartbeat_timeout_s is not positive,
-                because a zero or negative interval would make the loop spin
-                forever or run backwards in time.
+        Nothing is started here; see :class:`ServerConfig` for the meaning of the settings
+        and the validation it performs.
         """
-        if speed <= 0 or tick_s <= 0 or heartbeat_timeout_s <= 0:
-            raise ValueError("speed, tick_s and heartbeat_timeout_s must be positive")
         self.plant = plant
         self._scenario = scenario
-        self._seed = seed
-        self._host = host
-        self._port = port
-        self._speed = speed
-        self._tick_s = tick_s
-        self._heartbeat_timeout_s = heartbeat_timeout_s
-
+        self._config = config
 
         # The asyncua server object, created lazily in start() so that building
         # the instance is cheap and side-effect free.
@@ -103,7 +103,7 @@ class PlantServer:
     @property
     def endpoint(self) -> str:
         """Return the OPC UA endpoint URL for this client's host and port."""
-        return f"opc.tcp://{self._host}:{self._port}"
+        return f"opc.tcp://{self._config.host}:{self._config.port}"
 
     async def __aenter__(self) -> PlantServer:
         await self.start()
@@ -120,66 +120,13 @@ class PlantServer:
         writable tags get an attribute value setter that routes external writes
         back into the plant.  Finally the tick loop is scheduled as a task.
         """
-        self.plant.reset(self._seed, self._scenario)
+        self.plant.reset(self._config.seed, self._scenario)
         self._heartbeat_value = 0
         self._heartbeat_ok = True
 
-        server = Server()
-        await server.init()
-        server.set_endpoint(self.endpoint)
-        server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
-        # Register the namespace; `idx` is the numeric index that every NodeId
-        # built from this namespace must carry so clients can resolve it.
-        idx = await server.register_namespace(NAMESPACE_URI)
-
-        # A variable cannot live at the root of the address space, so the tags
-        # are grouped under a single "plant" object node.
-        plant_obj = await server.nodes.objects.add_object(
-            _node_id(idx, PLANT_OBJECT_NAME), PLANT_OBJECT_NAME
-        )
-        # Nodes that accept writes are collected here so their value setters can
-        # be installed after the server is running.
-        writable: list[tuple[str, Node]] = []
-        for spec in self.plant.tags:
-            value, _ = self.plant.read(spec.id)
-            # Every tag is exposed as an OPC UA Double, hence the float(...) cast
-            # of the raw plant value.
-            node = await plant_obj.add_variable(
-                _node_id(idx, spec.id),
-                spec.id,
-                float(value),
-                varianttype=ua.VariantType.Double,
-            )
-            self._nodes[spec.id] = node
-            if spec.writable:
-                await node.set_writable()
-                writable.append((spec.id, node))
-
-        # Heartbeat variable the client writes: a change proves the client is alive.
-        # The server stores the received value and compares it on each write.
-        self._nodes[HEARTBEAT_TAG] = await plant_obj.add_variable(
-            _node_id(idx, HEARTBEAT_TAG),
-            HEARTBEAT_TAG,
-            0,
-            varianttype=ua.VariantType.Int64,
-        )
-        await self._nodes[HEARTBEAT_TAG].set_writable()
-        writable.append((HEARTBEAT_TAG, self._nodes[HEARTBEAT_TAG]))
-
-        # Health flag the server updates. False means the heartbeat has timed out.
-        self._nodes[HEARTBEAT_OK_TAG] = await plant_obj.add_variable(
-            _node_id(idx, HEARTBEAT_OK_TAG),
-            HEARTBEAT_OK_TAG,
-            True,
-            varianttype=ua.VariantType.Boolean,
-        )
-        # Plant model time, exposed as a Double so clients can correlate with the plant.
-        self._nodes[TIME_TAG] = await plant_obj.add_variable(
-            _node_id(idx, TIME_TAG),
-            TIME_TAG,
-            float(self.plant.time_s),
-            varianttype=ua.VariantType.Double,
-        )
+        server, plant_obj, idx = await self._create_address_space()
+        writable = await self._add_plant_variables(plant_obj, idx)
+        writable.append(await self._add_support_variables(plant_obj, idx))
 
         await server.start()
         self._server = server
@@ -194,6 +141,68 @@ class PlantServer:
         # The tick loop runs concurrently so start() can return while publishing
         # continues in the background.
         self._task = asyncio.create_task(self._run())
+
+    async def _create_address_space(self) -> tuple[Server, Node, int]:
+        """Create the (not yet started) server and the object node that groups all tags.
+
+        Returns the server, the plant object node and the namespace index ``idx``: the numeric
+        index every NodeId built from this namespace must carry so clients can resolve it.
+        """
+        server = Server()
+        await server.init()
+        server.set_endpoint(self.endpoint)
+        server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
+        idx = await server.register_namespace(NAMESPACE_URI)
+        # A variable cannot live at the root of the address space, so the tags
+        # are grouped under a single "plant" object node.
+        plant_obj = await server.nodes.objects.add_object(
+            _node_id(idx, PLANT_OBJECT_NAME), PLANT_OBJECT_NAME
+        )
+        return server, plant_obj, idx
+
+    async def _add_plant_variables(self, plant_obj: Node, idx: int) -> list[tuple[str, Node]]:
+        """Add one Double variable per plant tag; return the writable ones with their ids."""
+        writable: list[tuple[str, Node]] = []
+        for spec in self.plant.tags:
+            value, _ = self.plant.read(spec.id)
+            # Every tag is exposed as an OPC UA Double, hence the float(...) cast
+            # of the raw plant value.
+            node = await plant_obj.add_variable(
+                _node_id(idx, spec.id), spec.id, float(value), varianttype=ua.VariantType.Double
+            )
+            self._nodes[spec.id] = node
+            if spec.writable:
+                await node.set_writable()
+                writable.append((spec.id, node))
+        return writable
+
+    async def _add_support_variables(self, plant_obj: Node, idx: int) -> tuple[str, Node]:
+        """Add the heartbeat, heartbeat status and plant time nodes.
+
+        Returns the heartbeat id and node: the only one of the three a client may write.
+        """
+        # Heartbeat variable the client writes: a change proves the client is alive.
+        # The server stores the received value and compares it on each write.
+        heartbeat = await plant_obj.add_variable(
+            _node_id(idx, HEARTBEAT_TAG), HEARTBEAT_TAG, 0, varianttype=ua.VariantType.Int64
+        )
+        await heartbeat.set_writable()
+        self._nodes[HEARTBEAT_TAG] = heartbeat
+        # Health flag the server updates. False means the heartbeat has timed out.
+        self._nodes[HEARTBEAT_OK_TAG] = await plant_obj.add_variable(
+            _node_id(idx, HEARTBEAT_OK_TAG),
+            HEARTBEAT_OK_TAG,
+            True,
+            varianttype=ua.VariantType.Boolean,
+        )
+        # Plant model time, exposed as a Double so clients can correlate with the plant.
+        self._nodes[TIME_TAG] = await plant_obj.add_variable(
+            _node_id(idx, TIME_TAG),
+            TIME_TAG,
+            float(self.plant.time_s),
+            varianttype=ua.VariantType.Double,
+        )
+        return HEARTBEAT_TAG, heartbeat
 
     async def stop(self) -> None:
         """Stop the tick loop and the server; releases the port.
@@ -242,7 +251,7 @@ class PlantServer:
         # wall-clock period of one iteration (seconds), dt_s is the simulation
         # step size (seconds). max(1, ...) guarantees at least one step even at
         # very low speed factors.
-        steps = max(1, round(self._speed * self._tick_s / self._scenario.dt_s))
+        steps = max(1, round(self._config.speed * self._config.tick_s / self._scenario.dt_s))
         while True:
             # Monotonic clock, not wall time: it cannot jump backwards on NTP or
             # DST adjustments, so the elapsed measurement below stays non-negative.
@@ -256,7 +265,7 @@ class PlantServer:
             # the argument non-negative when stepping and publishing took longer
             # than tick_s, in which case we run again immediately instead of
             # raising.
-            await asyncio.sleep(max(0.0, self._tick_s - elapsed))
+            await asyncio.sleep(max(0.0, self._config.tick_s - elapsed))
 
     async def _publish(self) -> None:
         """Copy every plant tag, the plant time and the heartbeat status to the address space.
@@ -326,7 +335,7 @@ class PlantServer:
     # ----- heartbeat watchdog ----------------------------------------------------------------
 
     def _heartbeat_alive(self, now: float) -> bool:
-        return now - self._last_heartbeat_change <= self._heartbeat_timeout_s
+        return now - self._last_heartbeat_change <= self._config.heartbeat_timeout_s
 
     def _update_watchdog(self, now: float) -> None:
         alive = self._heartbeat_alive(now)
@@ -373,39 +382,32 @@ class PlantServer:
     # ----- client writes ---------------------------------------------------------------------
 
     def _make_setter(self, tag_id: str) -> Callable[[NodeData, AttributeIds, ua.DataValue], None]:
+        """Return the callback the OPC UA stack invokes when a client writes ``tag_id``."""
+
         def setter(node: NodeData, attr: AttributeIds, value: ua.DataValue) -> None:
-            """Apply a client write to the node, routing it through the plant when the server is
-            not publishing.
-
-            A "setter" is the callback the OPC UA stack invokes when a client writes an
-            attribute of `node`. There are two modes:
-
-            * publishing: the server owns the value, so the write is stored directly;
-            * not publishing: the value is forwarded to the plant (the simulated process),
-              and the node is then refreshed from what the plant actually holds, because
-              the plant may clamp or reject the requested value.
-
-            Args:
-                node: The node whose attribute is being written.
-                attr: Which attribute of the node (e.g. Value) is written.
-                value: The value sent by the client, wrapped in an OPC UA DataValue.
-            """
+            """Store the write directly while publishing, otherwise route it via the plant."""
             if self._publishing:
                 node.attributes[attr].value = value
-                return
-            if tag_id == HEARTBEAT_TAG:
+            elif tag_id == HEARTBEAT_TAG:
                 self._on_heartbeat(int(value.Value.Value))  # type: ignore[union-attr]
                 node.attributes[attr].value = value
-                return
-            self._on_client_write(tag_id, float(value.Value.Value))  # type: ignore[union-attr]
-            # Read back from the plant: `plant.read` returns a tuple, element 0 is
-            # the current value (a float in engineering units), element 1 is its
-            # quality. The node always reflects what the plant holds after the write
-            # attempt.
-            stored = float(self.plant.read(tag_id)[0])
-            node.attributes[attr].value = ua.DataValue(ua.Variant(stored, ua.VariantType.Double))
+            else:
+                self._apply_client_write(node, attr, tag_id, value)
 
         return setter
+
+    def _apply_client_write(
+        self, node: NodeData, attr: AttributeIds, tag_id: str, value: ua.DataValue
+    ) -> None:
+        """Forward a client write to the plant, then refresh the node from the plant.
+
+        The plant may clamp or reject the requested value, so the node always reflects what
+        the plant holds after the write attempt (``plant.read`` returns ``(value, quality)``;
+        element 0 is the value in engineering units).
+        """
+        self._on_client_write(tag_id, float(value.Value.Value))  # type: ignore[union-attr]
+        stored = float(self.plant.read(tag_id)[0])
+        node.attributes[attr].value = ua.DataValue(ua.Variant(stored, ua.VariantType.Double))
 
     def _on_heartbeat(self, value: int) -> None:
         if value != self._heartbeat_value:
@@ -580,9 +582,7 @@ def _build_server(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     # Units: speed is a simulation time multiplier (1.0 = real time), tick_s is the
     # interval between simulation steps in seconds, heartbeat_timeout_s is how long a
     # client may stay silent before the server drops it, in seconds.
-    return PlantServer(
-        PLANTS[args.plant](),
-        scenario,
+    config = ServerConfig(
         seed=args.seed,
         host=args.host,
         port=args.port,
@@ -590,6 +590,7 @@ def _build_server(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         tick_s=args.tick,
         heartbeat_timeout_s=args.heartbeat_timeout,
     )
+    return PlantServer(PLANTS[args.plant](), scenario, config)
 
 
 def _run_server_until_interrupted(server: PlantServer, args: argparse.Namespace) -> None:

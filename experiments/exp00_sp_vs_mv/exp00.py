@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-from crosscut_sim.dataset import read_dataset, record, to_wide
+from crosscut_sim.dataset import RunInfo, read_dataset, record, to_wide
 from crosscut_sim.plants.mill_circuit import MillCircuitPlant
 from crosscut_sim.scenarios import build_scenario
 
@@ -179,13 +179,15 @@ def simulate(seed: int, scenario_name: str, hours: float, workdir: Path) -> dict
         MillCircuitPlant(),
         scenario,
         out,
-        seed=seed,
-        dataset_id=out.name,
-        plant_name="mill_circuit",
-        scenario_name=scenario_name,
-        # Sampling period in seconds; the dataset resamples the plant's internal integration step
-        # down to this coarser grid, which is what downstream models are trained on.
-        sample_period_s=SAMPLE_S,
+        RunInfo(
+            seed=seed,
+            dataset_id=out.name,
+            plant_name="mill_circuit",
+            scenario_name=scenario_name,
+            # Sampling period in seconds; the dataset resamples the plant's integration step
+            # down to this coarser grid, which is what downstream models are trained on.
+            sample_period_s=SAMPLE_S,
+        ),
     )
     # `read_dataset` returns (metadata, long-format frames) — one row per (time, variable) pair.
     # `to_wide` pivots that into one column per variable, which is the layout we return.

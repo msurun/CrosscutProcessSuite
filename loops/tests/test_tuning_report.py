@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from crosscut_loops.tuning_report import TuningReport, build_tuning_report, render_markdown
-from test_identification import simulate_fopdt
+from test_identification import SimulationSettings, simulate_fopdt
 
 GAIN = 2.0
 TIME_CONSTANT_S = 30.0
@@ -32,7 +32,7 @@ STICTION_REASON = "stiction suspected: repair the valve before retuning"
 
 def make_open_loop_data() -> tuple[np.ndarray, np.ndarray]:
     """Return (u, y) from a simulated FOPDT process with known parameters."""
-    return simulate_fopdt(GAIN, TIME_CONSTANT_S, DELAY_S, seed=1)
+    return simulate_fopdt(GAIN, TIME_CONSTANT_S, DELAY_S, SimulationSettings(seed=1))
 
 
 def make_white_noise_data() -> tuple[np.ndarray, np.ndarray]:

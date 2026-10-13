@@ -18,15 +18,15 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 from asyncua import Client, ua
 from crosscut_sim.core import BAD, GOOD
-from crosscut_sim.dataset import write_dataset
+from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_import import _sanitize_tag_name
+from crosscut_connectors.import_target import ImportTarget
 
 CONNECT_TIMEOUT_S = 5.0
 NS_PER_S = 1_000_000_000
@@ -51,14 +51,27 @@ class OpcUaImportReport:
     n_bad_values: int
 
 
+@dataclass(frozen=True)
+class PollPlan:
+    """How often and how many times the nodes are read.
+
+    Attributes
+    ----------
+    period_s: float
+        Delay in seconds between two samples; must be strictly positive.
+    n_samples: int
+        Number of samples to take; must be at least one.
+    """
+
+    period_s: float = 1.0
+    n_samples: int = 10
+
+
 def import_opcua(
     endpoint: str,
     nodes: Mapping[str, str],
-    out_dir: Path,
-    *,
-    dataset_id: str,
-    period_s: float = 1.0,
-    n_samples: int = 10,
+    target: ImportTarget,
+    plan: PollPlan = PollPlan(),  # noqa: B008 - frozen dataclass, safe as a shared default
 ) -> OpcUaImportReport:
     """Poll the given OPC UA nodes and write the samples as a dataset.
 
@@ -73,14 +86,11 @@ def import_opcua(
         OPC UA endpoint URL of the server to connect to.
     nodes: Mapping[str, str]
         Mapping of output tag name to OPC UA node id string.
-    out_dir: Path
-        Destination directory for the created dataset.
-    dataset_id: str
-        Identifier used inside the dataset metadata.
-    period_s: float
-        Delay in seconds between two samples; must be strictly positive.
-    n_samples: int
-        Number of samples to take; must be at least one.
+    target: ImportTarget
+        Output directory and dataset id (its timezone is unused: samples are
+        stamped from the local clock in UTC).
+    plan: PollPlan
+        Sampling period and number of samples.
 
     Returns
     -------
@@ -90,12 +100,12 @@ def import_opcua(
     Raises
     ------
     ValueError
-        If ``nodes`` is empty, or ``n_samples`` is not positive, or ``period_s``
-        is not strictly positive.
+        If ``nodes`` is empty, or ``plan.n_samples`` is not positive, or
+        ``plan.period_s`` is not strictly positive.
     ConnectionError
         If the endpoint cannot be reached, or the connection times out.
     """
-    _validate_arguments(nodes, n_samples, period_s)
+    _validate_arguments(nodes, plan)
 
     # Tag names come from an external config and may contain characters that are
     # illegal in column names, so each one is normalised into a "tag id".
@@ -118,29 +128,36 @@ def import_opcua(
     # ``ts_ns`` are UTC epoch timestamps in nanoseconds (int64), shape
     # (n_samples,); ``values`` is shape (n_tags, n_samples); ``qualities`` is
     # the same shape and holds local GOOD/BAD ints, not raw OPC UA StatusCodes.
-    ts_ns, values, qualities = asyncio.run(
-        _collect_samples(endpoint, node_ids, period_s, n_samples)
-    )
+    ts_ns, values, qualities = asyncio.run(_collect_samples(endpoint, node_ids, plan))
 
     # Persist everything in one call so the dataset is written atomically.
-    # ``start_utc`` is the ISO-8601 UTC time of the first sample; ``tags_document``
-    # records, for each tag id, which OPC UA node id it was read from.
-    write_dataset(
-        out_dir,
-        ts_ns,
-        unique_tag_ids,
-        values,
-        qualities,
-        dataset_id=dataset_id,
-        source={"kind": "opcua", "endpoint": endpoint},
-        start_utc=_start_iso(ts_ns),
-        tags_document=_tags_document(unique_tag_ids, node_ids),
-    )
+    info = _dataset_info(target.dataset_id, endpoint, ts_ns, (unique_tag_ids, node_ids))
+    write_dataset(target.out_dir, Samples(ts_ns, unique_tag_ids, values, qualities), info)
 
     return _make_report(values, len(unique_tag_ids))
 
 
-def _validate_arguments(nodes: Mapping[str, str], n_samples: int, period_s: float) -> None:
+def _dataset_info(
+    dataset_id: str,
+    endpoint: str,
+    ts_ns: np.ndarray,
+    tags_and_nodes: tuple[list[str], list[str]],
+) -> DatasetInfo:
+    """Describe the dataset: OPC UA source, first-sample time and tag-to-node mapping.
+
+    ``tags_and_nodes`` is (tag_ids, node_ids), parallel lists: the tags document
+    records, for each tag id, which OPC UA node id it was read from.
+    """
+    tag_ids, node_ids = tags_and_nodes
+    return DatasetInfo(
+        dataset_id=dataset_id,
+        source={"kind": "opcua", "endpoint": endpoint},
+        start_utc=_start_iso(ts_ns),
+        tags_document=_tags_document(tag_ids, node_ids),
+    )
+
+
+def _validate_arguments(nodes: Mapping[str, str], plan: PollPlan) -> None:
     """Reject arguments that would make the import meaningless or fail later.
 
     Called before any file or network access so the caller gets an early, clear
@@ -149,8 +166,8 @@ def _validate_arguments(nodes: Mapping[str, str], n_samples: int, period_s: floa
     Args:
         nodes: Mapping of tag name -> node identifier. The tag is the column
             name used in the output; the value is the source path or address.
-        n_samples: Number of samples to read per tag. Unit: samples (a count).
-        period_s: Sampling interval between two consecutive samples. Unit: seconds.
+        plan: Sampling plan; ``n_samples`` is a count of samples per tag and
+            ``period_s`` the interval between two consecutive samples, in seconds.
 
     Raises:
         ValueError: If `nodes` is empty, if `n_samples` is below 1, or if
@@ -162,17 +179,15 @@ def _validate_arguments(nodes: Mapping[str, str], n_samples: int, period_s: floa
         raise ValueError("nodes must contain at least one tag")
     # A count of samples is meaningless below 1; reading zero samples would
     # yield an empty frame that later aggregation steps cannot handle.
-    if n_samples < 1:
+    if plan.n_samples < 1:
         raise ValueError("n_samples must be at least 1")
     # period_s is the time step of the series, used to compute durations and
     # rates; zero would divide by zero there, a negative value would reverse time.
-    if period_s <= 0:
+    if plan.period_s <= 0:
         raise ValueError("period_s must be strictly positive")
 
 
-def _check_identifier_uniqueness(
-    nodes: Mapping[str, str], tag_ids: list[str]
-) -> list[str]:
+def _check_identifier_uniqueness(nodes: Mapping[str, str], tag_ids: list[str]) -> list[str]:
     """Validate that sanitised tag identifiers are unique.
 
     A "tag identifier" is the sanitised (cleaned up) form of a node name: sanitisation
@@ -196,36 +211,18 @@ def _check_identifier_uniqueness(
 async def _collect_samples(
     endpoint: str,
     node_ids: list[str],
-    period_s: float,
-    n_samples: int,
+    plan: PollPlan,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Connect, take ``n_samples`` samples at ``period_s`` apart, then disconnect.
+    """Connect, take ``plan.n_samples`` samples ``plan.period_s`` apart, then disconnect.
 
-    Returns three parallel arrays, each shaped ``(len(node_ids), n_samples)``:
-    timestamps in nanoseconds since the epoch, values, and OPC UA status codes.
-    A timestamp is shared by every node read in the same round, so all columns
-    are sampled at the same instants and line up row by row.
+    Returns timestamps ``(n_samples,)`` in nanoseconds since the epoch, then values and
+    qualities, each shaped ``(len(node_ids), n_samples)``. A timestamp is shared by
+    every node read in the same round, so all columns line up.
     """
-    # Accumulate samples in lists first; numpy arrays would need resizing on every round.
-    ts_ns: list[int] = []
-    rows: list[list[float]] = []
-    # One growing quality list per node, in the same order as `node_ids`.
-    column_qualities: list[list[int]] = [[] for _ in node_ids]
-
     client = Client(url=endpoint, timeout=CONNECT_TIMEOUT_S)
     try:
         await _connect(client)
-        for sample_index in range(n_samples):
-            # The first call returns immediately; later ones wait out the period.
-            await _sleep_before_next_sample(sample_index, period_s)
-            ts_ns.append(time.time_ns())
-            # `sample` is a list of (value, quality) pairs, one per node in `node_ids`.
-            sample = await _sample_all(client, node_ids)
-            rows.append([value for value, _ in sample])
-            # `zip` pairs each quality column with its node's (value, quality) pair;
-            # `strict=True` guards against a server returning a different node count.
-            for column, (_, quality) in zip(column_qualities, sample, strict=True):
-                column.append(quality)
+        ts_ns, rows, column_qualities = await _poll_rounds(client, node_ids, plan)
     finally:
         # Close the session even if a read or a sleep raised.
         await _disconnect(client)
@@ -236,6 +233,28 @@ async def _collect_samples(
         np.array(rows, dtype=np.float64).T,
         np.array(column_qualities, dtype=np.uint8).T,
     )
+
+
+async def _poll_rounds(
+    client: Client, node_ids: list[str], plan: PollPlan
+) -> tuple[list[int], list[list[float]], list[list[int]]]:
+    """Read every node ``plan.n_samples`` times; return timestamps, value rows, quality columns."""
+    # Accumulate in lists first; numpy arrays would need resizing on every round.
+    ts_ns: list[int] = []
+    rows: list[list[float]] = []
+    # One growing quality list per node, in the same order as `node_ids`.
+    column_qualities: list[list[int]] = [[] for _ in node_ids]
+    for sample_index in range(plan.n_samples):
+        # The first call returns immediately; later ones wait out the period.
+        await _sleep_before_next_sample(sample_index, plan.period_s)
+        ts_ns.append(time.time_ns())
+        # `sample` is a list of (value, quality) pairs, one per node in `node_ids`.
+        sample = await _sample_all(client, node_ids)
+        rows.append([value for value, _ in sample])
+        # `strict=True` guards against a server returning a different node count.
+        for column, (_, quality) in zip(column_qualities, sample, strict=True):
+            column.append(quality)
+    return ts_ns, rows, column_qualities
 
 
 async def _connect(client: Client) -> None:
@@ -334,9 +353,7 @@ def _is_status_good(status_code: Any) -> bool:
 
 def _start_iso(ts_ns: np.ndarray) -> str:
     """Return the first timestamp as an ISO-8601 string with a trailing Z, whole seconds."""
-    return datetime.fromtimestamp(int(ts_ns[0]) // NS_PER_S, tz=UTC).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    return datetime.fromtimestamp(int(ts_ns[0]) // NS_PER_S, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _tags_document(tag_ids: list[str], node_ids: list[str]) -> dict[str, Any]:

@@ -235,41 +235,39 @@ def test_a_scalar_input_behaves_like_an_array_of_one_sample():
     assert inference.outputs["y"].crisp[0] < 2.0
 
 
+SYMMETRIC_INPUT = {
+    "id": "x",
+    "low": 0.0,
+    "high": 10.0,
+    "terms": [{"name": "any", "shape": "trap", "params": [0.0, 0.0, 10.0, 10.0]}],
+}
+SYMMETRIC_OUTPUT = {
+    "id": "y",
+    "low": 0.0,
+    "high": 10.0,
+    "terms": [
+        {"name": "left", "shape": "tri", "params": [0.0, 2.0, 4.0]},
+        {"name": "right", "shape": "tri", "params": [6.0, 8.0, 10.0]},
+    ],
+}
+
+
+def _always_fires_rule(rule_id: str, output_term: str) -> dict:
+    """A rule that fires fully for any x and asks for the given output term."""
+    return {
+        "id": rule_id,
+        "if": [{"variable": "x", "is": "any"}],
+        "then": {"variable": "y", "is": output_term},
+    }
+
+
 def test_two_symmetric_rules_meet_in_the_middle_of_the_universe():
     system = system_from_dict(
         {
             "name": "symmetric",
-            "inputs": [
-                {
-                    "id": "x",
-                    "low": 0.0,
-                    "high": 10.0,
-                    "terms": [{"name": "any", "shape": "trap", "params": [0.0, 0.0, 10.0, 10.0]}],
-                }
-            ],
-            "outputs": [
-                {
-                    "id": "y",
-                    "low": 0.0,
-                    "high": 10.0,
-                    "terms": [
-                        {"name": "left", "shape": "tri", "params": [0.0, 2.0, 4.0]},
-                        {"name": "right", "shape": "tri", "params": [6.0, 8.0, 10.0]},
-                    ],
-                }
-            ],
-            "rules": [
-                {
-                    "id": "r_left",
-                    "if": [{"variable": "x", "is": "any"}],
-                    "then": {"variable": "y", "is": "left"},
-                },
-                {
-                    "id": "r_right",
-                    "if": [{"variable": "x", "is": "any"}],
-                    "then": {"variable": "y", "is": "right"},
-                },
-            ],
+            "inputs": [SYMMETRIC_INPUT],
+            "outputs": [SYMMETRIC_OUTPUT],
+            "rules": [_always_fires_rule("r_left", "left"), _always_fires_rule("r_right", "right")],
         }
     )
     inference = evaluate(system, {"x": np.array([1.0])})

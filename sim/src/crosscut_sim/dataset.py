@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ import pyarrow.parquet as pq
 from crosscut_sim.core import SCHEMA_VERSION, Plant, Scenario
 
 DEFAULT_START_UTC = "2026-01-01T00:00:00Z"
+# The ``storage`` block of dataset.json: long-form Parquet, one file per UTC day under data/.
+STORAGE_BLOCK = {"format": "parquet", "layout": "long", "partitioning": "daily", "path": "data"}
 
 
 def compute_data_sha256(table: pa.Table) -> str:
@@ -114,193 +117,190 @@ def to_wide(table: pa.Table) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     return ts, {tag_id: values[:, j].copy() for j, tag_id in enumerate(unique_tags)}
 
 
-def record(
-    plant: Plant,
-    scenario: Scenario,
-    out_dir: str | Path,
-    *,
-    seed: int,
-    dataset_id: str,
-    plant_name: str,
-    scenario_name: str | None = None,
-    start_utc: str = DEFAULT_START_UTC,
-    sample_period_s: float | None = None,
-    git_commit: str | None = None,
-    created_utc: str | None = None,
-) -> dict[str, Any]:
+@dataclass(frozen=True)
+class RunInfo:
+    """Describes one simulated run: what to record and the metadata stored with it.
+
+    ``sample_period_s`` defaults to the scenario step. ``scenario_name`` is omitted from the
+    dataset's ``source`` block when ``None``.
+    """
+
+    seed: int
+    dataset_id: str
+    plant_name: str
+    scenario_name: str | None = None
+    start_utc: str = DEFAULT_START_UTC
+    sample_period_s: float | None = None
+    git_commit: str | None = None
+    created_utc: str | None = None
+
+
+@dataclass(frozen=True)
+class Samples:
+    """Samples in "wide" form: one row per timestamp, one column per tag.
+
+    ``ts_ns`` holds int64 nanoseconds since the Unix epoch, one per sample. ``values`` is a
+    float64 array and ``qualities`` a uint8 array (0 Good, 1 Uncertain, 2 Bad), both of
+    shape ``(n_samples, len(tag_ids))`` with the columns in ``tag_ids`` order.
+    """
+
+    ts_ns: np.ndarray
+    tag_ids: list[str]
+    values: np.ndarray
+    qualities: np.ndarray
+
+
+@dataclass(frozen=True)
+class DatasetInfo:
+    """Metadata of a dataset document (``dataset.json``) and its ``tags.json``.
+
+    ``source`` is the ``source`` block (``kind`` plus origin details); ``tags_document`` must
+    validate against ``tags.schema.json``; ``git_commit`` is recorded under ``code`` when
+    given; ``created_utc`` defaults to "now" in UTC.
+    """
+
+    dataset_id: str
+    source: dict[str, Any]
+    start_utc: str
+    tags_document: dict[str, Any]
+    git_commit: str | None = None
+    created_utc: str | None = None
+
+
+def _steps_between_samples(scenario: Scenario, sample_period_s: float) -> int:
+    """Return how many simulation steps separate two samples.
+
+    A sample must fall exactly on a simulation step, so the ratio of the sample period to the
+    step must be a whole number >= 1. ``atol=1e-9`` absorbs float rounding from the division.
+    """
+    ratio = sample_period_s / scenario.dt_s
+    if not np.isclose(ratio, round(ratio), atol=1e-9) or ratio < 1:
+        raise ValueError("sample_period_s must be an integer multiple of scenario.dt_s")
+    return round(ratio)
+
+
+def _sample_timestamps(scenario: Scenario, start_utc: str, every: int) -> np.ndarray:
+    """Return one int64 timestamp (ns since the Unix epoch) per kept sample.
+
+    ``start_utc`` is ISO-8601 "YYYY-MM-DDTHH:MM:SSZ"; ``tzinfo=UTC`` makes it timezone-aware
+    so the Unix conversion is well defined. Step ``i`` happens ``i * dt_s`` seconds after the
+    start; ``round`` avoids float noise such as 999999999 ns.
+    """
+    n_steps = round(scenario.duration_s / scenario.dt_s)
+    start_dt = datetime.strptime(start_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    start_ns = int(start_dt.timestamp()) * 10**9
+    return np.array(
+        [start_ns + round(i * scenario.dt_s * 1e9) for i in range(0, n_steps, every)],
+        dtype=np.int64,
+    )
+
+
+def _simulate_samples(
+    plant: Plant, scenario: Scenario, every: int, tag_ids: list[str]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Run the plant and return ``(values, qualities)``, one row per kept sample.
+
+    ``values[sample, column]`` is the tag value (float64, in the tag's own unit);
+    ``qualities[sample, column]`` is an OPC-UA style code (uint8, 0 = GOOD). Step 0 is always
+    sampled, so the sample count is ``ceil(n_steps / every)`` (``-(-a // b)`` is integer ceil).
+    """
+    n_steps = round(scenario.duration_s / scenario.dt_s)
+    n_samples = -(-n_steps // every)
+    values = np.zeros((n_samples, len(tag_ids)), dtype=np.float64)
+    qualities = np.zeros((n_samples, len(tag_ids)), dtype=np.uint8)
+    for step in range(n_steps):
+        if step % every == 0:
+            snapshot = plant.snapshot()
+            row = step // every
+            for column, tag_id in enumerate(tag_ids):
+                values[row, column], qualities[row, column] = snapshot[tag_id]
+        plant.step()
+    return values, qualities
+
+
+def _refuse_existing_dataset(out_dir: Path) -> None:
+    """Raise ``FileExistsError`` if ``out_dir`` already holds a dataset."""
+    if (out_dir / "dataset.json").exists():
+        raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
+
+
+def _run_source(run: RunInfo) -> dict[str, Any]:
+    """Return the ``source`` block of a simulated run.
+
+    Only defined keys are written, so a run without a named scenario omits the scenario key.
+    """
+    source: dict[str, Any] = {"kind": "sim", "plant": run.plant_name, "seed": run.seed}
+    if run.scenario_name is not None:
+        source["scenario"] = run.scenario_name
+    return source
+
+
+def record(plant: Plant, scenario: Scenario, out_dir: str | Path, run: RunInfo) -> dict[str, Any]:
     """Record a plant run into a Parquet dataset.
 
     Simulates ``plant`` over ``scenario``, samples every tag at a fixed period and
     writes the samples, their timestamps and their quality flags as a dataset.
 
     Sampling is decoupled from simulation: the plant advances in steps of
-    ``scenario.dt_s`` seconds, but only every ``sample_period_s``-th step is kept.
-    ``sample_period_s`` must be an integer multiple of ``scenario.dt_s`` so that a
+    ``scenario.dt_s`` seconds, but only every ``run.sample_period_s``-th step is kept.
+    ``run.sample_period_s`` must be an integer multiple of ``scenario.dt_s`` so that a
     tag value is always read exactly on a simulation step, never interpolated.
 
     Returns the write summary produced by :func:`write_dataset`.
     Raises ``FileExistsError`` if the target dataset already exists, and
-    ``ValueError`` if ``sample_period_s`` is not a valid multiple of ``scenario.dt_s``.
+    ``ValueError`` if ``run.sample_period_s`` is not a valid multiple of ``scenario.dt_s``.
     """
     out_dir = Path(out_dir)
-    if (out_dir / "dataset.json").exists():
-        raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
+    _refuse_existing_dataset(out_dir)
+    sample_period_s = scenario.dt_s if run.sample_period_s is None else run.sample_period_s
+    every = _steps_between_samples(scenario, sample_period_s)
 
-    sample_period_s = scenario.dt_s if sample_period_s is None else sample_period_s
-
-    ratio = sample_period_s / scenario.dt_s
-    # A sample must fall exactly on a simulation step: ratio must be a
-    # whole number >= 1. atol=1e-9 absorbs float rounding error from
-    # dividing two floats.
-    if not np.isclose(ratio, round(ratio), atol=1e-9) or ratio < 1:
-        raise ValueError("sample_period_s must be an integer multiple of scenario.dt_s")
-
-    plant.reset(seed, scenario)
-
-    # n_steps = total number of simulation steps in the run (unitless).
-    n_steps = round(scenario.duration_s / scenario.dt_s)
-    # every = number of simulation steps between two consecutive samples (unitless).
-    every = round(sample_period_s / scenario.dt_s)
-    # Number of samples kept. Integer ceiling division: -(-a // b) == ceil(a / b).
-    # Step 0 is always sampled, so n_steps == 0 still yields no samples while
-    # n_steps > 0 yields at least one.
-    n_samples = -(-n_steps // every)  # ceil: step 0 is always sampled
-
-    # start_dt parses the ISO-8601 "YYYY-MM-DDTHH:MM:SSZ" start timestamp;
-    # tzinfo=UTC makes it timezone-aware so Unix conversion below is well defined.
-    start_dt = datetime.strptime(start_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-    # start_ns is the run start expressed in nanoseconds since the Unix epoch
-    # (the unit used by the Arrow/Parquet timestamp column).
-    start_ns = int(start_dt.timestamp()) * 10**9
-    # One timestamp per kept sample, in ns since Unix epoch: start_ns
-    # plus elapsed simulation time i * scenario.dt_s seconds, converted
-    # to nanoseconds. round() avoids float noise such as 999999999.
-    ts = np.array(
-        [start_ns + round(i * scenario.dt_s * 1e9) for i in range(n_steps) if i % every == 0],
-        dtype=np.int64,
-    )
-
-    # tag_ids fixes the column order of the dataset; both arrays below share it.
+    plant.reset(run.seed, scenario)
+    ts = _sample_timestamps(scenario, run.start_utc, every)
+    # tag_ids fixes the column order of the dataset; values and qualities share it.
     tag_ids = plant.tags.ids()
-    # values[sample, column] is the tag value (float64, in the tag's own unit).
-    values = np.zeros((n_samples, len(tag_ids)), dtype=np.float64)
-    # qualities[sample, column] is the tag quality flag (uint8, OPC-UA style code:
-    # 0 = GOOD, any other value = not trustworthy).
-    qualities = np.zeros((n_samples, len(tag_ids)), dtype=np.uint8)
+    values, qualities = _simulate_samples(plant, scenario, every, tag_ids)
 
-    for i in range(n_steps):
-        if i % every == 0:
-            sample_idx = i // every
-            snapshot = plant.snapshot()
-            for j, tag_id in enumerate(tag_ids):
-                values[sample_idx, j], qualities[sample_idx, j] = snapshot[tag_id]
-        plant.step()
-
-    # Source metadata for dataset.json: what produced the data. Only
-    # defined keys are written, so a run without a named scenario omits
-    # the scenario key.
-    source: dict[str, Any] = {"kind": "sim", "plant": plant_name, "seed": seed}
-    if scenario_name is not None:
-        source["scenario"] = scenario_name
-
-    return write_dataset(
-        out_dir,
-        ts,
-        tag_ids,
-        values,
-        qualities,
-        dataset_id=dataset_id,
-        source=source,
-        start_utc=start_utc,
+    info = DatasetInfo(
+        dataset_id=run.dataset_id,
+        source=_run_source(run),
+        start_utc=run.start_utc,
         tags_document=plant.tags.to_document(),
-        git_commit=git_commit,
-        created_utc=created_utc,
+        git_commit=run.git_commit,
+        created_utc=run.created_utc,
     )
+    return write_dataset(out_dir, Samples(ts, tag_ids, values, qualities), info)
 
 
-def write_dataset(
-    out_dir: str | Path,
-    ts_ns: np.ndarray,
-    tag_ids: list[str],
-    values: np.ndarray,
-    qualities: np.ndarray,
-    *,
-    dataset_id: str,
-    source: dict[str, Any],
-    start_utc: str,
-    tags_document: dict[str, Any],
-    git_commit: str | None = None,
-    created_utc: str | None = None,
-) -> dict[str, Any]:
-    """Write samples as a Parquet dataset (tags.json, daily partitions, dataset.json).
+def _samples_to_table(samples: Samples) -> pa.Table:
+    """Convert wide samples to the long table with columns ts, tag_id, value, quality.
 
-    The samples arrive in "wide" form -- one row per timestamp, one column per tag -- and are
-    written in "long" form, one row per (timestamp, tag) pair, which is what Parquet and the
-    query layer expect.
-
-    Parameters
-    ----------
-    out_dir:
-        Dataset directory; created if missing. Must not already contain ``dataset.json``.
-    ts_ns:
-        Sample timestamps as int64 nanoseconds since the Unix epoch, one per sample.
-    tag_ids:
-        Tag identifiers, one per column of ``values`` and ``qualities``.
-    values:
-        Float64 array of shape ``(n_samples, len(tag_ids))``.
-    qualities:
-        Uint8 array of shape ``(n_samples, len(tag_ids))``; 0 Good, 1 Uncertain, 2 Bad.
-    source:
-        The ``source`` block of the dataset document (``kind`` plus origin details).
-    tags_document:
-        Document written to ``tags.json``; must validate against ``tags.schema.json``.
-    git_commit:
-        Commit that produced the data, recorded under ``code`` when given.
-    created_utc:
-        Timestamp for the ``created_utc`` field; defaults to "now" in UTC.
-
-    Returns
-    -------
-    dict[str, Any]
-        The dataset document that was written to ``dataset.json``.
-
-    Raises
-    ------
-    FileExistsError
-        If ``dataset.json`` already exists in ``out_dir``.
+    Every sample is repeated once per tag, and inside one sample the tag ids keep the column
+    order of the wide arrays. ``np.repeat(ts, n_tags)`` therefore lines up with
+    ``tag_ids * n_samples`` element-wise, and the flattened wide arrays follow the same
+    row-major order, which is what makes the four columns a table.
     """
-    out_dir = Path(out_dir)
-    if (out_dir / "dataset.json").exists():
-        raise FileExistsError(f"{out_dir / 'dataset.json'} already exists")
-
-    ts = np.asarray(ts_ns, dtype=np.int64)
-    n_samples = len(ts)
-    n_tags = len(tag_ids)
-    tag_id_list = list(tag_ids)
-
-    # Long form: every sample is repeated once per tag, and inside one sample the tag ids
-    # keep the column order of the wide arrays. np.repeat(ts, n_tags) therefore lines up
-    # with tag_id_list * n_samples element-wise, and the flattened wide columns follow the
-    # same row-major order, which is what makes the four columns a table.
-    ts_col = pa.array(np.repeat(ts, n_tags), type=pa.int64()).cast(pa.timestamp("ns", tz="UTC"))
-    tag_id_col = pa.array(tag_id_list * n_samples, type=pa.string())
-    value_col = pa.array(np.asarray(values, dtype=np.float64).flatten(), type=pa.float64())
-    quality_col = pa.array(np.asarray(qualities, dtype=np.uint8).flatten(), type=pa.uint8())
-
-    table = pa.Table.from_arrays(
+    ts = np.asarray(samples.ts_ns, dtype=np.int64)
+    ts_col = pa.array(np.repeat(ts, len(samples.tag_ids)), type=pa.int64()).cast(
+        pa.timestamp("ns", tz="UTC")
+    )
+    tag_id_col = pa.array(list(samples.tag_ids) * len(ts), type=pa.string())
+    value_col = pa.array(np.asarray(samples.values, dtype=np.float64).flatten(), type=pa.float64())
+    quality_col = pa.array(np.asarray(samples.qualities, dtype=np.uint8).flatten(), type=pa.uint8())
+    return pa.Table.from_arrays(
         [ts_col, tag_id_col, value_col, quality_col], names=["ts", "tag_id", "value", "quality"]
     )
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "tags.json").write_text(json.dumps(tags_document, indent=2) + "\n", encoding="utf-8")
 
-    # One Parquet file per UTC calendar day; rows are already ordered by time.
-    # A row's day is its timestamp floored to a whole day: integer division by 86_400 * 10**9 ns
-    # (the number of nanoseconds in 24 h) yields the day number since the epoch, so rows sharing
-    # a day number share a file. np.diff(day_index) is non-zero only where the day changes;
-    # adding 1 to the flatnonzero result gives the first row index of each new day. Concatenating
-    # 0 at the front and len(row_ts) at the back turns those indices into [start, end) pairs,
-    # one pair per day.
+def _write_daily_partitions(table: pa.Table, out_dir: Path) -> None:
+    """Write one Parquet file per UTC calendar day; rows are already ordered by time.
+
+    A row's day number is its timestamp divided by the nanoseconds in 24 h
+    (``86_400 * 10**9``), so rows sharing a day number share a file. ``np.diff(day_index)``
+    is non-zero only where the day changes; adding 1 to the ``flatnonzero`` result gives the
+    first row of each new day. Putting 0 in front and ``len(row_ts)`` at the back turns those
+    indices into ``[start, end)`` pairs, one per day.
+    """
     row_ts = table["ts"].cast(pa.int64()).to_numpy()
     day_index = row_ts // (86_400 * 10**9)
     boundaries = np.flatnonzero(np.diff(day_index)) + 1
@@ -316,32 +316,49 @@ def write_dataset(
             compression="zstd",
         )
 
-    last_s = int(ts[-1]) // 10**9
-    end_utc = datetime.fromtimestamp(last_s, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def _dataset_document(
+    info: DatasetInfo, tag_ids: list[str], last_ts_ns: int, table: pa.Table
+) -> dict[str, Any]:
+    """Build the ``dataset.json`` document for a table that has been written."""
+    end_utc = datetime.fromtimestamp(last_ts_ns // 10**9, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     doc: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "dataset_id": dataset_id,
-        "created_utc": created_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": source,
-        "time_range": {
-            "start_utc": start_utc,
-            "end_utc": end_utc,
-        },
-        "tags": tag_id_list,
+        "dataset_id": info.dataset_id,
+        "created_utc": info.created_utc or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": info.source,
+        "time_range": {"start_utc": info.start_utc, "end_utc": end_utc},
+        "tags": list(tag_ids),
         "row_count": table.num_rows,
-        "storage": {
-            "format": "parquet",
-            "layout": "long",
-            "partitioning": "daily",
-            "path": "data",
-        },
+        "storage": dict(STORAGE_BLOCK),
         "data_sha256": compute_data_sha256(table),
     }
+    if info.git_commit is not None:
+        doc["code"] = {"git_commit": info.git_commit}
+    return doc
 
-    if git_commit is not None:
-        doc["code"] = {"git_commit": git_commit}
 
+def write_dataset(out_dir: str | Path, samples: Samples, info: DatasetInfo) -> dict[str, Any]:
+    """Write samples as a Parquet dataset (tags.json, daily partitions, dataset.json).
+
+    The samples arrive in "wide" form -- one row per timestamp, one column per tag -- and are
+    written in "long" form, one row per (timestamp, tag) pair, which is what Parquet and the
+    query layer expect. ``out_dir`` is created if missing and must not already contain
+    ``dataset.json``.
+
+    Returns the dataset document that was written to ``dataset.json``.
+    Raises ``FileExistsError`` if ``dataset.json`` already exists in ``out_dir``.
+    """
+    out_dir = Path(out_dir)
+    _refuse_existing_dataset(out_dir)
+    table = _samples_to_table(samples)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tags_text = json.dumps(info.tags_document, indent=2) + "\n"
+    (out_dir / "tags.json").write_text(tags_text, encoding="utf-8")
+    _write_daily_partitions(table, out_dir)
+
+    last_ts_ns = int(np.asarray(samples.ts_ns, dtype=np.int64)[-1])
+    doc = _dataset_document(info, samples.tag_ids, last_ts_ns, table)
     (out_dir / "dataset.json").write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-
     return doc

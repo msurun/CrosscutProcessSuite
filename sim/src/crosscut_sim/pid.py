@@ -3,6 +3,30 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PidTuning:
+    """Tuning constants of a PID controller.
+
+    ``kc`` is the proportional gain, ``ti_s`` the integral time in seconds (``math.inf``
+    disables the integral term), ``td_s`` the derivative time in seconds (0 disables it) and
+    ``td_filter_n`` the derivative filter coefficient N (filter time constant is Td / N).
+    """
+
+    kc: float
+    ti_s: float
+    td_s: float = 0.0
+    td_filter_n: float = 10.0
+
+
+@dataclass(frozen=True)
+class OutputLimits:
+    """Actuator limits, in the same unit as the controller output (e.g. percent)."""
+
+    low: float = 0.0
+    high: float = 100.0
 
 
 class PID:
@@ -10,34 +34,26 @@ class PID:
 
     def __init__(
         self,
-        kc: float,
-        ti_s: float,
+        tuning: PidTuning,
         dt_s: float,
-        out_min: float = 0.0,
-        out_max: float = 100.0,
-        td_s: float = 0.0,
-        td_filter_n: float = 10.0,
+        limits: OutputLimits = OutputLimits(),  # noqa: B008 - frozen, safe to share
         direct: bool = False,
     ) -> None:
         """Initialize the PID controller.
 
         Args:
-            kc: Proportional gain.
-            ti_s: Integral time constant in seconds.
+            tuning: Gains and time constants (proportional, integral, derivative, filter).
             dt_s: Sample time in seconds.
-            out_min: Minimum output value.
-            out_max: Maximum output value.
-            td_s: Derivative time constant in seconds.
-            td_filter_n: Derivative filter coefficient.
+            limits: Minimum and maximum output value.
             direct: If True, the controller is direct acting.
         """
-        self.kc = kc
-        self.ti_s = ti_s
+        self.kc = tuning.kc
+        self.ti_s = tuning.ti_s
         self.dt_s = dt_s
-        self.out_min = out_min
-        self.out_max = out_max
-        self.td_s = td_s
-        self.td_filter_n = td_filter_n
+        self.out_min = limits.low
+        self.out_max = limits.high
+        self.td_s = tuning.td_s
+        self.td_filter_n = tuning.td_filter_n
         self.direct = direct
         self._i = 0.0
         self._d = 0.0
@@ -172,11 +188,7 @@ class PID:
         # D is stored in output units so it can be added directly to Kc*e.
         derivative = (
             filter_time_s / (filter_time_s + self.dt_s) * self._d
-            + error_sign
-            * self.kc
-            * self.td_s
-            / (filter_time_s + self.dt_s)
-            * pv_change
+            + error_sign * self.kc * self.td_s / (filter_time_s + self.dt_s) * pv_change
         )
         # Remember D_k for the next call (the filter's state).
         self._d = derivative

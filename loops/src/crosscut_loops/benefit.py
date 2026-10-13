@@ -96,17 +96,17 @@ def estimate_benefit(pv: np.ndarray, assumptions: BenefitAssumptions) -> Benefit
         raise ValueError(
             f"need at least {MIN_SAMPLES} finite samples to estimate a benefit, got {samples.size}"
         )
+    return _estimate_from_samples(samples, assumptions)
 
+
+def _estimate_from_samples(samples: np.ndarray, assumptions: BenefitAssumptions) -> BenefitEstimate:
+    """Compute the estimate from validated, finite samples (mean, spread, headroom, money)."""
     mean = float(np.mean(samples))
 
     # ddof=1 gives the sample (Bessel-corrected) standard deviation: we are estimating
     # the spread of an underlying process from a finite sample, not describing the sample
     # itself. Both mean and std_now are in the same unit as ``pv``.
     std_now = float(np.std(samples, ddof=1))
-
-    # The post-improvement spread: reduce the current spread by the assumed fraction
-    # (``std_reduction`` is a dimensionless ratio in [0, 1), so 0.1 means "10% tighter").
-    std_target = std_now * (1.0 - assumptions.std_reduction)
 
     # How far the current mean sits from the limit we care about, signed: positive means
     # the mean is on the safe side and has room to move, negative means it is already over.
@@ -116,19 +116,17 @@ def estimate_benefit(pv: np.ndarray, assumptions: BenefitAssumptions) -> Benefit
     # ``pv``. This is the single quantity the whole model turns on.
     shift = _shift_towards_limit(current_gap, std_now, assumptions)
 
-    # Turn the physical shift into money: ``value_per_unit_h`` is currency per (unit of
-    # ``pv`` x hour), so a shift expressed in units per hour yields currency per hour.
-    value_per_h = shift * assumptions.value_per_unit_h
-
-    # ``n_samples_used`` is reported alongside the figures so a reader can judge how much
-    # of the estimate is driven by the assumption set versus by the evidence in ``pv``.
     return BenefitEstimate(
         mean=mean,
         std_now=std_now,
-        std_target=std_target,
+        # The post-improvement spread: ``std_reduction`` is a dimensionless ratio in [0, 1),
+        # so 0.1 means "10% tighter".
+        std_target=std_now * (1.0 - assumptions.std_reduction),
         current_gap=current_gap,
         shift=shift,
-        value_per_h=value_per_h,
+        # ``value_per_unit_h`` is currency per (unit of ``pv`` x hour), so the shift yields
+        # currency per hour.
+        value_per_h=shift * assumptions.value_per_unit_h,
         n_samples_used=int(samples.size),
         notes=_build_notes(mean, current_gap, std_now, assumptions),
     )
@@ -189,9 +187,7 @@ def _validate_assumptions(assumptions: BenefitAssumptions) -> None:
     # bound of 1.0 keeps the post-reduction sigma strictly positive, and the lower
     # bound of 0.0 forbids a growth of the spread (which the model does not model).
     if not 0.0 <= assumptions.std_reduction < 1.0:
-        raise ValueError(
-            f"std_reduction must be in [0, 1), got {assumptions.std_reduction}"
-        )
+        raise ValueError(f"std_reduction must be in [0, 1), got {assumptions.std_reduction}")
     # Safety margin expressed in units of the (remaining) standard deviation,
     # unitless. It multiplies sigma, so a zero or negative value would collapse or
     # flip the margin.

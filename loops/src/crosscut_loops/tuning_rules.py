@@ -217,6 +217,7 @@ ConversionForm: TypeAlias = Literal[
     "gain_repeats_per_minute",
 ]
 
+
 def _to_gain_seconds(settings: PiSettings) -> dict[str, float]:
     """Express the settings as {"gain", "integral_time_s"}."""
     return {"gain": settings.kc, "integral_time_s": settings.ti_s}

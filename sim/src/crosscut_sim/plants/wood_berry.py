@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from crosscut_sim.core import AUTO, CAS, GOOD, MAN, Event, Fopdt, Scenario, TagCatalog, TagSpec
-from crosscut_sim.disturbances import OrnsteinUhlenbeck
-from crosscut_sim.pid import PID
+from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
+from crosscut_sim.pid import PID, OutputLimits, PidTuning
 
 NOMINAL: dict[str, float] = {
     "top_comp": 96.25,
@@ -288,17 +288,17 @@ def _bottom_mode_spec() -> TagSpec:
     """
     return TagSpec(
         id=BOT_MODE,  # Stable internal identifier for the tag. BOT_MODE is the
-                      # registry key; ids never change once published, because
-                      # historical data is stored against them.
-        unit="",      # Engineering unit: dimensionless here. The value is a
-                      # discrete mode selector (0/1/2), not a measurement, so
-                      # there is nothing to measure it in.
+        # registry key; ids never change once published, because
+        # historical data is stored against them.
+        unit="",  # Engineering unit: dimensionless here. The value is a
+        # discrete mode selector (0/1/2), not a measurement, so
+        # there is nothing to measure it in.
         role="MODE",  # Semantic role, telling consumers the tag's purpose.
-                      # "MODE" marks it as an operating-mode selector rather
-                      # than a measured value ("PV") or a target ("SP").
+        # "MODE" marks it as an operating-mode selector rather
+        # than a measured value ("PV") or a target ("SP").
         type="enum",  # Data type of the tag. "enum" means a closed set of
-                      # integer codes with names, so the UI shows the names and
-                      # the data layer rejects anything outside the set.
+        # integer codes with names, so the UI shows the names and
+        # the data layer rejects anything outside the set.
         # Human-readable description shown in operator displays and docs. The codes:
         #   0 = MAN  -> manual, operator sets the loop output directly
         #   1 = AUTO -> automatic, the controller computes the output
@@ -370,20 +370,33 @@ class WoodBerryPlant:
         self._scenario = scenario if scenario is not None else Scenario()
         dt_s = self._scenario.dt_s
         self.time_s = 0.0
+        self._init_disturbance(seed, dt_s)
+        self._init_process_models(dt_s)
+        self._init_nominal_signals()
+        self._init_controllers(dt_s)
 
+        # Events sorted by trigger time
+        self._events: list[Event] = sorted(self._scenario.events, key=self._event_trigger_time_s)
+        self._event_idx = 0
+
+    def _init_disturbance(self, seed: int, dt_s: float) -> None:
+        """Seed the sensor-noise and feed-disturbance generators from one master ``seed``."""
         seeds = np.random.SeedSequence(seed).spawn(2)
         self._sensor_rng = np.random.default_rng(seeds[0])
         dist_rng = np.random.default_rng(seeds[1])
 
         self._feed_ou = OrnsteinUhlenbeck(
-            mean=NOMINAL["feed_rate"],
-            sigma=self._scenario.disturbance_sigma,
-            tau_s=self._scenario.disturbance_tau_s,
+            OuShape(
+                mean=NOMINAL["feed_rate"],
+                sigma=self._scenario.disturbance_sigma,
+                tau_s=self._scenario.disturbance_tau_s,
+            ),
             dt_s=dt_s,
             rng=dist_rng,
         )
 
-        # Process model transfer functions: (gain, delay_min, tau_min)
+    def _init_process_models(self, dt_s: float) -> None:
+        """Build the six Wood-Berry transfer functions (gain, tau, dead time given in minutes)."""
         self._g11 = Fopdt(gain=12.8, tau_s=16.7 * 60.0, delay_s=1.0 * 60.0, dt_s=dt_s)
         self._g12 = Fopdt(gain=-18.9, tau_s=21.0 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
         self._gd1 = Fopdt(gain=3.8, tau_s=14.9 * 60.0, delay_s=8.1 * 60.0, dt_s=dt_s)
@@ -392,6 +405,8 @@ class WoodBerryPlant:
         self._g22 = Fopdt(gain=-19.4, tau_s=14.4 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
         self._gd2 = Fopdt(gain=4.9, tau_s=13.2 * 60.0, delay_s=3.4 * 60.0, dt_s=dt_s)
 
+    def _init_nominal_signals(self) -> None:
+        """Put both loops in auto with setpoints, outputs and measurements at the nominal."""
         self._top_mode = AUTO
         self._top_sp = NOMINAL["top_comp"]
         self._top_rsp = NOMINAL["top_comp"]
@@ -409,36 +424,26 @@ class WoodBerryPlant:
         self._feed_base = NOMINAL["feed_rate"]
         self._effective_feed = NOMINAL["feed_rate"]
 
-        # Controllers
-        self._top_pid = PID(
-            kc=TOP_PID_KC,
-            ti_s=TOP_PID_TI_S,
-            dt_s=dt_s,
-            out_min=0.0,
-            out_max=5.0,
-            direct=False,
-        )
-        self._top_pid.reset()
-        self._top_pid.update(
-            NOMINAL["top_comp"], NOMINAL["top_comp"], "MAN", man_out=NOMINAL["reflux"]
-        )
+    def _init_controllers(self, dt_s: float) -> None:
+        """Create both PIDs and bumplessly initialise them at the nominal operating point."""
+        top_tuning = PidTuning(kc=TOP_PID_KC, ti_s=TOP_PID_TI_S)
+        self._top_pid = self._started_pid(top_tuning, dt_s, False, ("top_comp", "reflux"))
+        bottom_tuning = PidTuning(kc=BOT_PID_KC, ti_s=BOT_PID_TI_S)
+        self._bot_pid = self._started_pid(bottom_tuning, dt_s, True, ("bottom_comp", "steam"))
 
-        self._bot_pid = PID(
-            kc=BOT_PID_KC,
-            ti_s=BOT_PID_TI_S,
-            dt_s=dt_s,
-            out_min=0.0,
-            out_max=5.0,
-            direct=True,
-        )
-        self._bot_pid.reset()
-        self._bot_pid.update(
-            NOMINAL["bottom_comp"], NOMINAL["bottom_comp"], "MAN", man_out=NOMINAL["steam"]
-        )
+    @staticmethod
+    def _started_pid(
+        tuning: PidTuning, dt_s: float, direct: bool, nominal_keys: tuple[str, str]
+    ) -> PID:
+        """Create a PID (output limits 0-5) and run one MAN step so it starts at the nominal.
 
-        # Events sorted by trigger time
-        self._events: list[Event] = sorted(self._scenario.events, key=self._event_trigger_time_s)
-        self._event_idx = 0
+        ``nominal_keys`` are the NOMINAL entries of the measurement and of the manual output.
+        """
+        pv_key, out_key = nominal_keys
+        pid = PID(tuning, dt_s=dt_s, limits=OutputLimits(low=0.0, high=5.0), direct=direct)
+        pid.reset()
+        pid.update(NOMINAL[pv_key], NOMINAL[pv_key], "MAN", man_out=NOMINAL[out_key])
+        return pid
 
     @staticmethod
     def _event_trigger_time_s(event: Event) -> float:

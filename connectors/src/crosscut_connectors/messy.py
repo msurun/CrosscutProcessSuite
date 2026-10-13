@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import zoneinfo
+from collections.abc import Callable
 
 import numpy as np
 
@@ -313,7 +314,7 @@ def render_messy_csv(
     return renderer(ts_ns, columns, local_tz)
 
 
-def _select_renderer(style: str):
+def _select_renderer(style: str) -> Callable[..., bytes]:
     """Return the renderer function matching the style.
 
     A "renderer" is a function that turns some in-memory data into the exact
@@ -340,7 +341,7 @@ def _select_renderer(style: str):
     """
     # Lookup table maps style names to renderers. It is local to this
     # function, so callers cannot alter it; unknown names raise KeyError.
-    renderers = {
+    renderers: dict[str, Callable[..., bytes]] = {
         "plain": _render_plain,
         "semicolon_comma": _render_semicolon_comma,
         "tab_local": _render_tab_local,

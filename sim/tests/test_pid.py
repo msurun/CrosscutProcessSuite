@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from crosscut_sim.pid import PID
+from crosscut_sim.pid import PID, OutputLimits, PidTuning
 
 
 def make(**kwargs: float | bool) -> PID:
@@ -18,7 +18,14 @@ def make(**kwargs: float | bool) -> PID:
         "out_max": 1000.0,
     }
     params.update(kwargs)
-    return PID(**params)  # type: ignore[arg-type]
+    tuning = PidTuning(
+        kc=float(params["kc"]),
+        ti_s=float(params["ti_s"]),
+        td_s=float(params.get("td_s", 0.0)),
+        td_filter_n=float(params.get("td_filter_n", 10.0)),
+    )
+    limits = OutputLimits(low=float(params["out_min"]), high=float(params["out_max"]))
+    return PID(tuning, dt_s=float(params["dt_s"]), limits=limits, direct=bool(params.get("direct")))
 
 
 def test_proportional_only_reverse_and_direct_acting() -> None:

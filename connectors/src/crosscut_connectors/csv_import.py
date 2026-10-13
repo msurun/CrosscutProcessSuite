@@ -17,11 +17,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import numpy as np
 from crosscut_sim.core import BAD, GOOD
-from crosscut_sim.dataset import write_dataset
+from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 # --------------------------------------------------------------------------- #
 # Public data structures
@@ -424,13 +425,125 @@ def _sort_and_deduplicate(
 # --------------------------------------------------------------------------- #
 
 
-def import_csv(
-    path: Path,
+def _parse_timestamps(data_rows: list[list[str]], tz: str) -> tuple[np.ndarray, str]:
+    """Return the UTC nanosecond index of every row and the name of the format used.
+
+    Column 0 is always the time column. Timestamps are stored as int64 nanoseconds
+    since the Unix epoch in UTC (int64 covers ~292 years around 1970, which matches
+    the resolution the on-disk format expects). Naive datetimes are interpreted in
+    ``tz`` before conversion.
+    """
+    raw_ts = [row[0] for row in data_rows]
+    format_name, parser = _try_timestamp_formats(raw_ts)
+    ts_ns = np.empty(len(raw_ts), dtype=np.int64)
+    for index, text in enumerate(raw_ts):
+        parsed = parser(text)
+        if parsed is None:
+            raise ValueError("timestamp parsing failed")
+        ts_ns[index] = _to_utc_nanoseconds(parsed, tz)
+    return ts_ns, format_name
+
+
+def _parse_value_matrices(
+    data_rows: list[list[str]], n_tags: int, decimal: str
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Return dense value and quality matrices plus the count of BAD cells.
+
+    Every row gets one value and one quality flag per tag, even when the source
+    cell was empty or unparsable (such cells become NaN + BAD).
+    """
+    values = np.empty((len(data_rows), n_tags), dtype=np.float64)
+    qualities = np.empty((len(data_rows), n_tags), dtype=np.uint8)
+    bad_count = 0
+    for i, row in enumerate(data_rows):
+        # row[0] is the timestamp already consumed; row[1:] are the tag values.
+        for j, cell in enumerate(row[1:]):
+            value = _parse_cell(cell, decimal)
+            # NaN is the sentinel for "could not parse this cell".
+            is_bad = bool(np.isnan(value))
+            qualities[i, j] = BAD if is_bad else GOOD
+            bad_count += int(is_bad)
+            values[i, j] = value
+    return values, qualities, bad_count
+
+
+def _unique_tag_ids(original_tag_names: list[str]) -> list[str]:
+    """Sanitise tag names into ids, refusing collisions instead of merging signals."""
+    tag_ids = [_sanitize_tag_name(name) for name in original_tag_names]
+    if len(set(tag_ids)) != len(tag_ids):
+        raise ValueError("duplicate tag identifiers after sanitisation")
+    return tag_ids
+
+
+def _tags_document(tag_ids: list[str], original_tag_names: list[str]) -> dict[str, Any]:
+    """Build the tag schema: sanitised ids, original display names, empty metadata.
+
+    The CSV has no way to provide description, unit or role, so they are placeholders.
+    """
+    return {
+        "schema_version": "0.1.0",
+        "tags": [
+            {
+                "id": tag_id,
+                "name": original,
+                "description": "",
+                "unit": "",
+                "type": "float",
+                "role": "other",
+                "source": {"driver": "csv", "address": original},
+            }
+            for tag_id, original in zip(tag_ids, original_tag_names, strict=True)
+        ],
+    }
+
+
+def _start_iso(ts_ns: np.ndarray) -> str:
+    """Return the first timestamp as ISO 8601 UTC, whole seconds (// truncates ns to s)."""
+    first_second = int(ts_ns[0]) // 1_000_000_000
+    return datetime.fromtimestamp(first_second, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _read_table(path: Path) -> tuple[str, list[str], list[list[str]]]:
+    """Return (delimiter, header, data_rows) of the file; raise if there is no header."""
+    lines = _split_lines(_read_text(path))
+    # The delimiter must be inferred from the raw lines before slicing columns.
+    delimiter = _detect_delimiter(lines)
+    header, data_rows = _extract_header_and_rows(lines, delimiter)
+    if not header:
+        raise ValueError("timestamp column not found")
+    return delimiter, header, data_rows
+
+
+def _normalise_order(
+    ts_ns: np.ndarray, values: np.ndarray, qualities: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, bool]:
+    """Sort and deduplicate; also report the duplicates dropped and whether input was unsorted."""
+    # True when some timestamp precedes its predecessor (e.g. DST fall-back, editor sort).
+    unsorted = bool(np.any(ts_ns[1:] < ts_ns[:-1]))
+    # Keep the last row per identical timestamp, in strictly increasing order.
+    ts_ns, values, qualities, dup_dropped = _sort_and_deduplicate(ts_ns, values, qualities)
+    return ts_ns, values, qualities, dup_dropped, unsorted
+
+
+def _write_csv_dataset(
     out_dir: Path,
-    *,
     dataset_id: str,
-    tz: str = "UTC",
-) -> ImportReport:
+    original_tag_names: list[str],
+    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> None:
+    """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row."""
+    ts_ns, values, qualities = arrays
+    tag_ids = _unique_tag_ids(original_tag_names)
+    info = DatasetInfo(
+        dataset_id=dataset_id,
+        source={"kind": "file"},
+        start_utc=_start_iso(ts_ns),
+        tags_document=_tags_document(tag_ids, original_tag_names),
+    )
+    write_dataset(out_dir, Samples(ts_ns, tag_ids, values, qualities), info)
+
+
+def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -> ImportReport:
     """Import a CSV file exported by :func:`render_messy_csv`.
 
     The function writes a dataset to ``out_dir`` and returns an :class:`ImportReport`
@@ -463,133 +576,17 @@ def import_csv(
         If no header is present, a timestamp cannot be parsed, or two columns
         collide once their names are sanitised.
     """
-    text = _read_text(path)
-    lines = _split_lines(text)
-
-    # The renderer may quote cells, so the one-character delimiter must be inferred
-    # from the raw lines before we can slice rows into columns.
-    delimiter = _detect_delimiter(lines)
-    header, data_rows = _extract_header_and_rows(lines, delimiter)
-
-    if not header:
-        raise ValueError("timestamp column not found")
-
-    # --------------------------------------------------------------------- #
-    # Timestamp handling
-    # --------------------------------------------------------------------- #
-    # Column 0 is always the time column; every other column is a tag value.
-    # Timestamps are stored as int64 nanoseconds since the Unix epoch in UTC
-    # ("ns" is the unit). int64 covers ~292 years around 1970, which is plenty
-    # and matches the resolution the on-disk format expects.
-    raw_ts = [row[0] for row in data_rows]
-    ts_format_name, ts_parser = _try_timestamp_formats(raw_ts)
-
-    # ts_parser returns a naive datetime or None; naive datetimes are interpreted
-    # in the caller's tz and converted to UTC before being expressed in ns.
-    ts_ns = np.empty(len(raw_ts), dtype=np.int64)
-    for i, txt in enumerate(raw_ts):
-        dt = ts_parser(txt)
-        if dt is None:
-            raise ValueError("timestamp parsing failed")
-        ts_ns[i] = _to_utc_nanoseconds(dt, tz)
-
-    # --------------------------------------------------------------------- #
-    # Value handling
-    # --------------------------------------------------------------------- #
-    # Decimal comma ("1,5") and decimal point ("1.5") both appear in the wild;
-    # detecting it here lets _parse_cell interpret each numeric cell correctly.
+    delimiter, header, data_rows = _read_table(path)
+    ts_ns, ts_format_name = _parse_timestamps(data_rows, tz)
+    # Decimal comma ("1,5") and point ("1.5") both occur; _parse_cell needs to know.
     decimal = _detect_decimal_separator(data_rows, delimiter)
-    # The header is [timestamp, tag_0, tag_1, ...], so the number of tags is
-    # header length minus the timestamp column.
-    n_tags = len(header) - 1
-    # Dense matrices: every row has one value and one quality flag per tag, even
-    # when the source cell was empty or unparsable (such cells become NaN + BAD).
-    values = np.empty((len(data_rows), n_tags), dtype=np.float64)
-    qualities = np.empty((len(data_rows), n_tags), dtype=np.uint8)
+    # The header is [timestamp, tag_0, tag_1, ...].
+    values, qualities, bad_count = _parse_value_matrices(data_rows, len(header) - 1, decimal)
 
-    # bad_count tracks the number of BAD cells so ImportReport can surface it.
-    bad_count = 0
-    for i, row in enumerate(data_rows):
-        # row[0] is the timestamp we already consumed; row[1:] are the tag values.
-        for j, cell in enumerate(row[1:]):
-            val = _parse_cell(cell, decimal)
-            # pd.isna-style: NaN is the sentinel for "could not parse this cell".
-            bad = np.isnan(val)
-            qualities[i, j] = BAD if bad else GOOD
-            bad_count += int(bad)
-            values[i, j] = val
-
-    # --------------------------------------------------------------------- #
-    # Duplicate & ordering handling
-    # --------------------------------------------------------------------- #
-    # A true at any position means the source file had at least one timestamp
-    # earlier than the one before it (e.g. a DST fall-back or an editor sort).
-    # Recorded so the caller can tell whether the input was already ordered.
-    unsorted = bool(np.any(ts_ns[1:] < ts_ns[:-1]))
-    # Keep only the last value per identical timestamp and ensure strictly
-    # increasing order (a requirement of the dataset's time index).
-    ts_ns, values, qualities, dup_dropped = _sort_and_deduplicate(ts_ns, values, qualities)
-    n_rows = ts_ns.shape[0]
-
-    # --------------------------------------------------------------------- #
-    # Tag sanitisation
-    # --------------------------------------------------------------------- #
-    # Tag ids must be safe to use as keys/paths; the original human-readable
-    # names are preserved separately in the tags document written below.
-    original_tag_names = header[1:]
-    sanitized = [_sanitize_tag_name(name) for name in original_tag_names]
-    # Two distinct source names could sanitise to the same id; refuse rather
-    # than silently merge two different physical signals.
-    if len(set(sanitized)) != len(sanitized):
-        raise ValueError("duplicate tag identifiers after sanitisation")
-    tag_ids = sanitized
-
-    # --------------------------------------------------------------------- #
-    # Write dataset
-    # --------------------------------------------------------------------- #
-    # The dataset records a start time (ISO 8601, UTC, second resolution) so
-    # readers can align the sample index with wall-clock time. // truncates the
-    # nanosecond int to whole seconds; fromtimestamp expects seconds.
-    start_iso = datetime.fromtimestamp(int(ts_ns[0]) // 1_000_000_000, tz=UTC).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-    # Sidecar document describing the tag schema: the same sanitised ids used in
-    # the value matrix, plus the original display names and empty placeholders
-    # for metadata the CSV has no way to provide.
-    tags_doc = {
-        "schema_version": "0.1.0",
-        "tags": [
-            {
-                "id": tag_id,
-                "name": orig,
-                "description": "",
-                "unit": "",
-                "type": "float",
-                "role": "other",
-                "source": {"driver": "csv", "address": orig},
-            }
-            for tag_id, orig in zip(tag_ids, original_tag_names, strict=True)
-        ],
-    }
-
-    # Persist the three parallel arrays plus the two metadata documents.
-    write_dataset(
-        out_dir,
-        ts_ns,
-        tag_ids,
-        values,
-        qualities,
-        dataset_id=dataset_id,
-        source={"kind": "file"},
-        start_utc=start_iso,
-        tags_document=tags_doc,
-    )
-
-    # ImportReport is the caller-facing summary; each field is one of the
-    # observations made above, so the caller does not have to re-inspect the
-    # dataset to know whether the input was messy.
+    ts_ns, values, qualities, dup_dropped, unsorted = _normalise_order(ts_ns, values, qualities)
+    _write_csv_dataset(out_dir, dataset_id, header[1:], (ts_ns, values, qualities))
     return ImportReport(
-        n_rows=n_rows,
+        n_rows=ts_ns.shape[0],
         n_duplicates_dropped=dup_dropped,
         was_unsorted=unsorted,
         n_bad_values=bad_count,

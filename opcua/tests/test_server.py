@@ -15,6 +15,7 @@ from crosscut_opcua.server import (
     NAMESPACE_URI,
     TIME_TAG,
     PlantServer,
+    ServerConfig,
 )
 from crosscut_sim.core import AUTO, CAS, Scenario
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
@@ -53,12 +54,14 @@ def _make_server(heartbeat_timeout_s: float, speed: float) -> PlantServer:
     return PlantServer(
         plant,
         Scenario(measurement_noise=0.0),
-        seed=1,
-        host="127.0.0.1",
-        port=free_port(),
-        speed=speed,
-        tick_s=0.05,
-        heartbeat_timeout_s=heartbeat_timeout_s,
+        ServerConfig(
+            seed=1,
+            host="127.0.0.1",
+            port=free_port(),
+            speed=speed,
+            tick_s=0.05,
+            heartbeat_timeout_s=heartbeat_timeout_s,
+        ),
     )
 
 
@@ -187,19 +190,9 @@ async def _drive_healthy_heartbeats_into_cascade(
 def test_server_stops_cleanly() -> None:
     async def main() -> None:
         """Start a plant server on a free port; clients cannot connect after it stops."""
-        port = free_port()
-        server = PlantServer(
-            WoodBerryPlant(),
-            Scenario(),
-            seed=1,
-            host="127.0.0.1",
-            port=port,
-            speed=10.0,
-            tick_s=0.05,
-            heartbeat_timeout_s=5.0,
-        )
+        server = _make_server(heartbeat_timeout_s=5.0, speed=10.0)
         async with server:
-            assert server.endpoint.endswith(f":{port}")
+            assert server.endpoint.startswith("opc.tcp://127.0.0.1:")
         with pytest.raises(Exception):  # noqa: B017
             async with Client(server.endpoint, timeout=1):
                 pass

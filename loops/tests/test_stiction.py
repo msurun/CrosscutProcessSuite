@@ -8,49 +8,57 @@ from crosscut_loops.stiction import detect_stiction
 from numpy.typing import NDArray
 
 DT = 1.0
-N = 6000
+SAMPLE_COUNT = 6000
 RNG = np.random.default_rng(3)
 
 
+# PI controller and valve constants of the simulated loop.
+CONTROLLER_GAIN = 0.5
+INTEGRAL_TIME = 20
+VALVE_DEADBAND = 0.5
+VALVE_JUMP = 0.25
+# Constant load disturbance: without it the valve never leaves its rest position.
+LOAD = 1.0
+# Discrete first-order process filter with a time constant of 20 samples.
+PROCESS_FILTER_ALPHA = np.exp(-1 / 20)
+# Samples discarded at the start so the loop has settled before it is analysed.
+WARMUP_SAMPLES = 1000
+DISTURBANCE_PERIOD_SAMPLES = 150
+MEASUREMENT_NOISE = 0.005
+
+
 def simulate_loop(
-    seed: int, stiction: bool, disturbance_amp: float = 0.0, sample_count: int = N
+    seed: int, stiction: bool, disturbance_amp: float = 0.0, sample_count: int = SAMPLE_COUNT
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Simulate a PI control loop and return the process variable and controller output traces."""
     rng = np.random.default_rng(seed)
     process_variable = np.zeros(sample_count)
     controller_output = np.zeros(sample_count)
-    integral_error = 0.0
-    previous_valve_position = 0.0
-    process_filter_alpha = np.exp(-1 / 20)
-    kc = 0.5
-    ti = 20
-    valve_deadband = 0.5
-    valve_jump = 0.25
-    load = 1.0  # constant load disturbance: without it the valve never leaves its rest position
-
+    integral_error = valve_position = 0.0
     for k in range(1, sample_count):
-        error = -process_variable[k - 1]
-        integral_error += error * DT
-        raw_output = kc * (error + integral_error / ti)
-
-        if stiction:
-            valve_position = _move_valve_with_stiction(
-                raw_output, previous_valve_position, valve_deadband, valve_jump
-            )
-            previous_valve_position = valve_position
-        else:
-            valve_position = raw_output
-
-        disturbance = disturbance_amp * np.sin(2 * np.pi * k / 150)
-        noise = rng.normal(scale=0.005)
-        process_variable[k] = (
-            process_filter_alpha * process_variable[k - 1]
-            + (1 - process_filter_alpha) * (valve_position + load + disturbance)
-            + noise
+        integral_error -= process_variable[k - 1] * DT  # error = setpoint (0) - measurement
+        raw_output = CONTROLLER_GAIN * (-process_variable[k - 1] + integral_error / INTEGRAL_TIME)
+        valve_position = (
+            _move_valve_with_stiction(raw_output, valve_position, VALVE_DEADBAND, VALVE_JUMP)
+            if stiction
+            else raw_output
         )
+        drive = valve_position + LOAD + _disturbance(k, disturbance_amp)
+        process_variable[k] = _filter_step(process_variable[k - 1], drive)
+        process_variable[k] += rng.normal(scale=MEASUREMENT_NOISE)
         controller_output[k] = raw_output
 
-    return process_variable[1000:], controller_output[1000:]
+    return process_variable[WARMUP_SAMPLES:], controller_output[WARMUP_SAMPLES:]
+
+
+def _disturbance(sample: int, amplitude: float) -> float:
+    """Sinusoidal load disturbance at the given sample."""
+    return amplitude * np.sin(2 * np.pi * sample / DISTURBANCE_PERIOD_SAMPLES)
+
+
+def _filter_step(previous_value: float, drive: float) -> float:
+    """One step of the first-order process filter driven by `drive`."""
+    return PROCESS_FILTER_ALPHA * previous_value + (1 - PROCESS_FILTER_ALPHA) * drive
 
 
 def _move_valve_with_stiction(

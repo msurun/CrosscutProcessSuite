@@ -123,17 +123,18 @@ def test_quiet_nominal_steady_state_is_held() -> None:
 
 
 @pytest.mark.parametrize(
-    ("out_tag", "delta_out", "dp80", "dmill", "dhpgr"),
+    ("out_tag", "dp80", "dmill", "dhpgr"),
     [
         # actuator gains: press 0.07 N/mm2 per %, feed 3 t/h per %, water 2 m3/h per %
-        (PRESS_OUT, 10.0, -20.0 * 0.7, -150.0 * 0.7, 250.0 * 0.7),
-        (FEED_OUT, 10.0, 0.45 * 30.0, 10.0 * 30.0, 0.0),
-        (WATER_OUT, 10.0, -0.6 * 20.0, 1.0 * 20.0, 0.0),
+        (PRESS_OUT, -20.0 * 0.7, -150.0 * 0.7, 250.0 * 0.7),
+        (FEED_OUT, 0.45 * 30.0, 10.0 * 30.0, 0.0),
+        (WATER_OUT, -0.6 * 20.0, 1.0 * 20.0, 0.0),
     ],
 )
 def test_open_loop_gains_match_ground_truth_at_nominal_hardness(
-    out_tag: str, delta_out: float, dp80: float, dmill: float, dhpgr: float
+    out_tag: str, dp80: float, dmill: float, dhpgr: float
 ) -> None:
+    delta_out = 10.0  # percentage-point OUT step applied to the loop under test
     plant = make()
     to_manual(plant)
     plant.write(out_tag, 50.0 + delta_out)
@@ -324,15 +325,13 @@ def test_operator_only_acts_on_loops_in_auto() -> None:
 
 
 def test_dataset_recording_works_for_this_plant(tmp_path: Path) -> None:
-    from crosscut_sim.dataset import read_dataset, record
+    from crosscut_sim.dataset import RunInfo, read_dataset, record
 
     doc = record(
         MillCircuitPlant(),
         Scenario(duration_s=300.0, params=NOISY, measurement_noise=1.0),
         tmp_path,
-        seed=2,
-        dataset_id="mc_test",
-        plant_name="mill_circuit",
+        RunInfo(seed=2, dataset_id="mc_test", plant_name="mill_circuit"),
     )
     assert doc["row_count"] == 300 * len(ALL_TAGS)
     assert read_dataset(tmp_path).num_rows == doc["row_count"]

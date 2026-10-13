@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -27,15 +29,30 @@ from .plants.wood_berry import NOMINAL
 # --------------------------------------------------------------------------- #
 
 
-def random_binary_events(
-    tag_id: str,
-    *,
-    center: float,
-    amplitude: float,
-    switch_period_s: float,
-    duration_s: float,
-    seed: int,
-) -> tuple[Event, ...]:
+@dataclass(frozen=True)
+class BinarySignal:
+    """Shape of a two-level random signal: levels ``center -/+ amplitude``, one draw per period.
+
+    ``center`` and ``amplitude`` share the unit of the tag; ``switch_period_s`` and
+    ``duration_s`` are in seconds.
+    """
+
+    center: float
+    amplitude: float
+    switch_period_s: float
+    duration_s: float
+
+    def __post_init__(self) -> None:
+        """Reject shapes that cannot produce a sensible series."""
+        if self.switch_period_s <= 0:
+            raise ValueError("switch_period_s must be positive")
+        if self.duration_s <= 0:
+            raise ValueError("duration_s must be positive")
+        if self.amplitude < 0:
+            raise ValueError("amplitude must be non‑negative")
+
+
+def random_binary_events(tag_id: str, signal: BinarySignal, seed: int) -> tuple[Event, ...]:
     """Return a deterministic series of binary ``Event`` objects.
 
     Models a two-state ("binary") signal sampled at a fixed period: at each
@@ -46,14 +63,10 @@ def random_binary_events(
     ----------
     tag_id:
         Identifier of the tag that the events target.
-    center:
-        Mid‑point of the binary values.
-    amplitude:
-        Distance from ``center`` to each extreme value. Must be non‑negative.
-    switch_period_s:
-        Time interval between successive events; must be positive.
-    duration_s:
-        Total duration of the series; must be positive.
+    signal:
+        Mid‑point (``center``), half-distance between the two values (``amplitude``,
+        non‑negative), time between successive events (``switch_period_s``, positive) and
+        total duration (``duration_s``, positive).
     seed:
         Seed for the random number generator; ensures reproducibility.
 
@@ -78,17 +91,10 @@ def random_binary_events(
     ``center``. Reproducibility holds because the whole draw is generated from
     one seeded generator, so the same seed always yields the same sequence.
     """
-    if switch_period_s <= 0:
-        raise ValueError("switch_period_s must be positive")
-    if duration_s <= 0:
-        raise ValueError("duration_s must be positive")
-    if amplitude < 0:
-        raise ValueError("amplitude must be non‑negative")
-
     # Number of sample slots in the series. The ceiling rounds up so that a
     # duration that is not an exact multiple of the period still gets a final
     # partial slot. Unit: count of events.
-    event_count = int(math.ceil(duration_s / switch_period_s))
+    event_count = int(math.ceil(signal.duration_s / signal.switch_period_s))
     # A dedicated generator (not the global NumPy state) makes the outcome
     # depend only on `seed`, so runs are reproducible and isolated.
     rng = np.random.default_rng(seed)
@@ -100,12 +106,12 @@ def random_binary_events(
     # wave, placed `amplitude` on either side of `center`. Unit: same unit as
     # `center` and `amplitude`.
     events = []
-    low_value = center - amplitude
-    high_value = center + amplitude
+    low_value = signal.center - signal.amplitude
+    high_value = signal.center + signal.amplitude
     # One event per sample slot, walked in time order. `index` is the slot
     # number k, so the timestamps are exactly k * switch_period_s (seconds).
     for index, draw in enumerate(draws):
-        event_time_s = index * switch_period_s
+        event_time_s = index * signal.switch_period_s
         value = low_value if draw == 0 else high_value
         events.append(Event(t_s=event_time_s, tag_id=tag_id, value=value))
 
@@ -152,6 +158,7 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
         return _build_wood_berry_excited(duration_s, dt)
     raise ValueError(f"unknown scenario for wood_berry: {scenario_name!r}")
 
+
 def _build_wood_berry_nominal(duration_s: float, dt: float) -> Scenario:
     """Return the nominal Wood‑Berry scenario: no disturbance, no events.
 
@@ -183,6 +190,7 @@ def _build_wood_berry_nominal(duration_s: float, dt: float) -> Scenario:
         # the feed) happen during the run.
         events=(),
     )
+
 
 def _build_wood_berry_noisy_feed(duration_s: float, dt: float) -> Scenario:
     """Return the Wood-Berry scenario with a correlated feed disturbance.
@@ -217,6 +225,7 @@ def _build_wood_berry_noisy_feed(duration_s: float, dt: float) -> Scenario:
         events=(),
     )
 
+
 def _build_wood_berry_feed_step(duration_s: float, dt: float) -> Scenario:
     """Return the Wood‑Berry scenario with a single feed rate step.
 
@@ -244,6 +253,7 @@ def _build_wood_berry_feed_step(duration_s: float, dt: float) -> Scenario:
         measurement_noise=1.0,
         events=(step_event,),
     )
+
 
 def _build_wood_berry_excited(duration_s: float, dt: float) -> Scenario:
     """Return the Wood‑Berry scenario with binary setpoint excitation on both compositions.
@@ -280,6 +290,7 @@ def _build_wood_berry_excited(duration_s: float, dt: float) -> Scenario:
         events=merged,
     )
 
+
 def _build_wood_berry_excitation_events(duration_s: float) -> tuple[Event, ...]:
     """Return the merged, time-sorted excitation events for the excited scenario.
 
@@ -295,30 +306,51 @@ def _build_wood_berry_excitation_events(duration_s: float) -> tuple[Event, ...]:
         A tuple of events ordered by ``t_s`` (ascending), ready to be replayed
         by the simulator.
     """
-    # Top composition signal: a random binary square wave alternating between
-    # the two values determined by center and amplitude, with a new random draw
-    # every switch_period_s (600 s).
+    # Top composition: amplitude 0.5, a new random draw every 600 s.
     top_events = random_binary_events(
         "sim.wb.top_comp_sp",
-        center=NOMINAL["top_comp"],
-        amplitude=0.5,
-        switch_period_s=600.0,
-        duration_s=duration_s,
+        BinarySignal(NOMINAL["top_comp"], 0.5, 600.0, duration_s),
         seed=101,
     )
-    # Bottom composition signal: same construction, but with a switch period
-    # of 900 s and a smaller amplitude (0.1) than the top signal.
+    # Bottom composition: same construction, switch period 900 s and a smaller amplitude (0.1).
     bot_events = random_binary_events(
         "sim.wb.bottom_comp_sp",
-        center=NOMINAL["bottom_comp"],
-        amplitude=0.1,
-        switch_period_s=900.0,
-        duration_s=duration_s,
+        BinarySignal(NOMINAL["bottom_comp"], 0.1, 900.0, duration_s),
         seed=202,
     )
     # Merge the two event tuples and sort by simulation time so the simulator
     # can consume them in chronological order.
     return tuple(sorted(top_events + bot_events, key=lambda event: event.t_s))
+
+
+def _mill_scenario(scenario_name: str, duration_s: float, **overrides: Any) -> Scenario:
+    """Build a mill-circuit Scenario from the shared defaults, replacing the given fields.
+
+    Defaults: 1 s step, unit sensor noise, operator parameter off.
+    """
+    fields: dict[str, Any] = {
+        "name": scenario_name,
+        "duration_s": duration_s,
+        "dt_s": 1.0,
+        "measurement_noise": 1.0,
+        "params": (("operator", 0.0),),
+    }
+    fields.update(overrides)
+    return Scenario(**fields)
+
+
+def _mill_excitation_events(duration_s: float) -> tuple[Event, ...]:
+    """Merged, time-sorted random binary setpoint moves on the three mill loops."""
+    loops = (
+        ("sim.mc.hpgr_press_sp", "hpgr_press", 0.3, 600.0, 301),
+        ("sim.mc.mill_feed_sp", "mill_feed", 8.0, 900.0, 302),
+        ("sim.mc.cyc_water_sp", "cyc_water", 5.0, 1200.0, 303),
+    )
+    events: tuple[Event, ...] = ()
+    for tag_id, nominal_key, amplitude, period_s, seed in loops:
+        signal = BinarySignal(MILL_NOMINAL[nominal_key], amplitude, period_s, duration_s)
+        events += random_binary_events(tag_id, signal, seed=seed)
+    return tuple(sorted(events, key=lambda event: event.t_s))
 
 
 def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scenario:
@@ -343,97 +375,32 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
     Raises:
         ValueError: if ``scenario_name`` is not one of the supported names.
     """
-    dt = 1.0
     if scenario_name == "nominal":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            params=(("operator", 0.0),),
-        )
+        return _mill_scenario(scenario_name, duration_s)
     if scenario_name == "observational":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            params=(("operator", 1.0),),
-        )
+        return _mill_scenario(scenario_name, duration_s, params=(("operator", 1.0),))
     if scenario_name == "quiet":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=0.0,
-            params=(
-                ("operator", 0.0),
-                ("inner_noise", 0.0),
-                ("process_noise", 0.0),
-                ("hardness_sigma", 0.0),
-                ("moisture_sigma", 0.0),
-            ),
+        return _mill_scenario(
+            scenario_name, duration_s, measurement_noise=0.0, params=_QUIET_PARAMS
         )
     if scenario_name == "hardness_shift":
-        shift_event = Event(
-            t_s=duration_s / 2.0,
-            tag_id="sim.mc.hardness_mean",
-            value=16.0,
-        )
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            params=(("operator", 0.0),),
-            events=(shift_event,),
-        )
+        shift_event = Event(t_s=duration_s / 2.0, tag_id="sim.mc.hardness_mean", value=16.0)
+        return _mill_scenario(scenario_name, duration_s, events=(shift_event,))
     if scenario_name == "excited":
-        press_events = random_binary_events(
-            "sim.mc.hpgr_press_sp",
-            center=MILL_NOMINAL["hpgr_press"],
-            amplitude=0.3,
-            switch_period_s=600.0,
-            duration_s=duration_s,
-            seed=301,
-        )
-        feed_events = random_binary_events(
-            "sim.mc.mill_feed_sp",
-            center=MILL_NOMINAL["mill_feed"],
-            amplitude=8.0,
-            switch_period_s=900.0,
-            duration_s=duration_s,
-            seed=302,
-        )
-        water_events = random_binary_events(
-            "sim.mc.cyc_water_sp",
-            center=MILL_NOMINAL["cyc_water"],
-            amplitude=5.0,
-            switch_period_s=1200.0,
-            duration_s=duration_s,
-            seed=303,
-        )
-        merged = tuple(
-            sorted(press_events + feed_events + water_events, key=lambda event: event.t_s)
-        )
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            params=(("operator", 0.0),),
-            events=merged,
-        )
+        return _mill_scenario(scenario_name, duration_s, events=_mill_excitation_events(duration_s))
     if scenario_name == "step_test":
-        return Scenario(
-            name=scenario_name,
-            duration_s=duration_s,
-            dt_s=dt,
-            measurement_noise=1.0,
-            params=(("operator", 0.0),),
-            events=_mill_step_test_events(),
-        )
+        return _mill_scenario(scenario_name, duration_s, events=_mill_step_test_events())
     raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
+
+
+# The "quiet" scenario switches every noise source off (operator included).
+_QUIET_PARAMS = (
+    ("operator", 0.0),
+    ("inner_noise", 0.0),
+    ("process_noise", 0.0),
+    ("hardness_sigma", 0.0),
+    ("moisture_sigma", 0.0),
+)
 
 
 STEP_TEST_MAN_AT_S = 300.0

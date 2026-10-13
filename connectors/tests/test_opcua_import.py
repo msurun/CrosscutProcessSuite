@@ -7,12 +7,14 @@ import asyncio
 import socket
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyarrow.compute as pc
 import pytest
-from crosscut_connectors.opcua_import import OpcUaImportReport, import_opcua
-from crosscut_opcua.server import PlantServer
+from crosscut_connectors.import_target import ImportTarget
+from crosscut_connectors.opcua_import import OpcUaImportReport, PollPlan, import_opcua
+from crosscut_opcua.server import PlantServer, ServerConfig
 from crosscut_sim.core import BAD, GOOD, Scenario
 from crosscut_sim.dataset import read_dataset, to_wide
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
@@ -34,12 +36,14 @@ def make_server(port: int) -> PlantServer:
     return PlantServer(
         WoodBerryPlant(),
         Scenario(measurement_noise=1.0),
-        seed=3,
-        host="127.0.0.1",
-        port=port,
-        speed=50.0,
-        tick_s=0.02,
-        heartbeat_timeout_s=SERVER_TIMEOUT_S,
+        ServerConfig(
+            seed=3,
+            host="127.0.0.1",
+            port=port,
+            speed=50.0,
+            tick_s=0.02,
+            heartbeat_timeout_s=SERVER_TIMEOUT_S,
+        ),
     )
 
 
@@ -59,13 +63,13 @@ def run_against_server(
     return asyncio.run(asyncio.wait_for(main(), timeout=timeout_s))
 
 
-def import_y1(tmp_path: Path, nodes: dict[str, str], **kwargs: object) -> OpcUaImportReport:
+def import_y1(tmp_path: Path, nodes: dict[str, str], **plan_options: Any) -> OpcUaImportReport:
     """Run import_opcua for the given nodes against a freshly started plant server."""
     out_dir = tmp_path / "ds"
     port = free_port()
     server = make_server(port)
     call = lambda endpoint: import_opcua(  # noqa: E731 - tiny adapter to pass the live endpoint
-        endpoint, nodes, out_dir, dataset_id="opcua", **kwargs
+        endpoint, nodes, ImportTarget(out_dir, "opcua"), PollPlan(**plan_options)
     )
     return run_against_server(server, call)
 
@@ -133,7 +137,10 @@ def test_import_does_not_write_to_the_plant(tmp_path: Path) -> None:
     run_against_server(
         server,
         lambda endpoint: import_opcua(
-            endpoint, nodes, tmp_path / "ds", dataset_id="opcua", n_samples=3, period_s=0.05
+            endpoint,
+            nodes,
+            ImportTarget(tmp_path / "ds", "opcua"),
+            PollPlan(period_s=0.05, n_samples=3),
         ),
     )
     assert client_writes == []
@@ -145,7 +152,7 @@ def test_an_empty_node_map_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         run_against_server(
             server,
-            lambda endpoint: import_opcua(endpoint, {}, tmp_path / "ds", dataset_id="opcua"),
+            lambda endpoint: import_opcua(endpoint, {}, ImportTarget(tmp_path / "ds", "opcua")),
         )
 
 
@@ -158,9 +165,8 @@ def test_zero_samples_is_rejected(tmp_path: Path) -> None:
             lambda endpoint: import_opcua(
                 endpoint,
                 {"y1": f"ns=2;s={TAG_Y1}"},
-                tmp_path / "ds",
-                dataset_id="opcua",
-                n_samples=0,
+                ImportTarget(tmp_path / "ds", "opcua"),
+                PollPlan(n_samples=0),
             ),
         )
 
@@ -174,9 +180,8 @@ def test_a_non_positive_period_is_rejected(tmp_path: Path) -> None:
             lambda endpoint: import_opcua(
                 endpoint,
                 {"y1": f"ns=2;s={TAG_Y1}"},
-                tmp_path / "ds",
-                dataset_id="opcua",
-                period_s=0.0,
+                ImportTarget(tmp_path / "ds", "opcua"),
+                PollPlan(period_s=0.0),
             ),
         )
 
@@ -186,7 +191,10 @@ def test_an_unreachable_endpoint_raises_connection_error(tmp_path: Path) -> None
     nodes = {"y1": f"ns=2;s={TAG_Y1}"}
     with pytest.raises(ConnectionError):
         import_opcua(
-            endpoint, nodes, tmp_path / "ds", dataset_id="opcua", n_samples=1, period_s=0.05
+            endpoint,
+            nodes,
+            ImportTarget(tmp_path / "ds", "opcua"),
+            PollPlan(period_s=0.05, n_samples=1),
         )
 
 

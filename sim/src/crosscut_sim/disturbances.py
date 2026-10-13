@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 
@@ -34,12 +36,23 @@ def _check_parameters(sigma: float, tau_s: float, dt_s: float) -> None:
         raise ValueError("dt_s must be positive")
 
 
+@dataclass(frozen=True)
+class OuShape:
+    """Statistical shape of an Ornstein-Uhlenbeck process: where it sits, how wide, how slow.
+
+    ``mean`` is the long-run level, ``sigma`` the stationary standard deviation (both in the
+    process unit) and ``tau_s`` the memory time in seconds.
+    """
+
+    mean: float
+    sigma: float
+    tau_s: float
+
+
 class OrnsteinUhlenbeck:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(
-        self, mean: float, sigma: float, tau_s: float, dt_s: float, rng: np.random.Generator
-    ) -> None:
+    def __init__(self, shape: OuShape, dt_s: float, rng: np.random.Generator) -> None:
         """Initialize the Ornstein-Uhlenbeck process.
 
         The Ornstein-Uhlenbeck (OU) process is the continuous-time analogue of an AR(1)
@@ -54,18 +67,17 @@ class OrnsteinUhlenbeck:
         deviation from the mean: after about ``tau_s`` the process has forgotten it.
 
         Args:
-            mean: The long-run mean the process reverts to, in the units of the process.
-            sigma: The stationary standard deviation of the process: the spread the
-                process settles into once it has run for much longer than ``tau_s``.
-            tau_s: The time constant of the process, in seconds; must be positive.
+            shape: Long-run mean, stationary standard deviation (the spread the process
+                settles into once it has run for much longer than ``tau_s``) and time
+                constant in seconds (must be positive).
             dt_s: The simulation time step, in seconds; must be positive.
             rng: The random number generator to use.
 
         Raises:
             ValueError: If sigma is negative, or if tau_s or dt_s are not positive.
         """
-        self._validate_and_store_parameters(mean, sigma, tau_s, dt_s)
-        self._store_rng_and_initial_value(rng, mean)
+        self._validate_and_store_parameters(shape.mean, shape.sigma, shape.tau_s, dt_s)
+        self._store_rng_and_initial_value(rng, shape.mean)
 
     def _validate_and_store_parameters(
         self, mean: float, sigma: float, tau_s: float, dt_s: float

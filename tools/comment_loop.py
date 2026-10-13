@@ -42,7 +42,7 @@ def function_spans(source: str) -> list[tuple[int, int]]:
     spans = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+            first = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
             last = node.end_lineno or node.lineno
             if last - node.lineno >= MIN_BODY_LINES:
                 spans.append((first, last))

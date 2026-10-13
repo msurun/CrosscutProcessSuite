@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +33,20 @@ def save_version(
     """Write ``document`` as the newest version of ``system_id`` and return its version id.
 
     ``now`` is the instant to stamp; callers pass it explicitly so the clock lives outside the
-    storage layer.
+    storage layer. When a version with that id already exists (a coarse clock, as on Windows,
+    can return the same microsecond twice) the stamp moves forward one microsecond at a time,
+    so a save never overwrites an earlier version and the ids still sort by time.
 
     Raises:
         FuzzyModelError: when the id is not a plain identifier.
     """
     check_id(system_id)
-    version_id = format_version_id(now)
     directory = _history_dir(system_id, user_dir)
     directory.mkdir(parents=True, exist_ok=True)
+    version_id = format_version_id(now)
+    while (directory / f"{version_id}.json").exists():
+        now += timedelta(microseconds=1)
+        version_id = format_version_id(now)
     (directory / f"{version_id}.json").write_text(
         json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf8"
     )

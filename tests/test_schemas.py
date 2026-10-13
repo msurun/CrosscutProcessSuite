@@ -85,10 +85,12 @@ MANIFEST_DOC: dict[str, Any] = {
 
 
 def load(name: str) -> dict[str, Any]:
+    """Read one JSON schema file from the schemas directory."""
     return json.loads((SCHEMAS / name).read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 def validator(name: str) -> Draft202012Validator:
+    """Return a validator for the named schema, after checking the schema itself is valid."""
     schema = load(name)
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
@@ -143,7 +145,7 @@ def test_schema_metadata(name: str) -> None:
 )
 def test_valid_documents(name: str, doc: dict[str, Any]) -> None:
     errors = list(validator(name).iter_errors(doc))
-    assert errors == [], [e.message for e in errors]
+    assert errors == [], [error.message for error in errors]
 
 
 TAGS_INVALID = [

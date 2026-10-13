@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 from crosscut_sim.core import Scenario
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
-from crosscut_sim.scenarios import available_scenarios, build_scenario, random_binary_events
+from crosscut_sim.scenarios import (
+    BinarySignal,
+    available_scenarios,
+    build_scenario,
+    random_binary_events,
+)
 
 TOP_SP = "sim.wb.top_comp_sp"
 BOT_SP = "sim.wb.bottom_comp_sp"
@@ -50,18 +55,10 @@ def test_feed_step_has_one_event_at_a_quarter_of_the_run() -> None:
 
 def test_random_binary_events_are_deterministic_and_binary() -> None:
     """Same seed gives same events; a different seed diverges; values stay binary."""
-    same_seed_events = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
-                                            duration_s=10000.0, seed=1)  # fmt: skip
-    repeated_same_seed_events = random_binary_events(
-        "x",
-        center=10.0,
-        amplitude=1.0,
-        switch_period_s=100.0,
-        duration_s=10000.0,
-        seed=1,
-    )  # fmt: skip
-    other_seed_events = random_binary_events("x", center=10.0, amplitude=1.0, switch_period_s=100.0,
-                                             duration_s=10000.0, seed=2)  # fmt: skip
+    signal = BinarySignal(center=10.0, amplitude=1.0, switch_period_s=100.0, duration_s=10000.0)
+    same_seed_events = random_binary_events("x", signal, seed=1)
+    repeated_same_seed_events = random_binary_events("x", signal, seed=1)
+    other_seed_events = random_binary_events("x", signal, seed=2)
     assert same_seed_events == repeated_same_seed_events
     assert same_seed_events != other_seed_events
     assert len(same_seed_events) == 100

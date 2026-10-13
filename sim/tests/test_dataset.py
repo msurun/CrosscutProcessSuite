@@ -13,6 +13,7 @@ import pytest
 from crosscut_sim.core import Scenario
 from crosscut_sim.dataset import (
     DEFAULT_START_UTC,
+    RunInfo,
     compute_data_sha256,
     read_dataset,
     record,
@@ -38,16 +39,14 @@ def rec(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Record a WoodBerryPlant run for the given scenario and return the recording result."""
-    return record(
-        WoodBerryPlant(),
-        scenario,
-        out,
+    run = RunInfo(
         seed=seed,
         dataset_id=f"wb_test_seed{seed}",
         plant_name="wood_berry",
         scenario_name="test",
         **kwargs,
     )
+    return record(WoodBerryPlant(), scenario, out, run)
 
 
 def test_layout_schema_and_contents(tmp_path: Path) -> None:

@@ -14,9 +14,9 @@ from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_loops import loops_from_project
 from crosscut_loops.tuning_payload import TuningRequest, tuning_payload
 from crosscut_sim.dataset import read_dataset, to_wide
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 
-from crosscut_api.downsample import downsample_minmax
+from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 
 DEFAULT_MAX_POINTS = 2000
@@ -140,203 +140,183 @@ def _window(
     return ts[mask], values[mask]
 
 
-def create_app(data_root: Path) -> FastAPI:
-    """Create the API for the datasets stored in the sub-directories of ``data_root``."""
-    root = Path(data_root)
-    app = FastAPI(title="Crosscut data API")
-    # Dataset id -> (int64 epoch-nanosecond timestamps, tag values). Datasets never
-    # change after they are written, so caching a loaded dataset for the life of the
-    # process is safe; nothing ever invalidates this dict.
-    cache: dict[str, WideTable] = {}  # datasets are immutable once written
+def _tags_from_document(tag_document: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the "tags" list of a parsed tag document, asserting its type.
 
-    def load_wide(dataset_id: str) -> WideTable:
+    A tag document is the JSON file that stores the metadata of every tag in a
+    dataset: it maps the key "tags" to a list of tag dictionaries (each with
+    attributes such as its name and the nodes it applies to). This helper
+    isolates the single place where that list is pulled out of the document,
+    so the format is validated once and the rest of the code can trust it.
+
+    Raises:
+        TypeError: if the "tags" value is not a list, which means the file on
+            disk does not follow the tag document format.
+    """
+    tags = tag_document["tags"]
+    # Validate here and only here: downstream code assumes ``tags`` is a list
+    # and would fail with a confusing error otherwise.
+    if not isinstance(tags, list):
+        raise TypeError(
+            f"Expected the tag document to hold a list under 'tags', got {type(tags).__name__}"
+        )
+    return tags
+
+
+class DatasetStore:
+    """Loads datasets of one data root and caches them for the life of the process."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        # Dataset id -> (int64 epoch-nanosecond timestamps, tag values). Datasets never
+        # change after they are written, so caching a loaded dataset is safe; nothing
+        # ever invalidates this dict.
+        self._cache: dict[str, WideTable] = {}
+
+    def load_wide(self, dataset_id: str) -> WideTable:
         """Return the cached wide table for a dataset, loading and caching it on first use.
 
-        Reads the dataset once from disk and keeps it in ``cache``; later calls with
+        Reads the dataset once from disk and keeps it in the cache; later calls with
         the same id never touch the disk again.
         """
-        if dataset_id not in cache:
+        if dataset_id not in self._cache:
             # ``to_wide`` converts the on-disk series into one column per tag plus a
             # shared time axis. The timestamps are cast to int64 nanoseconds because
             # integer arithmetic keeps them exact and cheap to subtract or bucket.
-            ts, values = to_wide(read_dataset(_dataset_dir(root, dataset_id)))
-            cache[dataset_id] = (ts.astype(np.int64), values)
-        return cache[dataset_id]
+            ts, values = to_wide(read_dataset(_dataset_dir(self.root, dataset_id)))
+            self._cache[dataset_id] = (ts.astype(np.int64), values)
+        return self._cache[dataset_id]
 
-    def tags_of(dataset_dir: Path) -> list[dict[str, Any]]:
-        """Return the tag documents stored next to a dataset.
-
-        Reads ``tags.json`` from the dataset folder and returns its "tags" list.
-        """
-        tag_document = _read_json(dataset_dir / "tags.json")
-        return _tags_from_document(tag_document)
-
-    def _tags_from_document(tag_document: dict[str, Any]) -> list[dict[str, Any]]:
-        """Return the "tags" list of a parsed tag document, asserting its type.
-
-        A tag document is the JSON file that stores the metadata of every tag in a
-        dataset: it maps the key "tags" to a list of tag dictionaries (each with
-        attributes such as its name and the nodes it applies to). This helper
-        isolates the single place where that list is pulled out of the document,
-        so the format is validated once and the rest of the code can trust it.
-
-        Raises:
-            TypeError: if the "tags" value is not a list, which means the file on
-                disk does not follow the tag document format.
-        """
-        tags = tag_document["tags"]
-        # Validate here and only here: downstream code assumes ``tags`` is a list
-        # and would fail with a confusing error otherwise.
-        if not isinstance(tags, list):
-            raise TypeError(
-                f"Expected the tag document to hold a list under 'tags', got {type(tags).__name__}"
-            )
-        return tags
-
-    def find_loop(dataset_dir: Path, loop_name: str) -> Any:
-        """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
-
-        In this domain a dataset is a folder on disk that may contain several *loops*; a loop is a
-        named, closed circuit of graph nodes (think of a road or a pipeline the nodes describe).
-        Callers refer to a loop by its user-facing name, which is not its position in the folder.
-
-        Returns:
-            The loop object whose ``name`` equals ``loop_name``.
-
-        Raises:
-            HTTPException: with status 404 when no loop in the dataset carries that name. The API
-                surfaces this status to the client, so a missing name is reported as "not found"
-                rather than as a server error.
-        """
-        # ``_loops_of`` builds the whole list of loops for the dataset (reading its tags is a
-        # prerequisite, hence the two arguments). ``next(...)`` walks that iterable and stops at the
-        # first loop whose name matches; ``None`` is the sentinel returned when the generator is
-        # exhausted without a match, which we distinguish below from a real loop object.
-        loop = next(
-            (
-                one
-                for one in _loops_of(dataset_dir, tags_of(dataset_dir))
-                if one.name == loop_name
-            ),
-            None,
-        )
-        if loop is None:
-            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
-        return loop
-
-    def load_seconds(dataset_id: str) -> tuple[np.ndarray, dict[str, Any]]:
+    def load_seconds(self, dataset_id: str) -> tuple[np.ndarray, dict[str, Any]]:
         """Return the dataset's series and its timestamps as seconds since the first sample."""
-        ts, values = load_wide(dataset_id)
+        ts, values = self.load_wide(dataset_id)
         # The stored timestamps are int64 nanoseconds since the epoch. Subtracting the
         # first sample makes the axis start at 0 (seconds elapsed, a float), which is
         # what the plotting clients expect.
         return (ts - ts[0]) / NS_PER_SECOND, values
 
-    def build_series(
-        dataset_id: str,
-        tag: list[str],
-        start: int | None,
-        end: int | None,
-        max_points: int,
-    ) -> list[dict[str, Any]]:
-        """Return the downsampled envelopes of every requested tag.
+    def tags_of(self, dataset_dir: Path) -> list[dict[str, Any]]:
+        """Return the "tags" list stored in ``tags.json`` next to a dataset."""
+        return _tags_from_document(_read_json(dataset_dir / "tags.json"))
 
-        One JSON document per requested tag, in the same order as ``tag``.
+    def find_loop(self, dataset_dir: Path, loop_name: str) -> Any:
+        """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
+
+        In this domain a dataset is a folder on disk that may contain several *loops*; a loop is a
+        named, closed circuit of graph nodes. Callers refer to a loop by its user-facing name,
+        which is not its position in the folder.
+
+        Raises:
+            HTTPException: 404 when no loop in the dataset carries that name, so a missing name
+                is reported as "not found" rather than as a server error.
         """
-        timestamps, values = load_wide(dataset_id)
-        _reject_unknown_tags(tag, values)
-        # Process each tag independently: crop it to the requested time window, then
-        # reduce it to at most ``max_points`` buckets.
-        series = []
-        for tag_id in tag:
-            window_timestamps, window_values = _window(timestamps, values[tag_id], start, end)
-            envelope = downsample_minmax(window_timestamps, window_values, max_points)
-            series.append(_envelope_document(tag_id, envelope))
-        return series
+        # ``next(...)`` stops at the first loop whose name matches; ``None`` is the sentinel
+        # for "generator exhausted without a match".
+        loops = _loops_of(dataset_dir, self.tags_of(dataset_dir))
+        loop = next((one for one in loops if one.name == loop_name), None)
+        if loop is None:
+            raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
+        return loop
 
-    def _reject_unknown_tags(tag: list[str], values: dict[str, Any]) -> None:
-        """Raise a 404 naming the first requested tag that the dataset does not contain."""
-        # ``values`` has one column per available tag, so membership in it is the
-        # check. Reporting the first unknown tag (not all of them) keeps the message
-        # short and matches the "fail fast on the first problem" style of the API.
-        unknown = [tag_id for tag_id in tag if tag_id not in values]
-        if unknown:
-            raise HTTPException(status_code=404, detail=f"unknown tag: {unknown[0]}")
 
-    def _envelope_document(tag_id: str, envelope: Any) -> dict[str, Any]:
-        """Return the JSON document describing one tag's downsampled envelope.
+@dataclass(frozen=True)
+class SeriesQuery:
+    """Which series to fetch (path + query string) and how to downsample them."""
 
-        The "envelope" of a signal is its min/max/mean band: for every time bucket
-        we keep the lowest, highest and average sample value, so a caller can draw
-        the signal's outer shape without shipping every raw sample over the wire.
+    dataset_id: str
+    # May hold the same tag twice; each entry produces one series in the response.
+    tag: Annotated[list[str], Query(min_length=1)]
+    # Epoch-second bounds (inclusive start, exclusive end); None means unbounded.
+    start: int | None = None
+    end: int | None = None
+    # Upper bound on returned points per tag; the client picks it, the server clamps it.
+    max_points: Annotated[int, Query(ge=2, le=MAX_POINTS_LIMIT)] = DEFAULT_MAX_POINTS
 
-        Takes the tag identifier and an envelope object exposing five attributes:
-        ``downsampled`` (whether the envelope was reduced at all, bool), ``t``
-        (bucket start times, seconds since epoch), ``min``/``max``/``mean``
-        (per-bucket values, one entry per entry of ``t``; NaN where a bucket had
-        no samples).
 
-        Returns a JSON-serialisable dict. Keys are one letter long because this
-        document is repeated for every tag and size matters on the wire:
-        ``t``, ``min``, ``max``, ``mean``.
-        """
-        return {
-            "tag": tag_id,
-            # Whether the server reduced the resolution; false means the buckets
-            # are the original samples.
-            "downsampled": envelope.downsampled,
-            # The time axis is a NumPy array, which json cannot serialise; tolist()
-            # turns it into plain Python floats.
-            "t": envelope.t.tolist(),
-            # NaN is not valid JSON, so these arrays go through a sanitising
-            # helper that replaces each NaN with None (JSON null).
-            "min": _json_floats(envelope.min),
-            "max": _json_floats(envelope.max),
-            "mean": _json_floats(envelope.mean),
-        }
+@dataclass(frozen=True)
+class TuningQuery:
+    """Which loop and data window to identify (path + query string) and how robust to tune."""
 
-    # The fuzzy-matching endpoints need the same loaded tables, so they share the
-    # cached loader instead of reading the dataset again.
-    app.include_router(build_fuzzy_router(root, load_wide))
+    dataset_id: str
+    loop_name: str
+    start_s: float | None = None
+    end_s: float | None = None
+    robustness: Annotated[float, Query(ge=0.0, le=1.0)] = 0.5
 
-    _register_health_route(app)
 
-    @app.get("/datasets")
-    def list_datasets() -> list[dict[str, Any]]:
+def _reject_unknown_tags(tag: list[str], values: dict[str, Any]) -> None:
+    """Raise a 404 naming the first requested tag that the dataset does not contain."""
+    # ``values`` has one column per available tag, so membership in it is the
+    # check. Reporting the first unknown tag (not all of them) keeps the message
+    # short and matches the "fail fast on the first problem" style of the API.
+    unknown = [tag_id for tag_id in tag if tag_id not in values]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"unknown tag: {unknown[0]}")
+
+
+def _envelope_document(tag_id: str, envelope: Envelope) -> dict[str, Any]:
+    """Return the JSON document describing one tag's downsampled envelope.
+
+    The "envelope" of a signal is its min/max/mean band: for every time bucket
+    we keep the lowest, highest and average sample value, so a caller can draw
+    the signal's outer shape without shipping every raw sample over the wire.
+
+    Returns a JSON-serialisable dict. Keys are one letter long where possible because this
+    document is repeated for every tag and size matters on the wire: ``t``, ``min``, ``max``,
+    ``mean``.
+    """
+    return {
+        "tag": tag_id,
+        # Whether the server reduced the resolution; false means the buckets
+        # are the original samples.
+        "downsampled": envelope.downsampled,
+        # The time axis is a NumPy array, which json cannot serialise; tolist()
+        # turns it into plain Python numbers.
+        "t": envelope.timestamps.tolist(),
+        # NaN is not valid JSON, so these arrays go through a sanitising
+        # helper that replaces each NaN with None (JSON null).
+        "min": _json_floats(envelope.min),
+        "max": _json_floats(envelope.max),
+        "mean": _json_floats(envelope.mean),
+    }
+
+
+def build_series(store: DatasetStore, query: SeriesQuery) -> list[dict[str, Any]]:
+    """Return the downsampled envelopes of every requested tag, in the order of ``query.tag``."""
+    timestamps, values = store.load_wide(query.dataset_id)
+    _reject_unknown_tags(query.tag, values)
+    # Process each tag independently: crop it to the requested time window, then
+    # reduce it to at most ``max_points`` buckets.
+    series = []
+    for tag_id in query.tag:
+        window_timestamps, window_values = _window(
+            timestamps, values[tag_id], query.start, query.end
+        )
+        envelope = downsample_minmax(window_timestamps, window_values, query.max_points)
+        series.append(_envelope_document(tag_id, envelope))
+    return series
+
+
+class _DatasetEndpoints:
+    """Handlers of the dataset-level routes (listing, tags, series)."""
+
+    def __init__(self, store: DatasetStore) -> None:
+        self.store = store
+
+    def list_datasets(self) -> list[dict[str, Any]]:
         """Return a summary of every dataset found on disk, sorted by dataset id."""
-        # Every dataset lives in its own sub-directory of ``root`` and carries a
+        # Every dataset lives in its own sub-directory of the root and carries a
         # ``dataset.json`` with its metadata; the glob finds those files only.
-        documents = [_read_json(path) for path in root.glob("*/dataset.json")]
+        documents = [_read_json(path) for path in self.store.root.glob("*/dataset.json")]
         summaries = (_summary(document) for document in documents)
         # Sorted by string id so paging and diffing clients see a stable order.
         return sorted(summaries, key=lambda summary: str(summary["id"]))
 
-    @app.get("/datasets/{dataset_id}/tags")
-    def get_tags(dataset_id: str) -> list[dict[str, Any]]:
+    def get_tags(self, dataset_id: str) -> list[dict[str, Any]]:
         """Return the tag documents of a dataset."""
-        return tags_of(_dataset_dir(root, dataset_id))
+        return self.store.tags_of(_dataset_dir(self.store.root, dataset_id))
 
-    @dataclass(frozen=True)
-    class SeriesRequest:
-        """Parameters describing which series to fetch and how to downsample them."""
-
-        dataset_id: str
-        # May hold the same tag twice; each entry produces one series in the response.
-        tag: list[str]
-        # Epoch-second bounds (inclusive start, exclusive end); None means unbounded.
-        start: int | None
-        end: int | None
-        # Upper bound on returned points per tag; the client picks it, the server clamps it.
-        max_points: int
-
-    @app.get("/datasets/{dataset_id}/series")
-    def get_series(
-        dataset_id: str,
-        tag: Annotated[list[str], Query(min_length=1)],
-        start: int | None = None,
-        end: int | None = None,
-        max_points: Annotated[int, Query(ge=2, le=MAX_POINTS_LIMIT)] = DEFAULT_MAX_POINTS,
-    ) -> dict[str, Any]:
+    def get_series(self, query: Annotated[SeriesQuery, Depends()]) -> dict[str, Any]:
         """Return the requested tags, downsampled for display.
 
         Time-series data can hold millions of samples per tag, far more than a browser
@@ -346,50 +326,38 @@ def create_app(data_root: Path) -> FastAPI:
         `tag` may repeat, so several series are requested in one call. `start` and
         `end` are optional epoch-second bounds; `None` means "no bound on that side".
         """
-        request = SeriesRequest(dataset_id, tag, start, end, max_points)
         return {
-            # Echo the resolved dataset id so the caller can match the answer to the
-            # request even if the id needed normalising.
-            "dataset_id": request.dataset_id,
-            # Downsample to at most request.max_points samples per tag (a plain
-            # stride/thinning pass, so extremes may be dropped) and return them as a
-            # mapping of tag name -> list of {timestamp, value} points.
-            "series": build_series(
-                request.dataset_id,
-                request.tag,
-                request.start,
-                request.end,
-                request.max_points,
-            ),
+            # Echo the dataset id so the caller can match the answer to the request.
+            "dataset_id": query.dataset_id,
+            "series": build_series(self.store, query),
         }
 
-    @app.get("/datasets/{dataset_id}/loops")
-    def get_loops(dataset_id: str) -> dict[str, Any]:
-        """Analyse every control loop of the dataset (health, findings, key numbers)."""
-        dataset_dir = _dataset_dir(root, dataset_id)
-        t_s, values = load_seconds(dataset_id)
-        loops = analyze_dataset(t_s, values, _loops_of(dataset_dir, tags_of(dataset_dir)))
-        return {"dataset_id": dataset_id, "loops": loops}
 
-    @app.get("/datasets/{dataset_id}/loops/{loop_name}/tuning")
-    def get_tuning(
-        dataset_id: str,
-        loop_name: str,
-        start_s: float | None = None,
-        end_s: float | None = None,
-        robustness: Annotated[float, Query(ge=0.0, le=1.0)] = 0.5,
-    ) -> dict[str, Any]:
+class _LoopEndpoints:
+    """Handlers of the per-loop routes (analysis, tuning, benefit)."""
+
+    def __init__(self, store: DatasetStore) -> None:
+        self.store = store
+
+    def get_loops(self, dataset_id: str) -> dict[str, Any]:
+        """Analyse every control loop of the dataset (health, findings, key numbers)."""
+        dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        t_s, values = self.store.load_seconds(dataset_id)
+        loops_of_dataset = _loops_of(dataset_dir, self.store.tags_of(dataset_dir))
+        return {"dataset_id": dataset_id, "loops": analyze_dataset(t_s, values, loops_of_dataset)}
+
+    def get_tuning(self, query: Annotated[TuningQuery, Depends()]) -> dict[str, Any]:
         """Identify the loop on a data window and propose PI settings (read-only)."""
-        dataset_dir = _dataset_dir(root, dataset_id)
-        loop = find_loop(dataset_dir, loop_name)
-        t_s, values = load_seconds(dataset_id)
+        dataset_dir = _dataset_dir(self.store.root, query.dataset_id)
+        loop = self.store.find_loop(dataset_dir, query.loop_name)
+        t_s, values = self.store.load_seconds(query.dataset_id)
         row = analyze_dataset(t_s, values, [loop])[0]
         suspected = any(finding["code"] == "stiction" for finding in row["findings"])
-        request = TuningRequest(start_s, end_s, robustness, suspected)
+        request = TuningRequest(query.start_s, query.end_s, query.robustness, suspected)
         return tuning_payload(loop, t_s, values, request)
 
-    @app.get("/datasets/{dataset_id}/loops/{loop_name}/benefit")
     def get_benefit(
+        self,
         dataset_id: str,
         loop_name: str,
         request: Annotated[BenefitQuery, Depends()],
@@ -399,16 +367,13 @@ def create_app(data_root: Path) -> FastAPI:
         `request` is a query-string model, so FastAPI builds it from the URL parameters and
         this handler never sees them as separate arguments. Returns the JSON payload built by
         `benefit_payload`. Raises 422 when the user's assumptions are not usable.
-
-        "Benefit" is the money saved by damping the PV power fluctuations with a battery,
-        valued with the tariffs the user gave in the query string.
         """
         # Folders are laid out as one directory per dataset, the loop stored inside it.
-        dataset_dir = _dataset_dir(root, dataset_id)
-        loop = find_loop(dataset_dir, loop_name)
-        # The measured series: `t_s` is the time axis in seconds, `values` the PV power in
-        # watts at each of those instants, both sorted by time.
-        t_s, values = load_seconds(dataset_id)
+        dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        loop = self.store.find_loop(dataset_dir, loop_name)
+        # The measured series: `t_s` is the time axis in seconds, `values` the signals,
+        # both sorted by time.
+        t_s, values = self.store.load_seconds(dataset_id)
         try:
             # The calculation is pure and raises ValueError on bad assumptions (unknown
             # tariff name, missing loop points); the HTTP layer turns that into a 422.
@@ -416,6 +381,41 @@ def create_app(data_root: Path) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+
+def _dataset_router(store: DatasetStore) -> APIRouter:
+    """Routes listing datasets and serving their tags and downsampled series."""
+    endpoints = _DatasetEndpoints(store)
+    router = APIRouter()
+    router.add_api_route("/datasets", endpoints.list_datasets, methods=["GET"])
+    router.add_api_route("/datasets/{dataset_id}/tags", endpoints.get_tags, methods=["GET"])
+    router.add_api_route("/datasets/{dataset_id}/series", endpoints.get_series, methods=["GET"])
+    return router
+
+
+def _loop_router(store: DatasetStore) -> APIRouter:
+    """Routes analysing the control loops of a dataset."""
+    endpoints = _LoopEndpoints(store)
+    router = APIRouter()
+    router.add_api_route("/datasets/{dataset_id}/loops", endpoints.get_loops, methods=["GET"])
+    router.add_api_route(
+        "/datasets/{dataset_id}/loops/{loop_name}/tuning", endpoints.get_tuning, methods=["GET"]
+    )
+    router.add_api_route(
+        "/datasets/{dataset_id}/loops/{loop_name}/benefit", endpoints.get_benefit, methods=["GET"]
+    )
+    return router
+
+
+def create_app(data_root: Path) -> FastAPI:
+    """Create the API for the datasets stored in the sub-directories of ``data_root``."""
+    store = DatasetStore(Path(data_root))
+    app = FastAPI(title="Crosscut data API")
+    # The fuzzy-matching endpoints need the same loaded tables, so they share the
+    # cached loader instead of reading the dataset again.
+    app.include_router(build_fuzzy_router(store.root, store.load_wide))
+    _register_health_route(app)
+    app.include_router(_dataset_router(store))
+    app.include_router(_loop_router(store))
     return app
 
 
@@ -424,14 +424,10 @@ def _register_health_route(app: FastAPI) -> None:
 
     A liveness probe is the endpoint an orchestrator (Kubernetes, a load balancer,
     a monitoring system) polls to decide whether this process is still alive and
-    able to serve traffic. If the endpoint stops answering, the orchestrator
-    restarts or removes the instance. Because the probe must stay cheap and must
-    never fail for reasons unrelated to the process itself, it deliberately
-    checks nothing external (no database, no downstream service) and only
-    confirms that the HTTP stack is responding.
-
-    The route is added by decorating a nested function, so the endpoint is
-    defined and registered in a single place and cannot be forgotten.
+    able to serve traffic. Because the probe must stay cheap and must never fail
+    for reasons unrelated to the process itself, it deliberately checks nothing
+    external (no database, no downstream service) and only confirms that the HTTP
+    stack is responding.
     """
 
     @app.get("/health")

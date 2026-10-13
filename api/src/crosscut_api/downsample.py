@@ -12,14 +12,14 @@ class Envelope:
     """Min/max envelope of a time series.
 
     Attributes:
-        t: Timestamps of the envelope points.
+        timestamps: Timestamps of the envelope points.
         min: Minimum values of the buckets.
         max: Maximum values of the buckets.
         mean: Mean values of the buckets.
         downsampled: Whether the data was downsampled.
     """
 
-    t: np.ndarray
+    timestamps: np.ndarray
     min: np.ndarray
     max: np.ndarray
     mean: np.ndarray

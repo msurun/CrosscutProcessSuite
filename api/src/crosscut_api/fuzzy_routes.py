@@ -46,51 +46,36 @@ class ReplayRequest(BaseModel):
     max_points: Annotated[int, Field(ge=2, le=5000)] = DEFAULT_REPLAY_POINTS
 
 
-def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> APIRouter:
-    """Routes for the rule bases stored under ``root`` and for replay on ``root``'s datasets.
+class _FuzzyEndpoints:
+    """The fuzzy route handlers, bound to the user's rule-base directory and the dataset loader.
 
     A *fuzzy rule base* is a saved set of human-readable IF/THEN rules that map
     input variables to output variables through fuzzy sets ("cold", "warm").
-    ``root`` is the data directory of the project; the user's own rule bases
-    live in the ``USER_DIR_NAME`` sub-directory of it.
-
-    Args:
-        root: Base directory holding both the bundled examples and the user's files.
-        load_wide: Callback that reads a dataset by name into a wide table
-            (one row per timestamp, one column per signal). Not used here yet;
-            it is kept in the signature for the replay routes that share this router.
-
-    Returns:
-        An ``APIRouter`` with the ``/fuzzy`` endpoints already registered.
+    Keeping the handlers as methods lets them share ``user_dir`` and ``load_wide``
+    without nesting every route inside one long function.
     """
-    router = APIRouter()
-    # Directory where the user's own rule bases are read from and written to.
-    user_dir = root / USER_DIR_NAME
 
-    @router.get("/fuzzy")
-    def get_systems() -> list[dict[str, str]]:
+    def __init__(self, user_dir: Path, load_wide: Callable[[str], WideTable]) -> None:
+        self.user_dir = user_dir
+        self.load_wide = load_wide
+
+    def get_systems(self) -> list[dict[str, str]]:
         """Bundled examples and the user's saved systems."""
         # Each entry is a small dict of strings, typically {"id": ..., "name": ...}.
-        return list_systems(user_dir)
+        return list_systems(self.user_dir)
 
-    @router.get("/fuzzy/{system_id}")
-    def get_system(system_id: str) -> dict[str, Any]:
+    def get_system(self, system_id: str) -> dict[str, Any]:
         """Return one fuzzy rule-base document as JSON.
 
         The document is identified by ``system_id``, the name of the rule base
-        (for example ``"temperature_control"``). It is read from ``user_dir``,
-        the directory that holds the user's saved rule bases.
-
-        Returns:
-            The parsed rule-base document, ready to be serialised as JSON.
+        (for example ``"temperature_control"``). It is read from the user's directory.
 
         Raises:
-            HTTPException: 404 when no document with that name exists in
-                ``user_dir``; 422 when the file exists but does not describe a
-                valid fuzzy model.
+            HTTPException: 404 when no document with that name exists; 422 when the
+                file exists but does not describe a valid fuzzy model.
         """
         try:
-            return load_document(system_id, user_dir)
+            return load_document(system_id, self.user_dir)
         # A missing file means the caller asked for a rule base that was never
         # saved. That is a client mistake, so answer "404 Not Found" with the
         # requested name so the caller sees exactly what could not be found.
@@ -103,8 +88,7 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @router.put("/fuzzy/{system_id}")
-    def put_system(system_id: str, document: dict[str, Any]) -> dict[str, Any]:
+    def put_system(self, system_id: str, document: dict[str, Any]) -> dict[str, Any]:
         """Validate and save a rule base as the user's system (configuration only).
 
         The document is validated before it is written: `save_document` raises
@@ -118,43 +102,39 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         (Unprocessable Entity) if validation fails.
         """
         try:
-            save_document(system_id, document, user_dir)
+            save_document(system_id, document, self.user_dir)
             # History entry timestamped in UTC; `save_version` appends rather than overwrites, so
             # earlier versions of the same system_id stay readable.
-            save_version(system_id, document, user_dir, now=datetime.now(UTC))
+            save_version(system_id, document, self.user_dir, now=datetime.now(UTC))
         except FuzzyModelError as error:
             # Translate the domain error into an HTTP status the client can act on,
             # preserving the original exception via `from` for the traceback.
             raise HTTPException(status_code=422, detail=str(error)) from error
         return document
 
-    @router.get("/fuzzy/{system_id}/versions")
-    def get_versions(system_id: str) -> list[str]:
+    def get_versions(self, system_id: str) -> list[str]:
         """Version ids of the saved snapshots, newest first."""
         # Version ids are opaque strings; their order (newest first) is decided by `list_versions`,
         # so the client can index `[0]` for the latest one.
         try:
-            return list_versions(system_id, user_dir)
+            return list_versions(system_id, self.user_dir)
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @router.get("/fuzzy/{system_id}/versions/{version_id}")
-    def get_version(system_id: str, version_id: str) -> dict[str, Any]:
+    def get_version(self, system_id: str, version_id: str) -> dict[str, Any]:
         """One saved snapshot of a rule base."""
         try:
-            return load_version(system_id, version_id, user_dir)
+            return load_version(system_id, version_id, self.user_dir)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="unknown version") from error
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @router.post("/fuzzy/diff")
-    def post_diff(request: DiffRequest) -> list[dict[str, Any]]:
+    def post_diff(self, request: DiffRequest) -> list[dict[str, Any]]:
         """Structural differences between two rule base documents (codes, not prose)."""
         return diff_documents(request.old, request.new)
 
-    @router.post("/fuzzy/infer")
-    def post_infer(request: InferRequest) -> dict[str, Any]:
+    def post_infer(self, request: InferRequest) -> dict[str, Any]:
         """What-if: evaluate the given rule base on one set of input values.
 
         The request carries a full fuzzy document (variables, membership
@@ -163,11 +143,6 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         saving it first. Returns the JSON-serialisable inference payload; raises
         HTTP 422 when the document is invalid or the inputs cannot be evaluated.
         """
-        # A fuzzy control system is defined by three parts: fuzzy variables
-        # (each with membership functions such as "cold", "warm"), a rule base
-        # ("IF temperature IS cold THEN fan IS slow" style) and an inference
-        # method that combines them. The document in the request holds all three,
-        # so this endpoint can evaluate a model the caller has not persisted.
         # _system_or_422 validates the document and converts it into an executable
         # model; a malformed document is the caller's error, hence 422.
         system = _system_or_422(request.document)
@@ -179,8 +154,7 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
             # server failure.
             raise HTTPException(status_code=422, detail=str(error)) from error
 
-    @router.post("/datasets/{dataset_id}/fuzzy/replay")
-    def post_replay(dataset_id: str, request: ReplayRequest) -> dict[str, Any]:
+    def post_replay(self, dataset_id: str, request: ReplayRequest) -> dict[str, Any]:
         """Replay the given rule base over recorded data (what it would have said).
 
         "Replay" means: take the fuzzy inference system supplied in the request body and run it
@@ -199,14 +173,45 @@ def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> API
         # and reduce it to the replay window asked for in the request.
         # t_ns holds the timestamp of each remaining sample in nanoseconds since the Unix epoch;
         # columns maps a signal name to its array of sample values over that same window.
-        t_ns, columns = _window(load_wide(dataset_id), request)
+        t_ns, columns = _window(self.load_wide(dataset_id), request)
 
         try:
             return replay_payload(system, t_ns, columns, request.max_points)
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+
+def build_fuzzy_router(root: Path, load_wide: Callable[[str], WideTable]) -> APIRouter:
+    """Routes for the rule bases stored under ``root`` and for replay on ``root``'s datasets.
+
+    Args:
+        root: Base directory holding both the bundled examples and the user's files;
+            the user's own rule bases live in its ``USER_DIR_NAME`` sub-directory.
+        load_wide: Callback that reads a dataset by name into a wide table
+            (one row per timestamp, one column per signal), used by the replay route.
+
+    Returns:
+        An ``APIRouter`` with the ``/fuzzy`` endpoints already registered.
+    """
+    router = APIRouter()
+    endpoints = _FuzzyEndpoints(root / USER_DIR_NAME, load_wide)
+    for path, method, handler in _route_table(endpoints):
+        router.add_api_route(path, handler, methods=[method])
     return router
+
+
+def _route_table(endpoints: _FuzzyEndpoints) -> list[tuple[str, str, Callable[..., Any]]]:
+    """The (path, HTTP method, handler) of every fuzzy route, in registration order."""
+    return [
+        ("/fuzzy", "GET", endpoints.get_systems),
+        ("/fuzzy/{system_id}", "GET", endpoints.get_system),
+        ("/fuzzy/{system_id}", "PUT", endpoints.put_system),
+        ("/fuzzy/{system_id}/versions", "GET", endpoints.get_versions),
+        ("/fuzzy/{system_id}/versions/{version_id}", "GET", endpoints.get_version),
+        ("/fuzzy/diff", "POST", endpoints.post_diff),
+        ("/fuzzy/infer", "POST", endpoints.post_infer),
+        ("/datasets/{dataset_id}/fuzzy/replay", "POST", endpoints.post_replay),
+    ]
 
 
 def _system_or_422(document: dict[str, Any]) -> FuzzySystem:

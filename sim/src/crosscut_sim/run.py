@@ -15,8 +15,8 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from crosscut_sim.core import Plant
-from crosscut_sim.dataset import DEFAULT_START_UTC, record
+from crosscut_sim.core import Plant, Scenario
+from crosscut_sim.dataset import DEFAULT_START_UTC, RunInfo, record
 from crosscut_sim.plants.mill_circuit import MillCircuitPlant
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import build_scenario
@@ -122,6 +122,91 @@ def _convert_to_seconds(seconds: float, unit: str) -> float:
     return seconds
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    """Define the command line; the parser exits with usage (code 2) on a wrong command line."""
+    parser = argparse.ArgumentParser(
+        prog="python -m crosscut_sim.run",
+        description="Run the Crosscut simulation suite and record the results.",
+    )
+    parser.add_argument("--plant", required=True, choices=sorted(PLANTS), help="plant identifier")
+    parser.add_argument("--scenario", default="nominal", help="scenario name (default: nominal)")
+    parser.add_argument("--duration", default="6h", help="simulation duration (default: 6h)")
+    parser.add_argument("--seed", type=int, default=42, help="random seed (default: 42)")
+    parser.add_argument("--out", required=True, type=Path, help="output directory")
+    parser.add_argument(
+        "--sample-period", default=None, help="sample period (default: scenario.dt_s)"
+    )
+    parser.add_argument(
+        "--start-utc",
+        default=DEFAULT_START_UTC,
+        help="start time in UTC (default: 2026-01-01T00:00:00Z)",
+    )
+    return parser
+
+
+def _parse_duration_or_exit(parser: argparse.ArgumentParser, text: str) -> float:
+    """Parse a duration string; parser.error() prints usage and exits with code 2 on failure."""
+    try:
+        return parse_duration(text)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def _current_git_commit() -> str | None:
+    """Return the short git revision of this repository, or None when it cannot be determined.
+
+    The revision is stored for reproducibility. No git history (or no git installed) is not
+    fatal: record() then stores "unknown".
+    """
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except subprocess.SubprocessError:
+        return None
+
+
+def _make_run_info(
+    args: argparse.Namespace, dataset_id: str, sample_period_s: float | None
+) -> RunInfo:
+    """Collect the identity and provenance of this run for the dataset metadata."""
+    return RunInfo(
+        seed=args.seed,
+        dataset_id=dataset_id,
+        plant_name=args.plant,
+        scenario_name=args.scenario,
+        start_utc=args.start_utc,
+        sample_period_s=sample_period_s,
+        git_commit=_current_git_commit(),
+    )
+
+
+def _record_run(
+    args: argparse.Namespace, scenario_obj: Scenario, sample_period_s: float | None
+) -> int:
+    """Write the dataset for the parsed arguments; return the exit code (1 if it exists)."""
+    # A dataset is identified by plant, scenario and seed so that repeated runs
+    # can be told apart; the directory name repeats that identity on disk.
+    dataset_id = f"{args.plant}_{args.scenario}_seed{args.seed}"
+    dataset_dir = args.out / dataset_id
+    run_info = _make_run_info(args, dataset_id, sample_period_s)
+    # record() refuses to overwrite an existing dataset_dir and raises FileExistsError,
+    # which we translate to code 1.
+    try:
+        record(PLANTS[args.plant](), scenario_obj, dataset_dir, run_info)
+    except FileExistsError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    # Print the path on stdout so callers can pipe it into other tools.
+    print(str(dataset_dir))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the simulation and record the results.
 
@@ -139,116 +224,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         Exit code: 0 for success, 1 if the dataset directory already exists,
         2 if the scenario is unknown.
     """
-    # The parser turns the raw strings from the shell into typed arguments and
-    # exits with its own usage message (code 2) when the command line is wrong.
-    parser = argparse.ArgumentParser(
-        prog="python -m crosscut_sim.run",
-        description="Run the Crosscut simulation suite and record the results.",
-    )
-    parser.add_argument(
-        "--plant",
-        required=True,
-        choices=sorted(PLANTS),
-        help="plant identifier",
-    )
-    parser.add_argument(
-        "--scenario",
-        default="nominal",
-        help="scenario name (default: nominal)",
-    )
-    parser.add_argument(
-        "--duration",
-        default="6h",
-        help="simulation duration (default: 6h)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="random seed (default: 42)",
-    )
-    parser.add_argument(
-        "--out",
-        required=True,
-        type=Path,
-        help="output directory",
-    )
-    parser.add_argument(
-        "--sample-period",
-        default=None,
-        help="sample period (default: scenario.dt_s)",
-    )
-    parser.add_argument(
-        "--start-utc",
-        default=DEFAULT_START_UTC,
-        help="start time in UTC (default: 2026-01-01T00:00:00Z)",
-    )
-
+    parser = _build_parser()
     args = parser.parse_args(argv)
-
-    # Durations arrive as human strings such as "6h"; parse_duration converts
-    # them to seconds. parser.error() prints usage and exits with code 2.
-    try:
-        duration = parse_duration(args.duration)
-    except ValueError as e:
-        parser.error(str(e))
+    duration = _parse_duration_or_exit(parser, args.duration)
 
     # None means "use the scenario's own default sampling interval"; only an
     # explicit --sample-period is parsed, so we can tell the two cases apart.
     sample_period_s = None
     if args.sample_period is not None:
-        try:
-            sample_period_s = parse_duration(args.sample_period)
-        except ValueError as e:
-            parser.error(str(e))
+        sample_period_s = _parse_duration_or_exit(parser, args.sample_period)
 
     try:
         scenario_obj = build_scenario(args.plant, args.scenario, duration_s=duration)
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
         return 2
-
-    # A dataset is identified by plant, scenario and seed so that repeated runs
-    # can be told apart; the directory name repeats that identity on disk.
-    dataset_id = f"{args.plant}_{args.scenario}_seed{args.seed}"
-    dataset_dir = args.out / dataset_id
-
-    # Record which revision of this repository produced the data, for
-    # reproducibility. No git history (or no git installed) is not fatal:
-    # we fall back to None and let record() store "unknown".
-    try:
-        git_commit = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).parent,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except subprocess.SubprocessError:
-        git_commit = None
-
-    # record() writes the dataset; it refuses to overwrite an existing
-    # dataset_dir and raises FileExistsError, which we translate to code 1.
-    try:
-        record(
-            PLANTS[args.plant](),
-            scenario_obj,
-            dataset_dir,
-            seed=args.seed,
-            dataset_id=dataset_id,
-            plant_name=args.plant,
-            scenario_name=args.scenario,
-            start_utc=args.start_utc,
-            sample_period_s=sample_period_s,
-            git_commit=git_commit,
-        )
-    except FileExistsError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-
-    # Print the path on stdout so callers can pipe it into other tools.
-    print(str(dataset_dir))
-    return 0
+    return _record_run(args, scenario_obj, sample_period_s)
 
 
 if __name__ == "__main__":
