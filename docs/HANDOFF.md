@@ -38,7 +38,7 @@ Gates before every commit: `.venv\Scripts\python -m ruff check .`, `-m mypy sim 
 installed in the venv. MCP `delegate`: give ABSOLUTE `context_files`; its `verify` runs from the parent folder and
 rejects absolute interpreter paths, so install the returned file by hand and check it yourself. Read delegated
 code critically: `readiness.py` and `anonymise.py` came back with real bugs. In shell heredocs write regexes with
-`chr(92)` or a raw file edit: a `` inside a normal Python string became a backspace character once.
+`chr(92)` or a raw file edit: a backslash-b inside a normal Python string became a backspace character once.
 
 ## Done in the last session (details: `docs/IMPLEMENTATION_LOG.md`, last two sections)
 
