@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { visibleRange } from "../visibleRange";
 
 /** Minimum pixel width for the chart so uPlot never renders a degenerate canvas. */
 const MIN_WIDTH_PX = 300;
@@ -67,10 +68,8 @@ function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
       setScale: [
         (self, scaleKey) => {
           if (scaleKey !== "x" || !props.onZoom) return;
-          const [min, max] = self.scales.x.min !== undefined
-            ? [self.scales.x.min as number, self.scales.x.max as number]
-            : self.data[0] && [self.data[0][0] as number, self.data[0][self.data[0].length - 1] as number];
-          props.onZoom(min, max);
+          const range = visibleRange(self.scales.x.min, self.scales.x.max, self.data[0] ?? []);
+          if (range) props.onZoom(range[0], range[1]);
         },
       ],
     },

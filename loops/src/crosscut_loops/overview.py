@@ -11,6 +11,7 @@ reported as ``None`` so that the result survives ``json.dumps``.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -19,6 +20,8 @@ import numpy as np
 
 from crosscut_loops.finding_windows import finding_window
 from crosscut_loops.monitor import LoopReport, LoopSettings, analyze_loop
+
+logger = logging.getLogger(__name__)
 
 # --- Tag naming conventions -------------------------------------------------
 
@@ -313,6 +316,13 @@ def health_percent(report: LoopReport) -> int | None:
     Returns:
         The rounded score, or None for a manual/unused loop that cannot be judged.
     """
+    # A service factor above 1.0 is impossible for a fraction of time, so it points at bad input.
+    # The score is still computed unchanged; the warning only asks the operator to check the data.
+    if report.service_factor > 1.0:
+        logger.warning(
+            "service_factor %.3f is above 1.0; health score may be inflated",
+            report.service_factor,
+        )
     # A manual loop has no controller output to judge, so it has no score at all; None (rather than
     # 0) lets callers leave it out of averages instead of dragging them down.
     if report.classification == MANUAL_CLASSIFICATION:
@@ -449,20 +459,18 @@ def _rounded_percent(fraction: float) -> int:
 def _sparkline(pv: np.ndarray, points: int = SPARKLINE_POINTS) -> list[float]:
     """Down-sample the PV series to at most ``points`` chunk averages for the mini chart.
 
-    ``pv`` is the photovoltaic power series, one sample per interval, in kW.
+    ``pv`` is the process value series, one sample per interval.
     Returns ``len(pv)`` values when the series is already short enough, otherwise exactly
-    ``points`` values, each the mean power (kW) of an equal-sized block of consecutive samples.
+    ``points`` values, each the mean of a block of consecutive samples. Every sample belongs
+    to a block: the blocks differ in size by at most one sample, so no tail is dropped.
     """
     # If the series is already short enough, return it unchanged; averaging would hide peaks.
     if len(pv) <= points:
         return [float(value) for value in pv]
-    # Floor division avoids padding: leftover samples at the tail are dropped rather than averaged
-    # into a shorter block.
-    chunk_size = len(pv) // points
-    # Trim to chunk_size * points, then reshape so row i holds the samples of block i.
-    trimmed = pv[: chunk_size * points].reshape(points, chunk_size)
-    # Mean over axis=1 collapses each block of consecutive samples into one chart point.
-    return [float(value) for value in trimmed.mean(axis=1)]
+    # array_split gives the first len(pv) % points blocks one extra sample, so the tail
+    # samples land in the last block instead of being silently discarded.
+    blocks = np.array_split(pv, points)
+    return [float(np.mean(block)) for block in blocks]
 
 
 def _report_row(

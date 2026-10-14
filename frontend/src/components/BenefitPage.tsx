@@ -40,6 +40,8 @@ export type BenefitInputStrings = {
   value: string;
   margin: string;
   reduction: string;
+  stdBefore: string;
+  stdAfter: string;
 };
 
 /** Fields actually sent to the API; a field is omitted when its input is not a number. */
@@ -49,6 +51,8 @@ type BenefitRequestInputs = {
   valuePerUnitH?: number;
   marginSigmas?: number;
   stdReduction?: number;
+  stdBefore?: number;
+  stdAfter?: number;
 };
 
 /** Initial form values: the server chooses the limit, the rest are the documented defaults. */
@@ -58,6 +62,8 @@ const INITIAL_INPUTS: BenefitInputStrings = {
   value: DEFAULT_VALUE_PER_UNIT_H,
   margin: DEFAULT_MARGIN_SIGMAS,
   reduction: DEFAULT_STD_REDUCTION,
+  stdBefore: "",
+  stdAfter: "",
 };
 
 /**
@@ -75,17 +81,33 @@ function parseOptionalNumber(raw: string): number | undefined {
 }
 
 /**
+ * Returns the before/after retune pair, or nothing unless both values are usable.
+ *
+ * The server only switches to the measured cut when it gets both values, so a lone value is
+ * dropped here. Before must be above zero (it is a divisor); after may be zero (fully removed).
+ */
+function measuredStdPair(inputs: BenefitInputStrings): { stdBefore?: number; stdAfter?: number } {
+  const before = parseOptionalNumber(inputs.stdBefore);
+  const after = parseOptionalNumber(inputs.stdAfter);
+  if (before === undefined || after === undefined || before <= 0 || after < 0) {
+    return {};
+  }
+  return { stdBefore: before, stdAfter: after };
+}
+
+/**
  * Turns the raw form strings into the payload the API expects.
  *
  * The limit is special: an empty string means "let the server choose".
  */
-function toRequestInputs(inputs: BenefitInputStrings): BenefitRequestInputs {
+export function toRequestInputs(inputs: BenefitInputStrings): BenefitRequestInputs {
   return {
     limit: parseOptionalNumber(inputs.limit),
     side: inputs.side,
     valuePerUnitH: parseOptionalNumber(inputs.value),
     marginSigmas: parseOptionalNumber(inputs.margin),
     stdReduction: parseOptionalNumber(inputs.reduction),
+    ...measuredStdPair(inputs),
   };
 }
 
@@ -234,13 +256,34 @@ function SideField({
   );
 }
 
-/** The variability-cut slider, which shows its own current value next to the track. */
+/**
+ * Text that explains the measured cut, or null when the slider is the one in use.
+ *
+ * The percentage is worked out from the two echoed deviations, so it always matches them.
+ */
+function measuredReductionNote(payload: BenefitPayload | null, t: Translate): string | null {
+  if (payload === null || payload.assumptions.std_reduction_source !== "retune_measured") {
+    return null;
+  }
+  const before = payload.assumptions.std_before ?? 0;
+  const after = payload.assumptions.std_after ?? 0;
+  const percent = before > 0 ? (1 - after / before) * 100 : 0;
+  return t("benefit.reduction.measured", {
+    before: formatNumber(before),
+    after: formatNumber(after),
+    percent: formatNumber(percent),
+  });
+}
+
+/** The variability-cut slider. It is disabled while a measured retune cut replaces it. */
 function ReductionField({
   reduction,
+  measuredNote,
   t,
   onChange,
 }: {
   reduction: string;
+  measuredNote: string | null;
   t: Translate;
   onChange: (raw: string) => void;
 }) {
@@ -252,10 +295,34 @@ function ReductionField({
         max={REDUCTION_SLIDER_MAX}
         step={REDUCTION_SLIDER_STEP}
         value={reduction}
+        disabled={measuredNote !== null}
         onChange={(e) => onChange(e.target.value)}
       />
       <span className="field-value">{reduction}</span>
+      {measuredNote !== null ? <span className="hint">{measuredNote}</span> : null}
     </LabeledField>
+  );
+}
+
+/** The optional before/after retune deviations; both must be filled for the measured cut. */
+function RetuneStdFields({
+  inputs,
+  t,
+  onChange,
+}: {
+  inputs: BenefitInputStrings;
+  t: Translate;
+  onChange: (patch: Partial<BenefitInputStrings>) => void;
+}) {
+  return (
+    <>
+      <LabeledField label={t("benefit.stdBefore")} isAssumed>
+        <input type="number" min={0} step="any" value={inputs.stdBefore} onChange={(e) => onChange({ stdBefore: e.target.value })} />
+      </LabeledField>
+      <LabeledField label={t("benefit.stdAfter")} isAssumed>
+        <input type="number" min={0} step="any" value={inputs.stdAfter} onChange={(e) => onChange({ stdAfter: e.target.value })} />
+      </LabeledField>
+    </>
   );
 }
 
@@ -288,7 +355,13 @@ function InputsSection({
           onChange={(e) => onChange({ margin: e.target.value })}
         />
       </LabeledField>
-      <ReductionField reduction={inputs.reduction} t={t} onChange={(reduction) => onChange({ reduction })} />
+      <RetuneStdFields inputs={inputs} t={t} onChange={onChange} />
+      <ReductionField
+        reduction={inputs.reduction}
+        measuredNote={measuredReductionNote(payload, t)}
+        t={t}
+        onChange={(reduction) => onChange({ reduction })}
+      />
     </section>
   );
 }

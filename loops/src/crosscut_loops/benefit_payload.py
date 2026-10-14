@@ -108,7 +108,8 @@ def benefit_payload(
         "estimate": _estimate_part(estimate),
         # _estimate_part above returns codes; here they become text the user can read,
         # so the API stays machine-friendly while the report stays understandable.
-        "notes": [NOTE_CODES[note] for note in estimate.notes],
+        # An unknown note keeps its own text, so a new warning in benefit.py is never lost.
+        "notes": [NOTE_CODES.get(note, str(note)) for note in estimate.notes],
         "curves": _curves(estimate, assumptions),
         "markdown": render_benefit_markdown(estimate, assumptions),
     }

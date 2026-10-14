@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 import pytest
-from crosscut_loops.overview import LoopTags, analyze_dataset
+from crosscut_loops.overview import LoopTags, _sparkline, analyze_dataset
 
 # --- Constants describing the synthetic loop used across the tests -----------
 
@@ -381,3 +381,14 @@ def test_a_finding_about_the_whole_record_has_no_window():
 
     unwindowed = [f for f in result["findings"] if f["code"] in ("oscillating", "stiction")]
     assert all("window_s" not in finding for finding in unwindowed)
+
+
+def test_a_series_with_a_partial_last_block_keeps_its_tail_samples():
+    """97 samples in 48 points: the 97th sample must reach the last point, not be dropped."""
+    pv = np.ones(97)
+    pv[-1] = 49.0
+
+    sparkline = _sparkline(pv, points=SPARKLINE_LENGTH)
+
+    assert len(sparkline) == SPARKLINE_LENGTH
+    assert sparkline[-1] == pytest.approx(25.0)

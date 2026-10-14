@@ -65,15 +65,25 @@ function useLoopSeries(datasetId: string, loop: LoopSummary): SeriesState {
   return state;
 }
 
-/** Picks the series matching the given tags, keeping the tag order. */
-function pickSeries(series: readonly Series[], tags: readonly string[]): Series[] {
-  return tags.map((tag) => {
+/** Outcome of picking series by tag: the matches in tag order, or the reason one is missing. */
+type PickResult = { ok: true; series: Series[] } | { ok: false; reason: string };
+
+/**
+ * Picks the series matching the given tags, keeping the tag order.
+ *
+ * Returns a failure instead of throwing, so a backend response without one tag
+ * shows an error message in the trends rather than crashing the whole view.
+ */
+function pickSeries(series: readonly Series[], tags: readonly string[]): PickResult {
+  const picked: Series[] = [];
+  for (const tag of tags) {
     const match = series.find((candidate) => candidate.tag === tag);
     if (match === undefined) {
-      throw new Error(`Series "${tag}" is missing from the backend response.`);
+      return { ok: false, reason: `Series "${tag}" is missing from the backend response.` };
     }
-    return match;
-  });
+    picked.push(match);
+  }
+  return { ok: true, series: picked };
 }
 
 /** Formats a nullable number with the given number of decimals, or a dash. */
@@ -173,8 +183,13 @@ function Trends({
     return <p className="status status-error">{t("trends.error", { reason: state.reason })}</p>;
   }
 
-  const pvSp = pickSeries(state.series, [loop.pv, loop.sp]);
-  const out = pickSeries(state.series, [loop.out]);
+  const picked = pickSeries(state.series, [loop.pv, loop.sp, loop.out]);
+  if (!picked.ok) {
+    return <p className="status status-error">{t("trends.error", { reason: picked.reason })}</p>;
+  }
+
+  const pvSp = picked.series.slice(0, 2);
+  const out = picked.series.slice(2);
   const pvSpData = toUplotData(pvSp);
   const outData = toUplotData(out);
   // Both panes share the time axis, so one window gives the same range for both.

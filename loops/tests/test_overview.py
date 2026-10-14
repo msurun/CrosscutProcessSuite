@@ -1,5 +1,6 @@
 """Tests for loop discovery, findings, status and health (part 1 of the overview module)."""
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -313,3 +314,23 @@ def test_stiction_is_not_reported_when_saturation_explains_the_cycle():
     )
     finding_codes = [finding.code for finding in findings_of(report, make_settings())]
     assert "stiction" not in finding_codes
+
+
+def test_a_service_factor_above_one_logs_a_warning_and_keeps_the_score(caplog):
+    """A service factor above 1.0 is bad input: the score stays as computed, with a warning."""
+    report = make_report(service_factor=1.2)
+
+    with caplog.at_level(logging.WARNING, logger="crosscut_loops.overview"):
+        score = health_percent(report)
+
+    assert score == 100
+    assert len(caplog.records) == 1
+    assert "service_factor" in caplog.records[0].getMessage()
+
+
+def test_a_service_factor_within_range_logs_nothing(caplog):
+    """A normal service factor produces no warning."""
+    with caplog.at_level(logging.WARNING, logger="crosscut_loops.overview"):
+        health_percent(make_report(service_factor=0.9))
+
+    assert caplog.records == []

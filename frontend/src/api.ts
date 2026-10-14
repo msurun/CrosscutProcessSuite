@@ -227,6 +227,10 @@ export interface BenefitInputs {
   valuePerUnitH?: number;
   marginSigmas?: number;
   stdReduction?: number;
+  /** PV standard deviation before a retune; with stdAfter it replaces the slider value. */
+  stdBefore?: number;
+  /** PV standard deviation after a retune; zero is allowed. */
+  stdAfter?: number;
 }
 
 /** Result of `GET /api/datasets/{id}/loops/{loop}/benefit`; notes are codes the UI translates. */
@@ -271,6 +275,8 @@ export async function fetchBenefit(
   if (inputs?.valuePerUnitH !== undefined) query.set("value_per_unit_h", String(inputs.valuePerUnitH));
   if (inputs?.marginSigmas !== undefined) query.set("margin_sigmas", String(inputs.marginSigmas));
   if (inputs?.stdReduction !== undefined) query.set("std_reduction", String(inputs.stdReduction));
+  if (inputs?.stdBefore !== undefined && inputs.stdBefore > 0) query.set("std_before", String(inputs.stdBefore));
+  if (inputs?.stdAfter !== undefined && inputs.stdAfter >= 0) query.set("std_after", String(inputs.stdAfter));
   const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/benefit`;
   return getJson<BenefitPayload>(`${base}?${query.toString()}`);
 }

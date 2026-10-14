@@ -36,6 +36,9 @@ ROBUSTNESS_FACTOR = 0.5  # SIMC tuning tradeoff parameter (0.0 fast - 1.0 robust
 
 # Evaluation acceptance criteria thresholds
 SETTLING_BAND_FRACTION = 0.05  # Within 5% of setpoint step to be considered settled
+# Moving average length for overshoot and settling; removes sample noise so the metrics
+# describe the loop, not the sensor (raw PV noise sd about 0.8 on a step of 5)
+SMOOTHING_WINDOW_S = 60.0
 IMPROVEMENT_IAE_RATIO = 0.8  # IAE must drop by at least 20% to count as improved
 REQUIRED_IMPROVED_PER_SEED = 2  # Passing seed requires >= 2 improved loops
 REQUIRED_PASSING_SEEDS = 4  # Passing experiment requires >= 4 passing seeds
@@ -53,16 +56,14 @@ LIMITS_TEXT = (
     "70-93 % lower than the detuned loop. The 15th run (seed 5, cyc_water) was blocked by the "
     "poor-fit guard (P6.4): R squared -1.18 on a noisy step window, consistent with exp02 "
     "where the cyc_water time constant error reaches 487 % at the 90th percentile; the guard "
-    "did what it is for, an engineer would pick another window. Caveats. (1) Settling time is "
-    "almost the whole window in nearly every run: the 5 % band is below the measurement and "
-    "process noise, so that column carries no information. (2) Overshoot is high for "
-    "mill_feed (58-67 %) and cyc_water (33-37 %) for SIMC at robustness 0.5; probably loop "
-    "interaction (the other two loops stay detuned) and the model error of exp02; not "
-    "investigated. (3) Health 100 after retuning is the ceiling of the score, not extra "
-    "proof. (4) IAE before is dominated by a sluggish loop that does not reach the new "
-    "setpoint inside the window. (5) Only setpoint steps, operator off, one plant model; no "
-    "load disturbances. AMIGO gives almost the same numbers as SIMC. (6) Tuning stays "
-    "advisory: nothing is written to a DCS."
+    "did what it is for, an engineer would pick another window. Caveats. Overshoot and "
+    "settling time are computed on a 60 s moving average of the PV, because the raw maximum "
+    "of the noisy PV (sd about 0.8 on a step of 5) gave 58-67 % overshoot that was sensor "
+    "noise, not loop behaviour (see overshoot_diagnosis.md). (1) Health 100 after retuning is "
+    "the ceiling of the score, not extra proof. (2) IAE before is dominated by a sluggish loop "
+    "that does not reach the new setpoint inside the window. (3) Only setpoint steps, operator "
+    "off, one plant model; no load disturbances. AMIGO gives almost the same numbers as SIMC. "
+    "(4) Tuning stays advisory: nothing is written to a DCS."
 )
 
 
@@ -197,18 +198,39 @@ def _compute_health(data: SimulationData, loop: str) -> float | None:
     return None if score is None else float(score)
 
 
+def _smooth_post_step_pv(data: SimulationData) -> tuple[np.ndarray, np.ndarray]:
+    """Return post-step smoothed PV and its time after a centered moving average.
+
+    Mode 'valid' keeps only samples with a full window on both sides. Output sample j
+    averages input samples j..j+w-1 and is stamped at the window centre, t[j + w//2],
+    so the smoothed signal stays on the same time axis as the raw record.
+    """
+    window_samples = max(1, int(round(SMOOTHING_WINDOW_S / data.dt_s)))
+    kernel = np.ones(window_samples) / window_samples
+    pv_smooth = np.convolve(data.pv, kernel, mode="valid")
+    half = window_samples // 2
+    end = half + pv_smooth.size
+    post_step_mask = data.t_s[half:end] >= SP_STEP_TIME_S
+    pv_eval = pv_smooth[post_step_mask]
+    t_eval = data.t_s[half:end][post_step_mask] - SP_STEP_TIME_S
+    return pv_eval, t_eval
+
+
 def _compute_metrics(data: SimulationData, loop: str) -> RunMetrics:
     """Compute IAE, overshoot, settling time, and stability on post-step horizon.
 
+    IAE and the stability test use the raw PV: the integral averages out the noise and
+    the tail test must see the real signal. Overshoot and settling use the smoothed PV,
+    because the raw noise maximum would report sensor noise as loop overshoot.
     Assumes data.pv, data.sp, data.t_s are 1D float64 numpy arrays of equal size.
     """
     step_size = SP_STEP[loop]
     post_step_mask = data.t_s >= SP_STEP_TIME_S
-    pv_eval = data.pv[post_step_mask]
+    raw_pv_eval = data.pv[post_step_mask]
     sp_eval = data.sp[post_step_mask]
-    t_eval = data.t_s[post_step_mask] - SP_STEP_TIME_S
 
-    iae = float(np.sum(np.abs(sp_eval - pv_eval)) * data.dt_s)
+    iae = float(np.sum(np.abs(sp_eval - raw_pv_eval)) * data.dt_s)
+    pv_eval, t_eval = _smooth_post_step_pv(data)
     new_sp = sp_eval[-1]
     overshoot = float(max(0.0, (np.max(pv_eval) - new_sp) / step_size * PERCENT_MULTIPLIER))
 

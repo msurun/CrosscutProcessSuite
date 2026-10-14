@@ -26,6 +26,9 @@ def finding_window(
     pv: np.ndarray,
     out: np.ndarray,
     mode: np.ndarray,
+    *,
+    out_low: float = OUT_LOW,
+    out_high: float = OUT_HIGH,
 ) -> FindingWindow | None:
     """Return the longest stretch (start_s, end_s) behind ``code``, or None if there is none.
 
@@ -35,6 +38,9 @@ def finding_window(
         pv: controlled variable (process value) samples.
         out: actuator output samples, in the actuator's own units.
         mode: controller mode samples, where MANUAL_MODE marks manual operation.
+        out_low: bottom of the actuator output range, in the same units as ``out``.
+        out_high: top of the actuator output range; the saturation margin is a fraction
+            of the span ``out_high - out_low``, so a 4-20 mA loop needs out_low=4.0.
 
     Returns:
         (start_s, end_s) of the longest run of samples matching ``code``, both bounds
@@ -48,14 +54,21 @@ def finding_window(
     if len(t_s) == 0:
         return None
 
-    mask = _finding_mask(code, pv, out, mode)
+    mask: np.ndarray | None
+    if code == "saturated":
+        mask = _saturated_mask(out, out_low, out_high)
+    else:
+        mask = _finding_mask(code, pv, out, mode)
+    return _window_of_mask(t_s, mask)
+
+
+def _window_of_mask(t_s: np.ndarray, mask: np.ndarray | None) -> FindingWindow | None:
+    """Time bounds (start_s, end_s) of the longest True run in ``mask``, or None if none."""
     if mask is None:
         return None
-
     run = _longest_true_run(mask)
     if run is None:
         return None
-
     first, last = run
     return (float(t_s[first]), float(t_s[last]))
 
@@ -90,12 +103,19 @@ def _finding_mask(
     """
     if code == "manual":
         return np.asarray(mode == MANUAL_MODE)
-    if code == "saturated":
-        margin = SATURATION_MARGIN_FRACTION * (OUT_HIGH - OUT_LOW)
-        return (out <= OUT_LOW + margin) | (out >= OUT_HIGH - margin)
     if code == "flatline":
         return _flatline_mask(pv)
     return None
+
+
+def _saturated_mask(out: np.ndarray, out_low: float, out_high: float) -> np.ndarray:
+    """True for samples within SATURATION_MARGIN_FRACTION of either end of the output range.
+
+    The margin scales with the span, so a 4-20 mA output (span 16) gets a 0.08 margin while
+    a 0-100 % valve gets 0.5. NaN compares False and therefore never counts as saturated.
+    """
+    margin = SATURATION_MARGIN_FRACTION * (out_high - out_low)
+    return (out <= out_low + margin) | (out >= out_high - margin)
 
 
 def _flatline_mask(pv: np.ndarray) -> np.ndarray:

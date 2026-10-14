@@ -173,3 +173,30 @@ def test_non_unit_sample_spacing_uses_seconds_from_t_s():
     window = finding_window("manual", t_s, pv, out, manual)
 
     assert window == (0.0, 10.0)
+
+
+def test_a_4_to_20_ma_output_flags_only_the_sample_at_four_as_saturated():
+    """With the loop's own range 4..20 the margin is 0.08, so only the 4.0 sample is pinned."""
+    t_s = _time_axis(3)
+    manual = np.zeros(3)
+    pv = np.zeros(3)
+    out = np.array([4.0, 4.2, 4.1])
+
+    window = finding_window("saturated", t_s, pv, out, manual, out_low=4.0, out_high=20.0)
+
+    assert window == (0.0, 0.0)
+
+
+def test_the_default_0_to_100_range_does_not_flag_a_4_to_20_output_near_its_bottom():
+    """The default range has a 2.0 margin, so a 4 mA loop at 4.0 is not reported as saturated.
+
+    This is why the range must be passed for a loop whose output does not span 0..100.
+    """
+    t_s = _time_axis(3)
+    manual = np.zeros(3)
+    pv = np.zeros(3)
+    out = np.array([4.0, 4.2, 4.1])
+
+    window = finding_window("saturated", t_s, pv, out, manual)
+
+    assert window is None

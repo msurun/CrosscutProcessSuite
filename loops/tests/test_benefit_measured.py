@@ -7,6 +7,9 @@ carrying the PV spread before and after a retune must report that measured cut (
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import crosscut_loops.benefit_payload as benefit_payload_module
 import numpy as np
 import pytest
 from crosscut_loops.benefit_payload import (
@@ -103,3 +106,17 @@ def test_a_nan_spread_before_the_retune_gives_no_measured_reduction():
     assert measured_reduction(BenefitRequest(std_before=nan, std_after=1.0)) is None
     assert measured_reduction(BenefitRequest(std_before=2.0, std_after=nan)) is None
     assert measured_reduction(BenefitRequest(std_before=inf, std_after=1.0)) is None
+
+
+def test_a_note_without_a_name_is_reported_with_its_own_text(monkeypatch):
+    """An unknown note from the estimator passes through as text instead of raising KeyError."""
+    real_estimate = benefit_payload_module.estimate_benefit
+
+    def estimate_with_new_note(pv, assumptions):
+        return replace(real_estimate(pv, assumptions), notes=("a brand new warning",))
+
+    monkeypatch.setattr(benefit_payload_module, "estimate_benefit", estimate_with_new_note)
+
+    payload = benefit_payload(_make_loop(), _make_time(), _make_columns(), BenefitRequest())
+
+    assert payload["notes"] == ["a brand new warning"]
