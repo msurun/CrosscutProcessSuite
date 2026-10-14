@@ -12,11 +12,23 @@ Written for the next session (Claude or the owner). The plan P1-P7 of module 1 i
 3. **ABB and Siemens documents for A7.** Give the PID manuals (or names and versions) so the PI
    parameter forms in `loops/tuning_rules.py` (`convert_pi`) can be checked. Scope fixed by the owner:
    ABB and Siemens only. Until then A7 stays open and the forms are marked unverified.
-4. **Check CI on GitHub** for the last pushes (no `gh` on this PC): jobs `cpp` and `frontend`.
+4. **Install the tools permanently** (so any session can run all gates; this PC had none of them).
+   The assistant cannot make permanent installs without you at the computer:
+   - Python 3.12 (already installed) and a repo venv (`.venv/` is git-ignored): `py -3.12 -m venv .venv`, then
+     `.venv\Scripts\python -m pip install -r requirements-dev.txt` (now includes `uvicorn`).
+   - Node.js LTS (the frontend needs it): `winget install OpenJS.NodeJS.LTS`, then in `frontend/`: `npm ci`
+     (brings Vite, Vitest, TypeScript and `playwright-core`).
+   - Microsoft Edge (already present; used for the browser checks through `playwright-core`).
+   - GitHub CLI to read CI results: `winget install GitHub.cli`, then `gh auth login`.
+   - Git (present). Optional, only for the C++ core in `core/`: CMake, Ninja and a compiler; the earlier
+     local route was the pip packages `cmake`, `ninja`, `ziglang`, `pybind11` (see the log, T0.11).
+   - UaExpert (for item 1), free download from the vendor.
+   - Add the venv `Scripts` folder and Node to the user PATH, or tell the assistant the paths.
+5. **Check CI on GitHub** for the last pushes (no `gh` on this PC): jobs `cpp` and `frontend`.
 
-## Environment (this PC had none)
+## Environment (this PC had none; item 4 above makes it permanent)
 
-The gates ran from a throw-away venv in the session scratchpad; it is gone. Recreate:
+The gates ran from a throw-away venv in the session scratchpad; it is gone. Until item 4 is done, recreate:
 
 ```
 py -3.12 -m venv .venv
