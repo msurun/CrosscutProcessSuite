@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from crosscut_loops.monitor import LoopReport, LoopSettings, analyze_loop
 from crosscut_sim.core import AUTO, MAN
-from test_stiction import simulate_loop
+from test_stiction import LONG_RECORD, simulate_loop
 
 SETTINGS = LoopSettings(delay_s=1.0, ultimate_period_s=100.0, amplitude_limit=0.2)
 
@@ -20,7 +20,9 @@ def run_report(pv: np.ndarray, out: np.ndarray, mode_value: int = AUTO) -> LoopR
 
 def test_stiction_loop_is_detected() -> None:
     """Stiction loop is detected and reported."""
-    process_values, controller_output = simulate_loop(seed=1, stiction=True)
+    process_values, controller_output = simulate_loop(
+        seed=1, stiction=True, sample_count=LONG_RECORD
+    )
     report = run_report(process_values, controller_output)
     assert report.stiction_verdict == "stiction"
     assert any("stiction" in message.lower() for message in report.findings)
@@ -45,6 +47,6 @@ def test_white_noise_pv_with_constant_out_is_inconclusive() -> None:
 
 def test_stiction_loop_in_manual_is_not_checked() -> None:
     """Stiction loop in manual is not checked."""
-    pv, out = simulate_loop(seed=1, stiction=True)
+    pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     report = run_report(pv, out, mode_value=MAN)
     assert report.stiction_verdict == "not_checked"

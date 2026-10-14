@@ -27,6 +27,13 @@ import numpy as np
 from numpy.fft import irfft, rfft
 from numpy.typing import NDArray
 
+from crosscut_loops.stiction_curvefit import CurveFitResult, curve_fit_index
+
+# Stiction index thresholds on the shape of OUT (He et al. 2007; see docs/PROVENANCE.md). They were
+# fixed before the validation runs and are not to be tuned on the data they are judged on.
+SI_STICTION_MIN = 0.6
+SI_NO_STICTION_MAX = 0.4
+
 # Minimum number of zero-crossing cycles required to consider the signal periodic.
 MIN_CYCLES = 5
 
@@ -65,10 +72,13 @@ class StictionResult:
     reason: str
 
 
-def detect_stiction(
+def detect_stiction_from_pv(
     pv: NDArray[np.float64], out: NDArray[np.float64], dt_s: float
 ) -> StictionResult:
-    """Detect stiction in a control loop.
+    """Detect stiction from the harmonic distortion of PV alone (the first method).
+
+    Kept for comparison with :func:`detect_stiction`; it fails when PV carries measurement
+    noise or random wander, because zero crossings and distortion then say nothing about the valve.
 
     Stiction (static friction) is what makes a valve stick and then jump: the
     controller output (OP) moves in small steps while the process variable (PV)
@@ -408,3 +418,39 @@ def _harmonic_power(spectrum: NDArray[np.float64], fundamental: int) -> float:
         # harmonics dominate the sum, then add it to the running total.
         power += float(np.max(bin_slice)) ** 2
     return power
+
+
+def detect_stiction(
+    pv: NDArray[np.float64], out: NDArray[np.float64], dt_s: float
+) -> StictionResult:
+    """Detect stiction from the shape of the controller output (curve-fitting method).
+
+    A sticking valve turns the PI loop's limit cycle into a triangular OUT; tuning or
+    disturbance oscillations leave a sinusoidal OUT. The stiction index (0 = sine, 1 = triangle)
+    above ``SI_STICTION_MIN`` means "stiction", below ``SI_NO_STICTION_MAX`` "no_stiction", and
+    anything else, or an OUT without a regular limit cycle, "inconclusive". PV is validated but
+    not used, because its noise is what defeated :func:`detect_stiction_from_pv`.
+
+    Not applicable to integrating processes, where OUT is not triangular under stiction.
+
+    Raises:
+        ValueError: If the inputs are invalid (see _validate_input).
+    """
+    _validate_input(pv, out, dt_s)
+    fit = curve_fit_index(out, dt_s)
+    if fit.index is None:
+        return StictionResult("inconclusive", 0.0, fit.n_cycles, None, fit.reason)
+    return _verdict_from_index(fit)
+
+
+def _verdict_from_index(fit: CurveFitResult) -> StictionResult:
+    """Turn a computed stiction index into a verdict with the index as the score."""
+    assert fit.index is not None
+    if fit.index > SI_STICTION_MIN:
+        verdict, relation = "stiction", "triangular"
+    elif fit.index < SI_NO_STICTION_MAX:
+        verdict, relation = "no_stiction", "sinusoidal"
+    else:
+        verdict, relation = "inconclusive", "between sine and triangle"
+    reason = f"OUT is {relation} (index {fit.index:.2f}, {fit.n_cycles} cycles)."
+    return StictionResult(verdict, fit.index, fit.n_cycles, fit.period_s, reason)

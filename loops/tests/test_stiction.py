@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 
 DT = 1.0
 SAMPLE_COUNT = 6000
+# The shape method needs at least 6 limit cycles; a stiction cycle here lasts 650-2000 samples.
+LONG_RECORD = 20000
 RNG = np.random.default_rng(3)
 
 
@@ -77,7 +79,7 @@ def _move_valve_with_stiction(
 
 
 def test_stiction_loop_is_detected() -> None:
-    pv, out = simulate_loop(seed=1, stiction=True)
+    pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "stiction"
 
@@ -97,16 +99,16 @@ def test_white_noise_is_inconclusive() -> None:
 
 @pytest.mark.parametrize("seed", [1, 2, 4])
 def test_stiction_verdict_is_consistent(seed: int) -> None:
-    pv, out = simulate_loop(seed=seed, stiction=True)
+    pv, out = simulate_loop(seed=seed, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "stiction"
 
 
 def test_stiction_loop_has_period_and_cycles() -> None:
-    pv, out = simulate_loop(seed=1, stiction=True)
+    pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.period_s is not None
-    assert result.n_cycles >= 5
+    assert result.n_cycles >= 6
 
 
 def test_healthy_oscillating_loop_has_correct_period() -> None:
@@ -155,7 +157,7 @@ def test_random_wander_is_never_reported_as_stiction(seed: int) -> None:
 
 def test_most_simulated_stiction_loops_are_found() -> None:
     verdicts = [
-        detect_stiction(*simulate_loop(random_seed, True), DT).verdict
+        detect_stiction(*simulate_loop(random_seed, True, sample_count=LONG_RECORD), DT).verdict
         for random_seed in range(1, 21)
     ]
     assert verdicts.count("stiction") >= 14  # measured 29 of 40; the rest never limit-cycle
