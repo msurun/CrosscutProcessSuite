@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
+from crosscut_loops.tuning_pid import PidSettings
 from crosscut_loops.tuning_rules import ConversionForm, PiSettings
 
 Evidence = Literal["verified", "partly_verified", "unverified"]
@@ -142,17 +143,52 @@ def abb_pidcc(settings: PiSettings, pv_span: float, out_span: float = _PERCENT) 
     return {"Gain": normalise_gain(settings.kc, pv_span, out_span), "TI": settings.ti_s, "TD": 0.0}
 
 
+def siemens_pid_compact_pid(
+    settings: PidSettings, reverse_acting: bool = False
+) -> dict[str, float | bool]:
+    """Name the PID_Compact tags for a PID setting (derivative on the measurement, filtered).
+
+    TdFiltRatio is the derivative delay coefficient a of the manual's equation (T1 = a * Td), so
+    a = Tf / Td = 1 / N. DWeighting c = 0 puts the derivative on the measurement only, like the
+    controller the settings were designed for (no derivative kick on setpoint steps).
+    """
+    tags = siemens_pid_compact(PiSettings(settings.kc, settings.ti_s), reverse_acting)
+    tags["Retain.CtrlParams.Td"] = settings.td_s
+    tags["Retain.CtrlParams.TdFiltRatio"] = 1.0 / settings.filter_ratio_n
+    tags["Retain.CtrlParams.DWeighting"] = 0.0
+    return tags
+
+
+def abb_pidcc_pid(
+    settings: PidSettings, pv_span: float, out_span: float = _PERCENT
+) -> dict[str, float]:
+    """Name the PidCC parameters for a PID setting; TF is the derivative filter time (Td / N).
+
+    Derivative on the measurement is a selectable mode of the block (Pid01A description): choose
+    it on the real system. Time unit of TI, TD and TF: the open point of
+    `VENDOR_FORMS["abb_pidcc"]`.
+    """
+    tags = abb_pidcc(PiSettings(settings.kc, settings.ti_s), pv_span, out_span)
+    tags["TD"] = settings.td_s
+    tags["TF"] = settings.filter_time_s
+    return tags
+
+
 def vendor_summaries(
-    settings: PiSettings, pv_span: float | None, out_span: float = _PERCENT
+    settings: PiSettings,
+    pv_span: float | None,
+    out_span: float = _PERCENT,
+    pid: PidSettings | None = None,
 ) -> dict[str, VendorSummary]:
     """Return every vendor form for the report: tags, evidence level, source and caveats.
 
     Without `pv_span` the ABB gain cannot be normalised, so its tags are empty and a caveat
-    says why; the Siemens tags never need the ranges.
+    says why; the Siemens tags never need the ranges. With `pid` the tags carry the derivative
+    time and filter instead of the PI-only ones (keys unchanged, the report says PI or PID).
     """
     result: dict[str, VendorSummary] = {}
     for key, spec in VENDOR_FORMS.items():
-        tags = _tags_for(key, settings, pv_span, out_span)
+        tags = _tags_for(key, (settings, pid), pv_span, out_span)
         caveats = list(spec.caveats)
         if tags is None:
             tags = {}
@@ -168,11 +204,17 @@ def vendor_summaries(
 
 
 def _tags_for(
-    key: str, settings: PiSettings, pv_span: float | None, out_span: float
+    key: str,
+    settings: tuple[PiSettings, PidSettings | None],
+    pv_span: float | None,
+    out_span: float,
 ) -> dict[str, float | bool] | None:
     """Return the tags of one vendor, or None when the ranges needed for it are missing."""
+    pi, pid = settings
     if key == "siemens_pid_compact":
-        return siemens_pid_compact(settings)
+        return siemens_pid_compact(pi) if pid is None else siemens_pid_compact_pid(pid)
     if pv_span is None:
         return None
-    return dict(abb_pidcc(settings, pv_span, out_span))
+    if pid is None:
+        return dict(abb_pidcc(pi, pv_span, out_span))
+    return dict(abb_pidcc_pid(pid, pv_span, out_span))

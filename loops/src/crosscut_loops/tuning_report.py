@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from crosscut_loops.identification import identify_fopdt
+from crosscut_loops.tuning_pid import PidSettings, amigo_pid, derivative_advice, high_frequency_gain
 from crosscut_loops.tuning_rules import (
     ConversionForm,
     FopdtModel,
@@ -78,6 +79,10 @@ class TuningReport:
         simc: SIMC PI settings, or None when the model is unknown.
         amigo: AMIGO PI settings, or None when the model is unknown.
         dcs_forms: Converted settings per DCS form; empty when there is no model.
+        vendor_forms_pid: The same vendor blocks with the AMIGO PID tags (Td, filter); empty unless
+            derivative action is advised.
+        pid: AMIGO PID settings (ideal form, derivative on the measurement), or None.
+        pid_advice: (use derivative?, one-sentence reason) from the normalized dead time.
         vendor_forms: Named tags, evidence level and caveats per vendor block (Siemens, ABB).
         robustness: Robustness slider used for the SIMC tuning rule.
         blocked_reason: Why the loop must not be retuned, or None when healthy.
@@ -90,6 +95,9 @@ class TuningReport:
     amigo: PiSettings | None
     dcs_forms: dict[ConversionForm, dict[str, float]] = field(default_factory=dict)
     vendor_forms: dict[str, VendorSummary] = field(default_factory=dict)
+    vendor_forms_pid: dict[str, VendorSummary] = field(default_factory=dict)
+    pid: PidSettings | None = None
+    pid_advice: tuple[bool, str] | None = None
     robustness: float = DEFAULT_ROBUSTNESS
     blocked_reason: str | None = None
     notes: list[str] = field(default_factory=list)
@@ -130,6 +138,8 @@ def build_tuning_report(
     report = _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
     if report.simc is not None:
         report.vendor_forms = vendor_summaries(report.simc, pv_span, out_span)
+        if report.pid is not None and report.pid_advice and report.pid_advice[0]:
+            report.vendor_forms_pid = vendor_summaries(report.simc, pv_span, out_span, report.pid)
     return report
 
 
@@ -228,6 +238,8 @@ def _identified_report(
         # control system (DCS) actually accepts: gain, integral time, derivative time
         # in the vendor's own units, rather than the abstract tuning-rule notation.
         dcs_forms=_dcs_forms(simc),
+        pid=amigo_pid(model),
+        pid_advice=derivative_advice(model),
         robustness=robustness,
         # Stiction is valve sticking, which imitates oscillation and would otherwise make
         # the identified model misleading; if detected, the report is flagged as blocked
@@ -443,12 +455,34 @@ def _dcs_form_lines(form: ConversionForm, values: dict[str, float]) -> list[str]
     return lines
 
 
-def _render_vendor_section(report: TuningReport) -> str:
-    """Return the Markdown section with the Siemens and ABB tags, evidence and caveats."""
-    if not report.vendor_forms:
+def _render_pid_section(report: TuningReport) -> str:
+    """Return the Markdown section with the AMIGO PID, the derivative advice and its noise cost."""
+    if report.pid is None or report.pid_advice is None:
         return ""
-    blocks = ["## Vendor blocks", ""]
-    for spec in report.vendor_forms.values():
+    pid = report.pid
+    lines = [
+        "## PID (derivative action)",
+        "",
+        "| Rule | Gain | Integral time (s) | Derivative time (s) | Filter N |",
+        "| --- | --- | --- | --- | --- |",
+        f"| AMIGO PID | {_format_number(pid.kc)} | {_format_number(pid.ti_s)} | "
+        f"{_format_number(pid.td_s)} | {_format_number(pid.filter_ratio_n)} |",
+        "",
+        f"- Advice: {'use' if report.pid_advice[0] else 'do not use'} derivative action. "
+        f"{report.pid_advice[1]}",
+        f"- High-frequency gain Kc(1+N) = {_format_number(high_frequency_gain(pid))}: "
+        "noise on the PV is multiplied by about this factor on the controller output.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _render_vendor_section(forms: dict[str, VendorSummary], title: str) -> str:
+    """Return a Markdown section with the Siemens and ABB tags, evidence and caveats."""
+    if not forms:
+        return ""
+    blocks = [title, ""]
+    for spec in forms.values():
         blocks.append(f"### {spec['block']} (evidence: {spec['evidence']})")
         blocks.append("")
         blocks.extend(f"- {tag}: {_tag_text(value)}" for tag, value in spec["tags"].items())
@@ -491,7 +525,9 @@ def render_markdown(report: TuningReport) -> str:
         _render_model_section(report),
         _render_settings_section(report),
         _render_dcs_section(report),
-        _render_vendor_section(report),
+        _render_pid_section(report),
+        _render_vendor_section(report.vendor_forms, "## Vendor blocks"),
+        _render_vendor_section(report.vendor_forms_pid, "## Vendor blocks with derivative action"),
         _render_notes_section(report),
     ]
     # Remove empty sections so the final document has no stray blank sections.

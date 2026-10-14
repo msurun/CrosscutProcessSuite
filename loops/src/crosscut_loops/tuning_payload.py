@@ -204,6 +204,12 @@ def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:
         "dcs_forms": report.dcs_forms,
         # Named tags of the Siemens and ABB blocks with evidence level and caveats.
         "vendor_forms": report.vendor_forms,
+        "vendor_forms_pid": report.vendor_forms_pid,
+        # AMIGO PID (ideal form) and the advice whether derivative action is worth its noise.
+        "pid": None if report.pid is None else _plain(report.pid),
+        "pid_advice": None
+        if report.pid_advice is None
+        else {"use_derivative": report.pid_advice[0], "reason": report.pid_advice[1]},
         # Numpy arrays are not JSON types; `tolist()` gives plain Python lists.
         # `t_s` is in seconds, `pv` is the process variable and `out` the controller output.
         "step": {"t_s": step.t_s.tolist(), "pv": step.pv.tolist(), "out": step.out.tolist()},

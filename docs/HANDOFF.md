@@ -58,7 +58,7 @@ log every step, state limits plainly. Suggested order (the owner asked for the w
 2. **Connector gaps.** DST fall-back for naive timestamps in `sql_import` (the CSV fix in `csv_import._resolve_instant`
    is the model), units in the long-format CSV (optional `unit` column into the tags document), OPC UA
    subscriptions (the importer only polls). ODBC was never tried with a real driver: say so if it comes up.
-3. **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (biased gain with the operator on,
+3. **(DONE 2026-10-14, see the log: exp06-exp08)** **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (biased gain with the operator on,
    see exp00), cascade order; each with an experiment and acceptance targets frozen BEFORE the run, as in
    exp02/exp03. Derive `std_reduction` for the benefit page from loop reports automatically.
 4. **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output `feed_change` is a

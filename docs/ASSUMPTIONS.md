@@ -20,6 +20,9 @@ Status: open / partly tested / retired.
 | A12 | Ore-hardness-dependent gains are of the right order of magnitude | mill circuit table | literature, customer data | L6 | open |
 | A13 | Customers accept an on-premises, read-only first deployment | product strategy | pilot conversations | L7 | open |
 | A14 | A single time base (UTC) is available or can be reconstructed for all sources | ADR 003 | corpus, customer data | L2, L6 | open |
+| A15 | The setpoint is exogenous (independent of the load disturbance), so setpoint lags are valid instruments for closed-loop identification | `identification_cl.py`, exp07 | operator-driven setpoints are NOT independent of the process in a real plant (they follow ore properties, A3/A4); test on lab testbed and customer data | L4, L6 | open (holds in the simulator by construction) |
+| A16 | The time-scale separation rule sigma = 4 to 10 and tuning the inner loop first is adequate for the plant's cascades | `cascade.py`, exp08 | a plant with a slow inner loop, lab testbed | L4, L6 | partly tested (one synthetic plant; no instability found at sigma 1) |
+| A17 | The PV noise is small enough (or filtered) for derivative action: controller-output noise grows 13-27 times with an AMIGO PID, N = 10 | `tuning_pid.py`, exp06 | real noise spectra from customer data and the actuator wear they cause | L4, L6 | open |
 
 ## Benefit estimate (C4)
 
