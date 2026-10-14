@@ -7,6 +7,7 @@ the variance cut with the mean moved towards the limit) that the screen draws.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -62,9 +63,10 @@ def measured_reduction(request: BenefitRequest) -> float | None:
     The cut is 1 - std_after / std_before, limited to [0, MAX_MEASURED_REDUCTION]: a retune
     that made the loop worse counts as no benefit, never as a negative one.
     """
-    if request.std_before is None or request.std_after is None or request.std_before <= 0.0:
+    before, after = request.std_before, request.std_after
+    if before is None or after is None or not math.isfinite(before + after) or before <= 0.0:
         return None
-    cut = 1.0 - request.std_after / request.std_before
+    cut = 1.0 - after / before
     return min(max(cut, 0.0), MAX_MEASURED_REDUCTION)
 
 
@@ -171,7 +173,7 @@ def _default_limit(pv: np.ndarray, side: str) -> float:
 
     Used when no explicit limit is configured: it is a rough boundary, not a statistical
     confidence bound. pv holds the process-variable samples for one signal, in the signal's
-    own engineering units. side is SIDE_UPPER or SIDE_ANY_OTHER_VALUE and selects the sign
+    own engineering units. side is SIDE_UPPER or the lower side and selects the sign
     of the offset, so the returned limit lies above the mean or below it.
 
     Returns the limit in the same unit as pv, or 0.0 when pv has no finite samples.
@@ -182,7 +184,7 @@ def _default_limit(pv: np.ndarray, side: str) -> float:
     if finite.size == 0:
         return 0.0
     # The offset is a fixed multiple of the sample standard deviation (unit: same as pv).
-    # DEFAULT_LIMIT_SIGMAS is that multiple, e.g. 3.0 for a classic "three sigma" boundary.
+    # DEFAULT_LIMIT_SIGMAS is that multiple, 4.0 by default, see DEFAULT_LIMIT_SIGMAS.
     # np.std here is the population (ddof=0) form, so the width does not depend on the sample count.
     offset = DEFAULT_LIMIT_SIGMAS * float(np.std(finite))
     # Arithmetic mean of the finite samples (unit: same as pv); it centres the placeholder band.

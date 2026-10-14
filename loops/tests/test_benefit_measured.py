@@ -95,3 +95,11 @@ def test_the_measured_cut_narrows_the_target_spread_by_half():
     payload = benefit_payload(_make_loop(), _make_time(), _make_columns(), request)
     estimate = payload["estimate"]
     assert estimate["std_target"] == pytest.approx(estimate["std_now"] * 0.5, abs=1e-9)
+
+
+def test_a_nan_spread_before_the_retune_gives_no_measured_reduction():
+    """A NaN or infinite spread is not a measurement, so the assumed cut stays in force."""
+    nan, inf = float("nan"), float("inf")
+    assert measured_reduction(BenefitRequest(std_before=nan, std_after=1.0)) is None
+    assert measured_reduction(BenefitRequest(std_before=2.0, std_after=nan)) is None
+    assert measured_reduction(BenefitRequest(std_before=inf, std_after=1.0)) is None

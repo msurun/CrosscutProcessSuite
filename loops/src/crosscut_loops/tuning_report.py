@@ -122,11 +122,12 @@ def build_tuning_report(
 
 
 def _guard_poor_fit(report: TuningReport, r_squared: float) -> TuningReport:
-    """Withhold the settings when the model explains too little of the measured PV.
+    """Block the settings when the model explains too little of the measured PV.
 
     R squared is the share of the PV variance the model reproduces; below FAIR_R_SQUARED the
     gains computed from it would tune the loop to a process that is not the one measured. The
-    numbers stay in the report (the engineer may want to see them), but the loop is blocked.
+    numbers stay in the report so the engineer can inspect them, but ``blocked_reason`` is set
+    and the web screen hides the settings (same behaviour as the stiction block).
     An earlier block (stiction) keeps its reason, because the valve must be repaired first.
     """
     if r_squared >= FAIR_R_SQUARED:
@@ -232,9 +233,8 @@ def _clamp_robustness(robustness: float) -> float:
 def _max_delay_s(sample_count: int, dt_s: float) -> float:
     """Return the largest dead time to scan, in seconds.
 
-    Used by the dead-time (paralysable pile-up) correction: we scan candidate
-    dead times from zero up to this cap and pick the one that best fits the
-    measured count-rate curve.
+    The identification scans candidate dead times (whole samples) from zero up to
+    this cap and keeps the one with the smallest residual.
 
     The cap keeps the scan short on long records while still allowing a delay
     of a quarter of the record.
@@ -396,9 +396,9 @@ def _settings_section_lines(simc: PiSettings, amigo: PiSettings) -> list[str]:
 def _render_dcs_section(report: TuningReport) -> str:
     """Return the Markdown section listing the DCS parameter forms.
 
-    DCS ("discrete control system", the run-to-run controller of a fab tool) is a
-    model whose parameters are estimated separately for each "form" a user may
-    want. This function renders one Markdown table per form.
+    DCS is the distributed control system of the plant. Each vendor expects the same PI
+    settings in its own form (gain or proportional band, seconds or minutes, repeats per
+    minute); this function renders one Markdown table per form.
 
     Returns the Markdown text, ending with a newline. Forms that were not
     estimated in the report are skipped silently.
