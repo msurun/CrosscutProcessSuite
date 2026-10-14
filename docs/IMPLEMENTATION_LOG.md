@@ -243,3 +243,23 @@ at the same step (then log the state and move on to the next independent step).
 
 P1, P2 and P3 touch different packages and run in parallel (worker per package); P4 waits for P1, P5 for all.
 Owner-only items: test with UaExpert, review of ADR 008 reasons.
+
+### P6: PID tuning proven in closed loop (added to the module 1 plan, 2026-10-13)
+
+State: identification of FOPDT models from step windows, SIMC and AMIGO rules, DCS form conversions, report and `TuningPage` exist
+and are tested against synthetic models. Missing: proof that the recommended settings really improve a loop, and a plant that can be
+mistuned. The mill-circuit PID gains are fixed in code (`kc` from the loop spec, `ti_s=60`), so nothing can be retuned yet.
+Tuning stays advisory: no automatic writes to a DCS before the write-path suite (V5) exists.
+
+| Step | Work | Done when |
+|---|---|---|
+| P6.1 | Plant side: scenario params `kc_<loop>` and `ti_s_<loop>` for the three mill loops (defaults = today's values, so nothing existing changes); new scenario `detuned` (gains too aggressive or too slow) | tests: defaults reproduce today's data (same sha256), a detuned scenario measurably worsens IAE |
+| P6.2 | Identification accuracy vs ground truth: step-test data from `step_test` over noise levels and seeds; compare identified gain, delay and time constant with `true_gain` and the plant's real dynamics; table in `experiments/exp02_identification_accuracy/` | table with error percentiles; limits written down (known: closed loop with the operator on gives ~0 gain, see exp00) |
+| P6.3 | Closed-loop validation `experiments/exp03_retune/`: detuned loop -> step test -> tuning report -> apply SIMC (and AMIGO) -> SP-step run before and after, 5 seeds x 3 loops; metrics IAE, overshoot, settling time, loop health from the overview | retuned loop: IAE lower by >= 20 % on at least 2 of 3 loops in >= 4 of 5 seeds, no instability; failures listed honestly |
+| P6.4 | Guards: tuning refused when the stiction verdict is "stiction" (exists) or when R^2 of the model is low; test that a sticking valve gives a blocked report instead of settings | tests for both refusals, wording of the reasons checked |
+| P6.5 | Benefit link: feed the before/after variance of the retuned loop into the benefit report (D5) with its assumptions shown | benefit page shows a number only with assumptions next to it |
+| P6.6 | Live demo (extends P4): `PlantServer` with `detuned`, the scripted client records a step test, calls the tuning API, restarts the scenario with the proposed gains and prints health before and after | script runs end to end |
+| P6.7 | A7 (open): DCS form conversions checked against vendor documentation | OWNER: supply the documents or confirm which vendors; until then A7 stays open |
+
+Order: P6.1 first (everything depends on it), then P6.2 and P6.4 in parallel, P6.3 after both, P6.5 and P6.6 last.
+Acceptance targets are set before the experiment is run; if P6.3 misses them the finding is logged as it is, not tuned away.
