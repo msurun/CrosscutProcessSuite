@@ -189,3 +189,50 @@ def test_fewer_than_two_samples_gives_a_failing_report_and_no_exception():
 
     assert _find(report, "duration").status == FAIL
     assert not report.ready
+
+
+def _clean_export(hours: float = 30.0) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """A clean export with a constant setpoint and a constant mode flag, like a healthy loop."""
+    t_s = np.arange(0.0, hours * 3600.0, 10.0)
+    rng = np.random.default_rng(0)
+    return t_s, {
+        "pv": rng.normal(50.0, 1.0, len(t_s)),
+        "sp": np.full(len(t_s), 50.0),
+        "out": rng.normal(40.0, 1.0, len(t_s)),
+        "mode": np.ones(len(t_s)),
+    }
+
+
+def test_a_constant_setpoint_and_mode_flag_do_not_fail_the_export() -> None:
+    """SP and MODE are constant for days in a healthy plant; only PV and OUT can be stuck."""
+    t_s, columns = _clean_export()
+    loop = LoopTags("L1", "pv", "sp", "out", "mode", "%", 0.0, 100.0)
+    assert check_readiness(t_s, columns, [loop]).ready
+
+
+def test_repeated_timestamps_fail_cleanly_instead_of_crashing() -> None:
+    """Duplicate timestamps (median step 0) give a time_order failure, not ZeroDivisionError."""
+    t_s, columns = _clean_export()
+    t_s = np.repeat(t_s[: len(t_s) // 2], 2)
+    columns = {name: values[: len(t_s)] for name, values in columns.items()}
+    loop = LoopTags("L1", "pv", "sp", "out", "mode", "%", 0.0, 100.0)
+    report = check_readiness(t_s, columns, [loop])
+    assert [check.name for check in report.failures()] == ["time_order"]
+
+
+def test_nan_timestamps_fail_instead_of_reporting_ok() -> None:
+    """A NaN timestamp is a time_order failure."""
+    t_s, columns = _clean_export()
+    t_s[5] = np.nan
+    loop = LoopTags("L1", "pv", "sp", "out", "mode", "%", 0.0, 100.0)
+    assert not check_readiness(t_s, columns, [loop]).ready
+
+
+def test_a_named_mode_tag_missing_from_the_export_only_warns() -> None:
+    """The same condition as an unnamed MODE tag: a warning, the export stays ready."""
+    t_s, columns = _clean_export()
+    del columns["mode"]
+    loop = LoopTags("L1", "pv", "sp", "out", "mode", "%", 0.0, 100.0)
+    report = check_readiness(t_s, columns, [loop])
+    assert report.ready
+    assert any(check.name == "tags:L1" for check in report.warnings())

@@ -14,6 +14,7 @@ SqlImportReport that summarizes the import operation.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -324,6 +325,28 @@ def _read_rows(database: Path, query: str) -> list[tuple[Any, ...]]:
         return fetch_rows(connection, query)
 
 
+# Words that make a statement write or run code; matched as whole words, case-insensitive.
+FORBIDDEN_SQL_WORDS = re.compile(
+    r"\b(INTO|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|EXEC|EXECUTE|CALL|GRANT)\b",
+    re.IGNORECASE,
+)
+
+
+def _require_plain_select(query: str) -> None:
+    """Refuse anything but one plain SELECT (or WITH ... SELECT) without comments or write words.
+
+    This is a screen against mistakes, not a sandbox: a driver-level read-only connection or a
+    read-only database account remains the real protection for a caller-supplied connection.
+    """
+    text = query.strip()
+    if not text.upper().startswith(("SELECT", "WITH")):
+        raise ValueError("query must be a single SELECT statement")
+    if ";" in text or "--" in text or "/*" in text:
+        raise ValueError("query must be a single statement without comments")
+    if FORBIDDEN_SQL_WORDS.search(text):
+        raise ValueError("query contains a word that writes or executes (INTO, INSERT, EXEC, ...)")
+
+
 def fetch_rows(connection: Any, query: str) -> list[tuple[Any, ...]]:
     """Run one SELECT on any DB-API 2.0 connection and return its rows as tuples.
 
@@ -334,11 +357,7 @@ def fetch_rows(connection: Any, query: str) -> list[tuple[Any, ...]]:
     Raises:
         ValueError: if the query is not a single SELECT, returns no rows or fewer than 3 columns.
     """
-    if not query.strip().upper().startswith("SELECT"):
-        raise ValueError("query must be a single SELECT statement")
-    # A semicolon would allow chaining a second statement ("SELECT ...; DROP ...").
-    if ";" in query:
-        raise ValueError("query must be a single statement")
+    _require_plain_select(query)
     with closing(connection.cursor()) as cursor:
         cursor.execute(query)
         rows = [tuple(row) for row in cursor.fetchall()]  # pyodbc rows are not plain tuples

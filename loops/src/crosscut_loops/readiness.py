@@ -31,6 +31,9 @@ FLAT_RUN_MINUTES = 10.0  # a stuck signal repeats its value this long, in minute
 MIN_FLAT_RUN_SAMPLES = 3  # never fewer samples than this, so noise-free signals are not "flat"
 SECONDS_PER_HOUR = 3600.0
 
+REQUIRED_ROLES = ("pv", "sp")  # a missing tag of these roles fails the loop
+MOVING_ROLES = ("pv", "out")  # signals that must vary; SP and MODE may sit still for days
+
 OK, WARN, FAIL = "ok", "warn", "fail"
 
 
@@ -77,7 +80,10 @@ def check_readiness(
     """
     if len(t_s) < 2:
         return ReadinessReport((Check("duration", FAIL, "The record has fewer than 2 samples."),))
-    checks = [_check_duration(t_s), *_check_time_steps(t_s)]
+    time_checks = _check_time_steps(t_s)
+    checks = [_check_duration(t_s), *time_checks]
+    if any(check.status == FAIL for check in time_checks):
+        return ReadinessReport(tuple(checks))  # the per-tag checks divide by the time step
     for loop in loops:
         checks.extend(_check_loop(t_s, columns, loop))
     return ReadinessReport(tuple(checks))
@@ -96,8 +102,8 @@ def _check_duration(t_s: np.ndarray) -> Check:
 def _check_time_steps(t_s: np.ndarray) -> list[Check]:
     """Sample period, regularity and ordering of the timestamps."""
     steps = np.diff(t_s)
-    if np.any(steps <= 0):
-        return [Check("time_order", FAIL, "Timestamps are not strictly increasing.")]
+    if not np.all(np.isfinite(t_s)) or np.any(steps <= 0):
+        return [Check("time_order", FAIL, "Timestamps are missing, repeated or out of order.")]
     return [_check_period(float(np.median(steps))), _check_regularity(steps)]
 
 
@@ -127,14 +133,21 @@ def _check_loop(
 ) -> list[Check]:
     """A loop needs PV and SP (fail); OUT and MODE are needed for stiction and manual findings."""
     checks = _check_loop_roles(loop)
-    for tag in (loop.pv, loop.sp, loop.out, loop.mode):
-        if not tag:
-            continue
+    for tag, role in _tags_with_roles(loop):
         if tag not in columns:
-            checks.append(Check(f"tags:{loop.name}", FAIL, f"Tag {tag} is not in the export."))
+            # PV and SP are the minimum; a named OUT or MODE that is absent costs only findings
+            status = FAIL if role in REQUIRED_ROLES else WARN
+            checks.append(Check(f"tags:{loop.name}", status, f"Tag {tag} is not in the export."))
         else:
-            checks.extend(_check_tag(t_s, np.asarray(columns[tag], dtype=float), tag))
+            values = np.asarray(columns[tag], dtype=float)
+            checks.extend(_check_tag(t_s, values, tag, role in MOVING_ROLES))
     return checks
+
+
+def _tags_with_roles(loop: LoopTags) -> list[tuple[str, str]]:
+    """The loop's named tags as (tag, role) pairs; empty names are skipped."""
+    roles = (("pv", loop.pv), ("sp", loop.sp), ("out", loop.out), ("mode", loop.mode))
+    return [(tag, role) for role, tag in roles if tag]
 
 
 def _check_loop_roles(loop: LoopTags) -> list[Check]:
@@ -151,14 +164,18 @@ def _check_loop_roles(loop: LoopTags) -> list[Check]:
     return checks
 
 
-def _check_tag(t_s: np.ndarray, values: np.ndarray, tag: str) -> list[Check]:
-    """Missing values and stuck (flat) stretches of one tag."""
+def _check_tag(t_s: np.ndarray, values: np.ndarray, tag: str, can_be_stuck: bool) -> list[Check]:
+    """Missing values and, for tags that should move (PV, OUT), stuck stretches.
+
+    A setpoint or a mode flag is constant for days in a healthy plant, so only PV and OUT are
+    tested for being stuck.
+    """
     checks = []
     missing = float(np.mean(np.isnan(values)))
     if missing > WARN_NAN_SHARE:
         status = FAIL if missing > FAIL_NAN_SHARE else WARN
         checks.append(Check(f"missing:{tag}", status, f"Tag {tag}: {missing:.1%} missing values."))
-    flat = _flat_share(t_s, values)
+    flat = _flat_share(t_s, values) if can_be_stuck else 0.0
     if flat > WARN_FLAT_SHARE:
         status = FAIL if flat > FAIL_FLAT_SHARE else WARN
         checks.append(Check(f"flat:{tag}", status, f"Tag {tag}: {flat:.1%} of samples are stuck."))

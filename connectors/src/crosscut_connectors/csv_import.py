@@ -506,7 +506,11 @@ def _unique_tag_ids(original_tag_names: list[str]) -> list[str]:
     return tag_ids
 
 
-UNIT_SUFFIX = re.compile(r"^(?P<name>.*?)\s*[\[(](?P<unit>[^\])]+)[\])]\s*$")
+# name, then a bracket group holding one word: after whitespace ("Level [m]") or right after a
+# letter ("Temp(C)"); "LIC101[PV]" (a digit before the bracket) is a tag name, not a unit.
+UNIT_SUFFIX = re.compile(
+    r"^(?P<name>.*?)(?:\s+|(?<=[A-Za-z]))[\[(]\s*(?P<unit>[^\s\])\[(]+)\s*[\])]\s*$"
+)
 
 
 def split_unit(header_cell: str) -> tuple[str, str]:
@@ -515,8 +519,8 @@ def split_unit(header_cell: str) -> tuple[str, str]:
     A header without a bracketed suffix keeps its whole text as the name and has unit "".
     """
     match = UNIT_SUFFIX.match(header_cell.strip())
-    if match is None or not match.group("name"):
-        return header_cell.strip(), ""
+    if match is None or not match.group("name") or match.group("unit").strip().isdigit():
+        return header_cell.strip(), ""  # "Valve [1]" is an index, not a unit
     return match.group("name"), match.group("unit").strip()
 
 
@@ -582,6 +586,9 @@ def _write_csv_dataset(
     """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row."""
     ts_ns, values, qualities = arrays
     split_cells = [split_unit(cell) for cell in header_cells]
+    if len({name for name, _ in split_cells}) < len(split_cells):
+        # "Level (A)" and "Level (B)" would collide once the suffix is cut: keep the full headers
+        split_cells = [(cell.strip(), "") for cell in header_cells]
     original_tag_names = [name for name, _ in split_cells]
     units = [unit for _, unit in split_cells]
     tag_ids = _unique_tag_ids(original_tag_names)

@@ -10,7 +10,7 @@
   1. **PV** – Process variable measurement.  
   2. **SP** – Set‑point.  
   3. **OUT** – Controller output (typically %‑open, duty‑cycle, or valve position).  
-  4. **MODE** – Auto / Manual flag (0 = auto, 1 = manual or any agreed binary coding).  
+  4. **MODE** – Auto / Manual flag (we read 0 = manual, 1 = auto, 2 = cascade; if your system codes the modes differently, send the mapping or recode before export, otherwise every loop looks manual or automatic by mistake).  
 
 - **Engineering units & ranges**  
   - Provide the units for PV and OUT (e.g., °C, kPa, % open).  

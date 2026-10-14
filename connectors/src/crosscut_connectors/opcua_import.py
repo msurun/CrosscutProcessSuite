@@ -225,8 +225,7 @@ async def _collect_samples(
     client = Client(url=endpoint, timeout=CONNECT_TIMEOUT_S)
     try:
         await _connect(client)
-        resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
-        ts_ns, rows, column_qualities = await _poll_rounds(client, resolved, plan)
+        ts_ns, rows, column_qualities = await _poll_rounds(client, node_ids, plan)
     finally:
         # Close the session even if a read or a sleep raised.
         await _disconnect(client)
@@ -248,14 +247,16 @@ async def _poll_rounds(
     rows: list[list[float]] = []
     # One growing quality list per node, in the same order as `node_ids`.
     column_qualities: list[list[int]] = [[] for _ in node_ids]
+    # Namespace indexes belong to one session, so they are looked up again after a reconnect.
+    resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
     for sample_index in range(plan.n_samples):
         # The first call returns immediately; later ones wait out the period.
         await _sleep_before_next_sample(sample_index, plan.period_s)
         ts_ns.append(time.time_ns())
         # `sample` is a list of (value, quality) pairs, one per node in `node_ids`.
-        sample = await _sample_all(client, node_ids)
-        if all(np.isnan(value) for value, _ in sample):
-            await _restore_session_if_lost(client)
+        sample = await _sample_all(client, resolved)
+        if all(np.isnan(value) for value, _ in sample) and await _restore_session_if_lost(client):
+            resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
         rows.append([value for value, _ in sample])
         # `strict=True` guards against a server returning a different node count.
         for column, (_, quality) in zip(column_qualities, sample, strict=True):
@@ -292,25 +293,27 @@ async def resolve_node_id(client: Client, node_id: str) -> str:
     return f"ns={index};{identifier}"
 
 
-async def _restore_session_if_lost(client: Client) -> None:
+async def _restore_session_if_lost(client: Client) -> bool:
     """After a round with no usable value: if the session is dead, reconnect (a few tries).
 
     A round of only BAD values has two causes: wrong node ids (the session is fine, nothing to do)
     or a lost connection. ``check_connection`` tells them apart; if every try fails the round
     simply stays BAD and the next round tries again, so a long outage never aborts the import.
+    Returns True when a new session was opened (the caller must look up namespace indexes again).
     """
     try:
         await client.check_connection()
-        return
+        return False
     except (OSError, ua.UaError, ua.UaStatusCodeError, ConnectionError, TimeoutError):
         pass
     for _ in range(RECONNECT_ATTEMPTS):
         await _disconnect(client)
         try:
             await client.connect()
-            return
+            return True
         except (OSError, ua.UaError, ua.UaStatusCodeError, TimeoutError):
             await asyncio.sleep(RECONNECT_DELAY_S)
+    return False
 
 
 async def _disconnect(client: Client) -> None:

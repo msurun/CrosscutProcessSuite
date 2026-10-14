@@ -39,6 +39,7 @@ class AnonymisedData:
     tag_map: dict[str, str]
     transforms: dict[str, tuple[float, float]]
     time_shift_s: float
+    seed: int = 0  # the seed that drew every constant; keep it with the tag map
 
 
 def anonymise(
@@ -46,7 +47,7 @@ def anonymise(
     columns: Mapping[str, np.ndarray],
     linked_groups: Sequence[Sequence[str]] = (),
     keep_values: Sequence[str] = (),
-    seed: int = 0,
+    seed: int | None = None,
 ) -> AnonymisedData:
     """Rename columns to tags and hide their scales, offsets and absolute time.
 
@@ -63,6 +64,9 @@ def anonymise(
             or a column length differs from `t_s`.
     """
     _validate_tag_requests(len(t_s), columns, linked_groups, keep_values)
+    # Without a seed every call draws fresh random constants; a fixed default would give every
+    # customer the same scales and shift, which anyone with the code could undo.
+    seed = int(np.random.SeedSequence().entropy) if seed is None else seed  # type: ignore[arg-type]
     rng = np.random.default_rng(seed)
 
     tag_map = {name: _tag_name(index) for index, name in enumerate(columns)}
@@ -79,6 +83,7 @@ def anonymise(
         tag_map=tag_map,
         transforms=transforms,
         time_shift_s=time_shift_s,
+        seed=seed,
     )
 
 
@@ -113,6 +118,11 @@ def _validate_tag_requests(
         ValueError: on an unknown tag, a tag in two groups, or a mismatched length.
     """
     known = set(columns)
+    if any(len(group) == 0 for group in linked_groups):
+        raise ValueError("a linked group must name at least one tag")
+    overlap = set(keep_values) & {name for group in linked_groups for name in group}
+    if overlap:
+        raise ValueError(f"tags {sorted(overlap)} are both linked and kept unchanged")
     for name, values in columns.items():
         if len(values) != length:
             raise ValueError(f"column {name!r} has {len(values)} samples, time has {length}")
