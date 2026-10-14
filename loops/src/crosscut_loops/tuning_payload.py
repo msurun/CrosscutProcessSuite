@@ -16,6 +16,7 @@ from crosscut_loops.overview import LoopTags
 from crosscut_loops.tuning_report import (
     DEFAULT_ROBUSTNESS,
     MODEL_FAILURE_PREFIX,
+    POOR_FIT_PREFIX,
     TuningReport,
     build_tuning_report,
     render_markdown,
@@ -162,7 +163,9 @@ def _blocked_code(report: TuningReport) -> str | None:
     """Machine-readable reason why retuning is blocked, or None."""
     if report.blocked_reason is None:
         return None
-    return "model_failed" if report.blocked_reason.startswith(MODEL_FAILURE_PREFIX) else "stiction"
+    if report.blocked_reason.startswith(MODEL_FAILURE_PREFIX):
+        return "model_failed"
+    return "poor_fit" if report.blocked_reason.startswith(POOR_FIT_PREFIX) else "stiction"
 
 
 def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:

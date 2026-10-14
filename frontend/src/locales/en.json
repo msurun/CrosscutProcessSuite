@@ -86,6 +86,7 @@
   "tuning.warning.closed_loop_data": "The window contains closed-loop (auto) data, so the model can be biased. Prefer a step test with the loop in manual.",
   "tuning.blocked.stiction": "Retuning is blocked: stiction suspected. Repair the valve first.",
   "tuning.blocked.model_failed": "No model could be identified on this window. Choose another window.",
+  "tuning.blocked.poor_fit": "The model fits this window poorly, so the settings are withheld. Choose a window with a clearer step.",
   "tuning.model.gain": "Process gain",
   "tuning.model.tau": "Time constant",
   "tuning.model.delay": "Dead time",

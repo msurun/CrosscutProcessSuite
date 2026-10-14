@@ -349,3 +349,35 @@ def test_two_loops_are_reported_in_input_order():
     results = analyze_dataset(time_vector, columns, [first, second])
 
     assert [result["name"] for result in results] == ["first", "second"]
+
+
+def test_the_saturated_finding_carries_the_window_of_the_saturated_stretch():
+    time_vector = _make_time_vector()
+    columns = {
+        "PV": _make_saturated_loop_columns()["pv"],
+        "SP": np.full(SAMPLE_COUNT, SP_BASE),
+        "OUT": _make_saturated_loop_columns()["out"],
+        "MODE": _make_mode(MODE_AUTO),
+    }
+    tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
+
+    [result] = analyze_dataset(time_vector, columns, [tags])
+
+    saturated = next(f for f in result["findings"] if f["code"] == SATURATION_FINDING_CODE)
+    assert saturated["window_s"] == [0.0, time_vector[-1]]
+
+
+def test_a_finding_about_the_whole_record_has_no_window():
+    time_vector = _make_time_vector()
+    columns = {
+        "PV": _make_saturated_loop_columns()["pv"],
+        "SP": np.full(SAMPLE_COUNT, SP_BASE),
+        "OUT": _make_saturated_loop_columns()["out"],
+        "MODE": _make_mode(MODE_AUTO),
+    }
+    tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
+
+    [result] = analyze_dataset(time_vector, columns, [tags])
+
+    unwindowed = [f for f in result["findings"] if f["code"] in ("oscillating", "stiction")]
+    assert all("window_s" not in finding for finding in unwindowed)

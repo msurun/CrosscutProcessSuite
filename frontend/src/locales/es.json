@@ -86,6 +86,7 @@
   "tuning.warning.closed_loop_data": "La ventana contiene datos de lazo cerrado (auto), por lo que el modelo puede estar sesgado. Prefiera una prueba escalón con el lazo en manual.",
   "tuning.blocked.stiction": "Sintonía bloqueada: se sospecha fricción estática (stiction). Repare primero la válvula.",
   "tuning.blocked.model_failed": "No se pudo identificar un modelo en esta ventana. Elija otra ventana.",
+  "tuning.blocked.poor_fit": "El modelo se ajusta mal a esta ventana, por lo que no se muestran los ajustes. Elija una ventana con un escalón más claro.",
   "tuning.model.gain": "Ganancia del proceso",
   "tuning.model.tau": "Constante de tiempo",
   "tuning.model.delay": "Tiempo muerto",

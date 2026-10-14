@@ -28,6 +28,7 @@ from crosscut_loops.tuning_rules import (
     lambda_from_robustness,
     simc_pi,
 )
+from crosscut_loops.tuning_view import FAIR_R_SQUARED, fit_check
 
 # The largest dead time to scan during identification, as a fraction of the
 # record length in samples. A quarter of the record keeps the scan short.
@@ -53,6 +54,7 @@ STICTION_VERDICT = "stiction"
 # Blocking messages shown when a loop must not be retuned as-is.
 STICTION_BLOCKED_REASON = "stiction suspected: repair the valve before retuning"
 MODEL_FAILURE_PREFIX = "model identification failed"
+POOR_FIT_PREFIX = "poor model fit"
 
 # Robustness values are clamped into this range before use.
 MIN_ROBUSTNESS = 0.0
@@ -115,7 +117,25 @@ def build_tuning_report(
     model, failure_reason = _identify_or_reason(u, y, dt_s)
     if model is None:
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
-    return _identified_report(loop_name, model, robustness, stiction_verdict)
+    report = _identified_report(loop_name, model, robustness, stiction_verdict)
+    return _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
+
+
+def _guard_poor_fit(report: TuningReport, r_squared: float) -> TuningReport:
+    """Withhold the settings when the model explains too little of the measured PV.
+
+    R squared is the share of the PV variance the model reproduces; below FAIR_R_SQUARED the
+    gains computed from it would tune the loop to a process that is not the one measured. The
+    numbers stay in the report (the engineer may want to see them), but the loop is blocked.
+    An earlier block (stiction) keeps its reason, because the valve must be repaired first.
+    """
+    if r_squared >= FAIR_R_SQUARED:
+        return report
+    reason = f"{POOR_FIT_PREFIX} (R squared {r_squared:.2f}): choose a window with a clearer step"
+    report.notes.append(reason)
+    if report.blocked_reason is None:
+        report.blocked_reason = reason
+    return report
 
 
 def _unidentified_report(

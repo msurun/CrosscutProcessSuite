@@ -86,6 +86,7 @@
   "tuning.warning.closed_loop_data": "Okno zawiera dane z pętli zamkniętej (auto), więc model może być obciążony. Lepszy jest test skokowy z pętlą w trybie ręcznym.",
   "tuning.blocked.stiction": "Strojenie zablokowane: podejrzenie stiction. Najpierw napraw zawór.",
   "tuning.blocked.model_failed": "Nie udało się zidentyfikować modelu na tym oknie. Wybierz inne okno.",
+  "tuning.blocked.poor_fit": "Model słabo pasuje do tego okna, więc ustawienia są wstrzymane. Wybierz okno z wyraźniejszym skokiem.",
   "tuning.model.gain": "Wzmocnienie procesu",
   "tuning.model.tau": "Stała czasowa",
   "tuning.model.delay": "Czas martwy",

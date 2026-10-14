@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from crosscut_loops.finding_windows import finding_window
 from crosscut_loops.monitor import LoopReport, LoopSettings, analyze_loop
 
 # --- Tag naming conventions -------------------------------------------------
@@ -605,4 +606,25 @@ def _analyse_one_loop(
         settings=settings,
     )
     # Include the PV array again for the row's sparkline summary.
-    return _report_row(loop, report, settings, columns[loop.pv])
+    row = _report_row(loop, report, settings, columns[loop.pv])
+    _add_finding_windows(row["findings"], t_s, columns, loop)
+    return row
+
+
+def _add_finding_windows(
+    finding_rows: list[dict[str, Any]],
+    t_s: np.ndarray,
+    columns: Mapping[str, np.ndarray],
+    loop: LoopTags,
+) -> None:
+    """Attach ``window_s`` = [start_s, end_s] to every finding that has a stretch of data.
+
+    The window lets the UI zoom the trend to what caused the finding. Findings about the whole
+    record (oscillation, poor performance, stiction) get no key, so older consumers see no change.
+    """
+    for finding in finding_rows:
+        window = finding_window(
+            finding["code"], t_s, columns[loop.pv], columns[loop.out], columns[loop.mode]
+        )
+        if window is not None:
+            finding["window_s"] = [window[0], window[1]]

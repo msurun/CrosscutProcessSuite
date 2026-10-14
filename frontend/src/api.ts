@@ -194,7 +194,7 @@ export interface TuningPayload {
   window: TimeWindow & { manual_percent: number };
   warnings: string[];
   robustness: number;
-  blocked_code: "stiction" | "model_failed" | null;
+  blocked_code: "stiction" | "model_failed" | "poor_fit" | null;
   markdown: string;
   model: { gain: number; time_constant_s: number; delay_s: number } | null;
   fit: { verdict: "good" | "fair" | "poor"; r_squared: number } | null;
