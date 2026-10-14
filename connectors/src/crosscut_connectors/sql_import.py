@@ -14,8 +14,10 @@ SqlImportReport that summarizes the import operation.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import sqlite3
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,8 +30,8 @@ from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_import import (
     _parse_iso8601,
+    _resolve_instant,
     _sanitize_tag_name,
-    _to_utc_nanoseconds,
 )
 from crosscut_connectors.import_target import ImportTarget
 
@@ -50,16 +52,24 @@ class SqlImportReport:
         Number of duplicate rows dropped.
     n_bad_values: int
         Number of bad values in the dataset.
+    n_dst_repeats_resolved: int
+        Rows whose local time occurs twice (DST fall-back) and were read as the second pass.
     """
 
     n_rows: int
     n_tags: int
     n_duplicates_dropped: int
     n_bad_values: int
+    n_dst_repeats_resolved: int = 0
 
 
-def _parse_timestamp(ts: Any, tz: str) -> int:
-    """Parse a timestamp into nanoseconds since the Unix epoch (UTC).
+def _parse_timestamp(ts: Any, tz: str, previous_ns: int | None = None) -> tuple[int, bool]:
+    """Parse a timestamp into nanoseconds since the Unix epoch (UTC) and a DST-repeat flag.
+
+    ``previous_ns`` is the instant of the previous row of the SAME tag. A local wall-clock time
+    that occurs twice (the hour repeated when clocks go back) is read as the second pass when it
+    would not move forward from ``previous_ns``; the flag says that happened (see
+    ``csv_import._resolve_instant``, the same rule as the CSV importer).
 
     Accepts either an ISO-8601 string (interpreted in the caller's local time
     zone `tz` when the string carries no offset) or a numeric epoch value in
@@ -77,20 +87,20 @@ def _parse_timestamp(ts: Any, tz: str) -> int:
         dt = _parse_iso8601(ts)
         if dt is None:
             raise ValueError("unparseable timestamp")
-        return _to_utc_nanoseconds(dt, tz)
+        return _resolve_instant(dt, tz, previous_ns)
     # Numbers are already epoch-relative, so they are simply scaled from
     # seconds to nanoseconds; int() truncates any sub-nanosecond float noise.
     # bool is a subclass of int but is rejected above: True would silently
     # become 1e9 ns, which is never a real timestamp.
     if isinstance(ts, (int, float)):
-        return int(ts * NS_PER_S)
+        return int(ts * NS_PER_S), False
     raise ValueError("timestamp must be a string or a numeric value")
 
 
 def _pivot_rows(
     rows: list[tuple[Any, ...]],
     tz: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Pivot long-format query rows into wide (time x tag) grids.
 
     "Long" means one row per observation: a timestamp, a tag, a value. "Wide" means
@@ -106,13 +116,13 @@ def _pivot_rows(
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]
-        Unique timestamps, unique tag ids, the wide value and quality grids, and the
-        number of duplicate (timestamp, tag) rows dropped.
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]
+        Unique timestamps, unique tag ids, the wide value and quality grids, the
+        number of duplicate (timestamp, tag) rows dropped and the number of DST repeats resolved.
     """
     # Only four values per row are needed (time, tag, value, quality), so the raw
     # database rows are reduced here to four parallel flat arrays of equal length.
-    ts_ns, tag_ids, values, qualities = _collect_samples(rows, tz)
+    ts_ns, tag_ids, values, qualities, dst_repeats = _collect_samples(rows, tz)
     # Sorting by time first means every later step can assume time increases, which
     # allows _count_duplicates and _widen to use sorted data directly.
     ts_ns, tag_ids, values, qualities = _sort_by_time(ts_ns, tag_ids, values, qualities)
@@ -120,7 +130,7 @@ def _pivot_rows(
     # _widen returns one row per distinct timestamp and one column per distinct tag,
     # with the value and quality grids sharing that shape.
     unique_ts, unique_tags, wide_values, wide_qualities = _widen(ts_ns, tag_ids, values, qualities)
-    return unique_ts, unique_tags, wide_values, wide_qualities, n_duplicates_dropped
+    return unique_ts, unique_tags, wide_values, wide_qualities, n_duplicates_dropped, dst_repeats
 
 
 def _clean_value(raw: Any) -> float:
@@ -159,7 +169,9 @@ def _clean_value(raw: Any) -> float:
     return value if np.isfinite(value) else float("nan")
 
 
-def _parse_row(row: tuple[Any, ...], tz: str) -> tuple[int, str, float, Any]:
+def _parse_row(
+    row: tuple[Any, ...], tz: str, previous_ns: int | None = None
+) -> tuple[int, str, float, Any, bool]:
     """Return (timestamp ns, sanitized tag, value, quality) for one query row.
 
     A "row" is one raw record coming back from the historian database, laid out
@@ -181,8 +193,10 @@ def _parse_row(row: tuple[Any, ...], tz: str) -> tuple[int, str, float, Any]:
     :param row: one database row, positionally laid out as described above.
     :param tz: IANA timezone name (for example "Europe/Paris") the stored
         timestamp is expressed in.
+    :param previous_ns: instant of the previous row of the same tag, to tell the two passes of a
+        repeated local time (DST fall-back) apart.
     :return: a tuple of (timestamp in nanoseconds since the Unix epoch,
-        sanitized tag name, value as a float, quality flag).
+        sanitized tag name, value as a float, quality flag, True if it was a DST repeat).
     :raises ValueError: if the row has fewer than three fields, so there is no
         value to read.
     """
@@ -192,7 +206,13 @@ def _parse_row(row: tuple[Any, ...], tz: str) -> tuple[int, str, float, Any]:
     # The quality column is optional. Trust it only when we have a finite number:
     # NaN outranks the historian's own opinion and forces BAD.
     quality = BAD if np.isnan(value) else (row[3] if len(row) > 3 else GOOD)
-    return _parse_timestamp(row[0], tz), _sanitize_tag_name(row[1]), value, quality
+    instant_ns, was_repeat = _parse_timestamp(row[0], tz, previous_ns)
+    return instant_ns, _sanitize_tag_name(row[1]), value, quality, was_repeat
+
+
+def _key(row: tuple[Any, ...]) -> str:
+    """Sanitised tag name of a row, the key of the per-tag state."""
+    return _sanitize_tag_name(row[1])
 
 
 def _check_identifier(raw_by_tag: dict[str, Any], tag: str, raw_tag: Any) -> None:
@@ -204,10 +224,11 @@ def _check_identifier(raw_by_tag: dict[str, Any], tag: str, raw_tag: Any) -> Non
 
 def _collect_samples(
     rows: list[tuple[Any, ...]], tz: str
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Parse every row into parallel arrays of timestamps, tags, values and qualities.
 
-    Returns four equal-length arrays; element i of each describes the same sample.
+    Returns four equal-length arrays; element i of each describes the same sample, and the
+    number of rows read as the second pass of a repeated local time (DST fall-back).
 
     The four values are also the input format of the timeseries model (a set of
     measurements of the same quantity taken at successive instants, here one
@@ -229,16 +250,21 @@ def _collect_samples(
     # come from the same raw identifier, otherwise two signals would be silently
     # merged into one series.
     raw_by_tag: dict[str, Any] = {}
+    # Instant of the latest row of each tag: a repeated local time moves backwards for its tag.
+    last_ns_by_tag: dict[str, int] = {}
+    dst_repeats = 0
     for row in rows:
-        ts, tag, value, quality = _parse_row(row, tz)
+        ts, tag, value, quality, was_repeat = _parse_row(row, tz, last_ns_by_tag.get(_key(row)))
         _check_identifier(raw_by_tag, tag, row[1])
+        last_ns_by_tag[_key(row)] = ts
+        dst_repeats += int(was_repeat)
         ts_ns.append(ts)
         tags.append(tag)
         values.append(value)
         qualities.append(quality)
     # Conversion to numpy lives in a separate helper so that the loop above stays
     # pure data gathering and this function stays short.
-    return _build_sample_arrays(ts_ns, tags, values, qualities)
+    return (*_build_sample_arrays(ts_ns, tags, values, qualities), dst_repeats)
 
 
 def _build_sample_arrays(
@@ -403,8 +429,13 @@ def import_sql_connection(connection: Any, query: str, target: ImportTarget) -> 
     return _import_rows(fetch_rows(connection, query), target)
 
 
-def _import_rows(rows: list[tuple[Any, ...]], target: ImportTarget) -> SqlImportReport:
-    """Pivot long-format rows to wide arrays and write the dataset."""
+def _import_rows(
+    rows: list[tuple[Any, ...]], target: ImportTarget, units: Mapping[str, str] | None = None
+) -> SqlImportReport:
+    """Pivot long-format rows to wide arrays and write the dataset.
+
+    ``units`` maps a sanitised tag id to its engineering unit (empty text when unknown).
+    """
     # Pivot from long to wide. The arrays share the row axis (one entry per timestamp)
     # and the column axis (one entry per tag_id); a repeated (timestamp, tag) pair is
     # dropped and only counted, so the arrays stay rectangular.
@@ -412,7 +443,9 @@ def _import_rows(rows: list[tuple[Any, ...]], target: ImportTarget) -> SqlImport
     #   tag_ids    str[num_tags]                 one per column of `values`
     #   values     float64[num_rows, num_tags]   NaN = no sample or invalid
     #   qualities  uint8[num_rows, num_tags]     quality flag per cell
-    ts_ns, tag_ids, values, qualities, n_duplicates_dropped = _pivot_rows(rows, target.tz)
+    ts_ns, tag_ids, values, qualities, n_duplicates_dropped, dst_repeats = _pivot_rows(
+        rows, target.tz
+    )
 
     write_dataset(
         target.out_dir,
@@ -423,11 +456,12 @@ def _import_rows(rows: list[tuple[Any, ...]], target: ImportTarget) -> SqlImport
             # start_utc is the dataset's first instant in ISO-8601 form; derived from ts_ns
             # rather than from `rows` so it matches the stored timestamps exactly.
             start_utc=_start_iso(ts_ns),
-            tags_document=_tags_document(tag_ids),
+            tags_document=_tags_document(tag_ids, units or {}),
         ),
     )
 
-    return _make_report(ts_ns, tag_ids, values, n_duplicates_dropped)
+    report = _make_report(ts_ns, tag_ids, values, n_duplicates_dropped)
+    return dataclasses.replace(report, n_dst_repeats_resolved=dst_repeats)
 
 
 def _start_iso(ts_ns: np.ndarray) -> str:
@@ -435,7 +469,7 @@ def _start_iso(ts_ns: np.ndarray) -> str:
     return datetime.fromtimestamp(int(ts_ns[0]) // NS_PER_S, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _tags_document(tag_ids: np.ndarray) -> dict[str, Any]:
+def _tags_document(tag_ids: np.ndarray, units: Mapping[str, str]) -> dict[str, Any]:
     """Build the tags.json document: one float tag per identifier, sourced from SQL.
 
     A "tag" is the simulator's name for a single signal it can read or write, roughly
@@ -454,7 +488,7 @@ def _tags_document(tag_ids: np.ndarray) -> dict[str, Any]:
                 "id": tag_id,
                 "name": tag_id,
                 "description": "",
-                "unit": "",
+                "unit": units.get(str(tag_id), ""),
                 "type": "float",
                 "role": "other",
                 # The driver tells the reader how to fetch the value: "sql" means the tag is
