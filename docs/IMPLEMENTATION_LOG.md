@@ -338,3 +338,15 @@ Tools: `foremankit check` clean on all new Python files; ruff, mypy (sim, loops,
   - **Cascade (exp08):** C1 and C2 MET (outer overshoot 1.1-3.3 % at sigma 10/4; disturbance IAE 8 times lower than a single loop). Too little separation (sigma 1) gives 12 % overshoot and 47 % worse disturbance IAE but no instability on this plant. A bug in my first helper (y2 identified instead of y1) made the first run show instability everywhere; found by looking at the identified models.
   - **Found on the way (for the code review):** `identify_fopdt` on a record with ONE step and little noise returned gain 0.55 instead of 2 (collinear input and constant); the R squared guard did not catch it. The exp08 identification uses a pulse instead.
   - Delegation: 9 files to deepseek-flash (4 tests, `tuning_pid.py`, `identification_cl.py`, `cascade.py`, 3 experiment scripts, one cut off at the token limit and re-split into two); hand fixes: `ideal_to_series` formulas (my specification had the inverse wrong; the delegated round-trip test caught it), exp07 (`PiSettings` unpack, `tau_s` name), exp08 (missing outer process), mypy return type.
+- **Code review of this session (`/code-review high d32fe39..HEAD`, 10 findings; 9 fixed, 1 partly):**
+  - `jitter_timestamps` returned float64 (offsets were float): at epoch scale the 1 ns gap vanished. Fixed (int64 offsets), test added.
+  - exp06 noise ratio was the std of the second difference: fixed, re-run, numbers moved by < 0.3; the PID advice text and A17 keep "13-27 times" (12.6-25.4 on the grid, 26.7 post hoc).
+  - SQL rows shorter than 3 fields: explicit ValueError (the reviewer's claim that this raised ValueError before was wrong, it was an IndexError; the documented ValueError now exists).
+  - OPC UA subscription: output sorted by time before sample-and-hold (wall clock can step back); `ns=0;i=...` ids compared in canonical form; a session that died during the recording now raises ConnectionError instead of writing flat GOOD data (one read at the end; a bad-status answer counts as alive). Test added. Still open: no automatic reconnect inside a recording.
+  - `plan_cascade` floor: exp08 now also simulates the planner as shipped (requested sigma 1/2/4 all give achieved 5.0 here); README documents it.
+  - `mode_flip_events`: per-flip `return_to` (so a loop that ran in CAS is handed back to CAS), docstring corrected.
+  - `build_tuning_report`: a non-positive `pv_span`/`out_span` degrades to empty ABB tags with a caveat instead of raising; one shared `DEFAULT_OUT_SPAN`.
+  - `simc_pi_improved` now shares `tuning_rules.simc_pi_with_lag` with `simc_pi` (no duplicated formula, no borrowed constant); docstring corrected.
+  - exp08 helper: dead `outer_pi_for` and no-op calls removed, the redundant inner simulation in `identify_outer_open` dropped (baseline IAE 35.3 -> 38.6 because the noise sequence changed).
+  - `identify_fopdt_closed_loop`: clear error for a record that is too short, lists accepted, helper takes 3 parameters, misplaced codecheck comment moved.
+  - Not changed: `sql_import` still sanitises the tag name twice per row (cheap, left for clarity).

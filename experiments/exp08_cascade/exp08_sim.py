@@ -6,7 +6,7 @@ experiments, and returns the metrics (overshoot, settled flag, IAE) the acceptan
 
 Assumed interfaces: Fopdt(gain, tau_s, delay_s, dt_s) with .update(u) consuming this step's
 input and returning the next output; identify_fopdt(u, y, dt_s, max_delay_s) -> FopdtModel;
-PiSettings carries .kc and .ti_s; simc_pi(model) -> PiSettings.
+PiSettings carries .kc and .ti_s.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from crosscut_loops.identification import identify_fopdt
-from crosscut_loops.tuning_rules import FopdtModel, PiSettings, simc_pi
+from crosscut_loops.tuning_rules import FopdtModel, PiSettings
 from crosscut_sim.core import Fopdt
 
 DT_S = 0.5  # sampling period, seconds
@@ -69,7 +69,6 @@ def _run_open_loop_step(process: Fopdt, n_samples: int, rng: np.random.Generator
     """Apply a +1 step on the process input at STEP_TIME_S; return (input, noisy output)."""
     inputs = np.zeros(n_samples)
     outputs = np.zeros(n_samples)
-    _step_index()
     for k in range(n_samples):
         inputs[k] = _id_pulse(k)
         outputs[k] = process.update(inputs[k])
@@ -88,7 +87,6 @@ def _run_closed_loop_step(inner_pi: PiSettings, n_samples: int, rng: np.random.G
     controller = PiController(inner_pi.kc, inner_pi.ti_s, DT_S)
     setpoints = np.zeros(n_samples)
     outputs = np.zeros(n_samples)
-    _step_index()
     y2_measured = 0.0
     for k in range(n_samples):
         setpoints[k] = _id_pulse(k)
@@ -133,9 +131,8 @@ def identify_outer_with_inner_closed(inner_pi: PiSettings, seed: int) -> FopdtMo
 def identify_outer_open(seed: int) -> FopdtModel:
     """Identify the outer process from an open-loop +1 step (no inner controller)."""
     rng = np.random.default_rng(seed)
-    inner_process = Fopdt(INNER_PROCESS_GAIN, INNER_TIME_CONSTANT_S, INNER_DELAY_S, DT_S)
     outer_process = Fopdt(OUTER_PROCESS_GAIN, OUTER_TIME_CONSTANT_S, OUTER_DELAY_S, DT_S)
-    inputs, _ = _run_open_loop_step(inner_process, _n_samples(SETPOINT_RECORD_S), rng)
+    inputs = np.array([_id_pulse(k) for k in range(_n_samples(SETPOINT_RECORD_S))])
     y1_measured = _run_outer_open_loop(
         inner_process_gain=1.0, outer=outer_process, inputs=inputs, rng=rng
     )
@@ -256,7 +253,3 @@ def single_loop_disturbance_iae(outer_pi: PiSettings, seed: int) -> float:
         y1_measured = y1[k] + rng.normal(0.0, NOISE_SD)
     return float(np.sum(np.abs(y1)) * DT_S)
 
-
-def outer_pi_for(outer_model: FopdtModel) -> PiSettings:
-    """SIMC PI settings for the identified outer model (convenience for the runners)."""
-    return simc_pi(outer_model)

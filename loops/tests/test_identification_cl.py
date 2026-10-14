@@ -125,3 +125,17 @@ def test_the_result_is_a_model_with_positive_fields() -> None:
     assert model.gain > 0.0
     assert model.time_constant_s > 0.0
     assert model.delay_s > 0.0
+
+
+def test_a_record_too_short_for_the_delay_scan_says_so_instead_of_blaming_the_data() -> None:
+    samples = np.arange(100, dtype=float)
+    with pytest.raises(ValueError, match="record"):
+        identify_fopdt_closed_loop(samples, samples, np.sin(samples), 1.0, 30.0)
+
+
+def test_plain_python_lists_are_accepted_like_arrays() -> None:
+    u, y, sp = _simulate_closed_loop(1)
+    model = identify_fopdt_closed_loop(
+        u.tolist(), y.tolist(), sp.tolist(), SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+    )
+    assert model.gain > 0.0

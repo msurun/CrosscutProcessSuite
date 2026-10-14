@@ -16,7 +16,8 @@ from crosscut_loops.tuning_rules import ConversionForm, PiSettings
 
 Evidence = Literal["verified", "partly_verified", "unverified"]
 
-_PERCENT = 100.0
+DEFAULT_OUT_SPAN = 100.0  # a 0..100 % output; the caller gives the real span when it differs
+MISSING_RANGE_CAVEAT = "PV range not given or not positive: the normalised Gain cannot be computed"
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,7 @@ VENDOR_FORMS: dict[str, VendorForm] = {
 }
 
 
-def normalise_gain(kc: float, pv_span: float, out_span: float = _PERCENT) -> float:
+def normalise_gain(kc: float, pv_span: float, out_span: float = DEFAULT_OUT_SPAN) -> float:
     """Return the dimensionless gain G = kc * PvRange / OutRange.
 
     `kc` comes from identification on raw data, so it is in output units per PV unit
@@ -134,7 +135,9 @@ def siemens_pid_compact(
     }
 
 
-def abb_pidcc(settings: PiSettings, pv_span: float, out_span: float = _PERCENT) -> dict[str, float]:
+def abb_pidcc(
+    settings: PiSettings, pv_span: float, out_span: float = DEFAULT_OUT_SPAN
+) -> dict[str, float]:
     """Name the PidCC parameters for a PI setting; TI is in seconds ONLY IF the unit is confirmed.
 
     The entered Gain is normalised (the block applies OutRange / PvRange itself), so the ranges
@@ -160,7 +163,7 @@ def siemens_pid_compact_pid(
 
 
 def abb_pidcc_pid(
-    settings: PidSettings, pv_span: float, out_span: float = _PERCENT
+    settings: PidSettings, pv_span: float, out_span: float = DEFAULT_OUT_SPAN
 ) -> dict[str, float]:
     """Name the PidCC parameters for a PID setting; TF is the derivative filter time (Td / N).
 
@@ -177,7 +180,7 @@ def abb_pidcc_pid(
 def vendor_summaries(
     settings: PiSettings,
     pv_span: float | None,
-    out_span: float = _PERCENT,
+    out_span: float = DEFAULT_OUT_SPAN,
     pid: PidSettings | None = None,
 ) -> dict[str, VendorSummary]:
     """Return every vendor form for the report: tags, evidence level, source and caveats.
@@ -192,7 +195,7 @@ def vendor_summaries(
         caveats = list(spec.caveats)
         if tags is None:
             tags = {}
-            caveats.insert(0, "PV range not given: the normalised Gain cannot be computed")
+            caveats.insert(0, MISSING_RANGE_CAVEAT)
         result[key] = {
             "block": spec.block,
             "evidence": spec.evidence,
@@ -213,8 +216,8 @@ def _tags_for(
     pi, pid = settings
     if key == "siemens_pid_compact":
         return siemens_pid_compact(pi) if pid is None else siemens_pid_compact_pid(pid)
-    if pv_span is None:
-        return None
+    if pv_span is None or pv_span <= 0.0 or out_span <= 0.0:
+        return None  # a bad range degrades to empty tags; it must not cost the whole report
     if pid is None:
         return dict(abb_pidcc(pi, pv_span, out_span))
     return dict(abb_pidcc_pid(pid, pv_span, out_span))

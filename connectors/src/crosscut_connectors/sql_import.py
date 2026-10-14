@@ -36,6 +36,7 @@ from crosscut_connectors.csv_import import (
 from crosscut_connectors.import_target import ImportTarget
 
 NS_PER_S = 1_000_000_000
+MIN_ROW_FIELDS = 3  # timestamp, tag, value
 
 
 @dataclass(frozen=True)
@@ -254,6 +255,8 @@ def _collect_samples(
     last_ns_by_tag: dict[str, int] = {}
     dst_repeats = 0
     for row in rows:
+        if len(row) < MIN_ROW_FIELDS:
+            raise ValueError("a row needs at least timestamp, tag and value")
         ts, tag, value, quality, was_repeat = _parse_row(row, tz, last_ns_by_tag.get(_key(row)))
         _check_identifier(raw_by_tag, tag, row[1])
         last_ns_by_tag[_key(row)] = ts

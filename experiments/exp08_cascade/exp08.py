@@ -68,6 +68,25 @@ class SigmaResult:
 
 
 @dataclass(frozen=True)
+class PlannedResult:
+    """What ``plan_cascade`` produces for one requested separation, simulated as shipped.
+
+    Attributes:
+        requested: Separation passed to ``plan_cascade``.
+        achieved: Separation the plan really has (the outer delay can raise tau_c_outer).
+        overshoot_pct: Overshoot of the cascade setpoint response with the planned settings.
+        settled: Whether that response settled.
+        disturbance_iae: IAE of the d2 step with the planned settings, in K*s.
+    """
+
+    requested: float
+    achieved: float
+    overshoot_pct: float
+    settled: bool
+    disturbance_iae: float
+
+
+@dataclass(frozen=True)
 class SeedResult:
     """Everything one seed produced, or the reason it failed.
 
@@ -84,6 +103,7 @@ class SeedResult:
     baseline_iae: float
     plan: CascadePlan | None
     error: str
+    planned: tuple[PlannedResult, ...] = ()
 
     @property
     def is_valid(self) -> bool:
@@ -133,6 +153,21 @@ def _evaluate_sigma(
     )
 
 
+def _evaluate_plan(
+    models: tuple[FopdtModel, FopdtModel],
+    requested: float,
+    seed: int,
+) -> PlannedResult:
+    """Simulate the settings ``plan_cascade`` itself chooses for a requested separation."""
+    inner_model, outer_model = models
+    plan = plan_cascade(inner_model, outer_model, separation=requested)
+    response = sim.cascade_setpoint_response(plan.inner, plan.outer, seed)
+    disturbance_iae = sim.cascade_disturbance_iae(plan.inner, plan.outer, seed)
+    return PlannedResult(
+        requested, plan.separation, response.overshoot_pct, response.settled, disturbance_iae
+    )
+
+
 def run_seed(seed: int) -> SeedResult:
     """Run the full cascade experiment for one seed.
 
@@ -157,9 +192,12 @@ def run_seed(seed: int) -> SeedResult:
         baseline_settings = simc_pi(baseline_model, tau_c_s=baseline_model.delay_s)
         baseline_iae = sim.single_loop_disturbance_iae(baseline_settings, seed)
         plan = plan_cascade(inner_model, outer_model, separation=PLAN_SEPARATION)
+        planned = tuple(
+            _evaluate_plan((inner_model, outer_model), sigma, seed) for sigma in SIGMA_VALUES
+        )
     except ValueError as error:
         return SeedResult(seed, (), 0.0, None, str(error))
-    return SeedResult(seed, results, baseline_iae, plan, "")
+    return SeedResult(seed, results, baseline_iae, plan, "", planned)
 
 
 def run_all_seeds() -> list[SeedResult]:
@@ -285,6 +323,27 @@ def _plan_lines(results: list[SeedResult]) -> list[str]:
     return ["- no valid seed: plan_cascade produced no result."]
 
 
+def _planned_table(results: list[SeedResult]) -> list[str]:
+    """Per-sigma medians of the settings ``plan_cascade`` itself chooses."""
+    lines = [
+        "| requested sigma | achieved sigma (median) | median overshoot % | "
+        "median IAE disturbance | settled |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    valid = _valid_seeds(results)
+    for index, sigma in enumerate(SIGMA_VALUES):
+        rows = [result.planned[index] for result in valid if result.planned]
+        if not rows:
+            continue
+        lines.append(
+            f"| {sigma:g} | {_median_background([r.achieved for r in rows]):.2f} "
+            f"| {_median_background([r.overshoot_pct for r in rows]):.2f} "
+            f"| {_median_background([r.disturbance_iae for r in rows]):.3f} "
+            f"| {sum(r.settled for r in rows)}/{len(rows)} |"
+        )
+    return lines
+
+
 def _failed_seed_lines(results: list[SeedResult]) -> list[str]:
     """List the seeds that raised a ValueError and the message they carried."""
     failed = [result for result in results if not result.is_valid]
@@ -322,6 +381,14 @@ def build_report(results: list[SeedResult]) -> str:
         "## plan_cascade (seed 1 when available)",
         "",
         *_plan_lines(results),
+        "",
+        "## plan_cascade as shipped (informational)",
+        "",
+        "The per-sigma table above tunes tau_c_outer = sigma x tau_c_inner directly. The planner",
+        "never goes below the outer loop's own delay, so for a small requested sigma it gives a",
+        "larger achieved sigma. Below: the planner's own settings, simulated.",
+        "",
+        *_planned_table(results),
         "",
         "## Failed seeds",
         "",

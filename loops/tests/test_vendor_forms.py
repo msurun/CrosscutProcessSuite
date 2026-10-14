@@ -65,3 +65,9 @@ def test_evidence_levels_are_stated_honestly():
 def test_every_form_has_a_source_and_caveats():
     for spec in VENDOR_FORMS.values():
         assert spec.source and spec.caveats
+
+
+def test_a_non_positive_range_degrades_to_empty_abb_tags_instead_of_raising() -> None:
+    summary = vendor_summaries(PI, pv_span=0.0)
+    assert summary["abb_pidcc"]["tags"] == {}
+    assert summary["siemens_pid_compact"]["tags"]

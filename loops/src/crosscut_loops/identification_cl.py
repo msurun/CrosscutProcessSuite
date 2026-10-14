@@ -69,6 +69,7 @@ _FLAT_SETPOINT_MESSAGE = (
 )
 
 
+# codecheck: allow too-many-parameters (public signature used by callers and tests)
 def identify_fopdt_closed_loop(
     u: np.ndarray,
     y: np.ndarray,
@@ -103,13 +104,30 @@ def identify_fopdt_closed_loop(
         ValueError: If the signals are malformed, the setpoint is flat, or no
             candidate delay yields a physically meaningful model.
     """
-    # codecheck: allow too-many-parameters (public signature used by callers and tests)
+    u, y, sp = (np.asarray(signal, dtype=float) for signal in (u, y, sp))
     _validate_inputs(u, y, dt_s, max_delay_s)
     _validate_setpoint(sp, u, y)
     # Delays are only tested at whole sampling instants, so convert the bound
     # from seconds to a sample count: 1.0 s at dt_s = 0.1 s gives 10 samples.
     max_delay_samples = int(round(max_delay_s / dt_s))
-    return _fit_best_delay_closed_loop(u, y, sp, dt_s, max_delay_samples)
+    _require_long_enough(len(y), max_delay_samples)
+    return _fit_best_delay_closed_loop((u, y, sp), dt_s, max_delay_samples)
+
+
+def _require_long_enough(n_samples: int, max_delay_samples: int) -> None:
+    """Raise ValueError naming the record length when it cannot hold even one fit.
+
+    All delays share the rows that exist for the largest one, and the first stage needs several
+    rows per instrument; a shorter record would end in the misleading 'no model found'.
+    """
+    needed = (
+        max_delay_samples + INSTRUMENT_LAGS + MIN_ROWS_PER_INSTRUMENT * (INSTRUMENT_LAGS + 1)
+    )
+    if n_samples < needed:
+        raise ValueError(
+            f"the record has {n_samples} samples but {needed} are needed for max_delay_s and "
+            f"{INSTRUMENT_LAGS} setpoint lags: record longer or lower max_delay_s"
+        )
 
 
 def _validate_setpoint(sp: np.ndarray, u: np.ndarray, y: np.ndarray) -> None:
@@ -145,9 +163,7 @@ def _check_setpoint_moved(setpoint: np.ndarray, y: np.ndarray) -> None:
 
 
 def _fit_best_delay_closed_loop(
-    u: np.ndarray,
-    y: np.ndarray,
-    sp: np.ndarray,
+    signals: tuple[np.ndarray, np.ndarray, np.ndarray],
     dt_s: float,
     max_delay_samples: int,
 ) -> FopdtModel:
@@ -158,9 +174,7 @@ def _fit_best_delay_closed_loop(
     scores could not be compared.
 
     Args:
-        u: Controller output samples.
-        y: Process value samples, same length as ``u``.
-        sp: Setpoint samples, same length as ``u``.
+        signals: The arrays (u, y, sp): controller output, process value, setpoint, equal length.
         dt_s: Sampling period in seconds.
         max_delay_samples: Largest dead time to try, in number of samples.
 
@@ -170,6 +184,7 @@ def _fit_best_delay_closed_loop(
     Raises:
         ValueError: If no delay produced a physically meaningful model.
     """
+    u, y, sp = signals
     first_row = max_delay_samples + INSTRUMENT_LAGS - 1
     best_model: FopdtModel | None = None
     best_score = np.inf

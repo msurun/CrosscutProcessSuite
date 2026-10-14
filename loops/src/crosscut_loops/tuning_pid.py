@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import sqrt
 
-from crosscut_loops.tuning_rules import FopdtModel, PiSettings
+from crosscut_loops.tuning_rules import FopdtModel, PiSettings, simc_pi_with_lag
 
 # Default derivative filter ratio N (Tf = Td / N) used by Skogestad and Grimholt
 # in the SIMC chapter; typical range 8-20.
@@ -35,6 +35,9 @@ _DERIVATIVE_MAX_NORMALIZED_DEAD_TIME = 0.5
 # The ideal-to-series conversion needs Ti >= 4 Td so the square root below stays
 # real (SIMC chapter, eq. 30).
 _MIN_INTEGRAL_TO_DERIVATIVE_RATIO = 4.0
+
+# Improved SIMC adds one third of the delay to the lag (Skogestad and Grimholt 2012, eq. 38).
+_IMPROVED_SIMC_DELAY_SHARE = 3.0
 
 
 @dataclass(frozen=True)
@@ -117,9 +120,9 @@ def amigo_pid(model: FopdtModel) -> PidSettings:
 def simc_pi_improved(model: FopdtModel, tau_c_s: float) -> PiSettings:
     """Compute PI settings using the improved SIMC rule (Skogestad and Grimholt, 2012).
 
-    Improved SIMC (eqs. 38-39) replaces the half-rule approximation T + L/2 of
-    the original rule by T + L/3, which is more accurate when the delay is not
-    small relative to the time constant.
+    The improved rule (eqs. 38-39) replaces the time constant T of the original SIMC rule by
+    T + L/3. For a pure delay process (T = 0) the original rule is a pure I controller; the
+    optimal PI has an integral time of about L/3, which is what the extra L/3 produces.
 
     Args:
         model: FOPDT process model (K = gain, T = time_constant_s, L = delay_s).
@@ -131,25 +134,8 @@ def simc_pi_improved(model: FopdtModel, tau_c_s: float) -> PiSettings:
     Raises:
         ValueError: If tau_c_s is not positive.
     """
-    if tau_c_s <= 0.0:
-        raise ValueError("Tuning constant tau_c must be positive")
-
-    gain = model.gain
-    time_constant_s = model.time_constant_s
-    delay_s = model.delay_s
-
-    # Half-rule delay added to the lag: the improved SIMC uses L/3 instead of L/2.
-    effective_lag_s = time_constant_s + delay_s / 3.0
-
-    # Kc = (1/K) (T + L/3) / (tau_c + L): the gain that makes the closed loop a
-    # first-order lag of tau_c seconds while keeping the delay untuned.
-    kc = effective_lag_s / (gain * (tau_c_s + delay_s))
-
-    # Ti = min(T + L/3, 4 (tau_c + L)): cap the reset time so integral action
-    # stays fast enough to remove steady-state offset on lag-heavy processes.
-    ti_s = min(effective_lag_s, _MIN_INTEGRAL_TO_DERIVATIVE_RATIO * (tau_c_s + delay_s))
-
-    return PiSettings(kc=kc, ti_s=ti_s)
+    effective_lag_s = model.time_constant_s + model.delay_s / _IMPROVED_SIMC_DELAY_SHARE
+    return simc_pi_with_lag(model, effective_lag_s, tau_c_s)
 
 
 def normalized_dead_time(model: FopdtModel) -> float:

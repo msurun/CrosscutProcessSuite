@@ -20,10 +20,15 @@ If a target is missed the finding is logged as it is; the thresholds are not cha
 ## Result (run 2026-10-14, `python exp08.py`, table in `results/results.md`)
 
 C1 MET (sigma 4 and 10: overshoot 3.3 % and 1.1 %, settled in 5 of 5 seeds). C2 MET (disturbance IAE 4.4 with the cascade at sigma 10 against
-35.3 for the single outer loop, a factor 8). C3 (informational): sigma 1 / 2 / 4 / 10 give overshoot 12.1 / 9.1 / 3.3 / 1.1 % and
+38.6 for the single outer loop, a factor 9). C3 (informational): sigma 1 / 2 / 4 / 10 give overshoot 12.1 / 9.1 / 3.3 / 1.1 % and
 disturbance IAE 6.5 / 5.2 / 4.5 / 4.4. So too little separation is visible but mild on this plant: the claim of interaction and
 instability for sigma < 4 was NOT reproduced; what we see is more overshoot and a slower disturbance rejection, which supports the rule
 without making it a hard limit. `plan_cascade` chose tau_c_inner 1.5 s, tau_c_outer 15 s (sigma 10) with no warning.
+
+**The planner as shipped (added after the code review, informational):** the per-sigma table tunes tau_c_outer = sigma x tau_c_inner directly, which is NOT what
+`plan_cascade` does: it never goes below the outer loop's own delay (the identified outer delay already contains the inner loop's). Requested sigma 1, 2 and 4
+therefore all give an achieved sigma of 5.0 here (overshoot 2.3 %, disturbance IAE 4.4, settled 5/5); sigma 10 gives 10 (1.1 %, 4.4). So the planner's floor removes the
+poor sigma 1-2 cases the sweep shows, at the price of ignoring a request for a faster outer loop.
 
 Two things found on the way, both worth keeping:
 1. **A lone step is a poor identification signal.** With the inner loop closed, `identify_fopdt` on a single +1 step returned gain 0.55,

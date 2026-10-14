@@ -30,7 +30,7 @@ from crosscut_loops.tuning_rules import (
     simc_pi,
 )
 from crosscut_loops.tuning_view import FAIR_R_SQUARED, fit_check
-from crosscut_loops.vendor_forms import VendorSummary, vendor_summaries
+from crosscut_loops.vendor_forms import DEFAULT_OUT_SPAN, VendorSummary, vendor_summaries
 
 # The largest dead time to scan during identification, as a fraction of the
 # record length in samples. A quarter of the record keeps the scan short.
@@ -49,9 +49,6 @@ DCS_FORM_NAMES: tuple[ConversionForm, ...] = (
     "proportional_band_minutes",
     "gain_repeats_per_minute",
 )
-
-# Output range assumed when the caller gives none: a 0..100 % valve or setpoint.
-DEFAULT_OUT_SPAN = 100.0
 
 # Verdict strings accepted by ``build_tuning_report``.
 STICTION_VERDICT = "stiction"

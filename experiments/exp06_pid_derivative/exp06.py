@@ -195,7 +195,7 @@ def simulate_noise(model: FopdtModel, settings: PidSettings) -> NoiseResult:
         previous_measurement = measurement
         previous_output = output
         process.update(output)  # no load disturbance in the noise run
-    return NoiseResult(output_increment_std=float(np.std(np.diff(outputs))))
+    return NoiseResult(output_increment_std=float(np.std(outputs)))
 
 
 def peak_sensitivity(model: FopdtModel, settings: PidSettings) -> float:

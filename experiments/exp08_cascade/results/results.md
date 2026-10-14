@@ -36,7 +36,7 @@ Seeds run: 5, valid: 5, failed: 0.
 | 4 | 3.28 | 19.739 | 4.517 | 5/5 |
 | 10 | 1.09 | 25.414 | 4.398 | 5/5 |
 
-Baseline (single outer SIMC PI loop) median d2 IAE: 35.279.
+Baseline (single outer SIMC PI loop) median d2 IAE: 38.571.
 
 ## plan_cascade (seed 1 when available)
 
@@ -45,6 +45,19 @@ Baseline (single outer SIMC PI loop) median d2 IAE: 35.279.
 - achieved separation sigma = 10.000
 - warnings: none
 
+## plan_cascade as shipped (informational)
+
+The per-sigma table above tunes tau_c_outer = sigma x tau_c_inner directly. The planner
+never goes below the outer loop's own delay, so for a small requested sigma it gives a
+larger achieved sigma. Below: the planner's own settings, simulated.
+
+| requested sigma | achieved sigma (median) | median overshoot % | median IAE disturbance | settled |
+| --- | --- | --- | --- | --- |
+| 1 | 5.00 | 2.26 | 4.442 | 5/5 |
+| 2 | 5.00 | 2.26 | 4.442 | 5/5 |
+| 4 | 5.00 | 2.26 | 4.442 | 5/5 |
+| 10 | 10.00 | 1.09 | 4.398 | 5/5 |
+
 ## Failed seeds
 
 - none, all seeds completed.
@@ -52,5 +65,5 @@ Baseline (single outer SIMC PI loop) median d2 IAE: 35.279.
 ## Targets
 
 - C1: MET - overshoot <= 20 % and settled in all valid seeds for sigma 10 and 4.
-- C2: MET - median cascade IAE 4.398 <= 0.5 x baseline 35.279 = 17.640.
+- C2: MET - median cascade IAE 4.398 <= 0.5 x baseline 38.571 = 19.285.
 - C3 (informational): see the per-sigma summary table for sigma = 1, 2, 4, 10.

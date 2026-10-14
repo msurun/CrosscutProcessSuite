@@ -145,3 +145,21 @@ def test_overlapping_flips_are_rejected() -> None:
 def test_an_invalid_return_mode_is_rejected() -> None:
     with pytest.raises(ValueError, match="return_mode"):
         mode_flip_events("loop.mode", [ModeFlip(0.0, 10.0)], return_mode=INVALID_MODE)
+
+
+def test_jittered_timestamps_stay_int64_and_strictly_increasing_at_epoch_scale() -> None:
+    ts_ns = (1_760_000_000 * NS_PER_S + np.arange(100, dtype=np.int64) * NS_PER_S).astype(np.int64)
+    jittered = jitter_timestamps(ts_ns, 0.01, seed=1)
+    assert jittered.dtype == np.int64
+    assert np.all(np.diff(jittered) > 0)
+
+
+def test_a_flip_can_hand_the_loop_back_to_cascade() -> None:
+    flips = [ModeFlip(start_s=10.0, duration_s=30.0, return_to=CAS)]
+    events = mode_flip_events("loop.mode", flips)
+    assert events == (Event(10.0, "loop.mode", MAN), Event(40.0, "loop.mode", CAS))
+
+
+def test_an_invalid_return_to_is_rejected() -> None:
+    with pytest.raises(ValueError, match="return_to"):
+        ModeFlip(start_s=0.0, duration_s=1.0, return_to=INVALID_MODE)

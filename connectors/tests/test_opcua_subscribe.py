@@ -182,3 +182,20 @@ def test_a_non_positive_period_is_rejected(tmp_path: Path) -> None:
                 PollPlan(period_s=0.0),
             ),
         )
+
+
+def test_events_stamped_out_of_order_are_still_held_in_time_order() -> None:
+    """A wall-clock step back must not give a wrong held value."""
+    from crosscut_connectors.opcua_subscribe import hold_resample
+    from crosscut_sim.core import GOOD
+
+    values, _ = hold_resample([[(20, 2.0, GOOD), (10, 1.0, GOOD)]], np.array([15, 25]))
+
+    assert values.tolist() == [[1.0, 2.0]]
+
+
+def test_a_namespace_zero_node_id_matches_the_servers_short_form() -> None:
+    from crosscut_connectors.opcua_subscribe import _canonical_id
+
+    assert _canonical_id("ns=0;i=2258") == _canonical_id("i=2258")
+    assert _canonical_id("not a node id") == "not a node id"

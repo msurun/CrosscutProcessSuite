@@ -107,28 +107,42 @@ def simc_pi(model: FopdtModel, tau_c_s: float) -> PiSettings:
     Raises:
         ValueError: if `tau_c_s` is not a valid closed-loop time constant.
     """
-    _validate_tau_c(tau_c_s)
+    return simc_pi_with_lag(model, model.time_constant_s, tau_c_s)
 
-    # `time_constant_s` is the process lag in seconds, `gain` is the process steady-state
-    # gain (output units per input units). The two are pulled out of `model` so the formula
-    # below reads like the textbook version, not like attribute lookups.
-    time_constant_s = model.time_constant_s
-    gain = model.gain
+
+def simc_pi_with_lag(model: FopdtModel, lag_s: float, tau_c_s: float) -> PiSettings:
+    """SIMC PI settings for an explicit effective lag.
+
+    The original rule uses the process time constant T as the lag; the improved rule of Skogestad
+    and Grimholt (2012) uses T + L/3 (see ``tuning_pid.simc_pi_improved``). Both share the same
+    formulas, so they share this function:
+
+        Kc = lag / (K * (tau_c + L)),    Ti = min(lag, 4 * (tau_c + L))
+
+    Args:
+        model: FOPDT process model (gain K, delay L are used; the lag comes from ``lag_s``).
+        lag_s: Effective lag in seconds, positive.
+        tau_c_s: Desired closed-loop time constant in seconds, positive.
+
+    Raises:
+        ValueError: if ``tau_c_s`` is not positive.
+    """
+    _validate_tau_c(tau_c_s)
 
     # Denominator of the IMC formula: the total effective lag the controller must cover.
     # It is the closed-loop time constant we ask for, plus the dead time the process already
     # adds, in seconds. Dead time cannot be cancelled, so it is added rather than tuned away.
     total_lag_s = tau_c_s + model.delay_s
 
-    # SIMC gain rule for a FOPDT model: kc = tau / (K * (tau_c + theta)), where
-    # tau = process time constant (s), K = process gain, theta = dead time (s).
-    # This is the standard IMC design for a first-order model, with the derivative term dropped.
-    kc = time_constant_s / (gain * total_lag_s)
+    # SIMC gain rule for a FOPDT model: kc = lag / (K * (tau_c + theta)), where K = process
+    # gain and theta = dead time (s). This is the standard IMC design for a first-order model,
+    # with the derivative term dropped.
+    kc = lag_s / (model.gain * total_lag_s)
 
-    # SIMC integral-time rule: ti = min(tau, 4 * (tau_c + theta)). The cap at
+    # SIMC integral-time rule: ti = min(lag, 4 * (tau_c + theta)). The cap at
     # `_SIMC_INTEGRAL_CAP_FACTOR` times the total lag keeps the integral action from being
     # so slow on a lag-heavy process that it never removes steady-state offset.
-    ti_s = min(time_constant_s, _SIMC_INTEGRAL_CAP_FACTOR * total_lag_s)
+    ti_s = min(lag_s, _SIMC_INTEGRAL_CAP_FACTOR * total_lag_s)
 
     return PiSettings(kc=kc, ti_s=ti_s)
 

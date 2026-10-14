@@ -29,7 +29,8 @@ PID has IAE ratio 0.43, which matches the book's "about a doubling of the integr
 Post-hoc points (run afterwards, not part of the frozen targets): IAE ratio 0.40 -> 0.55 at tau_n 0.4/0.6 -> 0.86 at 0.8; Ms of the PID stays
 1.40-1.45 everywhere.
 
-**The cost is noise.** The std of the controller-output increments with PV noise sd 0.01 is 13-27 times larger with the PID than with the
+**The cost is noise** (the code review found that the first script took the std of the second difference of the output instead of the increments; fixed and re-run, the ratios moved by less than 0.3, 12.6 to 25.4 on the grid, 26.7 post hoc at tau_n 0.4).
+ The std of the controller-output increments with PV noise sd 0.01 is 13-27 times larger with the PID than with the
 PI (the PID's Kc(1+N) is 2.8 at tau_n 0.9 and 47 at 0.1). Derivative action therefore needs a quiet or filtered PV; the advice text now says so.
 Limits: exact FOPDT process (no model error, no valve), unit load step only, noise white and small, N fixed at 10. The ratio of noise to
 benefit on a real loop depends on the real noise and on actuator wear, which this does not model.

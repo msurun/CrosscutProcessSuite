@@ -79,7 +79,10 @@ def _draw_delays_ns(sample_count: int, sigma_s: float, seed: int) -> np.ndarray:
     rng = np.random.default_rng([seed, JITTER_SEED_TAG])
     sigma_ns = sigma_s * 1e9  # convert seconds to nanoseconds
     delays_ns = rng.normal(loc=0.0, scale=sigma_ns, size=sample_count)
-    return np.rint(np.clip(delays_ns, -MAX_DELAY_SIGMA * sigma_ns, MAX_DELAY_SIGMA * sigma_ns))
+    clipped_ns = np.clip(delays_ns, -MAX_DELAY_SIGMA * sigma_ns, MAX_DELAY_SIGMA * sigma_ns)
+    # int64 on purpose: adding float64 offsets to nanosecond stamps (about 1.8e18) would turn the
+    # sum into float64, whose spacing there is 256 ns, and the 1 ns minimum gap could not exist.
+    return np.rint(clipped_ns).astype(np.int64)
 
 
 def _enforce_min_gap(sorted_ts_ns: np.ndarray) -> np.ndarray:
@@ -122,8 +125,9 @@ class ModeFlip:
     """A scheduled operator mode change: hold ``to_mode`` for ``duration_s`` seconds.
 
     Models an operator who takes a loop off automatic and hands it back later: the plant is
-    written ``to_mode`` at ``start_s`` and returned to the surrounding mode at ``start_s +
-    duration_s``. Times are seconds from the start of the episode.
+    written ``to_mode`` at ``start_s`` and written ``return_to`` (default: the ``return_mode`` of
+    :func:`mode_flip_events`, AUTO) at ``start_s + duration_s``. Give ``return_to=CAS`` for a loop
+    that ran in cascade before the flip. Times are seconds from the start of the episode.
 
     Raises:
         ValueError: If ``start_s`` is negative, ``duration_s`` is not positive, or ``to_mode``
@@ -133,6 +137,7 @@ class ModeFlip:
     start_s: float
     duration_s: float
     to_mode: int = MAN
+    return_to: int | None = None
 
     def __post_init__(self) -> None:
         if self.start_s < 0:
@@ -141,6 +146,8 @@ class ModeFlip:
             raise ValueError("duration_s must be positive")
         if self.to_mode not in VALID_MODES:
             raise ValueError(f"to_mode must be one of {VALID_MODES}, got {self.to_mode}")
+        if self.return_to is not None and self.return_to not in VALID_MODES:
+            raise ValueError(f"return_to must be one of {VALID_MODES}, got {self.return_to}")
 
 
 def mode_flip_events(
@@ -178,7 +185,8 @@ def mode_flip_events(
         # The mode the loop runs in during the flip belongs to the flip's own window; the
         # hand-back event is one duration later, so the window is [start_s, start_s + duration_s).
         events.append(Event(flip.start_s, mode_tag, float(flip.to_mode)))
-        events.append(Event(flip.start_s + flip.duration_s, mode_tag, float(return_mode)))
+        back = return_mode if flip.return_to is None else flip.return_to
+        events.append(Event(flip.start_s + flip.duration_s, mode_tag, float(back)))
     return tuple(sorted(events, key=lambda event: event.t_s))
 
 
