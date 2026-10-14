@@ -142,7 +142,7 @@ function Findings({
             <>
               {" "}
               <button type="button" className="link-button" onClick={() => onShow(finding.window_s)}>
-                {t("loops.showInTrend")}
+                {finding.window_kind === "example" ? t("loops.showExampleInTrend") : t("loops.showInTrend")}
               </button>
             </>
           )}

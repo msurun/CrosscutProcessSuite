@@ -155,6 +155,8 @@ export interface LoopFinding {
   params: Record<string, number>;
   /** Stretch of data behind the finding, [start_s, end_s] since the first sample; absent for whole-record findings. */
   window_s?: [number, number];
+  /** "cause": the stretch produced the finding; "example": a representative stretch for a whole-record finding. */
+  window_kind?: "cause" | "example";
 }
 
 /** Analysis result of one control loop (`GET /api/datasets/{id}/loops`). */

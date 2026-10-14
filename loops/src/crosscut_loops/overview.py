@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from crosscut_loops.example_windows import example_window
 from crosscut_loops.finding_windows import finding_window
 from crosscut_loops.monitor import LoopReport, LoopSettings, analyze_loop
 
@@ -58,6 +59,9 @@ OSCILLATING_CODE = "oscillating"
 POOR_PERFORMANCE_CODE = "poorPerformance"
 STICTION_CODE = "stiction"
 
+WINDOW_KIND_CAUSE = "cause"
+WINDOW_KIND_EXAMPLE = "example"
+
 PERCENT_PARAM = "percent"
 MINUTES_PARAM = "minutes"
 SECONDS_PER_MINUTE = 60.0
@@ -93,6 +97,8 @@ class LoopTags:
     delay_s: float | None = None  # per-loop knowledge from the project file; None = use the default
     ultimate_period_s: float | None = None
     amplitude_limit: float | None = None
+    out_low: float | None = None  # engineering minimum of the OUT tag; None = OUT_LOW
+    out_high: float | None = None  # engineering maximum of the OUT tag; None = OUT_HIGH
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,9 @@ def _build_loop(tag_rows: Mapping[str, Mapping[str, Any]], pv_id: str) -> LoopTa
         unit=_text_or_empty(pv_row.get("unit")),
         eng_min=pv_row.get("eng_min"),
         eng_max=pv_row.get("eng_max"),
+        # The OUT tag's own range is the actuator range used by the saturation checks.
+        out_low=tag_rows[pv_id + OUT_SUFFIX].get("eng_min"),
+        out_high=tag_rows[pv_id + OUT_SUFFIX].get("eng_max"),
     )
 
 
@@ -436,8 +445,8 @@ def default_settings(loop: LoopTags) -> LoopSettings:
         amplitude_limit=_first_given(
             loop.amplitude_limit, _amplitude_limit(loop.eng_min, loop.eng_max)
         ),
-        out_low=OUT_LOW,
-        out_high=OUT_HIGH,
+        out_low=_first_given(loop.out_low, OUT_LOW),
+        out_high=_first_given(loop.out_high, OUT_HIGH),
     )
 
 
@@ -615,24 +624,58 @@ def _analyse_one_loop(
     )
     # Include the PV array again for the row's sparkline summary.
     row = _report_row(loop, report, settings, columns[loop.pv])
-    _add_finding_windows(row["findings"], t_s, columns, loop)
+    _add_finding_windows(row, t_s, columns, loop)
     return row
 
 
 def _add_finding_windows(
-    finding_rows: list[dict[str, Any]],
+    row: dict[str, Any],
     t_s: np.ndarray,
     columns: Mapping[str, np.ndarray],
     loop: LoopTags,
 ) -> None:
-    """Attach ``window_s`` = [start_s, end_s] to every finding that has a stretch of data.
+    """Attach ``window_s`` = [start_s, end_s] and ``window_kind`` to findings of one row.
 
-    The window lets the UI zoom the trend to what caused the finding. Findings about the whole
-    record (oscillation, poor performance, stiction) get no key, so older consumers see no change.
+    The window lets the UI zoom the trend. ``window_kind`` is "cause" when the stretch is what
+    produced the finding (manual, saturated, flatline) and "example" for findings about the whole
+    record (oscillation, poor performance, stiction), where it is the stretch with the largest
+    control error, so the UI can word the link honestly.
     """
-    for finding in finding_rows:
-        window = finding_window(
-            finding["code"], t_s, columns[loop.pv], columns[loop.out], columns[loop.mode]
-        )
+    for finding in row["findings"]:
+        window = _cause_window(finding["code"], t_s, columns, loop)
+        kind = WINDOW_KIND_CAUSE
+        if window is None:
+            window = _example_window_of(finding["code"], row, t_s, columns, loop)
+            kind = WINDOW_KIND_EXAMPLE
         if window is not None:
             finding["window_s"] = [window[0], window[1]]
+            finding["window_kind"] = kind
+
+
+# codecheck: allow too-many-parameters (thin wrapper, arguments mirror example_window)
+def _example_window_of(
+    code: str,
+    row: dict[str, Any],
+    t_s: np.ndarray,
+    columns: Mapping[str, np.ndarray],
+    loop: LoopTags,
+) -> tuple[float, float] | None:
+    """A representative stretch for a whole-record finding, or None for other codes."""
+    return example_window(
+        code, t_s, columns[loop.pv], columns[loop.sp], row["oscillation_period_s"]
+    )
+
+
+def _cause_window(
+    code: str, t_s: np.ndarray, columns: Mapping[str, np.ndarray], loop: LoopTags
+) -> tuple[float, float] | None:
+    """The stretch of data that caused a finding, or None when it has no single cause stretch."""
+    return finding_window(
+        code,
+        t_s,
+        columns[loop.pv],
+        columns[loop.out],
+        columns[loop.mode],
+        out_low=_first_given(loop.out_low, OUT_LOW),
+        out_high=_first_given(loop.out_high, OUT_HIGH),
+    )

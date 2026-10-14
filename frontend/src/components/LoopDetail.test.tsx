@@ -88,3 +88,25 @@ describe("LoopDetail trends with a missing loop tag", () => {
     expect(screen.getByRole("button", { name: "tuning.title" })).toBeInTheDocument();
   });
 });
+
+describe("LoopDetail finding links to the trend", () => {
+  const oscillatingFinding = { code: "oscillating", params: { minutes: 5 }, window_s: [100, 700] as [number, number] };
+
+  it("labels a whole-record finding's link as an example", () => {
+    vi.mocked(fetchSeries).mockResolvedValue({ dataset_id: "ds-1", series: [] });
+
+    renderDetail(makeLoop({ findings: [{ ...oscillatingFinding, window_kind: "example" }] }));
+
+    expect(screen.getByRole("button", { name: "loops.showExampleInTrend" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "loops.showInTrend" })).not.toBeInTheDocument();
+  });
+
+  it("labels a cause finding's link with the normal trend text", () => {
+    vi.mocked(fetchSeries).mockResolvedValue({ dataset_id: "ds-1", series: [] });
+
+    renderDetail(makeLoop({ findings: [{ ...oscillatingFinding, window_kind: "cause" }] }));
+
+    expect(screen.getByRole("button", { name: "loops.showInTrend" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "loops.showExampleInTrend" })).not.toBeInTheDocument();
+  });
+});

@@ -55,6 +55,7 @@
   "loops.column.trend": "Trend",
   "loops.none": "Nie znaleziono pętli regulacji w tym zbiorze danych",
   "loops.showInTrend": "Pokaż na trendzie",
+  "loops.showExampleInTrend": "Pokaż przykład na trendzie",
   "loops.showAll": "Pokaż cały zapis",
   "loops.noFindings": "Nie znaleziono problemów",
   "loops.filter.all": "Wszystkie",

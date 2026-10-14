@@ -55,6 +55,7 @@
   "loops.column.trend": "Trend",
   "loops.none": "No control loops found in this dataset",
   "loops.showInTrend": "Show in trend",
+  "loops.showExampleInTrend": "Show an example in trend",
   "loops.showAll": "Show whole record",
   "loops.noFindings": "No problems found",
   "loops.filter.all": "All",

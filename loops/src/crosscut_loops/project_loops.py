@@ -115,6 +115,7 @@ def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, An
     # A loop is identified by four tag names plus the PV tag's engineering details
     # (measurement unit and the raw-to-engineering conversion range).
     unit, eng_min, eng_max = _pv_engineering_details(entry, tag_rows)
+    out_low, out_high = _out_engineering_range(entry, tag_rows)
     # Optional keys (delay, period, amplitude limit) are absent when the loop is not a
     # cycling/oscillating one, so they are read with .get() and stay None in that case.
     return LoopTags(
@@ -129,7 +130,22 @@ def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, An
         delay_s=entry.get(DELAY_KEY),
         ultimate_period_s=entry.get(ULTIMATE_PERIOD_KEY),
         amplitude_limit=entry.get(AMPLITUDE_LIMIT_KEY),
+        out_low=out_low,
+        out_high=out_high,
     )
+
+
+def _out_engineering_range(
+    entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, Any]]
+) -> tuple[float | None, float | None]:
+    """Engineering minimum and maximum of the entry's OUT tag, None where not configured.
+
+    The OUT tag is the controller output (the signal sent to the valve or drive). Its range is
+    the actuator span that saturation is measured against: a 4-20 mA output needs 4.0 and 20.0,
+    not the 0-100 % that the analysis assumes when no range is given.
+    """
+    out_row = tag_rows[str(entry[OUT_KEY])]
+    return out_row.get(ENG_MIN_KEY), out_row.get(ENG_MAX_KEY)
 
 
 def _pv_engineering_details(
