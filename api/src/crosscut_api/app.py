@@ -96,6 +96,8 @@ class BenefitQuery:
     std_reduction: Annotated[float, Query(ge=0.0, lt=1.0)] = 0.5
     start_s: float | None = None
     end_s: float | None = None
+    std_before: Annotated[float | None, Query(gt=0.0)] = None
+    std_after: Annotated[float | None, Query(ge=0.0)] = None
 
     def to_request(self) -> BenefitRequest:
         """The same values as the library's request object."""

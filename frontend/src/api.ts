@@ -240,6 +240,10 @@ export interface BenefitPayload {
     value_per_unit_h: number;
     margin_sigmas: number;
     std_reduction: number;
+    /** "assumed" for a slider value, "retune_measured" when it comes from a before/after retune. */
+    std_reduction_source: "assumed" | "retune_measured";
+    std_before: number | null;
+    std_after: number | null;
   };
   estimate: {
     mean: number;

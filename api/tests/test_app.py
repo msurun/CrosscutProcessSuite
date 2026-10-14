@@ -258,6 +258,27 @@ def test_benefit_endpoint_rejects_an_impossible_reduction(step_test_client: Test
     assert step_test_client.get(f"/datasets/{dataset}/loops/nope/benefit").status_code == 404
 
 
+def test_benefit_endpoint_takes_the_variability_cut_from_a_measured_retune(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/benefit"
+    body = step_test_client.get(url, params={"std_before": 2.0, "std_after": 1.0}).json()
+    assert body["assumptions"]["std_reduction_source"] == "retune_measured"
+    assert body["assumptions"]["std_reduction"] == 0.5
+    default = step_test_client.get(url).json()
+    assert default["assumptions"]["std_reduction_source"] == "assumed"
+
+
+def test_benefit_endpoint_rejects_a_zero_spread_before_the_retune(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/benefit"
+    response = step_test_client.get(url, params={"std_before": 0.0, "std_after": 1.0})
+    assert response.status_code == 422
+
+
 @pytest.fixture(scope="module")
 def fresh_wood_berry_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
     """Record a Wood-Berry run into its own folder so its project file stays intact."""

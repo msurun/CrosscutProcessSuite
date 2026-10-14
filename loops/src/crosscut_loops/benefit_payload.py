@@ -45,6 +45,27 @@ class BenefitRequest:
     std_reduction: float = 0.5
     start_s: float | None = None
     end_s: float | None = None
+    # Measured PV standard deviations before and after a retune, in PV units. When both are
+    # given they replace the assumed ``std_reduction``: reduction = 1 - after / before.
+    std_before: float | None = None
+    std_after: float | None = None
+
+
+SOURCE_ASSUMED = "assumed"
+SOURCE_RETUNE = "retune_measured"
+MAX_MEASURED_REDUCTION = 0.99  # a measured cut is capped: the estimator needs a non-zero spread
+
+
+def measured_reduction(request: BenefitRequest) -> float | None:
+    """Variability cut measured by a retune, or None when the request carries no measurement.
+
+    The cut is 1 - std_after / std_before, limited to [0, MAX_MEASURED_REDUCTION]: a retune
+    that made the loop worse counts as no benefit, never as a negative one.
+    """
+    if request.std_before is None or request.std_after is None or request.std_before <= 0.0:
+        return None
+    cut = 1.0 - request.std_after / request.std_before
+    return min(max(cut, 0.0), MAX_MEASURED_REDUCTION)
 
 
 def benefit_payload(
@@ -73,6 +94,7 @@ def benefit_payload(
     # Assumptions are derived from the data rather than trusted from the caller: the
     # request may leave them unset, and their units follow the PV's own unit.
     assumptions = _assumptions_of(request, pv)
+    source = SOURCE_ASSUMED if measured_reduction(request) is None else SOURCE_RETUNE
     # Pure calculation: no file or network access, everything it needs is passed in.
     estimate = estimate_benefit(pv, assumptions)
     return {
@@ -80,7 +102,7 @@ def benefit_payload(
         "unit": loop.unit,
         # A limit of None means the caller did not cap how much variability can be
         # removed, which changes how the assumption block must be described.
-        "assumptions": _assumptions_part(assumptions, request.limit is None),
+        "assumptions": _assumptions_part(assumptions, request.limit is None, source, request),
         "estimate": _estimate_part(estimate),
         # _estimate_part above returns codes; here they become text the user can read,
         # so the API stays machine-friendly while the report stays understandable.
@@ -93,8 +115,10 @@ def benefit_payload(
 def _assumptions_of(request: BenefitRequest, pv: np.ndarray) -> BenefitAssumptions:
     """The request as library assumptions, with a default limit when the user gave none."""
     limit = request.limit if request.limit is not None else _default_limit(pv, request.side)
+    measured = measured_reduction(request)
+    reduction = request.std_reduction if measured is None else measured
     return BenefitAssumptions(
-        limit, request.side, request.value_per_unit_h, request.margin_sigmas, request.std_reduction
+        limit, request.side, request.value_per_unit_h, request.margin_sigmas, reduction
     )
 
 
@@ -167,7 +191,9 @@ def _default_limit(pv: np.ndarray, side: str) -> float:
     return mean + offset if side == SIDE_UPPER else mean - offset
 
 
-def _assumptions_part(assumptions: BenefitAssumptions, limit_is_default: bool) -> dict[str, object]:
+def _assumptions_part(
+    assumptions: BenefitAssumptions, limit_is_default: bool, source: str, request: BenefitRequest
+) -> dict[str, object]:
     """The assumptions that went into the number, echoed so the screen can print them.
 
     The front end re-displays these next to the computed benefit, so the user can see
@@ -194,6 +220,11 @@ def _assumptions_part(assumptions: BenefitAssumptions, limit_is_default: bool) -
         # constraint, in [0, 1]. Forecasting reduces uncertainty, so 0.5 means the model
         # treats only half of the raw spread as a risk.
         "std_reduction": assumptions.std_reduction,
+        # Where the cut comes from: "assumed" (a slider value) or "retune_measured" (the
+        # before/after spread of a retuned loop, echoed so the screen can show both numbers).
+        "std_reduction_source": source,
+        "std_before": request.std_before if source == SOURCE_RETUNE else None,
+        "std_after": request.std_after if source == SOURCE_RETUNE else None,
     }
 
 
