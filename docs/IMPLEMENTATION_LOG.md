@@ -321,3 +321,10 @@ Tools: `foremankit check` clean on all new Python files; ruff, mypy (sim, loops,
 - OPC UA: namespace URIs are looked up again after a reconnect.
 - SQL `fetch_rows`: one SELECT or WITH...SELECT, no comments, no INTO/INSERT/EXEC/... words. It is a screen, not a sandbox: use a read-only account. (A regression test found that my first version of the regex contained a backspace character instead of `\b` and blocked nothing.)
 - Regression tests: `connectors/tests/test_review_fixes.py`, four more in `loops/tests/test_readiness.py`.
+
+### A7 / P6.7 (2026-10-14): ABB and Siemens PI forms from public manuals
+- Read: Siemens FAQ 109481448, application example 79047707 (equation p.15), S7-1500 PID Control manual (p.90-91); ABB Pid01A functional description 3AST001596D013 rev D. Facts and page numbers: `docs/VENDOR_PID_FORMS.md`.
+- Siemens PID_Compact: verified (ideal form with weightings, times in seconds, positive Gain, TI = 0 disables I). Our `gain_seconds` form is right; traps added as caveats: set PWeighting = 1, scale Gain by out_span/pv_span.
+- ABB: ideal PID, deviation in percent of range (so no gain scaling) verified; the TI/TD unit is NOT stated and the library manual returned 403: `partly_verified`, used as seconds.
+- Code: `loops/src/crosscut_loops/vendor_forms.py` (`VENDOR_FORMS`, `siemens_gain`, `siemens_pid_compact`, `abb_pidcc`), 10 tests. Not yet wired into `tuning_report.py` (next small step). Gates: ruff, mypy, pytest pass.
+- Limit: the Siemens range formula is derived from the FAQ principle, not tested against a controller. Delegation: none used for this step (small code and tests written directly).

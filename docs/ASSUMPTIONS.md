@@ -12,7 +12,7 @@ Status: open / partly tested / retired.
 | A4 | Operators change setpoints in steps at regular intervals as a function of observed ore properties | operator model | interviews, customer data | L6 | open |
 | A5 | Actuator inner loops behave like a first-order lag with additive disturbance | mill circuit plant | lab testbed, customer data | L4, L6 | open |
 | A6 | CAS/remote-setpoint handshake, tracking and bumpless transfer work the same way in the target DCS families | write gateway design, simulated loops | soft PLC, then vendor documentation and pilot | L5, L7 | open |
-| A7 | PID algorithm forms and units (gain vs proportional band, time units) can be converted between vendors | PID tuning module (planned) | vendor documentation, soft PLC | L5 | open |
+| A7 | PID algorithm forms and units (gain vs proportional band, time units) can be converted between vendors | PID tuning module (planned) | vendor documentation, soft PLC; see `docs/VENDOR_PID_FORMS.md`: Siemens verified from public manuals (2026-10-14), ABB structure verified, unit of TI/TD open | L5 | partly tested |
 | A8 | Historian exports are CSV/Excel with a limited set of layouts and status strings | importers (planned) | messy-data corpus, customer exports | L2, L6 | open |
 | A9 | Quality codes map to Good/Uncertain/Bad without loss of information needed by the algorithms | ADR 003 | OPC UA tests, customer data | L5, L6 | open |
 | A10 | A heartbeat counter written by the suite is an acceptable watchdog for the target control systems | server design | soft PLC, vendor review | L5, L7 | open |
