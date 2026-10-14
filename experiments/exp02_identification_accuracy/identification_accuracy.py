@@ -243,6 +243,12 @@ def _compute_errors_percent(
     return float(np.median(errors)), float(np.percentile(errors, 90))
 
 
+def _format_error_pair(values: list[float], reference: float) -> str:
+    """Format median and 90th percentile error of one parameter as ``"med / p90"``."""
+    median_pct, p90_pct = _compute_errors_percent(values, reference)
+    return f"{median_pct:.1f} / {p90_pct:.1f}"
+
+
 def _format_cell_row(
     loop: str,
     noise: str,
@@ -250,25 +256,39 @@ def _format_cell_row(
     reference: ReferenceMetrics,
 ) -> str:
     """Format one Markdown table row for a (loop, noise) configuration."""
-    successful = [r for r in runs if r.status == "ok"]
-    failed_count = sum(1 for r in runs if r.status in ("failed", "no_window"))
+    successful = [run for run in runs if run.status == "ok"]
+    failed_count = sum(1 for run in runs if run.status in ("failed", "no_window"))
 
-    gains = [r.gain for r in successful if r.gain is not None]
-    taus = [r.time_constant_s for r in successful if r.time_constant_s is not None]
-    delays = [r.delay_s for r in successful if r.delay_s is not None]
+    gains = [run.gain for run in successful if run.gain is not None]
+    taus = [run.time_constant_s for run in successful if run.time_constant_s is not None]
+    delays = [run.delay_s for run in successful if run.delay_s is not None]
 
-    gain_med, gain_p90 = _compute_errors_percent(gains, reference.model.gain)
-    tau_med, tau_p90 = _compute_errors_percent(taus, reference.model.time_constant_s)
-    del_med, del_p90 = _compute_errors_percent(delays, reference.model.delay_s)
-
+    model = reference.model
     return (
         f"| {loop} | {noise} | {failed_count} | "
-        f"{gain_med:.1f} / {gain_p90:.1f} | "
-        f"{tau_med:.1f} / {tau_p90:.1f} | "
-        f"{del_med:.1f} / {del_p90:.1f} | "
-        f"{reference.model.gain:.3f} | {reference.steady_state_gain:.3f} | "
-        f"{reference.model.time_constant_s:.1f} | {reference.model.delay_s:.1f} |"
+        f"{_format_error_pair(gains, model.gain)} | "
+        f"{_format_error_pair(taus, model.time_constant_s)} | "
+        f"{_format_error_pair(delays, model.delay_s)} | "
+        f"{model.gain:.3f} | {reference.steady_state_gain:.3f} | "
+        f"{model.time_constant_s:.1f} | {model.delay_s:.1f} |"
     )
+
+
+def _format_report_rows(
+    results: list[RunResult],
+    references: dict[str, ReferenceMetrics],
+) -> list[str]:
+    """Format one table row per (loop, noise) configuration in report order."""
+    rows = []
+    for loop in LOOPS:
+        for noise in NOISE_LEVELS:
+            matching = [
+                result
+                for result in results
+                if result.loop == loop and result.noise == noise
+            ]
+            rows.append(_format_cell_row(loop, noise, matching, references[loop]))
+    return rows
 
 
 def build_markdown_report(
@@ -285,13 +305,7 @@ def build_markdown_report(
         "| Delay Err % (Med/P90) | Ref Gain | Ref SS-Gain | Ref Tau (s) | Ref Delay (s) |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    lines = list(header)
-    for loop in LOOPS:
-        for noise in NOISE_LEVELS:
-            matching = [r for r in results if r.loop == loop and r.noise == noise]
-            row = _format_cell_row(loop, noise, matching, references[loop])
-            lines.append(row)
-
+    lines = [*header, *_format_report_rows(results, references)]
     lines.extend(["", "## Limits", "", LIMITS_TEXT, ""])
     return "\n".join(lines)
 

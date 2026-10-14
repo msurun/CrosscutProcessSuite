@@ -74,7 +74,7 @@ def _partition_directory_names(tmp_path: Path) -> list[str]:
     return sorted(partition_path.name for partition_path in (tmp_path / "data").iterdir())
 
 
-def _assert_dataset_json_matches(tmp_path: Path, doc: dict) -> None:
+def _assert_dataset_json_matches(tmp_path: Path, doc: dict[str, Any]) -> None:
     """Assert dataset.json round-trips and validates against its schema."""
     on_disk = json.loads((tmp_path / "dataset.json").read_text(encoding="utf-8"))
     assert on_disk == doc
@@ -84,7 +84,7 @@ def _assert_dataset_json_matches(tmp_path: Path, doc: dict) -> None:
     assert list(Draft202012Validator(schema("tags.schema.json")).iter_errors(tags_doc)) == []
 
 
-def _assert_metadata_fields(doc: dict) -> None:
+def _assert_metadata_fields(doc: dict[str, Any]) -> None:
     """Assert the metadata describes the sim scenario, storage layout and time range."""
     assert doc["source"] == {"kind": "sim", "plant": "wood_berry", "scenario": "test", "seed": 1}
     assert doc["storage"] == {
@@ -99,7 +99,7 @@ def _assert_metadata_fields(doc: dict) -> None:
     assert len(doc["tags"]) == N_TAGS
 
 
-def _assert_table_matches_doc(table: pa.Table, doc: dict) -> None:
+def _assert_table_matches_doc(table: pa.Table, doc: dict[str, Any]) -> None:
     """Assert the parquet table row count and column types match the metadata."""
     assert table.num_rows == doc["row_count"]
     assert table.schema.field("ts").type == pa.timestamp("ns", tz="UTC")
@@ -108,7 +108,7 @@ def _assert_table_matches_doc(table: pa.Table, doc: dict) -> None:
     assert table.schema.field("quality").type == pa.uint8()
 
 
-def _assert_timestamp_column(table: pa.Table, doc: dict) -> None:
+def _assert_timestamp_column(table: pa.Table, doc: dict[str, Any]) -> None:
     """Assert the ts column is sorted, starts at DEFAULT_START_UTC and hashes as recorded."""
     ts = table["ts"].cast(pa.int64()).to_numpy()
     assert np.all(np.diff(ts) >= 0)

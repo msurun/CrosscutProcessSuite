@@ -88,7 +88,7 @@ def test_excited_scenario_runs_and_moves_the_process() -> None:
     assert max(abs(top_comp - NOMINAL["top_comp"]) for top_comp in top_comp_trace) < 5.0
 
 
-def simulate_top_comp_trace(plant, steps: int) -> list[float]:
+def simulate_top_comp_trace(plant: WoodBerryPlant, steps: int) -> list[float]:
     """Return the top composition recorded at every simulated step.
 
     `plant` is advanced `steps` times, one step at a time, so the trace keeps

@@ -119,7 +119,13 @@ export function TrendPane(props: TrendPaneProps) {
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
   }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
 
+  // Push new data into the existing plot without re-creating it.
+  useEffect(() => {
+    plotRef.current?.setData(props.data as uPlot.AlignedData);
+  }, [props.data]);
+
   // Follow an x range chosen outside the plot; null returns to the full extent of the data.
+  // It runs after the data update because setData resets the visible range.
   useEffect(() => {
     const plot = plotRef.current;
     if (!plot) return;
@@ -127,11 +133,6 @@ export function TrendPane(props: TrendPaneProps) {
     const range = props.xRange ?? (times.length > 0 ? [times[0], times[times.length - 1]] : null);
     if (range) plot.setScale("x", { min: range[0], max: range[1] });
   }, [props.xRange?.[0], props.xRange?.[1], props.data]);
-
-  // Push new data into the existing plot without re-creating it.
-  useEffect(() => {
-    plotRef.current?.setData(props.data as uPlot.AlignedData);
-  }, [props.data]);
 
   return (
     <div

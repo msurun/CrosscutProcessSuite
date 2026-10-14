@@ -196,7 +196,7 @@ def test_cascade_and_write_permissions() -> None:
     _assert_manual_mode_allows_writes(plant)
 
 
-def _assert_cascade_value_is_tracked(plant) -> None:
+def _assert_cascade_value_is_tracked(plant: MillCircuitPlant) -> None:
     """Assert that a cascade setpoint drives the process value it controls."""
     plant.write(PRESS_MODE, CAS)
     plant.write(PRESS_RSP, 3.7)
@@ -204,7 +204,7 @@ def _assert_cascade_value_is_tracked(plant) -> None:
     assert val(plant, PRESS_SP) == pytest.approx(3.7)
 
 
-def _assert_protected_tags_reject_writes(plant) -> None:
+def _assert_protected_tags_reject_writes(plant: MillCircuitPlant) -> None:
     """Assert that internal setpoints and read-only measurements refuse writes."""
     with pytest.raises(PermissionError):
         plant.write(PRESS_SP, 3.0)
@@ -215,7 +215,7 @@ def _assert_protected_tags_reject_writes(plant) -> None:
             plant.write(read_only, 1.0)
 
 
-def _assert_unknown_tags_are_rejected(plant) -> None:
+def _assert_unknown_tags_are_rejected(plant: MillCircuitPlant) -> None:
     """Assert that invalid modes and unknown tags raise instead of silently failing."""
     with pytest.raises(ValueError):
         plant.write(FEED_MODE, 7)
@@ -225,7 +225,7 @@ def _assert_unknown_tags_are_rejected(plant) -> None:
         plant.read("sim.mc.unknown")
 
 
-def _assert_manual_mode_allows_writes(plant) -> None:
+def _assert_manual_mode_allows_writes(plant: MillCircuitPlant) -> None:
     """Assert that manual mode lets the operator drive the output tag."""
     plant.write(FEED_MODE, MAN)
     plant.write(FEED_OUT, 55.0)

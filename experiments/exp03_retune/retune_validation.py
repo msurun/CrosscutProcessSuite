@@ -111,6 +111,16 @@ def _override(
     return tuple(param_dict.items())
 
 
+def _control_tags(loop: str) -> tuple[str, str, str, str]:
+    """Return the PV, SP, OUT and MODE tag names of one control loop."""
+    return (
+        f"sim.mc.{loop}",
+        f"sim.mc.{loop}_sp",
+        f"sim.mc.{loop}_out",
+        f"sim.mc.{loop}_mode",
+    )
+
+
 def _simulate_loop(
     scenario: Scenario, loop: str, seed: int
 ) -> SimulationData:
@@ -128,11 +138,7 @@ def _simulate_loop(
     out = np.empty(n_steps, dtype=np.float64)
     mode = np.empty(n_steps, dtype=object)
 
-    pv_tag = f"sim.mc.{loop}"
-    sp_tag = f"sim.mc.{loop}_sp"
-    out_tag = f"sim.mc.{loop}_out"
-    mode_tag = f"sim.mc.{loop}_mode"
-
+    pv_tag, sp_tag, out_tag, mode_tag = _control_tags(loop)
     for step in range(n_steps):
         # Sample state before advancing simulation dynamic equations
         pv[step] = plant.read(pv_tag)[0]
@@ -243,30 +249,39 @@ def _evaluate_tuning(
     return _compute_metrics(data, loop)
 
 
+def _blocked_job(seed: int, loop: str) -> JobResult:
+    """Return the outcome for a cell where no usable SIMC tuning was identified."""
+    return JobResult(
+        seed=seed,
+        loop=loop,
+        blocked=True,
+        simc_settings=None,
+        amigo_settings=None,
+        before=None,
+        after_simc=None,
+        after_amigo=None,
+        improved_simc=False,
+    )
+
+
+def _is_improved(before: RunMetrics, after_simc: RunMetrics) -> bool:
+    """Return True when SIMC cuts IAE by the required ratio without instability."""
+    return (
+        after_simc.iae <= IMPROVEMENT_IAE_RATIO * before.iae
+        and not after_simc.is_unstable
+    )
+
+
 def run_single_job(seed: int, loop: str) -> JobResult:
     """Execute complete identification, baseline, and retuned validation for one cell."""
     simc, amigo, is_blocked = _identify_loop(loop, seed)
     if is_blocked or simc is None:
-        return JobResult(
-            seed=seed,
-            loop=loop,
-            blocked=True,
-            simc_settings=None,
-            amigo_settings=None,
-            before=None,
-            after_simc=None,
-            after_amigo=None,
-            improved_simc=False,
-        )
+        return _blocked_job(seed, loop)
 
     before = _evaluate_tuning(loop, seed, settings=None)
     after_simc = _evaluate_tuning(loop, seed, settings=simc)
     after_amigo = _evaluate_tuning(loop, seed, settings=amigo)
-
-    improved = (
-        after_simc.iae <= IMPROVEMENT_IAE_RATIO * before.iae
-        and not after_simc.is_unstable
-    )
+    improved = _is_improved(before, after_simc)
 
     return JobResult(
         seed=seed,
@@ -281,12 +296,22 @@ def run_single_job(seed: int, loop: str) -> JobResult:
     )
 
 
+def _format_blocked_row(job: JobResult) -> str:
+    """Format the placeholder table row for a cell whose loop was blocked."""
+    return (
+        f"| {job.seed} | {job.loop} | True | - | - | - | - | - | - | - | - | - | - | False |"
+    )
+
+
+def _format_health(health_pct: float | None) -> str:
+    """Format a health score to one decimal, or '-' when it is not available."""
+    return "-" if health_pct is None else f"{health_pct:.1f}"
+
+
 def _format_result_row(job: JobResult) -> str:
     """Format row containing metrics for a single seed and loop simulation."""
     if job.blocked or job.simc_settings is None or job.before is None or job.after_simc is None:
-        return (
-            f"| {job.seed} | {job.loop} | True | - | - | - | - | - | - | - | - | - | - | False |"
-        )
+        return _format_blocked_row(job)
 
     kc = job.simc_settings.kc
     ti_s = job.simc_settings.ti_s
@@ -296,8 +321,8 @@ def _format_result_row(job: JobResult) -> str:
     imp_pct = (iae_b - iae_s) / iae_b * PERCENT_MULTIPLIER
     over_s = job.after_simc.overshoot_pct
     sett_s = job.after_simc.settling_s
-    h_b = f"{job.before.health_pct:.1f}" if job.before.health_pct is not None else "-"
-    h_s = f"{job.after_simc.health_pct:.1f}" if job.after_simc.health_pct is not None else "-"
+    h_b = _format_health(job.before.health_pct)
+    h_s = _format_health(job.after_simc.health_pct)
     unstable_flag = str(job.after_simc.is_unstable)
 
     return (
@@ -307,13 +332,9 @@ def _format_result_row(job: JobResult) -> str:
     )
 
 
-def _build_markdown_report(
-    results: list[JobResult],
-    seeds_passed: int,
-    verdict: str,
-) -> str:
-    """Assemble markdown report detailing acceptance criteria, data tables, and limits."""
-    lines = [
+def _report_intro_lines() -> list[str]:
+    """Return the title, acceptance targets and results table header of the report."""
+    return [
         "# Retune Validation Experiment (exp03)",
         "",
         "## Acceptance Targets",
@@ -327,11 +348,16 @@ def _build_markdown_report(
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
-    sorted_results = sorted(results, key=lambda r: (r.seed, r.loop))
-    for res in sorted_results:
-        lines.append(_format_result_row(res))
 
-    lines.extend([
+def _result_row_lines(results: list[JobResult]) -> list[str]:
+    """Format one table row per job, ordered by seed and then by loop name."""
+    sorted_results = sorted(results, key=lambda job: (job.seed, job.loop))
+    return [_format_result_row(job) for job in sorted_results]
+
+
+def _report_closing_lines(seeds_passed: int, verdict: str) -> list[str]:
+    """Return the summary and limits sections that end the markdown report."""
+    return [
         "",
         "## Summary",
         f"- **Seeds passing (>= 2 improved loops)**: {seeds_passed} / {len(SEEDS)}",
@@ -340,7 +366,20 @@ def _build_markdown_report(
         "## Limits",
         LIMITS_TEXT,
         "",
-    ])
+    ]
+
+
+def _build_markdown_report(
+    results: list[JobResult],
+    seeds_passed: int,
+    verdict: str,
+) -> str:
+    """Assemble markdown report detailing acceptance criteria, data tables, and limits."""
+    lines = [
+        *_report_intro_lines(),
+        *_result_row_lines(results),
+        *_report_closing_lines(seeds_passed, verdict),
+    ]
     return "\n".join(lines)
 
 
@@ -354,8 +393,8 @@ def main() -> None:
 
     seed_pass_counts = 0
     for seed in SEEDS:
-        seed_results = [r for r in results if r.seed == seed]
-        improved_count = sum(1 for r in seed_results if r.improved_simc)
+        seed_results = [job for job in results if job.seed == seed]
+        improved_count = sum(1 for job in seed_results if job.improved_simc)
         if improved_count >= REQUIRED_IMPROVED_PER_SEED:
             seed_pass_counts += 1
 

@@ -45,22 +45,34 @@ class RunResult:
     iae: float
 
 
+async def sample_until(
+    server: PlantServer, client: Client, duration_s: float, step_setpoint: bool
+) -> Recording:
+    """Sample the loop over OPC UA until the plant clock reaches ``duration_s``.
+
+    When ``step_setpoint`` is true, the setpoint is raised by ``SETPOINT_STEP`` once the
+    simulated clock passes ``SETPOINT_STEP_AT_S``; the step is written only once.
+    """
+    idx = await client.get_namespace_index(NAMESPACE_URI)
+    recording = Recording()
+    stepped = not step_setpoint
+    while server.plant.time_s < duration_s:
+        await asyncio.sleep(TICK_S)
+        sample = await read_loop(client, idx)
+        recording.add(float(server.plant.time_s), sample)
+        if not stepped and server.plant.time_s >= SETPOINT_STEP_AT_S:
+            node = client.get_node(f"ns={idx};s=sim.mc.{LOOP}_sp")
+            await node.write_value(sample["sp"] + SETPOINT_STEP)
+            stepped = True
+    return recording
+
+
 async def record(scenario: Scenario, duration_s: float, step_setpoint: bool) -> Recording:
     """Serve ``scenario`` over OPC UA and sample the loop until ``duration_s`` has passed."""
     config = ServerConfig(seed=SEED, port=free_port(), speed=SPEED, tick_s=TICK_S)
-    recording = Recording()
     async with PlantServer(MillCircuitPlant(), scenario, config) as server:
         async with Client(server.endpoint, timeout=30.0) as client:
-            idx = await client.get_namespace_index(NAMESPACE_URI)
-            stepped = not step_setpoint
-            while server.plant.time_s < duration_s:
-                await asyncio.sleep(TICK_S)
-                sample = await read_loop(client, idx)
-                recording.add(float(server.plant.time_s), sample)
-                if not stepped and server.plant.time_s >= SETPOINT_STEP_AT_S:
-                    node = client.get_node(f"ns={idx};s=sim.mc.{LOOP}_sp")
-                    await node.write_value(sample["sp"] + SETPOINT_STEP)
-                    stepped = True
+            recording = await sample_until(server, client, duration_s, step_setpoint)
     return recording
 
 

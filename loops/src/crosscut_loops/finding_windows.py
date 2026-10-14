@@ -19,6 +19,7 @@ OUT_LOW = 0.0
 OUT_HIGH = 100.0
 
 
+# codecheck: allow too-many-parameters (public signature used by callers and tests)
 def finding_window(
     code: str,
     t_s: np.ndarray,
@@ -43,13 +44,7 @@ def finding_window(
     Raises:
         ValueError: if the four signal arrays do not all have the same length.
     """
-    t_s = np.asarray(t_s, dtype=float)
-    pv = np.asarray(pv, dtype=float)
-    out = np.asarray(out, dtype=float)
-    mode = np.asarray(mode, dtype=float)
-
-    if not (len(t_s) == len(pv) == len(out) == len(mode)):
-        raise ValueError("t_s, pv, out and mode must all have the same length")
+    t_s, pv, out, mode = _as_checked_arrays(t_s, pv, out, mode)
     if len(t_s) == 0:
         return None
 
@@ -63,6 +58,26 @@ def finding_window(
 
     first, last = run
     return (float(t_s[first]), float(t_s[last]))
+
+
+def _as_checked_arrays(
+    t_s: np.ndarray,
+    pv: np.ndarray,
+    out: np.ndarray,
+    mode: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert the four signals to float arrays and check that they have equal length.
+
+    Raises:
+        ValueError: if the four signal arrays do not all have the same length.
+    """
+    t_s = np.asarray(t_s, dtype=float)
+    pv = np.asarray(pv, dtype=float)
+    out = np.asarray(out, dtype=float)
+    mode = np.asarray(mode, dtype=float)
+    if not (len(t_s) == len(pv) == len(out) == len(mode)):
+        raise ValueError("t_s, pv, out and mode must all have the same length")
+    return t_s, pv, out, mode
 
 
 def _finding_mask(
