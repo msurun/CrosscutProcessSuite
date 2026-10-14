@@ -29,6 +29,7 @@ from crosscut_loops.tuning_rules import (
     simc_pi,
 )
 from crosscut_loops.tuning_view import FAIR_R_SQUARED, fit_check
+from crosscut_loops.vendor_forms import VendorSummary, vendor_summaries
 
 # The largest dead time to scan during identification, as a fraction of the
 # record length in samples. A quarter of the record keeps the scan short.
@@ -47,6 +48,9 @@ DCS_FORM_NAMES: tuple[ConversionForm, ...] = (
     "proportional_band_minutes",
     "gain_repeats_per_minute",
 )
+
+# Output range assumed when the caller gives none: a 0..100 % valve or setpoint.
+DEFAULT_OUT_SPAN = 100.0
 
 # Verdict strings accepted by ``build_tuning_report``.
 STICTION_VERDICT = "stiction"
@@ -74,6 +78,7 @@ class TuningReport:
         simc: SIMC PI settings, or None when the model is unknown.
         amigo: AMIGO PI settings, or None when the model is unknown.
         dcs_forms: Converted settings per DCS form; empty when there is no model.
+        vendor_forms: Named tags, evidence level and caveats per vendor block (Siemens, ABB).
         robustness: Robustness slider used for the SIMC tuning rule.
         blocked_reason: Why the loop must not be retuned, or None when healthy.
         notes: Free-text observations gathered while building the report.
@@ -84,6 +89,7 @@ class TuningReport:
     simc: PiSettings | None
     amigo: PiSettings | None
     dcs_forms: dict[ConversionForm, dict[str, float]] = field(default_factory=dict)
+    vendor_forms: dict[str, VendorSummary] = field(default_factory=dict)
     robustness: float = DEFAULT_ROBUSTNESS
     blocked_reason: str | None = None
     notes: list[str] = field(default_factory=list)
@@ -98,6 +104,8 @@ def build_tuning_report(
     *,
     robustness: float = DEFAULT_ROBUSTNESS,
     stiction_verdict: str | None = None,
+    pv_span: float | None = None,
+    out_span: float = DEFAULT_OUT_SPAN,
 ) -> TuningReport:
     """Identify a loop and compute its PI settings, DCS forms and notes.
 
@@ -108,7 +116,8 @@ def build_tuning_report(
     consecutive samples in seconds.
 
     Identification failure does not raise: the report has no model and
-    ``blocked_reason`` says why. Robustness is clamped to [0, 1].
+    ``blocked_reason`` says why. Robustness is clamped to [0, 1]. ``pv_span`` and ``out_span``
+    (ranges of PV and output in engineering units) are needed to normalise the ABB gain.
     """
     # Robustness trades speed of response against tolerance to model error.
     # It arrives from a caller (config file, GUI slider) and could be any
@@ -118,7 +127,10 @@ def build_tuning_report(
     if model is None:
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
     report = _identified_report(loop_name, model, robustness, stiction_verdict)
-    return _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
+    report = _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
+    if report.simc is not None:
+        report.vendor_forms = vendor_summaries(report.simc, pv_span, out_span)
+    return report
 
 
 def _guard_poor_fit(report: TuningReport, r_squared: float) -> TuningReport:
@@ -431,6 +443,25 @@ def _dcs_form_lines(form: ConversionForm, values: dict[str, float]) -> list[str]
     return lines
 
 
+def _render_vendor_section(report: TuningReport) -> str:
+    """Return the Markdown section with the Siemens and ABB tags, evidence and caveats."""
+    if not report.vendor_forms:
+        return ""
+    blocks = ["## Vendor blocks", ""]
+    for spec in report.vendor_forms.values():
+        blocks.append(f"### {spec['block']} (evidence: {spec['evidence']})")
+        blocks.append("")
+        blocks.extend(f"- {tag}: {_tag_text(value)}" for tag, value in spec["tags"].items())
+        blocks.extend(f"- CHECK: {caveat}" for caveat in spec["caveats"])
+        blocks.append("")
+    return "\n".join(blocks)
+
+
+def _tag_text(value: float | bool) -> str:
+    """Format a tag value: booleans as TRUE/FALSE, numbers with fixed decimals."""
+    return str(value).upper() if isinstance(value, bool) else _format_number(value)
+
+
 def _render_notes_section(report: TuningReport) -> str:
     """Return the Markdown section with the free-text notes, if any."""
     if not report.notes:
@@ -460,6 +491,7 @@ def render_markdown(report: TuningReport) -> str:
         _render_model_section(report),
         _render_settings_section(report),
         _render_dcs_section(report),
+        _render_vendor_section(report),
         _render_notes_section(report),
     ]
     # Remove empty sections so the final document has no stray blank sections.

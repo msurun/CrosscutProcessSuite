@@ -4,7 +4,8 @@ What the tuning module needs to know about the two target systems, taken from pu
 Page numbers refer to the PDF page. Nothing is copied from the documents except symbols and names; the code is
 `loops/src/crosscut_loops/vendor_forms.py`, tests `loops/tests/test_vendor_forms.py`.
 
-Our SIMC/AMIGO output is a **normalised PI**: `kc` dimensionless (output fraction per PV fraction of range), `ti_s` in seconds.
+Our SIMC/AMIGO output comes from identification on raw data: `kc` is in **output units per PV engineering unit** (e.g. % valve per degC), `ti_s` in seconds.
+The normalised gain is `kc * pv_span / out_span` (`normalise_gain`).
 
 ## Siemens PID_Compact (S7-1200 FW >= 4.0, S7-1500): verified
 
@@ -19,8 +20,8 @@ Our SIMC/AMIGO output is a **normalised PI**: `kc` dimensionless (output fractio
 | Scaling changes the effective gain: PV in engineering units and output 0..100 by default; the same Gain with a different range gives a different loop | FAQ section 1.4, p.6-8 |
 | `IntegralResetMode` decides the integral part when switching to automatic (default like S7-200: starts at 0) | FAQ p.9 |
 
-**Mapping from our PI:** `Ti = ti_s` (no conversion), `Td = 0`, `PWeighting = 1.0`, `Gain = kc * out_span / pv_span`.
-The range formula is ours, derived from the principle in FAQ 1.4; it is unit-tested but not compared with a real controller.
+**Mapping from our PI:** `Ti = ti_s`, `Td = 0`, `PWeighting = 1.0`, `Gain = kc` (raw: PID_Compact multiplies the deviation in PV engineering units).
+That PID_Compact takes the raw gain follows from its equation with PV in engineering units and the FAQ 1.4 example; the normalised/raw relation is ours and is not compared with a real controller.
 
 ## ABB PidCC (AC 800M), read through the Pid01A unit: partly verified
 
@@ -31,7 +32,7 @@ The range formula is ours, derived from the principle in FAQ 1.4; it is unit-tes
 | Deviation DEV = MV - WSP (measured minus working setpoint); direct or reverse action is selectable | same, p.9 |
 | Deviation is expressed in percent of the MV range; PI block and output default to -100..+100 % (scalable) | same, p.23 (section 4.12) |
 | Integration is blocked inside a dead band; if TS/TI > 1 the algorithm sets TS/TI = 1 | same, p.9 |
-| **Gain is normalised and dimensionless**: the block applies G = Gain x OutRange / PvRange itself, so our `kc` is entered as it is. This is the same G that the Siemens formula `siemens_gain` computes by hand | ABB 3BSE041488-600 A (Binary and Analog Handling, 05/2016) p.120 |
+| **Gain is normalised and dimensionless**: the block applies G = Gain x OutRange / PvRange itself, so we enter the NORMALISED gain `kc * PvRange / OutRange`; the block's G then equals our raw `kc`, which is what PID_Compact takes | ABB 3BSE041488-600 A (Binary and Analog Handling, 05/2016) p.120 |
 | Controller types P, PD, PI, PID, PPI; symbols Sp, Pv, Ti (integral time), Td (derivative time), Tfil (derivative filter), beta (setpoint weight) | same, p.119-121 |
 | Setpoint weight beta: default 1 for a continuous setpoint, 0 for a discontinuous one (operator types a value); both are **editable in PidCC and PidAdvancedCC** "when an externally calculated tuning is applied" | same, p.123-124 |
 | External parameters `Gain`, `TI`, `TD`, `TF` (initial Gain 0.5, TI 30, TD 0, TF 0) | same, p.10 |
@@ -42,11 +43,11 @@ manual (read in full text, 2026-10-14) states it; the algorithm formulas there a
 evidence. The code uses seconds and the form stays `partly_verified` until the unit is read in the library manual or the
 Control Builder help of the real system. Also open: the Pid01A document is the ControlIT unit around PidCC, not the PidCC page itself.
 
-**Mapping from our PI:** `Gain = kc` (normalised, no range scaling), `TI = ti_s` (unit to confirm), `TD = 0`, setpoint weight beta = 1.
+**Mapping from our PI:** `Gain = kc * pv_span / out_span` (normalised; needs both ranges), `TI = ti_s` (unit to confirm), `TD = 0`, setpoint weight beta = 1.
 
 ## What we do with this
 
-1. **Output form.** The tuning report (`tuning_report.py`) can show, next to the generic settings, the named tags of the target system
+1. **Output form (done, 2026-10-14).** The tuning report (`tuning_report.py`, section "Vendor blocks", payload key `vendor_forms`) shows, next to the generic settings, the named tags of the target system
    with the evidence level, so an engineer never types a number into the wrong unit.
 2. **Warnings travel with the numbers.** Each form carries its caveats (`PWeighting = 1`, `TI = 0` disables the integral, positive gain only,
    range scaling for Siemens, the open unit for ABB). A `partly_verified` form must be shown with its open point.

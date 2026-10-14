@@ -1,14 +1,15 @@
 """Siemens and ABB PI parameter forms, with the evidence for each (assumption A7).
 
-`tuning_rules.convert_pi` gives generic forms; this module says which vendor block uses which
-form, what is checked against a public document and what is not, and turns a `PiSettings` into
-the named parameters of that block. Tuning stays advisory: nothing here writes to a DCS.
+`tuning_rules.convert_pi` gives generic forms (kc in output units per PV unit, as identified).
+This module says which vendor block uses which form, what a public document confirms and what
+not, and turns a `PiSettings` into the named parameters of that block. Tuning stays advisory:
+nothing here writes to a DCS.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypedDict
 
 from crosscut_loops.tuning_rules import ConversionForm, PiSettings
 
@@ -38,6 +39,16 @@ class VendorForm:
     caveats: tuple[str, ...]
 
 
+class VendorSummary(TypedDict):
+    """One vendor block as shown in a report: what to type, how sure we are, what to check."""
+
+    block: str
+    evidence: Evidence
+    source: str
+    tags: dict[str, float | bool]
+    caveats: list[str]
+
+
 VENDOR_FORMS: dict[str, VendorForm] = {
     "siemens_pid_compact": VendorForm(
         key="siemens_pid_compact",
@@ -55,8 +66,8 @@ VENDOR_FORMS: dict[str, VendorForm] = {
             "slower than the textbook PI that SIMC and AMIGO assume",
             "TI = 0 switches the integral action OFF",
             "Gain must be positive; reverse action is Config.InvertControl",
-            "Gain acts on PV in engineering units and output in output units (default 0..100): "
-            "scale with pv_span / out_span (see siemens_gain)",
+            "Gain is entered in output units per PV engineering unit (raw, not normalised): the "
+            "identified kc goes in as it is, but the same Gain on another range is another loop",
         ),
     ),
     "abb_pidcc": VendorForm(
@@ -84,32 +95,37 @@ VENDOR_FORMS: dict[str, VendorForm] = {
 }
 
 
-def siemens_gain(kc: float, pv_span: float, out_span: float = _PERCENT) -> float:
-    """Return the PID_Compact Gain for a normalised kc.
+def normalise_gain(kc: float, pv_span: float, out_span: float = _PERCENT) -> float:
+    """Return the dimensionless gain G = kc * PvRange / OutRange.
 
-    The SIMC/AMIGO kc is dimensionless: output fraction per PV fraction of range. PID_Compact
-    multiplies the deviation in PV engineering units, so the range ratio enters the gain
-    (principle: Siemens FAQ 109481448 section 1.4; the formula is ours, derived from it).
+    `kc` comes from identification on raw data, so it is in output units per PV unit
+    (e.g. % valve per degC). ABB PidCC wants the normalised form (output fraction per PV
+    fraction of range); Siemens PID_Compact wants the raw form (Siemens FAQ 109481448
+    section 1.4 shows that the same Gain gives different loops on different ranges).
 
     Args:
-        kc: Normalised controller gain.
+        kc: Controller gain in output units per PV engineering unit.
         pv_span: Span of the process value in engineering units (e.g. 1000 for 0..1000 degC).
-        out_span: Span of the output in output units (100 for the default 0..100 %).
+        out_span: Span of the output in output units (100 for a 0..100 % output).
 
     Returns:
-        Gain in output units per PV engineering unit.
+        The gain with both ranges scaled to 1.
     """
     if pv_span <= 0.0 or out_span <= 0.0:
         raise ValueError("Spans must be positive")
-    return kc * out_span / pv_span
+    return kc * pv_span / out_span
 
 
 def siemens_pid_compact(
-    settings: PiSettings, pv_span: float, out_span: float = _PERCENT, reverse_acting: bool = False
+    settings: PiSettings, reverse_acting: bool = False
 ) -> dict[str, float | bool]:
-    """Name the PID_Compact instance-DB tags for a PI setting (PI only, TD = 0)."""
+    """Name the PID_Compact instance-DB tags for a PI setting (PI only, TD = 0).
+
+    `settings.kc` is in output units per PV engineering unit, which is what PID_Compact
+    multiplies the deviation with, so it goes in as it is.
+    """
     return {
-        "Retain.CtrlParams.Gain": siemens_gain(settings.kc, pv_span, out_span),
+        "Retain.CtrlParams.Gain": settings.kc,
         "Retain.CtrlParams.Ti": settings.ti_s,
         "Retain.CtrlParams.Td": 0.0,
         "Retain.CtrlParams.PWeighting": 1.0,
@@ -117,10 +133,46 @@ def siemens_pid_compact(
     }
 
 
-def abb_pidcc(settings: PiSettings) -> dict[str, float]:
+def abb_pidcc(settings: PiSettings, pv_span: float, out_span: float = _PERCENT) -> dict[str, float]:
     """Name the PidCC parameters for a PI setting; TI is in seconds ONLY IF the unit is confirmed.
 
-    Deviation is in percent of range on both sides, so the gain needs no scaling. The time unit
-    is the open point of `VENDOR_FORMS["abb_pidcc"]`.
+    The entered Gain is normalised (the block applies OutRange / PvRange itself), so the ranges
+    are needed. The time unit is the open point of `VENDOR_FORMS["abb_pidcc"]`.
     """
-    return {"Gain": settings.kc, "TI": settings.ti_s, "TD": 0.0}
+    return {"Gain": normalise_gain(settings.kc, pv_span, out_span), "TI": settings.ti_s, "TD": 0.0}
+
+
+def vendor_summaries(
+    settings: PiSettings, pv_span: float | None, out_span: float = _PERCENT
+) -> dict[str, VendorSummary]:
+    """Return every vendor form for the report: tags, evidence level, source and caveats.
+
+    Without `pv_span` the ABB gain cannot be normalised, so its tags are empty and a caveat
+    says why; the Siemens tags never need the ranges.
+    """
+    result: dict[str, VendorSummary] = {}
+    for key, spec in VENDOR_FORMS.items():
+        tags = _tags_for(key, settings, pv_span, out_span)
+        caveats = list(spec.caveats)
+        if tags is None:
+            tags = {}
+            caveats.insert(0, "PV range not given: the normalised Gain cannot be computed")
+        result[key] = {
+            "block": spec.block,
+            "evidence": spec.evidence,
+            "source": spec.source,
+            "tags": tags,
+            "caveats": caveats,
+        }
+    return result
+
+
+def _tags_for(
+    key: str, settings: PiSettings, pv_span: float | None, out_span: float
+) -> dict[str, float | bool] | None:
+    """Return the tags of one vendor, or None when the ranges needed for it are missing."""
+    if key == "siemens_pid_compact":
+        return siemens_pid_compact(settings)
+    if pv_span is None:
+        return None
+    return dict(abb_pidcc(settings, pv_span, out_span))

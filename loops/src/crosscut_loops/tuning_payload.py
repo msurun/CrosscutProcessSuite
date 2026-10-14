@@ -202,6 +202,8 @@ def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:
         "settings": {"simc": _plain(report.simc), "amigo": _plain(report.amigo)},
         # Alternative discrete controller forms considered, keyed by form name.
         "dcs_forms": report.dcs_forms,
+        # Named tags of the Siemens and ABB blocks with evidence level and caveats.
+        "vendor_forms": report.vendor_forms,
         # Numpy arrays are not JSON types; `tolist()` gives plain Python lists.
         # `t_s` is in seconds, `pv` is the process variable and `out` the controller output.
         "step": {"t_s": step.t_s.tolist(), "pv": step.pv.tolist(), "out": step.out.tolist()},
