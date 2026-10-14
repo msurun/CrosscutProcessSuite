@@ -110,7 +110,10 @@ QUIET_PARAMS = ("operator", "inner_noise", "process_noise", "hardness_sigma", "m
 
 
 def test_mill_circuit_scenarios() -> None:
-    names = ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test", "stiction")
+    names = (
+        "nominal", "observational", "excited", "quiet",
+        "hardness_shift", "step_test", "stiction", "detuned",
+    )
     assert available_scenarios("mill_circuit") == names
 
     assert_baseline_scenarios()

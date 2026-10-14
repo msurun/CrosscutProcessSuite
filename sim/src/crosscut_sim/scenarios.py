@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 
 from .core import Event, Scenario
+from .plants.mill_circuit import DEFAULT_KC
 from .plants.mill_circuit import NOMINAL as MILL_NOMINAL
 from .plants.wood_berry import NOMINAL
 
@@ -363,7 +364,8 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
     (``params``) are overridden, and which scheduled setpoint changes (``events``) occur.
 
     Supported ``scenario_name`` values are ``"nominal"``, ``"observational"``, ``"excited"``,
-    ``"quiet"``, ``"hardness_shift"`` and ``"step_test"`` (open-loop OUT steps for identification) and ``"stiction"`` (sticking HPGR valve).
+    ``"quiet"``, ``"hardness_shift"``, ``"step_test"`` (open-loop OUT steps for identification),
+    ``"stiction"`` (sticking HPGR valve) and ``"detuned"`` (sluggish PID gains on all loops).
 
     Args:
         scenario_name: Which experiment to build; must be one of the supported names.
@@ -390,9 +392,19 @@ def _build_mill_circuit_scenario(scenario_name: str, duration_s: float) -> Scena
         return _mill_scenario(scenario_name, duration_s, events=_mill_excitation_events(duration_s))
     if scenario_name == "step_test":
         return _mill_scenario(scenario_name, duration_s, events=_mill_step_test_events())
+    fault_scenario = _build_mill_fault_scenario(scenario_name, duration_s)
+    if fault_scenario is not None:
+        return fault_scenario
+    raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
+
+
+def _build_mill_fault_scenario(scenario_name: str, duration_s: float) -> Scenario | None:
+    """Build the mill scenarios that override controller or valve parameters, else return None."""
+    if scenario_name == "detuned":
+        return _mill_scenario(scenario_name, duration_s, params=_DETUNED_PARAMS)
     if scenario_name == "stiction":
         return _mill_scenario(scenario_name, duration_s, params=_STICTION_PARAMS)
-    raise ValueError(f"unknown scenario for mill_circuit: {scenario_name!r}")
+    return None
 
 
 # The "stiction" scenario sticks the HPGR pressure valve: a 3 % deadband and a 1.5 % slip jump
@@ -401,6 +413,14 @@ _STICTION_PARAMS = (
     ("operator", 0.0),
     ("stiction_band_hpgr_press", 3.0),
     ("stiction_jump_hpgr_press", 1.5),
+)
+
+# The "detuned" scenario makes all three mill loops sluggish: a quarter of the default gain and
+# a 300 s integral time (default 60 s), so a retuning has something to improve.
+_DETUNED_PARAMS = (
+    ("operator", 0.0),
+    *((f"kc_{name}", DEFAULT_KC[name] * 0.25) for name in DEFAULT_KC),
+    *((f"ti_s_{name}", 300.0) for name in DEFAULT_KC),
 )
 
 # The "quiet" scenario switches every noise source off (operator included).
@@ -489,7 +509,10 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
     if plant_name == "wood_berry":
         return ("nominal", "noisy_feed", "feed_step", "excited")
     if plant_name == "mill_circuit":
-        return ("nominal", "observational", "excited", "quiet", "hardness_shift", "step_test", "stiction")
+        return (
+            "nominal", "observational", "excited", "quiet",
+            "hardness_shift", "step_test", "stiction", "detuned",
+        )
     raise ValueError(f"scenario list not defined for plant: {plant_name!r}")
 
 

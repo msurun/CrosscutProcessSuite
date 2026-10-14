@@ -263,3 +263,10 @@ Tuning stays advisory: no automatic writes to a DCS before the write-path suite 
 
 Order: P6.1 first (everything depends on it), then P6.2 and P6.4 in parallel, P6.3 after both, P6.5 and P6.6 last.
 Acceptance targets are set before the experiment is run; if P6.3 misses them the finding is logged as it is, not tuned away.
+
+### P7: final review (requested by the owner, runs after P1 to P6 are done)
+Review of everything changed in this plan for clean code (`foremankit check`, naming, function size, duplication, comments with whole-file context),
+possible bugs (edge cases, error handling at boundaries, flaky or slow tests, CRLF/LF and Windows-vs-Linux differences, CI status via `gh run list`),
+and shortcomings (open assumptions, missing tests, documentation drift, the 9 older mypy errors in `sim`). Use `foremankit review --diff` (different source
+than the author) and check each finding against the code before accepting it. Result: a to-do list in this log, split into must-fix, should-fix and ideas, and the same list in the final chat summary.
+- P6.1 done: scenario params `kc_<loop>` / `ti_s_<loop>` (default = old gains, so existing data is unchanged), `DEFAULT_KC` exported from `mill_circuit.py`, scenario `detuned` (kc x0.25, ti 300 s). Tests `sim/tests/test_mill_tuning.py` by DeepSeek flash ($0.002), style/mypy fixes by a Haiku agent.

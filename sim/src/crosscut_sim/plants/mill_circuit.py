@@ -129,6 +129,9 @@ LOOPS: tuple[_LoopSpec, ...] = (
     ),
 )
 
+# Default proportional gain per loop name; scenarios scale it to build a detuned loop.
+DEFAULT_KC: dict[str, float] = {spec.name: spec.kc for spec in LOOPS}
+
 _LOOP_KINDS: tuple[tuple[str, str], ...] = (
     ("pv", ""),
     ("sp", "_sp"),
@@ -747,6 +750,16 @@ class MillCircuitPlant:
         }
         for name, loop_state in self._loops.items():
             loop_state.valve = StictionValve(self._stiction_spec(name))
+            self._apply_tuning(name, loop_state.pid)
+
+    def _apply_tuning(self, loop_name: str, pid: PID) -> None:
+        """Override the loop's PID gains from the scenario params, if given.
+
+        ``kc_<loop>`` is the proportional gain (dimensionless) and ``ti_s_<loop>`` the integral
+        time in seconds; a missing key keeps the default, so existing scenarios do not change.
+        """
+        pid.kc = self._scenario.param(f"kc_{loop_name}", pid.kc)
+        pid.ti_s = self._scenario.param(f"ti_s_{loop_name}", pid.ti_s)
 
     def _stiction_spec(self, loop_name: str) -> StictionSpec:
         """Read the loop's stiction from the scenario params (both in % of valve travel).
