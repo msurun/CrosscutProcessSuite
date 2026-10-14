@@ -1,4 +1,4 @@
-# Handoff (2026-10-14): module 1 closed, what is next
+# Handoff (2026-10-14, night): steps 1-4 done, what is next
 
 Written for the next session (Claude or the owner). The plan P1-P7 of module 1 is done and pushed
 (last commit when written: f7b5bc2). Details per step are in `docs/IMPLEMENTATION_LOG.md`.
@@ -26,57 +26,50 @@ Written for the next session (Claude or the owner). The plan P1-P7 of module 1 i
    - Add the venv `Scripts` folder and Node to the user PATH, or tell the assistant the paths.
 5. **Check CI on GitHub** for the last pushes (no `gh` on this PC): jobs `cpp` and `frontend`.
 
-## Environment (this PC had none; item 4 above makes it permanent)
+## Environment
 
-The gates ran from a throw-away venv in the session scratchpad; it is gone. Until item 4 is done, recreate:
+`.venv/` exists on this PC (Python 3.12, `requirements-dev.txt` installed; git-ignored). If it is gone:
+`py -3.12 -m venv .venv`, then `.venv\Scripts\python -m pip install -r requirements-dev.txt`.
+There is NO Node.js here, so the frontend gates (`tsc --noEmit`, `vitest run`, `vite build`) and the Edge
+browser check cannot run until the owner installs Node (item 4 above). Do not claim frontend changes verified.
 
-```
-py -3.12 -m venv .venv
-.venv\Scripts\python -m pip install -r requirements-dev.txt
-.venv\Scripts\python -m pip install uvicorn nodejs-wheel-binaries   # server for the UI check, Node for the frontend
-cd frontend; <node from nodejs_wheel> npm ci
-```
+Gates before every commit: `.venv\Scripts\python -m ruff check .`, `-m mypy sim loops/src api/src connectors/src`,
+`-m pytest`. Style: functions <= 20 code lines, <= 4 parameters, <= 3 nesting levels. `foremankit check` is not
+installed in the venv. MCP `delegate`: give ABSOLUTE `context_files`; its `verify` runs from the parent folder and
+rejects absolute interpreter paths, so install the returned file by hand and check it yourself. Read delegated
+code critically: `readiness.py` and `anonymise.py` came back with real bugs. In shell heredocs write regexes with
+`chr(92)` or a raw file edit: a `` inside a normal Python string became a backspace character once.
 
-Gates before every commit: `ruff check .`, `mypy sim loops/src api/src`, `pytest`, in `frontend/`:
-`tsc --noEmit`, `vitest run`, `vite build`; style: `foremankit check <new python files>` (function
-<= 20 code lines, <= 4 parameters, <= 3 nesting levels; allow-comment only for public signatures).
-Browser check: `playwright-core` with the installed Edge (`channel: "msedge"`), API with uvicorn on
-:8000, `vite` on :5173 (proxy `/api`).
+## Done in the last session (details: `docs/IMPLEMENTATION_LOG.md`, last two sections)
+
+Steps 1-4 of the earlier list: stiction band discrepancy explained (seed noise, 14/20), public flotation benchmark
+(`exp04_public_flotation`), customer validation kit (`docs/customer_kit/`, anonymiser, readiness check), connectors
+(DST fall-back repeats, header units, long-format CSV, SQL over any DB-API connection, OPC UA namespace URI and
+reconnect), and a code review with 10 fixes. Last commit c05615f, everything pushed.
 
 ## Next steps the assistant can do without the owner
 
-Ordered by value. Rule from the owner: delegate tests and bulk code, keep integration, one commit per
-step, push main without force, log every step, state limits plainly.
+Rule from the owner: delegate tests and bulk code, keep integration, one commit per step, push main without force,
+log every step, state limits plainly. Suggested order (the owner asked for the whole list in a fresh session):
 
-1. **Understand the 8 % stiction band discrepancy (small, do first).** The acceptance run found a band of
-   8 % in 8 of 10 seeds with full noise; the demo set-up found it in 2 of 6 (seeds 1-6, 6 h record,
-   first 2 h dropped). Find out why (seed set? record length? sampling?), write it into
-   `experiments/exp01_stiction_validation/`, and adjust the README claim ("about 8 %, not reliably")
-   if needed.
-2. **Public benchmarks (V3).** Find one or two public datasets with open licences (flotation quality in
-   a mining process, anomaly, degradation), check each licence BEFORE downloading, add the licence row to
-   `docs/PROVENANCE.md`, put loaders in `connectors/`, run loop monitoring and stiction on what fits and
-   report honestly what does not. Needs network access. This is the first test outside the simulator.
-3. **Customer validation kit (V6).** Export guide (which tags, period, length, units), readiness
-   checklist, anonymiser (rename tags, shift and scale values, keep dynamics; with a test that the
-   result still gives the same loop findings), report template. All can be built and tested on
-   synthetic messy exports (`connectors/messy.py`).
-4. **Connectors.** CSV: long format, per-column units, DST-ambiguous local times. SQL: other drivers
-   behind the same interface (ODBC). OPC UA: subscriptions, reconnect, namespace lookup by URI
-   (tests assume `ns=2`). Test with the existing OPC UA test server.
-5. **Fault layer V1, rest.** Timestamp jitter and mode flips in `sim/faults.py` (mode flips are `Event`s),
-   with tests, then show them in the monitor (does the loop analysis cope?).
-6. **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (known to give biased gain
-   with the operator on, see exp00), cascade order; each with an experiment and acceptance targets
-   frozen BEFORE the run, as in exp02/exp03. Derive `std_reduction` for the benefit page from loop
-   reports automatically (the measured pair already works through the API).
-7. **Screens.** Manual window drag on the trend (tuning page), undo zoom, range presets, modules map page,
-   windows for the "poor performance" finding by other means. Check each in Edge.
-8. **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output
-   `feed_change` is a delta of the SP tag). Advisory only.
-9. **Later stages (design first, then ask):** V4 lab test bed, V5 virtual DCS with a soft PLC and a
-   write-path test suite (must pass before any real write), V7 pilot package. Not before the owner has
-   seen V3/V6 results.
+1. **Fault layer V1, rest.** Timestamp jitter and mode flips in `sim/faults.py` (mode flips are `Event`s), with
+   tests; then show whether the loop analysis (`loops/monitor.py`, `readiness.py`) copes with them.
+2. **Connector gaps.** DST fall-back for naive timestamps in `sql_import` (the CSV fix in `csv_import._resolve_instant`
+   is the model), units in the long-format CSV (optional `unit` column into the tags document), OPC UA
+   subscriptions (the importer only polls). ODBC was never tried with a real driver: say so if it comes up.
+3. **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (biased gain with the operator on,
+   see exp00), cascade order; each with an experiment and acceptance targets frozen BEFORE the run, as in
+   exp02/exp03. Derive `std_reduction` for the benefit page from loop reports automatically.
+4. **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output `feed_change` is a
+   delta of the SP tag). Advisory only.
+5. **Public data, round two.** The flotation data has no SP/OUT. Look for an open dataset WITH controller output
+   (stiction/oscillation benchmarks); check the licence before downloading and add the PROVENANCE row first.
+   `exp04` notes why the flotation run says little about oscillation (no setpoint, untuned amplitude limit).
+6. **Screens (needs Node.js, so only after the owner installed it).** Manual window drag on the trend, undo zoom,
+   range presets, modules map page. Check each in Edge.
+7. **Later stages (design first, then ask the owner):** V4 lab test bed, V5 virtual DCS with a soft PLC and a
+   write-path test suite (must pass before any real write), V7 pilot package. Not before the owner has seen the
+   V3/V6 results.
 
 ## Known limits to keep stating
 
