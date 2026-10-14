@@ -20,7 +20,7 @@ What a process engineer can do today, on simulator data or on a CSV / SQL export
   flatline, oscillating, poor performance, stiction), key numbers, trends. A finding with a stretch of data behind it
   links to that stretch in the trend.
 - **Stiction detection** (`loops/`): shape of the controller output (He et al. 2007 curve fitting). Finds a sticking
-  valve with low noise from a 4 % band, and with full noise only from about 8 % (and not reliably there); a square-wave load
+  valve with low noise from a 4 % band, and with full noise only from about 8 % (about 70 % of 20 runs there, none with an operator moving the loop); a square-wave load
   disturbance is a known false alarm. See `experiments/exp01_stiction_validation/`.
 - **Tuning report**: FOPDT model from a step test, SIMC and AMIGO PI settings, conversion to vendor forms. The report
   is withheld when stiction is suspected or when the model fits the data badly (R squared below 0.5).

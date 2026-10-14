@@ -4,7 +4,7 @@
 for bands 0, 2, 4, 8 % x two noise levels x 5 seeds, with one setpoint step at 30 min (a loop sitting exactly at its
 setpoint never leaves the valve deadband, so it never hunts). The detector sees the data from 2 h on. Table: `results/summary.md`.
 
-Findings (2026-10-13): with low noise and a band of 4 % or more the detector says "stiction" in 5 of 5 runs; a healthy valve
+Findings of the first, PV-only method (2026-10-13, superseded by the acceptance run below; table `results/summary.md`): with low noise and a band of 4 % or more the detector says "stiction" in 5 of 5 runs; a healthy valve
 is never flagged (it answers "inconclusive"); a band of 2 % is not found, and with full simulator noise the detector abstains
 in every run (the noisy limit cycle is not periodic enough). Earlier "always inconclusive" results came from a loop with
 no persistent offset. Not validated on real plant data.
@@ -41,3 +41,13 @@ Against the frozen targets: met at low noise; at full noise only band 8 % is met
 The square wave is a known limit of the method (a periodic square disturbance also gives a triangular OUT): do not trust a
 "stiction" verdict on a loop with a periodic external forcing. Nothing was tuned on the held-out seeds. The PV-only method it
 replaces never produced a verdict under full noise. Only 10 seeds per cell: the false-alarm bound is wide.
+
+### Why 8 of 10 and 2 of 6? (checked 2026-10-14)
+
+Band 8 %, full noise, same detector and set-up (6 h run, first 2 h dropped, operator off), seeds 1-20:
+stiction on seeds 4, 5, 7-14, 16-19; inconclusive on seeds 1, 2, 3, 6, 15, 20. So seeds 1-6 give 2 of 6, seeds 1-10 give
+6 of 10 (development), seeds 11-20 give 8 of 10 (held-out) and all 20 give 14 of 20 = 70 % (95 % Wilson interval about 48-85 %).
+The discrepancy is sampling noise in small seed sets, not a different set-up or record length. With a human operator
+moving the loop (operator gain 1.0, probe on the same seeds) the verdict was inconclusive in 20 of 20 runs: the
+detector needs a loop that is not disturbed by hand. The claim "band of about 8 % is found with full noise" holds
+as "about 70 % of runs, 20 seeds, simulator only".
