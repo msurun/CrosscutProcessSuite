@@ -34,3 +34,6 @@ Reading: the direct fit is badly biased with a coloured load disturbance (gain 4
 of it (time constant and delay now usable), but the gain is still 16-19 % off and has a heavy tail (p90 75 % on seeds 21-40). Use the result as an
 advisory model with that error bar, and prefer a step test with the controller in MAN when it is allowed. Limits: one plant (K 2, T 50, L 10), one controller tuning,
 strong coloured disturbance, setpoint toggles every 20-40 min; with a weaker disturbance the direct fit improves. The instrument lags (40 samples) were not tuned.
+
+Instrument lags (checked afterwards on seeds 1-20, diagnosis only): 20 / 40 / 80 / 150 / 250 lags give a median gain error of 15.9 / 16.0 / 16.1 / 16.3 / 16.8 % and a time-constant error of
+13 / 15 / 14 / 20 / 21 %. The number of lags is therefore not what keeps the gain above the 15 % target; the remaining error is a property of the method on this data.
