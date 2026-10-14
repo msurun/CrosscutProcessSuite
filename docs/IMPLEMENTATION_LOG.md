@@ -1,6 +1,6 @@
 # Implementation log
 
-**Read this first in every new session.** It records what is done, what is pending and in which order.
+**Read this first in every new session, then `docs/HANDOFF.md` (owner to-do for when the owner is at the computer, and next steps the assistant can do alone).** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
 Last updated: 2026-10-11 (session 2: fuzzy versions and diff backend, mypy clean)
