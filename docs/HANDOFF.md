@@ -9,7 +9,7 @@ Written for the next session (Claude or the owner). The plan P1-P7 of module 1 i
    printed endpoint, follow `docs/LIVE_DEMO.md`. Add one line to the log: UaExpert version, what
    worked, what did not. Until then the OPC UA server is tested with a Python client only.
 2. **ADR 008 review** (AGPL-3.0, `docs/adr/`): read the reasons, accept or change.
-3. **ABB and Siemens documents for A7.** Give the PID manuals (or names and versions) so the PI
+3. **ABB and Siemens documents for A7 (now optional: the assistant starts from the public manuals, see next steps item 0).** Give the PID manuals (or names and versions) so the PI
    parameter forms in `loops/tuning_rules.py` (`convert_pi`) can be checked. Scope fixed by the owner:
    ABB and Siemens only. Until then A7 stays open and the forms are marked unverified.
 4. **Install the tools permanently** (so any session can run all gates; this PC had none of them).
@@ -52,6 +52,7 @@ reconnect), and a code review with 10 fixes. Last commit c05615f, everything pus
 Rule from the owner: delegate tests and bulk code, keep integration, one commit per step, push main without force,
 log every step, state limits plainly. Suggested order (the owner asked for the whole list in a fresh session):
 
+0. **A7: ABB and Siemens PID forms from public manuals (do first).** The manuals are public, the owner's documents are not needed for this. Siemens: PID_Compact (all times in seconds, S7-200 used minutes; https://support.industry.siemens.com/cs/attachments/109481448/109481448_S7200-S71200_PID_Compact_en.pdf, exact equation is in the S7-1200/1500 PID Control function manual). ABB: AC 800M PidCC in the Control Libraries manuals (e.g. 3BSE035981-510 on library.e.abb.com); the AC 500 CtrlPidParallel page is another product line and is NOT evidence for AC 800M. Fetch the PDFs, extract equation, parameter names and units, compare with `convert_pi` in `loops/src/crosscut_loops/tuning_rules.py`, add tests, mark each form verified or still unverified (quote page and version, do not copy text), add PROVENANCE rows, update A7 in the log. Owner documents are only needed for the exact system versions used at the plant.
 1. **Fault layer V1, rest.** Timestamp jitter and mode flips in `sim/faults.py` (mode flips are `Event`s), with
    tests; then show whether the loop analysis (`loops/monitor.py`, `readiness.py`) copes with them.
 2. **Connector gaps.** DST fall-back for naive timestamps in `sql_import` (the CSV fix in `csv_import._resolve_instant`
