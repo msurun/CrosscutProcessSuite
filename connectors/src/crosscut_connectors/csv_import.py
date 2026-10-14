@@ -49,6 +49,8 @@ class ImportReport:
         Detected decimal separator ('.' or ',').
     timestamp_format: str
         Human readable description of the format that succeeded.
+    n_dst_repeats_resolved: int
+        Rows whose local time occurs twice (DST fall-back) and were read as the second pass.
     """
 
     n_rows: int
@@ -58,6 +60,7 @@ class ImportReport:
     delimiter: str
     decimal: str
     timestamp_format: str
+    n_dst_repeats_resolved: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -425,23 +428,51 @@ def _sort_and_deduplicate(
 # --------------------------------------------------------------------------- #
 
 
-def _parse_timestamps(data_rows: list[list[str]], tz: str) -> tuple[np.ndarray, str]:
-    """Return the UTC nanosecond index of every row and the name of the format used.
+def _is_ambiguous(dt: datetime, tz: str) -> bool:
+    """True for a local wall-clock time that occurs twice (the hour repeated at DST fall-back)."""
+    if dt.tzinfo is not None:
+        return False
+    zone = ZoneInfo(tz)
+    first = dt.replace(tzinfo=zone, fold=0).utcoffset()
+    second = dt.replace(tzinfo=zone, fold=1).utcoffset()
+    return first != second
+
+
+def _resolve_instant(dt: datetime, tz: str, previous_ns: int | None) -> tuple[int, bool]:
+    """UTC nanoseconds of one row and whether it was a repeated local time put in the 2nd pass.
+
+    A repeated wall-clock time ("02:30" on the night the clocks go back) names two instants one
+    hour apart. A file written in time order lists the first pass before the second, so a repeated
+    time that would not move forward from the previous row is taken as the second pass (fold=1).
+    """
+    instant = _to_utc_nanoseconds(dt, tz)
+    if previous_ns is None or instant > previous_ns or not _is_ambiguous(dt, tz):
+        return instant, False
+    return _to_utc_nanoseconds(dt.replace(fold=1), tz), True
+
+
+def _parse_timestamps(
+    data_rows: list[list[str]], tz: str
+) -> tuple[np.ndarray, str, int]:
+    """Return the UTC nanosecond index of every row, the format name and the DST repeats resolved.
 
     Column 0 is always the time column. Timestamps are stored as int64 nanoseconds
     since the Unix epoch in UTC (int64 covers ~292 years around 1970, which matches
     the resolution the on-disk format expects). Naive datetimes are interpreted in
-    ``tz`` before conversion.
+    ``tz`` before conversion; repeated local times at DST fall-back are told apart by file order.
     """
     raw_ts = [row[0] for row in data_rows]
     format_name, parser = _try_timestamp_formats(raw_ts)
     ts_ns = np.empty(len(raw_ts), dtype=np.int64)
+    repeats, previous_ns = 0, None
     for index, text in enumerate(raw_ts):
         parsed = parser(text)
         if parsed is None:
             raise ValueError("timestamp parsing failed")
-        ts_ns[index] = _to_utc_nanoseconds(parsed, tz)
-    return ts_ns, format_name
+        ts_ns[index], second_pass = _resolve_instant(parsed, tz, previous_ns)
+        previous_ns = int(ts_ns[index])
+        repeats += int(second_pass)
+    return ts_ns, format_name, repeats
 
 
 def _parse_value_matrices(
@@ -475,10 +506,27 @@ def _unique_tag_ids(original_tag_names: list[str]) -> list[str]:
     return tag_ids
 
 
-def _tags_document(tag_ids: list[str], original_tag_names: list[str]) -> dict[str, Any]:
-    """Build the tag schema: sanitised ids, original display names, empty metadata.
+UNIT_SUFFIX = re.compile(r"^(?P<name>.*?)\s*[\[(](?P<unit>[^\])]+)[\])]\s*$")
 
-    The CSV has no way to provide description, unit or role, so they are placeholders.
+
+def split_unit(header_cell: str) -> tuple[str, str]:
+    """Split a column header such as ``Level [m]`` or ``Flow (t/h)`` into (name, unit).
+
+    A header without a bracketed suffix keeps its whole text as the name and has unit "".
+    """
+    match = UNIT_SUFFIX.match(header_cell.strip())
+    if match is None or not match.group("name"):
+        return header_cell.strip(), ""
+    return match.group("name"), match.group("unit").strip()
+
+
+def _tags_document(
+    tag_ids: list[str], original_tag_names: list[str], units: list[str]
+) -> dict[str, Any]:
+    """Build the tag schema: sanitised ids, original display names, units from the header.
+
+    The CSV has no way to provide description or role, so they are placeholders; the unit comes
+    from a bracketed header suffix such as ``Level [m]`` and is "" when there is none.
     """
     return {
         "schema_version": "0.1.0",
@@ -487,12 +535,12 @@ def _tags_document(tag_ids: list[str], original_tag_names: list[str]) -> dict[st
                 "id": tag_id,
                 "name": original,
                 "description": "",
-                "unit": "",
+                "unit": unit,
                 "type": "float",
                 "role": "other",
                 "source": {"driver": "csv", "address": original},
             }
-            for tag_id, original in zip(tag_ids, original_tag_names, strict=True)
+            for tag_id, original, unit in zip(tag_ids, original_tag_names, units, strict=True)
         ],
     }
 
@@ -528,17 +576,20 @@ def _normalise_order(
 def _write_csv_dataset(
     out_dir: Path,
     dataset_id: str,
-    original_tag_names: list[str],
+    header_cells: list[str],
     arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> None:
     """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row."""
     ts_ns, values, qualities = arrays
+    split_cells = [split_unit(cell) for cell in header_cells]
+    original_tag_names = [name for name, _ in split_cells]
+    units = [unit for _, unit in split_cells]
     tag_ids = _unique_tag_ids(original_tag_names)
     info = DatasetInfo(
         dataset_id=dataset_id,
         source={"kind": "file"},
         start_utc=_start_iso(ts_ns),
-        tags_document=_tags_document(tag_ids, original_tag_names),
+        tags_document=_tags_document(tag_ids, original_tag_names, units),
     )
     write_dataset(out_dir, Samples(ts_ns, tag_ids, values, qualities), info)
 
@@ -577,7 +628,7 @@ def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -
         collide once their names are sanitised.
     """
     delimiter, header, data_rows = _read_table(path)
-    ts_ns, ts_format_name = _parse_timestamps(data_rows, tz)
+    ts_ns, ts_format_name, dst_repeats = _parse_timestamps(data_rows, tz)
     # Decimal comma ("1,5") and point ("1.5") both occur; _parse_cell needs to know.
     decimal = _detect_decimal_separator(data_rows, delimiter)
     # The header is [timestamp, tag_0, tag_1, ...].
@@ -593,4 +644,5 @@ def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -
         delimiter=delimiter,
         decimal=decimal,
         timestamp_format=ts_format_name,
+        n_dst_repeats_resolved=dst_repeats,
     )

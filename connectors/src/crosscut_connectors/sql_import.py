@@ -320,34 +320,34 @@ def _read_rows(database: Path, query: str) -> list[tuple[Any, ...]]:
         ValueError: If the query is not a single SELECT statement, if it
             returns no rows, or if it returns fewer than three columns.
     """
-    # Guard clause: the query must be a SELECT. `strip()` removes surrounding
-    # whitespace, `upper()` makes the keyword check case-insensitive
-    # ("select" and "Select" are both valid sqlite).
+    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as connection:
+        return fetch_rows(connection, query)
+
+
+def fetch_rows(connection: Any, query: str) -> list[tuple[Any, ...]]:
+    """Run one SELECT on any DB-API 2.0 connection and return its rows as tuples.
+
+    ``connection`` is anything that follows PEP 249 (sqlite3, pyodbc for ODBC drivers, ...): only
+    ``cursor()``, ``execute`` and ``fetchall`` are used, so a read-only account is the caller's
+    second line of defence. The query is checked here: one SELECT, no semicolon.
+
+    Raises:
+        ValueError: if the query is not a single SELECT, returns no rows or fewer than 3 columns.
+    """
     if not query.strip().upper().startswith("SELECT"):
         raise ValueError("query must be a single SELECT statement")
-    # A semicolon would allow chaining a second statement (e.g. "SELECT ...; DROP ..."),
-    # so we reject any query containing one. The read-only connection below is a
-    # second line of defence, not a replacement for this check.
+    # A semicolon would allow chaining a second statement ("SELECT ...; DROP ...").
     if ";" in query:
         raise ValueError("query must be a single statement")
-
-    # The URI form "file:///path/to.db?mode=ro" with uri=True tells sqlite to open
-    # the database read-only at the file level, so an accidental write fails loudly.
-    # `closing(...)` guarantees the connection and the cursor are released even if
-    # the body raises.
-    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as connection:
-        with closing(connection.cursor()) as cursor:
-            cursor.execute(query)
-            # fetchall() returns a list of tuples, one tuple per result row,
-            # each tuple holding the selected columns in query order.
-            rows = cursor.fetchall()
-            if not rows:
-                raise ValueError("no rows returned by the query")
-            # Callers index rows[i][0..2], so a narrower result set would fail
-            # later with an opaque IndexError. We check it here to fail clearly.
-            if len(rows[0]) < 3:
-                raise ValueError("query must return at least three columns")
-            return rows
+    with closing(connection.cursor()) as cursor:
+        cursor.execute(query)
+        rows = [tuple(row) for row in cursor.fetchall()]  # pyodbc rows are not plain tuples
+    if not rows:
+        raise ValueError("no rows returned by the query")
+    # Callers index rows[i][0..2], so a narrower result would fail later with an opaque IndexError.
+    if len(rows[0]) < 3:
+        raise ValueError("query must return at least three columns")
+    return rows
 
 
 def import_sql(database: Path, query: str, target: ImportTarget) -> SqlImportReport:
@@ -372,7 +372,20 @@ def import_sql(database: Path, query: str, target: ImportTarget) -> SqlImportRep
     SqlImportReport
         Summary of the import operation.
     """
-    rows = _read_rows(database, query)
+    return _import_rows(_read_rows(database, query), target)
+
+
+def import_sql_connection(connection: Any, query: str, target: ImportTarget) -> SqlImportReport:
+    """Import a dataset through an already open DB-API 2.0 connection (for example pyodbc).
+
+    Same query contract as :func:`import_sql` (ts, tag, value[, quality] as long format); the
+    caller opens and closes the connection, so any driver and any credentials can be used.
+    """
+    return _import_rows(fetch_rows(connection, query), target)
+
+
+def _import_rows(rows: list[tuple[Any, ...]], target: ImportTarget) -> SqlImportReport:
+    """Pivot long-format rows to wide arrays and write the dataset."""
     # Pivot from long to wide. The arrays share the row axis (one entry per timestamp)
     # and the column axis (one entry per tag_id); a repeated (timestamp, tag) pair is
     # dropped and only counted, so the arrays stay rectangular.
