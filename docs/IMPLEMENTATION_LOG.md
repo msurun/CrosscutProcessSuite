@@ -225,3 +225,21 @@ ode` (winget install was cancelled at the UAC prompt); add it to PATH to use `np
 - Ground truth in the dataset (done): `dataset.schema.json` `source.ground_truth` (optional, loop -> {fault parameter: number}); `record` copies `plant.ground_truth()` into it when non-empty. Tests in `tests/test_schemas.py` and `sim/tests/test_dataset.py`. Next: real-time run against the OPC UA server with faults, then validation of `detect_stiction` on a cleaner stick-slip case. mypy on `sim` still reports 9 older errors (generic `dict` in test_dataset.py and others).
 - Real-time run with a fault (done): mill-circuit scenario `stiction` (HPGR press valve, band 3 %, jump 1.5 %, operator off) in `scenarios.py`; `opcua/tests/test_server_faults.py` runs it on `PlantServer` and checks that an asyncua client sees the loop react to an SP step and sees no ground-truth node. Run it: `python -m crosscut_opcua.server --plant mill_circuit --scenario stiction --speed 60`. Next: validate `detect_stiction` on this scenario.
 - Validation of `detect_stiction` (done, `experiments/exp01_stiction_validation/`): script by DeepSeek flash ($0.011, the verify step used a Python without ruff and restored the file; I took the first answer from `.agent-out` and fixed two things by hand). Root cause of the old "always inconclusive": a loop at its setpoint never leaves the valve deadband; with one SP step the loop hunts. Result: low noise and band >= 4 % -> "stiction" 5/5; healthy valve never flagged; band 2 % and full noise -> "inconclusive". Still open: a detector that copes with noise and small bands; real stiction data.
+
+## Work plan, module 1 (agreed 2026-10-13, run without per-step approval)
+
+Rules for the whole block: tests first; gates before every commit (`ruff`, `mypy` on touched packages, `pytest`, `foremankit check`);
+one commit per step; method added to `docs/PROVENANCE.md` before it is implemented; delegate tests and bulk code, keep integration;
+stop and ask only for: a decision between designs that changes a public contract, a paid call above $0.10, or two failed attempts
+at the same step (then log the state and move on to the next independent step).
+
+| Step | Work | Done when |
+|---|---|---|
+| P1 | Stiction detector robust to noise and small bands: sweep where `exp01` fails, `opus-advisor` for the approach (e.g. use OUT-PV relation), PROVENANCE row, tests, implementation | `exp01` at both noise levels: healthy valve 0 false alarms in 20 seeds, band >= 4 % found in >= 4 of 5; result for band 2 % reported honestly |
+| P2 | Explicit loop definitions in the project file (schema + tests), overview uses them, Wood-Berry runs through loop monitoring | Wood-Berry loops listed with health and findings in the API |
+| P3 | Frontend: link from a finding to its time window in the trend viewer (Vitest + check in Edge) | click on a finding zooms the trend |
+| P4 | Live demo: `PlantServer` with `stiction` scenario plus a scripted asyncua client (SP steps, prints loop health live); short guide for connecting UaExpert | script runs end to end; guide in `docs/` |
+| P5 | Module 1 write-up (README section, results, limits), log update | docs consistent with code |
+
+P1, P2 and P3 touch different packages and run in parallel (worker per package); P4 waits for P1, P5 for all.
+Owner-only items: test with UaExpert, review of ADR 008 reasons.
