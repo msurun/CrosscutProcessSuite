@@ -54,6 +54,8 @@
   "loops.column.inUse": "En uso",
   "loops.column.trend": "Tendencia",
   "loops.none": "No se encontraron lazos de control en este conjunto de datos",
+  "loops.showInTrend": "Ver en la tendencia",
+  "loops.showAll": "Ver todo el registro",
   "loops.noFindings": "No se encontraron problemas",
   "loops.filter.all": "Todos",
   "loops.back": "Volver a los lazos",

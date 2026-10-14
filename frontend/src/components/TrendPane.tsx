@@ -29,6 +29,8 @@ export interface TrendPaneProps {
   xIsTime?: boolean;
   /** Label of a numeric x axis. */
   xLabel?: string;
+  /** Visible x range in seconds set from outside (e.g. a finding window); null shows everything. */
+  xRange?: readonly [number, number] | null;
   /** Called with the visible x range when the user zooms. */
   onZoom?: (minSeconds: number, maxSeconds: number) => void;
 }
@@ -116,6 +118,15 @@ export function TrendPane(props: TrendPaneProps) {
     };
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
   }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
+
+  // Follow an x range chosen outside the plot; null returns to the full extent of the data.
+  useEffect(() => {
+    const plot = plotRef.current;
+    if (!plot) return;
+    const times = props.data[0] as number[];
+    const range = props.xRange ?? (times.length > 0 ? [times[0], times[times.length - 1]] : null);
+    if (range) plot.setScale("x", { min: range[0], max: range[1] });
+  }, [props.xRange?.[0], props.xRange?.[1], props.data]);
 
   // Push new data into the existing plot without re-creating it.
   useEffect(() => {

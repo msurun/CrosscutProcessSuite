@@ -153,6 +153,8 @@ export type LoopStatus = "ok" | "warning" | "problem" | "unused";
 export interface LoopFinding {
   code: string;
   params: Record<string, number>;
+  /** Stretch of data behind the finding, [start_s, end_s] since the first sample; absent for whole-record findings. */
+  window_s?: [number, number];
 }
 
 /** Analysis result of one control loop (`GET /api/datasets/{id}/loops`). */

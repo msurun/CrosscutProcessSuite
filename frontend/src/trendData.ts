@@ -24,6 +24,23 @@ const PRESET_HOURS: Record<Exclude<RangePreset, "all">, number> = {
 };
 
 /**
+ * Turn a finding window (seconds since the first sample) into an x range on the plot's time axis.
+ *
+ * @param timeAxis Column 0 of the uPlot data, in seconds.
+ * @returns `[min, max]` on the same axis, or null when there is no window or no data.
+ */
+export function windowToRange(
+  timeAxis: readonly (number | null)[],
+  window: readonly [number, number] | undefined,
+): [number, number] | null {
+  const first = timeAxis.length > 0 ? timeAxis[0] : null;
+  if (window === undefined || first === null) {
+    return null;
+  }
+  return [first + window[0], first + window[1]];
+}
+
+/**
  * Convert a list of series into the column layout uPlot wants.
  *
  * Column 0 is the shared time axis in SECONDS (converted from nanoseconds);

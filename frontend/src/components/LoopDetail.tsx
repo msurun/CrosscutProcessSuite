@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import type { LoopSummary, Series } from "../api";
 import { fetchSeries } from "../api";
-import { toUplotData } from "../trendData";
+import { toUplotData, windowToRange } from "../trendData";
 import { TrendPane } from "./TrendPane";
 import { StatusChip } from "./StatusChip";
 import { findingText, nextStepTexts, type Translate } from "../findings";
@@ -108,8 +108,16 @@ function KeyNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
   );
 }
 
-/** The findings that explain why the loop is flagged. */
-function Findings({ loop, t }: { loop: LoopSummary; t: Translate }) {
+/** The findings that explain why the loop is flagged; one with a data window can zoom the trends. */
+function Findings({
+  loop,
+  t,
+  onShow,
+}: {
+  loop: LoopSummary;
+  t: Translate;
+  onShow: (window: [number, number] | undefined) => void;
+}) {
   if (loop.findings.length === 0) {
     return <p>{t("loops.noFindings")}</p>;
   }
@@ -118,7 +126,17 @@ function Findings({ loop, t }: { loop: LoopSummary; t: Translate }) {
     <>
       {loop.findings.map((finding, index) => (
         // Findings carry no id from the backend, so the index identifies them.
-        <p key={index}>{findingText(t, finding)}</p>
+        <p key={index}>
+          {findingText(t, finding)}
+          {finding.window_s !== undefined && (
+            <>
+              {" "}
+              <button type="button" className="link-button" onClick={() => onShow(finding.window_s)}>
+                {t("loops.showInTrend")}
+              </button>
+            </>
+          )}
+        </p>
       ))}
     </>
   );
@@ -137,7 +155,17 @@ function NextSteps({ loop, t }: { loop: LoopSummary; t: Translate }) {
 }
 
 /** The two trend panes, or the loading/error message replacing them. */
-function Trends({ state, loop, t }: { state: SeriesState; loop: LoopSummary; t: Translate }) {
+function Trends({
+  state,
+  loop,
+  t,
+  window,
+}: {
+  state: SeriesState;
+  loop: LoopSummary;
+  t: Translate;
+  window: [number, number] | undefined;
+}) {
   if (state.status === "loading") {
     return <p className="status">{t("trends.loading")}</p>;
   }
@@ -147,16 +175,27 @@ function Trends({ state, loop, t }: { state: SeriesState; loop: LoopSummary; t: 
 
   const pvSp = pickSeries(state.series, [loop.pv, loop.sp]);
   const out = pickSeries(state.series, [loop.out]);
+  const pvSpData = toUplotData(pvSp);
+  const outData = toUplotData(out);
+  // Both panes share the time axis, so one window gives the same range for both.
+  const range = windowToRange(pvSpData[0], window);
 
   return (
     <>
       <TrendPane
-        data={toUplotData(pvSp)}
+        data={pvSpData}
         labels={[loop.pv, loop.sp]}
         colors={[...PV_SP_COLORS]}
         unit={loop.unit}
+        xRange={range}
       />
-      <TrendPane data={toUplotData(out)} labels={[loop.out]} colors={[OUT_COLOR]} unit={OUT_UNIT} />
+      <TrendPane
+        data={outData}
+        labels={[loop.out]}
+        colors={[OUT_COLOR]}
+        unit={OUT_UNIT}
+        xRange={range}
+      />
     </>
   );
 }
@@ -183,6 +222,7 @@ export function LoopDetail({
   onOpenBenefit: () => void;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
+  const [shownWindow, setShownWindow] = useState<[number, number] | undefined>(undefined);
 
   return (
     <>
@@ -209,7 +249,7 @@ export function LoopDetail({
         <div>
           <section>
             <h3>{t("loops.why")}</h3>
-            <Findings loop={loop} t={t} />
+            <Findings loop={loop} t={t} onShow={setShownWindow} />
           </section>
           <section>
             <h3>{t("loops.nextSteps")}</h3>
@@ -223,7 +263,12 @@ export function LoopDetail({
       </div>
 
       <section>
-        <Trends state={seriesState} loop={loop} t={t} />
+        {shownWindow !== undefined && (
+          <button type="button" className="link-button" onClick={() => setShownWindow(undefined)}>
+            {t("loops.showAll")}
+          </button>
+        )}
+        <Trends state={seriesState} loop={loop} t={t} window={shownWindow} />
       </section>
     </>
   );
