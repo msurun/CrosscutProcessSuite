@@ -31,14 +31,18 @@ The range formula is ours, derived from the principle in FAQ 1.4; it is unit-tes
 | Deviation DEV = MV - WSP (measured minus working setpoint); direct or reverse action is selectable | same, p.9 |
 | Deviation is expressed in percent of the MV range; PI block and output default to -100..+100 % (scalable) | same, p.23 (section 4.12) |
 | Integration is blocked inside a dead band; if TS/TI > 1 the algorithm sets TS/TI = 1 | same, p.9 |
+| **Gain is normalised and dimensionless**: the block applies G = Gain x OutRange / PvRange itself, so our `kc` is entered as it is. This is the same G that the Siemens formula `siemens_gain` computes by hand | ABB 3BSE041488-600 A (Binary and Analog Handling, 05/2016) p.120 |
+| Controller types P, PD, PI, PID, PPI; symbols Sp, Pv, Ti (integral time), Td (derivative time), Tfil (derivative filter), beta (setpoint weight) | same, p.119-121 |
+| Setpoint weight beta: default 1 for a continuous setpoint, 0 for a discontinuous one (operator types a value); both are **editable in PidCC and PidAdvancedCC** "when an externally calculated tuning is applied" | same, p.123-124 |
 | External parameters `Gain`, `TI`, `TD`, `TF` (initial Gain 0.5, TI 30, TD 0, TF 0) | same, p.10 |
 
-**NOT confirmed:** the unit of TI and TD (seconds or minutes). This document does not say, and the library manual
-(3BSE035982 / 3BSE041488, ABB library portal) blocked the download here (HTTP 403). A forum post says seconds; that is not
+**NOT confirmed:** the unit of TI and TD (seconds or minutes). Neither Pid01A nor the 536-page Binary and Analog Handling
+manual (read in full text, 2026-10-14) states it; the algorithm formulas there are images. The PID Control library reference
+3BSE035982 was not found (HTTP 403 on the first ABB link). A forum post says seconds; that is not
 evidence. The code uses seconds and the form stays `partly_verified` until the unit is read in the library manual or the
 Control Builder help of the real system. Also open: the Pid01A document is the ControlIT unit around PidCC, not the PidCC page itself.
 
-**Mapping from our PI:** `Gain = kc` (percent in, percent out: no range scaling), `TI = ti_s` (unit to confirm), `TD = 0`.
+**Mapping from our PI:** `Gain = kc` (normalised, no range scaling), `TI = ti_s` (unit to confirm), `TD = 0`, setpoint weight beta = 1.
 
 ## What we do with this
 
@@ -47,7 +51,7 @@ Control Builder help of the real system. Also open: the Pid01A document is the C
 2. **Warnings travel with the numbers.** Each form carries its caveats (`PWeighting = 1`, `TI = 0` disables the integral, positive gain only,
    range scaling for Siemens, the open unit for ABB). A `partly_verified` form must be shown with its open point.
 3. **Advisory only.** Nothing writes to a DCS. The engineer applies the values; the first real check is a step test on the plant.
-4. **Closing the ABB gap** needs one of: the PidCC page of the library manual, a screenshot of the block's parameter help, or the TI value
+4. **Closing the ABB gap** (only the TI/TD unit is left) needs one of: the PidCC page of the library manual, a screenshot of the block's parameter help, or the TI value
    and unit of a loop running on the owner's system (no plant data is needed, only the unit).
 5. **Siemens gap:** a soft PLC (PLCSIM) run would turn the range formula from derived to tested (stage V5 of the plan).
 6. **Not covered:** PID_Compact derivative with filter (we tune PI only), ABB PidAdvancedCC, cascade, other vendors.

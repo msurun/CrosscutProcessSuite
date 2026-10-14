@@ -65,17 +65,20 @@ VENDOR_FORMS: dict[str, VendorForm] = {
         form="gain_seconds",
         evidence="partly_verified",
         source=(
-            "ABB 3AST001596D013 rev D (Pid01A functional description, 2009) p.9-10 and p.23: "
-            "ideal PID G(s) = Gain (1 + 1/(TI s) + TD s/(1 + TF s)), deviation in percent of the "
-            "measured-value range; the same document does not state the unit of TI"
+            "ABB 3AST001596D013 rev D (Pid01A, 2009) p.9-10, p.23: ideal PID, deviation in percent "
+            "of range; ABB 3BSE041488-600 A (Binary and Analog Handling, 05/2016) p.120-124: "
+            "G = Gain x OutRange / PvRange with Gain normalised and dimensionless, setpoint weight "
+            "beta editable in PidCC; neither document states the unit of TI"
         ),
         caveats=(
             "Unit of TI and TD NOT confirmed by a document: check the PidCC page of the Control "
             "Builder library manual (3BSE035982) or the block's parameter help before use",
             "Pid01A is the ControlIT unit around PidCC, not the AC 800M library manual itself",
-            "Deviation is DEV = MV - WSP, in percent of the range: Gain is dimensionless "
-            "(percent output per percent deviation), so kc is used as it is",
+            "Gain is entered normalised (G = Gain x OutRange / PvRange is applied inside), "
+            "so kc is used as it is, with no range scaling",
             "Reverse action is a selectable setting, not a negative Gain",
+            "Setpoint weight beta is 0 for a discontinuous setpoint by default: set it to 1 "
+            "(editable in PidCC) when an externally calculated tuning is applied",
         ),
     ),
 }
