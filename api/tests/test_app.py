@@ -256,3 +256,20 @@ def test_benefit_endpoint_rejects_an_impossible_reduction(step_test_client: Test
     url = f"/datasets/{dataset}/loops/mill_feed/benefit"
     assert step_test_client.get(url, params={"std_reduction": 1.5}).status_code == 422
     assert step_test_client.get(f"/datasets/{dataset}/loops/nope/benefit").status_code == 404
+
+
+@pytest.fixture(scope="module")
+def fresh_wood_berry_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
+    """Record a Wood-Berry run into its own folder so its project file stays intact."""
+    root = tmp_path_factory.mktemp("wood_berry_fresh")
+    argv = ["--plant", "wood_berry", "--scenario", "nominal", "--duration", "10m"]
+    assert run_simulation([*argv, "--out", str(root)]) == 0
+    return TestClient(create_app(root))
+
+
+def test_a_wood_berry_run_reports_both_composition_loops_with_a_health_value(
+    fresh_wood_berry_client: TestClient,
+) -> None:
+    loops = _fetch_loops(fresh_wood_berry_client)
+    assert [loop["name"] for loop in loops] == ["Top composition", "Bottom composition"]
+    assert all(0 <= loop["health_percent"] <= 100 for loop in loops)

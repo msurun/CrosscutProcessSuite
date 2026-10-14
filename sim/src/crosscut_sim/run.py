@@ -17,6 +17,7 @@ from pathlib import Path
 
 from crosscut_sim.core import Plant, Scenario
 from crosscut_sim.dataset import DEFAULT_START_UTC, RunInfo, record
+from crosscut_sim.loop_definitions import write_project_file
 from crosscut_sim.plants.mill_circuit import MillCircuitPlant
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import build_scenario
@@ -201,6 +202,7 @@ def _record_run(
     except FileExistsError as error:
         print(str(error), file=sys.stderr)
         return 1
+    write_project_file(dataset_dir, args.plant)
 
     # Print the path on stdout so callers can pipe it into other tools.
     print(str(dataset_dir))
