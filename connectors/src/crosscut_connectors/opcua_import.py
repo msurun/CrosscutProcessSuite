@@ -29,6 +29,9 @@ from crosscut_connectors.csv_import import _sanitize_tag_name
 from crosscut_connectors.import_target import ImportTarget
 
 CONNECT_TIMEOUT_S = 5.0
+RECONNECT_ATTEMPTS = 3  # tries to restore a lost session before the round stays BAD
+RECONNECT_DELAY_S = 1.0  # wait between two reconnect tries, in seconds
+NAMESPACE_URI_PREFIX = "nsu="  # OPC UA "ExpandedNodeId" form: nsu=<namespace uri>;s=<name>
 NS_PER_S = 1_000_000_000
 
 
@@ -222,7 +225,8 @@ async def _collect_samples(
     client = Client(url=endpoint, timeout=CONNECT_TIMEOUT_S)
     try:
         await _connect(client)
-        ts_ns, rows, column_qualities = await _poll_rounds(client, node_ids, plan)
+        resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
+        ts_ns, rows, column_qualities = await _poll_rounds(client, resolved, plan)
     finally:
         # Close the session even if a read or a sleep raised.
         await _disconnect(client)
@@ -250,6 +254,8 @@ async def _poll_rounds(
         ts_ns.append(time.time_ns())
         # `sample` is a list of (value, quality) pairs, one per node in `node_ids`.
         sample = await _sample_all(client, node_ids)
+        if all(np.isnan(value) for value, _ in sample):
+            await _restore_session_if_lost(client)
         rows.append([value for value, _ in sample])
         # `strict=True` guards against a server returning a different node count.
         for column, (_, quality) in zip(column_qualities, sample, strict=True):
@@ -263,6 +269,48 @@ async def _connect(client: Client) -> None:
         await client.connect()
     except (TimeoutError, OSError, ua.UaError, ua.UaStatusCodeError) as error:
         raise ConnectionError(f"could not connect to {client.server_url}: {error}") from error
+
+
+async def resolve_node_id(client: Client, node_id: str) -> str:
+    """Turn ``nsu=<uri>;s=Tag`` into ``ns=<index>;s=Tag``; other forms pass through unchanged.
+
+    Namespace indexes are assigned per server session and change when the server restarts or is
+    replaced, so a configuration should name the namespace by its URI and look the index up here.
+
+    Raises:
+        ValueError: if the server does not publish a namespace with that URI.
+    """
+    if not node_id.startswith(NAMESPACE_URI_PREFIX):
+        return node_id
+    uri, separator, identifier = node_id[len(NAMESPACE_URI_PREFIX) :].partition(";")
+    if not separator or not uri:
+        raise ValueError(f"node id {node_id!r} must look like 'nsu=<uri>;s=<name>'")
+    try:
+        index = await client.get_namespace_index(uri)
+    except ValueError as error:
+        raise ValueError(f"namespace {uri!r} is not published by the server") from error
+    return f"ns={index};{identifier}"
+
+
+async def _restore_session_if_lost(client: Client) -> None:
+    """After a round with no usable value: if the session is dead, reconnect (a few tries).
+
+    A round of only BAD values has two causes: wrong node ids (the session is fine, nothing to do)
+    or a lost connection. ``check_connection`` tells them apart; if every try fails the round
+    simply stays BAD and the next round tries again, so a long outage never aborts the import.
+    """
+    try:
+        await client.check_connection()
+        return
+    except (OSError, ua.UaError, ua.UaStatusCodeError, ConnectionError, TimeoutError):
+        pass
+    for _ in range(RECONNECT_ATTEMPTS):
+        await _disconnect(client)
+        try:
+            await client.connect()
+            return
+        except (OSError, ua.UaError, ua.UaStatusCodeError, TimeoutError):
+            await asyncio.sleep(RECONNECT_DELAY_S)
 
 
 async def _disconnect(client: Client) -> None:
