@@ -470,3 +470,16 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   because noise pushes SI towards 0.5. Floor stays 30; no package change.
 - Consequence for the product: the curve-fit index is only usable on clean OP; on noisy OP it reads about 0.5 or abstains,
   which matches LC2. Next candidate (new frozen targets needed): a noise-aware index.
+
+## exp12: stiction detector iteration on real loops (2026-10-15)
+- Protocol agreed with an Opus advisor; labels, split, targets and stop rules frozen first (`experiments/exp12_stiction_scoreboard/`).
+  19 SACAC loops (6 sticking, 13 not; 17 counted). Rounds 1-4 in the README with every frozen text and result, including a
+  protocol breach (scoreboard run before Gate 1b finished) and an implementation deviation found and fixed (old 30-sample floor
+  still applied to upsampled lengths).
+- Candidate A (band-limited to 7 harmonics, upsampled, noise variance subtracted from both fit errors, floor 18 samples per
+  half-cycle from synthetic data): synthetic detection 84-100 % with 0 % false alarms from 20 samples per half-cycle at noise
+  0.15 (shipped index: 4 % at 30). Candidate B adds "level loops on PV" (He et al. 2007, abstract-level).
+- Scoreboard: shipped 1/6 detected, A 3/6, B 3/6 (held-out 2/3); false alarms 0/11 for all; Eastman LC2 wrong on OP (A), right on
+  PV (B). T1 (>= 4/6) and T3 (>= 11/17 answered) are MISSED; Pisa oil&gas is under the information limit (8 samples per half-cycle).
+- Not in the package yet. Open decision for the owner: put B into the package (needs loop kind in settings, exp01 acceptance
+  T4, PROVENANCE row for the noise-corrected index as our own construction) and/or allow a round 5.
