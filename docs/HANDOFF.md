@@ -61,7 +61,7 @@ log every step, state limits plainly. Suggested order (the owner asked for the w
 3. **(DONE 2026-10-14, see the log: exp06-exp08)** **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (biased gain with the operator on,
    see exp00), cascade order; each with an experiment and acceptance targets frozen BEFORE the run, as in
    exp02/exp03. Derive `std_reduction` for the benefit page from loop reports automatically.
-4. **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output `feed_change` is a
+4. **(DONE 2026-10-15 except the matrix screen, see the log: exp09)** **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output `feed_change` is a
    delta of the SP tag). Advisory only.
 5. **Public data, round two.** The flotation data has no SP/OUT. Look for an open dataset WITH controller output
    (stiction/oscillation benchmarks); check the licence before downloading and add the PROVENANCE row first.

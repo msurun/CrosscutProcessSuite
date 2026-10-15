@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
+from crosscut_fuzzy.backtest import BacktestSettings
 from crosscut_fuzzy.library import list_systems, load_document, save_document
+from crosscut_fuzzy.matrix import rule_matrix
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
-from crosscut_fuzzy.payload import infer_payload, replay_payload
+from crosscut_fuzzy.payload import backtest_payload, infer_payload, replay_payload
 from crosscut_fuzzy.versions import diff_documents, list_versions, load_version, save_version
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -44,6 +46,25 @@ class ReplayRequest(BaseModel):
     start_s: float | None = None
     end_s: float | None = None
     max_points: Annotated[int, Field(ge=2, le=5000)] = DEFAULT_REPLAY_POINTS
+
+
+class BacktestRequest(BaseModel):
+    """A rule base, the output to score and the scoring settings (SP units and seconds)."""
+
+    document: dict[str, Any]
+    output_id: str
+    dead_band: float = 2.0
+    lookback_s: float = 900.0
+    silent_band: float = 1.0
+
+
+class MatrixRequest(BaseModel):
+    """A rule base and the two inputs (rows, columns) and the output to lay out as a matrix."""
+
+    document: dict[str, Any]
+    row_id: str
+    column_id: str
+    output_id: str
 
 
 class _FuzzyEndpoints:
@@ -154,6 +175,24 @@ class _FuzzyEndpoints:
             # server failure.
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    def post_backtest(self, dataset_id: str, request: BacktestRequest) -> dict[str, Any]:
+        """Score what the rule base advises just before each operator move (advisory only)."""
+        system = _system_or_422(request.document)
+        t_ns, columns = self.load_wide(dataset_id)
+        settings = BacktestSettings(request.dead_band, request.lookback_s, request.silent_band)
+        try:
+            return backtest_payload(system, t_ns, columns, request.output_id, settings)
+        except FuzzyModelError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    def post_matrix(self, request: MatrixRequest) -> dict[str, Any]:
+        """The rule base laid out as a matrix of two inputs and one output."""
+        system = _system_or_422(request.document)
+        try:
+            return rule_matrix(system, request.row_id, request.column_id, request.output_id)
+        except FuzzyModelError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     def post_replay(self, dataset_id: str, request: ReplayRequest) -> dict[str, Any]:
         """Replay the given rule base over recorded data (what it would have said).
 
@@ -210,7 +249,9 @@ def _route_table(endpoints: _FuzzyEndpoints) -> list[tuple[str, str, Callable[..
         ("/fuzzy/{system_id}/versions/{version_id}", "GET", endpoints.get_version),
         ("/fuzzy/diff", "POST", endpoints.post_diff),
         ("/fuzzy/infer", "POST", endpoints.post_infer),
+        ("/fuzzy/matrix", "POST", endpoints.post_matrix),
         ("/datasets/{dataset_id}/fuzzy/replay", "POST", endpoints.post_replay),
+        ("/datasets/{dataset_id}/fuzzy/backtest", "POST", endpoints.post_backtest),
     ]
 
 

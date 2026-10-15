@@ -384,3 +384,16 @@ advice that weighs PV noise x Kc(1+N) against the OUT range (exp06 P3 reported a
 "use derivative" is withdrawn when 3 * Kc(1+N) * noise sd exceeds 5 % of the OUT range (our
 heuristic, thresholds not yet validated on plant data). Wired into `build_tuning_report` before
 the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as failed; unchanged.
+
+## Fuzzy Studio: backtest and rule matrix (2026-10-15)
+- `crosscut_fuzzy.backtest`: finds operator moves (jumps of the SP tag above a dead band), averages the
+  fuzzy advice over the 900 s before each move and scores sign agreement, correlation, majority share
+  and silent share. `backtest_payload` + `POST /datasets/{id}/fuzzy/backtest` give it for the whole
+  record and each half. Advisory only, nothing is written.
+- `crosscut_fuzzy.matrix.rule_matrix` + `POST /fuzzy/matrix`: rows x columns of two inputs, rules
+  placed by AND with exactly those two inputs, the rest listed as unplaced. The screen itself is NOT
+  built (no Node.js); the data is ready for it.
+- exp09 (targets frozen before the run): B1-B4 met, B5 missed (43 % of operator moves met a silent
+  rule base, target <= 30 %). Rule base not edited. The operator is our own simulation, so this
+  shows the pipeline works, not agreement with a real operator.
+- Open: reason for the silent moves, a tuning round on the first half, a real record with SP/OUT.

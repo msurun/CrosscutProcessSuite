@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from crosscut_fuzzy.backtest import BacktestMetrics, BacktestSettings, backtest, split_halves
 from crosscut_fuzzy.inference import Inference, evaluate
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem
 
@@ -180,3 +181,56 @@ def _actual_series(
 def _json_list(values: np.ndarray) -> list[float | None]:
     """Values as a JSON-safe list (NaN becomes None)."""
     return [None if np.isnan(value) else float(value) for value in values]
+
+
+NS_PER_S = 1e9
+MIN_BACKTEST_SAMPLES = 3
+
+
+def backtest_payload(
+    system: FuzzySystem,
+    t_ns: np.ndarray,
+    columns: Mapping[str, np.ndarray],
+    output_id: str,
+    settings: BacktestSettings,
+) -> dict[str, Any]:
+    """Score one output's advice against the operator's moves of the SP tag it stands for.
+
+    The output's ``tag`` must be the SP tag the operator writes (like ``mill_feed_sp``): its
+    jumps are the operator moves. The whole recording is scored at once, and again for each
+    half, so the engineer sees whether the first half (where rules were tuned) differs from
+    the second. Advisory only: nothing is written anywhere.
+
+    Raises:
+        FuzzyModelError: when the output is unknown, has no tag in the data, or the recording
+            is too short to have a sampling period.
+    """
+    variable = next((item for item in system.outputs if item.id == output_id), None)
+    if variable is None or variable.tag is None or variable.tag not in columns:
+        tag = variable.tag if variable else None
+        message = f"output {output_id} (tag {tag}) has no SP column in the data to compare with"
+        raise FuzzyModelError(message)
+    if len(t_ns) < MIN_BACKTEST_SAMPLES:
+        raise FuzzyModelError("the recording is too short for a backtest")
+    inputs = {item.id: _column(item.id, item.tag, columns) for item in system.inputs}
+    advice = evaluate(system, inputs).outputs[output_id].crisp
+    dt_s = float(np.median(np.diff(t_ns))) / NS_PER_S
+    sp = columns[variable.tag]
+    first, second = split_halves(len(sp))
+    return {
+        "output": output_id,
+        "all": _metrics_json(backtest(advice, sp, dt_s, settings)),
+        "first_half": _metrics_json(backtest(advice, sp, dt_s, settings, first)),
+        "second_half": _metrics_json(backtest(advice, sp, dt_s, settings, second)),
+    }
+
+
+def _metrics_json(metrics: BacktestMetrics) -> dict[str, float | int | None]:
+    """The metrics with NaN turned into None, as JSON needs."""
+    return {
+        "n_moves": metrics.n_moves,
+        "sign_agreement": _json_number(metrics.sign_agreement),
+        "correlation": _json_number(metrics.correlation),
+        "majority_share": _json_number(metrics.majority_share),
+        "silent_share": _json_number(metrics.silent_share),
+    }
