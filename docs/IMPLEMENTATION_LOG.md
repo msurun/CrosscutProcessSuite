@@ -397,3 +397,30 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   rule base, target <= 30 %). Rule base not edited. The operator is our own simulation, so this
   shows the pipeline works, not agreement with a real operator.
 - Open: reason for the silent moves, a tuning round on the first half, a real record with SP/OUT.
+
+## Public data round two: SACAC PID repository, first look (2026-10-15)
+- Source: https://sacac.org.za/resources/ (32 datasets, 81 files, ZIP of all). The page states NO licence for the
+  data ("All rights reserved" in the footer; the CC BY 4.0 belongs to the 2019 article). Treated as: local research
+  use only, nothing committed or redistributed, PROVENANCE row added first. Ask piddata@sacac.org.za before
+  publishing any derived table. Files are `;`-separated with CR line ends; the sampling rate is only in the .txt.
+- EXPLORATORY run, not an experiment: thresholds were NOT frozen first and the per-loop settings (delay = 5 samples,
+  ultimate period = 60 samples, amplitude limit = 5 % of the PV span) are guesses. No claim of validation.
+  Script lives in the session scratchpad, not in the repo; no `expNN` folder yet.
+- Four loops (dt from the .txt except the last, assumed 1 s):
+  - Eastman LC2 level, known sticking valve (20 s): monitor "poor_performance", Harris 0.03 (a level loop is
+    integrating, so the Harris benchmark is of doubtful use), stiction verdict "inconclusive"; curve-fit index 0.52
+    (23 cycles, period ~7170 s), i.e. between the 0.4 and 0.6 thresholds: the known stiction is NOT confirmed.
+    Tuning identification returned delay 5640 s (an artefact of closed-loop cycling) and the low-confidence note
+    fired (free-run R2 0.58), which is the right behaviour.
+  - Pisa oil&gas pressure, stiction (12 s mean, minute timestamps): "oscillating", period 216 s. Curve fit refused:
+    half-cycles have fewer than 30 samples (about 11 per half cycle here), so the 30-sample floor excludes this data.
+    Tuning blocked by a poor fit (R2 -3.0), 0 input moves: correct.
+  - Horch pulp level, tight tuning (1 s): "oscillating", period 95 s, Harris 0.04; curve fit found 0 cycles (only 1146
+    samples); tuning gave a model with a low-confidence note (1 input move).
+  - Pisa chemical flow tuning case: "poor_performance", Harris 0.10; no oscillation; model tau 180 s, no note.
+- Take-aways: the oscillation check agrees with the dataset labels on 2 of 2 labelled oscillations; stiction is not
+  detected on either stiction loop (inconclusive, curve fit unusable at these sampling rates or borderline); the
+  low-confidence flags and the poor-fit guard behave sensibly on closed-loop data; Harris on level loops needs a
+  note. All four are single loops, so this is anecdote.
+- Next: freeze targets, then run the stiction loops from `stiction-*` (11 files) and the DB runs together; decide
+  whether the 30-sample half-cycle floor should be lowered (test on exp01 first).

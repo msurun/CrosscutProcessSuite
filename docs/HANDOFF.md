@@ -61,7 +61,7 @@ commit ("Fuzzy Studio: backtest against operator moves, rule matrix data, exp09"
   is not built (no Node.js).
 
 ### Open, in the order I would take them
-1. **Public data round two (started, nothing downloaded).** Candidates from one search, NOT verified: the
+1. **Public data round two (STARTED 2026-10-15: SACAC repository, 4 loops looked at exploratorily, see the log; PROVENANCE row added; licence of the data is NOT stated, local use only).** Original note: Candidates from one search, NOT verified: the
    "Industrial PID Control Loop Data Repository" (Horch et al., Ind. Eng. Chem. Res. 58(26), 2019; 25 SISO loops
    with PV, SP and OP; the article is CC BY 4.0 but the licence of the DATA must be read on its hosting page) and
    the ISDB of Jelali and Huang (about 100 loops, no free download found). Rule: check the licence, add the
