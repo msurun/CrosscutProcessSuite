@@ -44,3 +44,17 @@ Gate 1 (synthetic, before touching real data): the exp11 design (same generator,
 for L in {10, 12, 15, 20, 30, 60} and noise sd 0.05 and 0.15: detection >= 80 % and false alarm <= 5 %. Report 0.30 and
 L = 6, 8. If Gate 1 fails, candidate A is dropped or changed in a new round; the real data is not looked at to repair it.
 Gate 2: the scoreboard above with candidate A as detector `candidate_a`; T1-T3 as frozen. T4 only if the package is changed.
+
+### Round 1 result (2026-10-15): Gate 1 FAILED as frozen (real data not touched)
+Candidate A on the exp11 synthetic grid. Failing required cells: L=10 (s=0.05: false alarm 17 %; s=0.15: detection 50 %),
+L=12 and L=15 at s=0.15 (detection 62 % and 78 %). Passing: every L >= 20 at s=0.05 and 0.15 (detection 84-100 %, false alarm 0 %)
+and L=12, 15 at s=0.05. For comparison the shipped index had detection 4 % at L=30, s=0.15. At s=0.30 nothing is found below
+L=60 (39 %). So the band-limiting + noise correction works, but the information in 10-15 noisy samples per half-cycle is not enough.
+
+### Round 2 (frozen 2026-10-15 BEFORE the run): candidate A with a floor of 20 samples per half-cycle
+Change: candidate A answers "inconclusive" when the period is under 40 samples (fewer than 20 per half-cycle). The 20 comes from the
+synthetic results above only (the smallest grid L where both required noises pass); it is a validity envelope, stated as a
+limit, not a pass of the original Gate 1 for L < 20. Gate 1b = the same grid, required cells L in {20, 30, 60} x s in {0.05, 0.15}
+(unchanged thresholds: detection >= 80 %, false alarm <= 5 %). Gate 2 = the scoreboard with detector `candidate_a`, T1-T3 as
+frozen in this file (so loops with under 20 samples per half-cycle, e.g. Pisa oil&gas, Horch flow, tuning-Q, are inconclusive
+by construction and count against T1/T3).
