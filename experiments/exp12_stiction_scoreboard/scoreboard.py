@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from candidate_a import candidate_a
 from crosscut_loops.stiction import detect_stiction
 
 Detector = Callable[[np.ndarray, np.ndarray, float], str]
@@ -30,7 +31,7 @@ def shipped(pv: np.ndarray, out: np.ndarray, dt_s: float) -> str:
     return detect_stiction(pv, out, dt_s).verdict
 
 
-DETECTORS: dict[str, Detector] = {"shipped": shipped}
+DETECTORS: dict[str, Detector] = {"shipped": shipped, "candidate_a": candidate_a}
 
 
 @dataclass(frozen=True)

@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "exp11_stiction_flo
 from candidate_a import curve_fit_index_a  # noqa: E402
 from sweep import THRESHOLD, TRIALS, make_signal  # noqa: E402
 
-REQUIRED_LENGTHS = (10, 12, 15, 20, 30, 60)
-EXTRA_LENGTHS = (6, 8)
+REQUIRED_LENGTHS = (20, 30, 60)  # round 2 (Gate 1b); round 1 also required 10, 12, 15
+EXTRA_LENGTHS = (10, 12, 15)
 NOISES = (0.05, 0.15, 0.30)
 REQUIRED_NOISES = (0.05, 0.15)
 MIN_DETECTION = 0.80
