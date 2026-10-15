@@ -1,0 +1,20 @@
+loop,stems,dt_s,kind,label,confidence,split,reason
+horch-flow,stiction-F-paper-horch-2003,1,F,stick,high,held,repository label stiction
+horch-level,stiction-L-paper-horch-2003,1,L,stick,high,held,repository label stiction
+eastman-LC2,stiction-L-chemicals-thornhill-2003,20,L,stick,high,held,Thornhill 2003: LC2 sticking valve
+pisa-power-level,stiction-L-power-baccidicapaci-2018,5,L,stick,high,dev,repository label stiction
+pisa-chem-pressure,stiction-P-chemical-baccidicapaci-2018,30,P,stick,high,dev,repository label stiction
+pisa-oilgas-pressure,stiction-P-oilgas-baccidicapaci-2018;stiction-P-oilgas-DB-1-baccidicapaci-2018;stiction-P-oilgas-DB-2-baccidicapaci-2018;stiction-P-oilgas-DB-3-baccidicapaci-2018;stiction-P-oilgas-DB-4-baccidicapaci-2018;stiction-P-oilgas-DB-5-baccidicapaci-2018;stiction-P-oilgas-DB-6-baccidicapaci-2018;stiction-P-oilgas-DB-7-baccidicapaci-2018,12,P,stick,high,dev,"repository label stiction (8 files, one loop)"
+other-F-horch,other-F-paper-horch-2003,1,F,no,high,held,oscillation from an external disturbance
+other-F-horch-2,other-F-paper-horch-2003-2,1,F,no,high,held,normal operation with setpoint change
+other-L-horch,other-L-paper-horch-2003,2,L,no,high,held,normal operation
+tuning-L-horch,tuning-L-paper-horch-2003,1,L,no,high,held,tight tuning
+tuning-Q-horch,tuning-Q-paper-horch-2003,1,Q,no,high,held,tight tuning
+tuning-F-chemical,tuning-F-chemical-DB-baccidicapaci-2018,1,F,no,high,dev,"sluggish tuning (12 files, one loop)"
+sensor-F-oilgas,sensor-F-oilgas-thornhill-2007,20,F,no,medium,held,"siphoning orifice plate, not the valve"
+other-F-chemicals,other-F-chemicals-thornhill-2003,20,L,no,medium,held,non-periodic transient excursions
+saturation-L-minerals,saturation-L-minerals-bauer-2017,10,L,no,medium,held,saturation example
+quantisation-F-minerals,quantisation-F-minerals-bauer-2017,10,F,no,medium,held,quantisation example
+quantisation-Q-horch,quantisation-Q-paper-horch-2003,1,Q,no,medium,held,quantisation example
+unknown-F-chemicals,unknown-F-chemicals-thornhill-2003,20,F,no,low,held,"unknown disturbance, may be driven by LC2 stiction"
+saturation-T-oilgas,saturation-T-oilgas-thornhill-2002,20,T,no,low,held,"description mentions quantisation, valve state unknown"
