@@ -12,7 +12,7 @@ tuning-L-horch,tuning-L-paper-horch-2003,1,L,no,high,held,tight tuning
 tuning-Q-horch,tuning-Q-paper-horch-2003,1,Q,no,high,held,tight tuning
 tuning-F-chemical,tuning-F-chemical-DB-1-baccidicapaci-2018;tuning-F-chemical-DB-2-baccidicapaci-2018;tuning-F-chemical-DB-3-baccidicapaci-2018;tuning-F-chemical-DB-4-baccidicapaci-2018;tuning-F-chemical-DB-5-baccidicapaci-2018;tuning-F-chemical-DB-6-baccidicapaci-2018;tuning-F-chemical-DB-7-baccidicapaci-2018;tuning-F-chemical-DB-8-baccidicapaci-2018;tuning-F-chemical-DB-9-baccidicapaci-2018;tuning-F-chemical-DB-10-baccidicapaci-2018;tuning-F-chemical-DB-11-baccidicapaci-2018;tuning-F-chemical-DB-12-baccidicapaci-2018,1,F,no,high,dev,"sluggish tuning (12 files, one loop)"
 sensor-F-oilgas,sensor-F-oilgas-thornhill-2007,20,F,no,medium,held,"siphoning orifice plate, not the valve"
-other-F-chemicals,other-F-chemicals-thornhill-2003,20,L,no,medium,held,non-periodic transient excursions
+other-F-chemicals,other-F-chemicals-thornhill-2003,20,F,no,medium,held,non-periodic transient excursions
 saturation-L-minerals,saturation-L-minerals-bauer-2017,10,L,no,medium,held,saturation example
 quantisation-F-minerals,quantisation-F-minerals-bauer-2017,10,F,no,medium,held,quantisation example
 quantisation-Q-horch,quantisation-Q-paper-horch-2003,1,Q,no,medium,held,quantisation example
