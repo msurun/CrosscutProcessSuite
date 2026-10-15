@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from crosscut_loops.identification import identify_fopdt
+from crosscut_loops.identification_quality import FitAssessment, assess_fit
 from crosscut_loops.tuning_pid import PidSettings, amigo_pid, derivative_advice, high_frequency_gain
 from crosscut_loops.tuning_rules import (
     ConversionForm,
@@ -57,6 +58,7 @@ STICTION_VERDICT = "stiction"
 STICTION_BLOCKED_REASON = "stiction suspected: repair the valve before retuning"
 MODEL_FAILURE_PREFIX = "model identification failed"
 POOR_FIT_PREFIX = "poor model fit"
+LOW_CONFIDENCE_PREFIX = "low confidence in the model: "
 
 # Robustness values are clamped into this range before use.
 MIN_ROBUSTNESS = 0.0
@@ -133,10 +135,24 @@ def build_tuning_report(
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
     report = _identified_report(loop_name, model, robustness, stiction_verdict)
     report = _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
+    report = _flag_low_confidence(report, assess_fit(model, u, y, dt_s))
     if report.simc is not None:
         report.vendor_forms = vendor_summaries(report.simc, pv_span, out_span)
         if report.pid is not None and report.pid_advice and report.pid_advice[0]:
             report.vendor_forms_pid = vendor_summaries(report.simc, pv_span, out_span, report.pid)
+    return report
+
+
+def _flag_low_confidence(report: TuningReport, assessment: FitAssessment) -> TuningReport:
+    """Add a warning note when the record cannot support the identified gain.
+
+    The one-step R squared used by the poor-fit block is high on slow loops whatever the
+    gain, so a record with a single input step can pass it with a wrong gain (0.55 instead
+    of 2 in a test).  The note does not block the settings; it tells the engineer to
+    confirm the model with a second step before applying them.
+    """
+    if assessment.low_confidence:
+        report.notes.append(LOW_CONFIDENCE_PREFIX + "; ".join(assessment.reasons))
     return report
 
 

@@ -350,3 +350,19 @@ Tools: `foremankit check` clean on all new Python files; ruff, mypy (sim, loops,
   - exp08 helper: dead `outer_pi_for` and no-op calls removed, the redundant inner simulation in `identify_outer_open` dropped (baseline IAE 35.3 -> 38.6 because the noise sequence changed).
   - `identify_fopdt_closed_loop`: clear error for a record that is too short, lists accepted, helper takes 3 parameters, misplaced codecheck comment moved.
   - Not changed: `sql_import` still sanitises the tag name twice per row (cheap, left for clarity).
+
+## 2026-10-14 - Opus consultation and two fixes
+
+- Opus advisor reviewed the open points. Accepted: shared `sampling_period` (no resampling,
+  because interpolation itself biases Harris); free-run fit plus excitation count for
+  identification confidence.
+- `monitor.sampling_period` and `LoopSettings.scan_period_s`: jitter bias in Harris removed (exp05 re-run).
+- `identification_quality.py`: `assess_fit` gives `free_run_r2`, `excitation_events`,
+  `low_confidence`; `build_tuning_report` adds a note (does not block) when a record has
+  fewer than 2 input moves or free-run R2 < 0.6.
+- Not done: output-error refit for step records. Note that on a clean 2-gain single-step
+  test `identify_fopdt` returned tau 7 s (true 40) and delay 18 s (true 5) with gain
+  close to right: tau and delay from a single step are poor even when the gain is not.
+- Open from Opus: exp07 diagnosis (noise-free run, signed errors, 24 h records, weaker
+  disturbance); derivative advice to include PV noise vs OUT range; ABB TI/TD printed as
+  UNCONFIRMED with export blocked until A7 is confirmed.

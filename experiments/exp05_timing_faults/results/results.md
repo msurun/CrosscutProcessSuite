@@ -28,21 +28,21 @@ Evaluation of timestamp jitter and manual mode flips on mill circuit feed loop.
 
 | Seed | Classification | Harris Index | Service Factor | Mode Changes | Non-OK Count | Non-OK Check Names |
 |---|---|---|---|---|---|---|
-| 1 | ok | 0.7974 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 2 | ok | 0.8374 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 3 | ok | 0.7974 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 4 | ok | 0.8390 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 5 | ok | 0.8062 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 1 | ok | 0.7427 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 2 | ok | 0.7865 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 3 | ok | 0.7510 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 4 | ok | 0.7891 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 5 | ok | 0.7541 | 1.0000 | 0 | 2 | duration, time_regularity |
 
 ### Jitter Sigma = 3.0 s
 
 | Seed | Classification | Harris Index | Service Factor | Mode Changes | Non-OK Count | Non-OK Check Names |
 |---|---|---|---|---|---|---|
-| 1 | ok | 0.8272 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 2 | ok | 0.8644 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 3 | ok | 0.8418 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 4 | ok | 0.8655 | 1.0000 | 0 | 2 | duration, time_regularity |
-| 5 | ok | 0.8411 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 1 | ok | 0.7427 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 2 | ok | 0.7865 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 3 | ok | 0.7510 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 4 | ok | 0.7891 | 1.0000 | 0 | 2 | duration, time_regularity |
+| 5 | ok | 0.7541 | 1.0000 | 0 | 2 | duration, time_regularity |
 
 ### Mode Flips n = 1 (10 min each)
 

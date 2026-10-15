@@ -15,6 +15,8 @@ from crosscut_loops.metrics import (
 )
 from crosscut_loops.stiction import detect_stiction
 
+MIN_STAMPS_FOR_PERIOD = 2
+
 
 @dataclass(frozen=True)
 class LoopSettings:
@@ -30,6 +32,23 @@ class LoopSettings:
     saturation_limit: float = 0.2
     manual_limit: float = 0.5  # service factor below this means "the loop is not in use"
     flatline_limit: float = 0.05
+    scan_period_s: float | None = None  # nominal logging period; overrides the estimate when set
+
+
+def sampling_period(t_s: np.ndarray, nominal_s: float | None = None) -> float:
+    """Sampling period of a stretch of timestamps, in seconds per sample.
+
+    Timestamp jitter makes the median step wander (it biased the Harris index by
+    7-11 % in exp05).  The mean step (t_end - t_start) / (n - 1) is unaffected by
+    jitter because the offsets cancel at the two ends.  The stretch must be free of
+    logging gaps, which is true for one active segment; an explicit nominal period
+    wins when the owner knows it.
+    """
+    if nominal_s is not None and nominal_s > 0.0:
+        return float(nominal_s)
+    if len(t_s) < MIN_STAMPS_FOR_PERIOD:
+        raise ValueError("Need at least two timestamps to estimate a sampling period")
+    return float((t_s[-1] - t_s[0]) / (len(t_s) - 1))
 
 
 @dataclass(frozen=True)
@@ -359,14 +378,14 @@ def _longest_segment_metrics(
     Returns ``(harris, period_s, stiction)``.
     """
 
-    # The samples are not guaranteed to be evenly spaced, so we take the median of the
-    # differences between consecutive timestamps as the representative sampling interval.
-    # Unit: seconds per sample.  Median (not mean) so one large logging gap cannot skew it.
-    dt_s = float(np.median(np.diff(series.t_s)))
-
     # `active` is a boolean mask over the samples; `_longest_run` returns a slice selecting
     # the longest unbroken run of True values, i.e. the longest active stretch.
     segment = _longest_run(active)
+    stamps = series.t_s[segment]
+    # A loop with no active stretch has an empty segment; its period still comes from the record.
+    if len(stamps) < MIN_STAMPS_FOR_PERIOD:
+        stamps = series.t_s
+    dt_s = sampling_period(stamps, settings.scan_period_s)
 
     # The control error is process variable minus setpoint: how far the measurement is from where we
     # asked it to be. Computed sample-wise, then restricted to the segment.

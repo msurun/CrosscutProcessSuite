@@ -39,3 +39,10 @@ What the numbers say, and what they do not:
 - Limits: one plant, one loop, synthetic data, delay model of a historian only (Gaussian, independent per sample); real
   historians also stamp in bursts after a network gap, which this does not model. The `duration` warning in every row is the
   6 h record being shorter than the readiness minimum, not a fault.
+
+## Follow-up 2026-10-14: sampling period fix
+
+`monitor` now takes dt as `(t_end - t_start) / (n - 1)` of the active segment
+(`sampling_period`, optional `LoopSettings.scan_period_s`). After the fix the Harris
+index under jitter (0.2, 1.0, 3.0 s) is identical to the no-jitter baseline on all five
+seeds; the earlier 7-11 % bias came from the median step. Targets were not changed.
