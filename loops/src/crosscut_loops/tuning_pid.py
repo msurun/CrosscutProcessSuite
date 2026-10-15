@@ -277,8 +277,8 @@ def noise_checked_advice(
 
     The noise reaches the output multiplied by the high-frequency gain Kc(1+N), so its
     3-sd peak on the output is 3 * Kc(1+N) * sd. A peak above
-    ``_MAX_NOISE_OUTPUT_FRACTION`` of the output range turns the advice into "do not use". Advice that already
-    says "do not use" is returned unchanged.
+    ``_MAX_NOISE_OUTPUT_FRACTION`` of the output range turns the advice into "do not use".
+    Advice that already says "do not use" is returned unchanged.
 
     Args:
         advice: ``(use_derivative, reason)`` from ``derivative_advice``.
