@@ -103,3 +103,19 @@ tested; a PV noise level above OP noise is the open risk). Gate 2: the scoreboar
 frozen; additionally T3' = share of loops that oscillate (period found and >= 6 cycles on the used signal) that get a verdict
 other than inconclusive, reported, not a target. One round, one change. If T1 is still missed after round 4 the detector ships as
 "works on clean OP/PV with >= 18 samples per half-cycle; abstains otherwise" and the remaining misses are listed as data limits.
+
+### Round 4 result (2026-10-15): Gate 2 for candidate B, once
+| detector | T1 detected (held-out) | T2 false alarms | T3 answered | T3' (information) |
+|---|---|---|---|---|
+| shipped | 1/6 (0/3) | 0/11 | 1/17 | 1/10 |
+| candidate A (OP) | 3/6 (1/3) | 0/11 | 4/17 | 4/10 |
+| candidate B (level loops on PV) | 3/6 (2/3) | 0/11 | 3/17 | 3/10 |
+T1 MISSED by one loop (needs 4 of 6), T3 MISSED, T2 met. B fixes the known wrong verdict: Eastman LC2 on PV reads 0.77 "stiction" (A read
+0.30 on OP = wrong); Horch level 0.98. Pisa power level is now inconclusive (PV index 0.58; on OP it was 0.68): on level loops the
+two signals disagree around the 0.6 threshold. Remaining misses: Pisa oil&gas (8 samples per half-cycle, a data limit), Horch flow
+(irregular half-cycles), Pisa power (borderline). All negatives stay inconclusive because most do not oscillate (T3' counts only
+those that do: 3 of 10 answered for B).
+Rounds 3 and 4 both missed T1 on the scoreboard, so by the stop rule no further round is run without the owner's decision.
+Status: candidate B is better than the shipped detector on every figure that matters here (detected 3 vs 1 of 6, held-out 2 vs 0
+of 3, wrong verdicts 0 vs 0, false alarms 0 vs 0), but it is NOT in the package: putting it there needs the loop kind in the
+settings and the exp01 acceptance run (T4) with the new method. 12-19 loops cannot support an accuracy figure.

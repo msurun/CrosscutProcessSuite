@@ -103,12 +103,28 @@ def curve_fit_index_a(out: np.ndarray, dt_s: float) -> cf.CurveFitResult:
     )
 
 
-def candidate_a(pv: np.ndarray, out: np.ndarray, dt_s: float) -> str:
-    """Verdict of candidate A with the shipped thresholds 0.6 / 0.4 (PV unused, as shipped)."""
-    del pv
-    fit = curve_fit_index_a(out, dt_s)
+def verdict_on(signal: np.ndarray, dt_s: float) -> str:
+    """Verdict of the noise-corrected index of ``signal`` with the shipped thresholds 0.6 / 0.4."""
+    fit = curve_fit_index_a(signal, dt_s)
     if fit.index is None:
         return "inconclusive"
     if fit.index > SI_STICTION_MIN:
         return "stiction"
     return "no_stiction" if fit.index < SI_NO_STICTION_MAX else "inconclusive"
+
+
+def candidate_a(pv: np.ndarray, out: np.ndarray, dt_s: float) -> str:
+    """Candidate A: the verdict on OP for every loop (PV unused, as in the shipped path)."""
+    del pv
+    return verdict_on(out, dt_s)
+
+
+def candidate_b(pv: np.ndarray, out: np.ndarray, dt_s: float, kind: str) -> str:
+    """Candidate B: PV for level (integrating) loops, OP for the rest; kind from loop settings."""
+    return verdict_on(pv if kind == "L" else out, dt_s)
+
+
+def oscillates(signal: np.ndarray) -> bool:
+    """True if an autocorrelation period exists and the record holds at least MIN_CYCLES cycles."""
+    period = period_samples(cf._detrend(np.asarray(signal, dtype=float)))
+    return period is not None and signal.size / period >= cf.MIN_CYCLES

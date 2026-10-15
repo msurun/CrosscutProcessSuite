@@ -14,24 +14,36 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from candidate_a import candidate_a
+from candidate_a import candidate_a, candidate_b, oscillates
 from crosscut_loops.stiction import detect_stiction
 
-Detector = Callable[[np.ndarray, np.ndarray, float], str]
+Detector = Callable[[np.ndarray, np.ndarray, float, str], str]
 LABELS = Path(__file__).resolve().parent / "labels.csv"
 WILSON_Z = 1.96
 MIN_HELD_DETECTED = 2
 MIN_DETECTED = 4
 MAX_FLAGGED = 1
 MIN_ANSWERED = 11
+PV_FOR_LEVEL = [False]  # set by main: True when the detector reads PV for level loops
 
 
-def shipped(pv: np.ndarray, out: np.ndarray, dt_s: float) -> str:
-    """The detector as shipped: curve-fit index on OP."""
+def shipped(pv: np.ndarray, out: np.ndarray, dt_s: float, kind: str) -> str:
+    """The detector as shipped: curve-fit index on OP (the kind is not used)."""
+    del kind
     return detect_stiction(pv, out, dt_s).verdict
 
 
-DETECTORS: dict[str, Detector] = {"shipped": shipped, "candidate_a": candidate_a}
+def a_detector(pv: np.ndarray, out: np.ndarray, dt_s: float, kind: str) -> str:
+    """Candidate A: OP for every kind."""
+    del kind
+    return candidate_a(pv, out, dt_s)
+
+
+DETECTORS: dict[str, Detector] = {
+    "shipped": shipped,
+    "candidate_a": a_detector,
+    "candidate_b": candidate_b,
+}
 
 
 @dataclass(frozen=True)
@@ -41,6 +53,7 @@ class Loop:
     name: str
     stems: list[str]
     dt_s: float
+    kind: str
     label: str
     confidence: str
     split: str
@@ -65,6 +78,7 @@ def load_loops() -> list[Loop]:
                 r["loop"],
                 r["stems"].split(";"),
                 float(r["dt_s"]),
+                r["kind"],
                 r["label"],
                 r["confidence"],
                 r["split"],
@@ -75,7 +89,7 @@ def load_loops() -> list[Loop]:
 
 def loop_verdict(root: Path, loop: Loop, detector: Detector) -> str:
     """Majority verdict over the loop's files; a tie is 'inconclusive'."""
-    votes = Counter(detector(*read_columns(root, s), loop.dt_s) for s in loop.stems)
+    votes = Counter(detector(*read_columns(root, s), loop.dt_s, loop.kind) for s in loop.stems)
     (top, n), *rest = votes.most_common()
     return "inconclusive" if rest and rest[0][1] == n else top
 
@@ -108,13 +122,26 @@ def summarise(results: list[tuple[Loop, str]]) -> list[str]:
     ]
 
 
+def oscillation_line(root: Path, results: list[tuple[Loop, str]]) -> str:
+    """T3': share of oscillating counted loops (on the detector's signal) with a verdict."""
+    rows = []
+    for loop, verdict in results:
+        pv, out = read_columns(root, loop.stems[0])
+        signal = pv if loop.kind == "L" and PV_FOR_LEVEL[0] else out
+        if loop.confidence != "low" and oscillates(signal):
+            rows.append(verdict != "inconclusive")
+    return f"T3' (information) answered {sum(rows)}/{len(rows)} of the oscillating counted loops"
+
+
 def main(root: Path, name: str) -> None:
     """Print one line per loop and the target verdicts."""
     detector = DETECTORS[name]
+    PV_FOR_LEVEL[0] = name == "candidate_b"
     results = [(loop, loop_verdict(root, loop, detector)) for loop in load_loops()]
     for loop, verdict in results:
         print(f"{loop.name:26s} {loop.label:5s} {loop.confidence:6s} {loop.split:5s} -> {verdict}")
     print("\n".join(summarise(results)))
+    print(oscillation_line(root, results))
 
 
 if __name__ == "__main__":
