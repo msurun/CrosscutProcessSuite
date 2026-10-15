@@ -461,3 +461,12 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Conclusion to keep stating: the OUT-shape stiction detector is validated on simulation only; on real data at 1-30 s
   sampling it mostly abstains. Do not rely on it for decisions. Possible next work (needs new frozen targets): robust
   half-cycle segmentation (noise chatter, hysteresis relative to noise), PV filtering for level loops, longer records.
+
+## exp11: half-cycle floor from a synthetic sweep (2026-10-15)
+- Diagnosis first: on the SACAC loops the refusals come from real short, regular half-cycles (10-25 samples) or from too few
+  cycles (negatives), not from chatter (hysteresis already exists, CV 0.05-0.22), so "robust segmentation" was not the lever.
+- Sweep (design frozen first, `experiments/exp11_stiction_floor/`): no floor meets the criterion. Below about 15 samples a
+  sine is read as a triangle (floor 10 was wrong); at noise sd 0.15 of the amplitude detection collapses even at 30 samples,
+  because noise pushes SI towards 0.5. Floor stays 30; no package change.
+- Consequence for the product: the curve-fit index is only usable on clean OP; on noisy OP it reads about 0.5 or abstains,
+  which matches LC2. Next candidate (new frozen targets needed): a noise-aware index.
