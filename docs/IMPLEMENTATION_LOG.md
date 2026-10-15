@@ -435,3 +435,12 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   per class, 95 % upper bound 27.8 %; the square-wave limit is unchanged). Test updated. ruff, mypy, pytest green.
 - Caveat: exp01 is simulated, so it can only show that the lower floor did not add false alarms THERE; on real
   healthy loops with short oscillations the lower floor is untested. The data licence is unstated (local use only).
+
+## exp10 correction: floor back to 30 (2026-10-15, after review by the owner and an Opus advisor)
+- The change 30 -> 10 is reverted. Reasons: floor 10 was picked after seeing the SACAC data; the exp01 check gave an
+  identical report because no simulated half-cycle has 10-30 samples (vacuous); the two loops it added are level loops,
+  outside the method's stated scope; the "75 %" used the wrong denominator. Real result: 1 clean detection (Pisa chemical
+  pressure), LC2 inconclusive (0.53), 4 loops without an index. The earlier log entry "floor 30 -> 10" is superseded.
+- Open (in order): (1) read He et al. 2007 to see whether integrating loops are fitted on PV, not OP; (2) re-score exp10
+  by process type with targets frozen first (self-regulating on OP, level loops on PV as a separate variant); (3) any new
+  floor only from a simulation sweep of the sampling step (half-cycles of 8-40 samples, healthy and sticking).

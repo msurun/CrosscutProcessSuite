@@ -58,7 +58,7 @@ def chirp_sine(sample_count: int = TWELVE_CYCLES) -> np.ndarray:
 
 def test_constant_cycles_and_length_limits_are_importable() -> None:
     assert MIN_CYCLES == 6
-    assert MIN_SAMPLES_PER_HALF_CYCLE == 10
+    assert MIN_SAMPLES_PER_HALF_CYCLE == 30
     assert MAX_LENGTH_VARIATION == pytest.approx(0.35)
 
 

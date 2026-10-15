@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 MIN_CYCLES = 6  # fewer cycles give too few half-cycles for a stable median
-MIN_SAMPLES_PER_HALF_CYCLE = 10  # fewer samples cannot tell a triangle from a sine
+MIN_SAMPLES_PER_HALF_CYCLE = 30  # fewer samples cannot tell a triangle from a sine
 MAX_LENGTH_VARIATION = 0.35  # std/mean of the half-cycle lengths; larger is not a limit cycle
 HYSTERESIS_FRACTION = 0.3  # of the signal std: noise inside this band cannot flip the sign
 PEAK_POSITIONS = np.linspace(0.2, 0.8, 13)  # triangle apex, as a fraction of the half-cycle

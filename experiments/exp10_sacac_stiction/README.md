@@ -20,12 +20,23 @@ The detector is `crosscut_loops.stiction_curvefit.curve_fit_index` on OP, thresh
   logged. The floor is never tuned on the SACAC files.
 - Missing the targets is reported as it is.
 
-## Result (2026-10-15; `python -I run.py <folder>` regenerates results/report.md, which is not committed)
+## Result (2026-10-15, CORRECTED the same day after review; `python -I run.py <folder>` regenerates results/report.md, not committed)
 
 Floor 30 (as shipped): an index for 2 of 6 loops (Eastman LC2 0.53, Pisa chemical pressure 0.87).
-Floor 10: an index for 4 of 6 (Horch level 0.71, Eastman 0.53, Pisa power level 0.67, Pisa chemical 0.87).
-Target 1 (>= 4 of 6) met; target 2 (>= 50 % with index >= 0.6) met, 3 of 4 = 75 %. Still without an index: Horch flow
-(half-cycle lengths vary too much) and Pisa oil&gas pressure (all 8 files, fewer than 10 samples per half-cycle).
-Adoption rule: the exp01 acceptance run with floor 10 reproduced `results/acceptance.md` byte for byte (0 of 10
-"stiction" on every healthy class, unchanged positives), so the package floor is now 10. Eastman LC2 stays between
-0.4 and 0.6 (neither verdict). Limits: 6 loops, positives only, no false-alarm information from real data.
+Floor 10 (variant): an index for 4 of 6 (Horch level 0.71, Eastman 0.53, Pisa power level 0.67, Pisa chemical 0.87).
+The two loops the lower floor added are LEVEL loops, i.e. integrating processes, for which `detect_stiction` itself says the
+method does not apply. Without them the only clean hit is Pisa chemical pressure (0.87), which already had an index at floor 30.
+
+**Errors in the first write-up of this result (retracted):**
+- "3 of 4 = 75 %" used only the loops that got an index. Against the 6 labelled loops it is 3 of 6; counting only loops
+  inside the method's scope (self-regulating: Horch flow, Pisa chemical, Pisa oil&gas) it is 1 of 3 or 1 of 4 depending on
+  how the unclassified Horch flow is counted, i.e. detection is poor on real data.
+- The floor of 10 was chosen after seeing this data (about 11 samples per half-cycle in the first look), so the sentence
+  "never tuned on the SACAC files" was false.
+- The exp01 check was vacuous: the identical `acceptance.md` means no simulated half-cycle has 10-30 samples, so it could not
+  show the lower floor is safe. Adoption rule (b) was met only because nothing was exercised.
+- Both targets were easy by construction (>= 4 of 6, >= 50 % of those with an index).
+
+Decision: the package floor is back at 30 (commit that follows this text). Eastman LC2 at 0.53 is most likely a method effect
+(integrating level loop: the OP is part triangle, part parabola, which fits a sine and a triangle about equally), not a
+threshold problem. Limits: 6 loops, positives only, no false-alarm information; treat everything here as anecdote.
