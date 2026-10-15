@@ -28,3 +28,19 @@ with its documented limit. Candidates in order: (a) band-pass around the autocor
 (c) OP-PV cross-correlation as a second voter (stiction only when both agree). Later: bicoherence as a gate, magnitude.
 
 ## Round log
+
+### Round 0 (baseline, 2026-10-15, shipped detector, floor 30)
+T1 1/6 detected (held-out 0/3; Wilson [3 %, 56 %]) MISSED; T2 0/11 false alarms met; T3 answered 1/17 MISSED. Only Pisa chemical
+pressure is flagged; the other 16 are "inconclusive". T4 holds (nothing changed).
+
+### Round 1 (candidates frozen 2026-10-15 BEFORE any code or run): candidate A only
+A = (1) detrend OP; (2) fundamental period from the autocorrelation; (3) white-noise variance v from the median spectrum power
+above 8 fundamentals; (4) keep harmonics 1-7, drop the rest, and upsample by zero-padding the spectrum so every half-cycle has
+at least 64 samples (this also removes the discretisation artefact that makes short sine half-cycles look non-sinusoidal);
+(5) segment the filtered signal into half-cycles; (6) SI' = (a - c) / (a + b - 2c) per half-cycle with a, b the sine and
+triangle fit errors and c the noise variance left after filtering, clipped to [0, 1]; median over half-cycles; same cycle-count
+and regularity rules as today, but NO fixed samples-per-half-cycle floor (the filtering and upsampling replace it).
+Gate 1 (synthetic, before touching real data): the exp11 design (same generator, seeds, 200 trials) with candidate A. Required,
+for L in {10, 12, 15, 20, 30, 60} and noise sd 0.05 and 0.15: detection >= 80 % and false alarm <= 5 %. Report 0.30 and
+L = 6, 8. If Gate 1 fails, candidate A is dropped or changed in a new round; the real data is not looked at to repair it.
+Gate 2: the scoreboard above with candidate A as detector `candidate_a`; T1-T3 as frozen. T4 only if the package is changed.
