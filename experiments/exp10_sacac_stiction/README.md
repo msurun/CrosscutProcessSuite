@@ -61,3 +61,18 @@ before the segmentation, so this is "no verdict", not a verdict against the PV i
 1 of 6 known sticking loops flagged (Pisa chemical pressure, 0.87), LC2 inconclusive on OP (0.53), 4 without an index.
 Not tried, and not to be tried without new frozen targets: low-pass filtering of PV, smoothing the zero-crossing detection.
 `run2.py` reproduces this; nothing in the package changed.
+
+## Round 3: real negatives (targets frozen 2026-10-15 BEFORE the run)
+
+Negatives = SACAC loops whose description gives a non-stiction cause or normal operation: `other-F-paper-horch-2003`
+(oscillation from an external disturbance), `other-F-paper-horch-2003-2` (normal, setpoint change), `other-L-paper-horch-2003`
+(normal), `tuning-L-paper-horch-2003` and `tuning-Q-paper-horch-2003` (tight tuning), `tuning-F-chemical-DB-1..12` (sluggish
+tuning; 12 runs of one loop count once, median index). Left out: unknown causes, loops in manual, the quantisation-T file (its
+plant-wide oscillation was caused by stiction). 6 distinct loops, sampling 1, 1, 2, 1, 1, 1 s. Detector as shipped: floor 30,
+`curve_fit_index` on OP (the shipped path; no PV variant). Real tuning-oscillation loops are the hard negatives, but they are
+few.
+- **Target N1: 0 of 6 negatives get an index >= 0.6.** Reported with the 95 % Wilson upper bound of the false-alarm rate
+  (0 of 6 allows up to about 39 %), so a pass proves little.
+- **N2 (information, no target):** how many of the 6 get any index at all, and how many land in 0.4-0.6 or >= 0.6. A detector
+  that refuses everything passes N1 trivially; if fewer than 2 of 6 get an index this is stated as "N1 not informative".
+- Together with rounds 1-2 this gives the pair (flagged known-stiction, flagged known-negative) on real data, six loops each.
