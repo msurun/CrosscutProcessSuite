@@ -424,3 +424,14 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   note. All four are single loops, so this is anecdote.
 - Next: freeze targets, then run the stiction loops from `stiction-*` (11 files) and the DB runs together; decide
   whether the 30-sample half-cycle floor should be lowered (test on exp01 first).
+
+## exp10: stiction index on the SACAC stiction loops, half-cycle floor 30 -> 10 (2026-10-15)
+- Targets frozen in a separate commit before the run (`experiments/exp10_sacac_stiction/README.md`). 6 distinct
+  loops (12 files), all labelled stiction by the repository, so detection only; no negatives.
+- Floor 30: index for 2 of 6 loops. Floor 10: 4 of 6, 3 of them >= 0.6; both targets met. Not found: Horch flow
+  (irregular half-cycles) and Pisa oil&gas pressure (under 10 samples per half-cycle).
+- `MIN_SAMPLES_PER_HALF_CYCLE` in `stiction_curvefit.py` lowered from 30 to 10 after the exp01 acceptance run with
+  the new value gave an identical `results/acceptance.md` (no healthy-class false alarm among the 10 held-out seeds
+  per class, 95 % upper bound 27.8 %; the square-wave limit is unchanged). Test updated. ruff, mypy, pytest green.
+- Caveat: exp01 is simulated, so it can only show that the lower floor did not add false alarms THERE; on real
+  healthy loops with short oscillations the lower floor is untested. The data licence is unstated (local use only).

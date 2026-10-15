@@ -19,3 +19,13 @@ The detector is `crosscut_loops.stiction_curvefit.curve_fit_index` on OP, thresh
   three healthy classes and no loss in the positive cells that met their target. Otherwise it stays 30 and the miss is
   logged. The floor is never tuned on the SACAC files.
 - Missing the targets is reported as it is.
+
+## Result (2026-10-15; `python -I run.py <folder>` regenerates results/report.md, which is not committed)
+
+Floor 30 (as shipped): an index for 2 of 6 loops (Eastman LC2 0.53, Pisa chemical pressure 0.87).
+Floor 10: an index for 4 of 6 (Horch level 0.71, Eastman 0.53, Pisa power level 0.67, Pisa chemical 0.87).
+Target 1 (>= 4 of 6) met; target 2 (>= 50 % with index >= 0.6) met, 3 of 4 = 75 %. Still without an index: Horch flow
+(half-cycle lengths vary too much) and Pisa oil&gas pressure (all 8 files, fewer than 10 samples per half-cycle).
+Adoption rule: the exp01 acceptance run with floor 10 reproduced `results/acceptance.md` byte for byte (0 of 10
+"stiction" on every healthy class, unchanged positives), so the package floor is now 10. Eastman LC2 stays between
+0.4 and 0.6 (neither verdict). Limits: 6 loops, positives only, no false-alarm information from real data.
