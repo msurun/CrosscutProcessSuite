@@ -66,7 +66,7 @@ by construction and count against T1/T3).
   implementation deviation from the frozen candidate A: `cf._irregularity` still applied the shipped 30-sample floor to the
   upsampled lengths (the frozen text says no such floor). Fixed (own `irregularity()` without it) and the scoreboard re-run.
   Synthetic numbers did not change in kind (their half-cycles are always >= 64 upsampled samples).
-- Scoreboard, informational (not a pass): before the fix T1 2/6, T3 4... after the fix T1 3/6 (held-out 1/3, flagged: Horch level,
+- Scoreboard, informational (not a pass): before the fix T1 2/6 and T3 3/17; after the fix T1 3/6 (held-out 1/3, flagged: Horch level,
   Pisa power, Pisa chemical), T2 0/11, T3 4/17. Eastman LC2 reads "no_stiction" (index 0.3) = a WRONG answer on a known sticking
   integrating level loop; Horch flow, Pisa oil&gas and most negatives stay inconclusive (no periodicity, under 20 samples per
   half-cycle, or fewer than 6 cycles).
