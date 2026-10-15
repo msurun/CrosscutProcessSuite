@@ -494,3 +494,13 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   have no oscillation window, so the test rests on 2 negatives from one source. Treat as a smoke test and demo, not accuracy.
 - Not in the package. Next (new frozen targets): classifier trained on synthetic loops over these test outputs, scored on the
   same SACAC targets untouched; then plant data with valve-test labels from the owner.
+
+## exp14: classifier trained on synthetic loops (2026-10-15)
+- No plant data with valve-test labels is available (owner). Targets frozen first (`experiments/exp14_stiction_classifier/`).
+  Logistic regression (numpy) on He, Horch, samples per half-cycle, regularity, kind; trained on 404 synthetic records (stiction
+  versus sine load, square load, tuning limit cycle; decimation 1-8).
+- Synthetic held-out AUC 0.84 (target 0.85, missed by 0.01), hand score 0.77. SACAC: AUC 1.00, 5 of 6 sticking flagged, 0 false
+  (hand score 6 of 6). Rule applied: the exp13 hand score stays; nothing was tuned afterwards. He carries most of the signal, Horch
+  adds about 0.02, level loops are the weak class.
+- Open: better features for level loops and for fewer than 18 samples per half-cycle; real evidence still needs plant data with
+  valve tests. Package unchanged.

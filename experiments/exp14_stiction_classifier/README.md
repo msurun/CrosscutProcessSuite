@@ -29,3 +29,18 @@ which are already contaminated by exp10-exp13. Everything below is a smoke test,
 - One training run, one SACAC run. SACAC is not used for training, feature choice or the threshold.
 - If C1 or C2 fails, keep the exp13 hand score and say so. If only C3 fails, report plainly; no tuning.
 - SACAC stays local; only aggregates are logged.
+
+## Result (2026-10-15, one training run, one SACAC run)
+
+| Target | Result |
+|---|---|
+| C1 synthetic held-out AUC >= 0.85 | 0.84 (n = 407: 115 sticking, 292 other): MISSED by 0.01 |
+| C2 against exp13 hand score | hand 0.77, classifier 0.84: beats it |
+| C3 SACAC R1 / R2 | AUC 1.00 (held-out 1.00), p 0.035; 5 of 6 sticking flagged, 0 of 2 negatives: both met, but NOT "not worse than exp13" (6 of 6): MISSED |
+| C4 ablation (synthetic) | without Horch 0.82, without He 0.68 |
+
+Per rules: C1 and C3-not-worse are missed, so the exp13 hand score stays and no threshold or feature is changed. The one
+sticking loop lost is Pisa power-level (p 0.12, He 0.58 on PV, level loop so no Horch).
+What this says: on harder synthetic loops (square-wave load, tuning limit cycle, decimated to 5-100 samples per half-cycle) the
+whole approach reaches AUC 0.77-0.84, the He index carries most of it, Horch adds about 0.02, and the level loops remain the weak
+class. A classifier is not the missing piece; better features for level loops and short half-cycles would be.
