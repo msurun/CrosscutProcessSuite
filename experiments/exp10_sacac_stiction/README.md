@@ -40,3 +40,14 @@ method does not apply. Without them the only clean hit is Pisa chemical pressure
 Decision: the package floor is back at 30 (commit that follows this text). Eastman LC2 at 0.53 is most likely a method effect
 (integrating level loop: the OP is part triangle, part parabola, which fits a sine and a triangle about equally), not a
 threshold problem. Limits: 6 loops, positives only, no false-alarm information; treat everything here as anecdote.
+
+## Round 2: score by process type (targets frozen 2026-10-15 BEFORE the run)
+
+Basis: He et al. 2007 fit the signal of the first integrating element after the valve: OP for self-regulating processes, PV
+for integrating ones (read from the abstract-level listings only, not the full paper; to be confirmed). Floor stays 30 and
+nothing in the package is changed by this round.
+- Level loops (integrating): Horch level, Eastman LC2, Pisa power level, scored on PV with the same `curve_fit_index`.
+  **Target L: at least 2 of the 3 get an index >= 0.6.** Missing it means the PV variant does not rescue level loops.
+- Self-regulating loops (Horch flow, Pisa chemical pressure, Pisa oil&gas pressure), scored on OP as in round 1: no target,
+  the round-1 numbers stand (index for 1 of 3).
+- Overall claim allowed after this round: "k of 6 known sticking loops flagged", nothing about false alarms or accuracy.
