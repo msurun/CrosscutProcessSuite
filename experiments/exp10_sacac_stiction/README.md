@@ -76,3 +76,12 @@ few.
 - **N2 (information, no target):** how many of the 6 get any index at all, and how many land in 0.4-0.6 or >= 0.6. A detector
   that refuses everything passes N1 trivially; if fewer than 2 of 6 get an index this is stated as "N1 not informative".
 - Together with rounds 1-2 this gives the pair (flagged known-stiction, flagged known-negative) on real data, six loops each.
+
+### Round 3 result (2026-10-15)
+
+N1 formally met (0 of 6 flagged, 95 % upper bound 39 %) but **N1 is not informative**: N2 shows 0 of 6 negatives get any
+index (all refused by the 30-sample half-cycle rule or by too few / too irregular cycles), so the detector abstains on
+every real negative as well. Over all 12 real loops (6 sticking, 6 not) the shipped detector produced an index for exactly 1
+(Pisa chemical pressure, sticking, 0.87) and a borderline value for 1 (LC2, 0.53). On real SACAC data it is therefore
+almost always silent: no false alarms, but also almost no detections. Run: `python run3.py <folder>` (from this folder,
+without -I, because it imports `run.py`).

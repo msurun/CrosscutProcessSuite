@@ -453,3 +453,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   information on false alarms. Do not describe it as validated. Next possible work (new frozen targets needed): PV
   filtering / robust segmentation, a sweep of sampling step in simulation, and real HEALTHY loops from the repository
   (sensor-fault, tuning, unknown categories) as negatives.
+
+## exp10 round 3: real negatives (2026-10-15)
+- Targets frozen first. 6 non-sticking SACAC loops (external-disturbance oscillation, normal operation, tight and sluggish
+  tuning). Result: 0 of 6 flagged but also 0 of 6 get an index, so N1 is met trivially and says nothing. Combined with
+  rounds 1-2: of 12 real loops the curve-fit detector gives 1 clear and 1 borderline index; the rest is "no verdict".
+- Conclusion to keep stating: the OUT-shape stiction detector is validated on simulation only; on real data at 1-30 s
+  sampling it mostly abstains. Do not rely on it for decisions. Possible next work (needs new frozen targets): robust
+  half-cycle segmentation (noise chatter, hysteresis relative to noise), PV filtering for level loops, longer records.
