@@ -372,3 +372,9 @@ Tools: `foremankit check` clean on all new Python files; ruff, mypy (sim, loops,
   `tuning_report` uses the refit only when its free-run R2 beats the ARX fit.
 - exp07 diagnosis (table in its README): no bug; the gain miss is a finite-sample effect of the
   load disturbance (error ~1/sqrt(N)). Target I1 stays failed.
+
+## ABB time tags marked UNCONFIRMED (2026-10-14)
+The vendor section of the tuning report now prints a banner for every form whose evidence is not
+"verified" and writes ABB TI/TD/TF as "<value> s (UNCONFIRMED)". There is no export or auto-apply
+path in the code yet; when one is added it must refuse unconfirmed forms. Still open: derivative
+advice that weighs PV noise x Kc(1+N) against the OUT range (exp06 P3 reported as failed).

@@ -60,6 +60,11 @@ STICTION_BLOCKED_REASON = "stiction suspected: repair the valve before retuning"
 MODEL_FAILURE_PREFIX = "model identification failed"
 POOR_FIT_PREFIX = "poor model fit"
 LOW_CONFIDENCE_PREFIX = "low confidence in the model: "
+UNCONFIRMED_BANNER = (
+    "> **UNCONFIRMED:** the time unit of the tags marked below is not confirmed by a document. "
+    "Do not enter or auto-apply them on a real loop before it is checked."
+)
+TIME_TAGS = frozenset({"TI", "TD", "TF"})  # ABB PidCC time tags, unit open (assumption A7)
 
 # Robustness values are clamped into this range before use.
 MIN_ROBUSTNESS = 0.0
@@ -512,10 +517,21 @@ def _render_vendor_section(forms: dict[str, VendorSummary], title: str) -> str:
     for spec in forms.values():
         blocks.append(f"### {spec['block']} (evidence: {spec['evidence']})")
         blocks.append("")
-        blocks.extend(f"- {tag}: {_tag_text(value)}" for tag, value in spec["tags"].items())
+        if spec["evidence"] != "verified":
+            blocks.extend([UNCONFIRMED_BANNER, ""])
+        for tag, value in spec["tags"].items():
+            blocks.append(f"- {tag}: {_vendor_tag_text(spec, tag, value)}")
         blocks.extend(f"- CHECK: {caveat}" for caveat in spec["caveats"])
         blocks.append("")
     return "\n".join(blocks)
+
+
+def _vendor_tag_text(spec: VendorSummary, tag: str, value: float | bool) -> str:
+    """Format a tag; a time tag of a not fully verified form is marked "s (UNCONFIRMED)"."""
+    text = _tag_text(value)
+    if spec["evidence"] != "verified" and tag in TIME_TAGS:
+        return f"{text} s (UNCONFIRMED)"
+    return text
 
 
 def _tag_text(value: float | bool) -> str:
