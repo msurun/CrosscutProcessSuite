@@ -51,3 +51,13 @@ nothing in the package is changed by this round.
 - Self-regulating loops (Horch flow, Pisa chemical pressure, Pisa oil&gas pressure), scored on OP as in round 1: no target,
   the round-1 numbers stand (index for 1 of 3).
 - Overall claim allowed after this round: "k of 6 known sticking loops flagged", nothing about false alarms or accuracy.
+
+### Round 2 result (2026-10-15)
+
+**Target L MISSED: 0 of 3 level loops get an index on PV.** All three are refused by the same rule: on PV a half-cycle has
+fewer than 30 samples (zero-crossing chatter from measurement noise splits cycles: e.g. Pisa power level finds 175 cycles
+where OP gives the same count with short halves; Eastman LC2 finds 25 on PV against 23 on OP). The raw PV is not filtered
+before the segmentation, so this is "no verdict", not a verdict against the PV idea. Total over both rounds at floor 30:
+1 of 6 known sticking loops flagged (Pisa chemical pressure, 0.87), LC2 inconclusive on OP (0.53), 4 without an index.
+Not tried, and not to be tried without new frozen targets: low-pass filtering of PV, smoothing the zero-crossing detection.
+`run2.py` reproduces this; nothing in the package changed.

@@ -31,11 +31,11 @@ MIN_STICTION_SHARE = 0.5
 REPORT = Path(__file__).resolve().parent / "results" / "report.md"
 
 
-def read_op(root: Path, stem: str) -> np.ndarray:
-    """OP column (4th, ';'-separated, CR or LF line ends) of one repository file."""
+def read_op(root: Path, stem: str, column: int = 3) -> np.ndarray:
+    """One column (default OP, the 4th; PV is 2) of a ';'-separated repository file."""
     hits = list(root.rglob(f"{stem}.csv"))
     lines = hits[0].read_text(encoding="latin-1").replace("\r", "\n").split("\n")[1:]
-    return np.array([float(r.split(";")[3].replace(",", ".")) for r in lines if r.strip()])
+    return np.array([float(r.split(";")[column].replace(",", ".")) for r in lines if r.strip()])
 
 
 def index_for(op: np.ndarray, dt_s: float, floor: int) -> cf.CurveFitResult:

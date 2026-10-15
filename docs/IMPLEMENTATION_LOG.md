@@ -444,3 +444,12 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Open (in order): (1) read He et al. 2007 to see whether integrating loops are fitted on PV, not OP; (2) re-score exp10
   by process type with targets frozen first (self-regulating on OP, level loops on PV as a separate variant); (3) any new
   floor only from a simulation sweep of the sampling step (half-cycles of 8-40 samples, healthy and sticking).
+
+## exp10 round 2: level loops on PV (2026-10-15)
+- Targets frozen first (separate commit). He et al. 2007 fit PV for integrating processes (abstract-level check only).
+- Target L (>= 2 of 3 level loops with index >= 0.6 on PV) MISSED, 0 of 3: unfiltered PV has noisy zero crossings, so
+  every half-cycle floor check fails and no index is produced. No package change.
+- State of the stiction detector on real data: 1 of 6 known sticking loops flagged, 1 borderline, 4 no verdict, no
+  information on false alarms. Do not describe it as validated. Next possible work (new frozen targets needed): PV
+  filtering / robust segmentation, a sweep of sampling step in simulation, and real HEALTHY loops from the repository
+  (sensor-fault, tuning, unknown categories) as negatives.
