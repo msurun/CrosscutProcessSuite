@@ -37,3 +37,18 @@ strong coloured disturbance, setpoint toggles every 20-40 min; with a weaker dis
 
 Instrument lags (checked afterwards on seeds 1-20, diagnosis only): 20 / 40 / 80 / 150 / 250 lags give a median gain error of 15.9 / 16.0 / 16.1 / 16.3 / 16.8 % and a time-constant error of
 13 / 15 / 14 / 20 / 21 %. The number of lags is therefore not what keeps the gain above the 15 % target; the remaining error is a property of the method on this data.
+
+## Diagnosis 2026-10-14 (exp07_diag.py, seeds 21-40, IV fit, targets unchanged)
+
+| Condition | Gain error mean (signed) | Gain median abs | Tau median abs |
+|---|---|---|---|
+| baseline (4 h, disturbance sd 0.5, noise 0.05) | +0.204 | 0.190 | 0.260 |
+| no noise, no disturbance | 0.000 | 0.000 | 0.000 |
+| noise only (no disturbance) | -0.001 | 0.001 | 0.018 |
+| disturbance sd 0.125 (quarter) | +0.021 | 0.053 | 0.065 |
+| 24 h records | +0.030 | 0.071 | 0.059 |
+
+Reading: the estimator is exact without disturbance, so there is no coding bug. The miss
+comes from the load disturbance: the error falls about 1/sqrt(N) with record length
+(19 % at 4 h, 7 % at 24 h) and with the disturbance size. I1 stays FAILED at 4 h; the
+advice for users is a longer record or more setpoint steps, not a changed threshold.

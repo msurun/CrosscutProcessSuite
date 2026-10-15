@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from crosscut_loops.identification import identify_fopdt
-from crosscut_loops.identification_quality import FitAssessment, assess_fit
+from crosscut_loops.identification_oe import refine_output_error
+from crosscut_loops.identification_quality import FitAssessment, assess_fit, free_run_r2
 from crosscut_loops.tuning_pid import PidSettings, amigo_pid, derivative_advice, high_frequency_gain
 from crosscut_loops.tuning_rules import (
     ConversionForm,
@@ -314,12 +315,25 @@ def _identify_or_reason(
     identify the loop is still useful, it just needs to say so.
     """
     try:
-        model = identify_fopdt(
-            controller_output, process_value, dt_s, _max_delay_s(len(controller_output), dt_s)
-        )
+        max_delay_s = _max_delay_s(len(controller_output), dt_s)
+        arx = identify_fopdt(controller_output, process_value, dt_s, max_delay_s)
     except ValueError as error:
         return None, f"{MODEL_FAILURE_PREFIX}: {error}"
-    return model, None
+    return _better_of(arx, controller_output, process_value, dt_s, max_delay_s), None
+
+
+def _better_of(
+    arx: FopdtModel, u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float
+) -> FopdtModel:
+    """Return the output-error refit when it reproduces y better in free run than the ARX fit.
+
+    The ARX fit is biased by noise in y (it shrinks gain and time constant); the refit
+    matches the simulated output to y instead, so the free-run R squared decides.
+    """
+    refit = refine_output_error(arx, u, y, dt_s, max_delay_s)
+    if free_run_r2(refit, u, y, dt_s) > free_run_r2(arx, u, y, dt_s):
+        return refit
+    return arx
 
 
 def _tune(model: FopdtModel, robustness: float) -> tuple[PiSettings, PiSettings]:

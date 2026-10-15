@@ -366,3 +366,9 @@ Tools: `foremankit check` clean on all new Python files; ruff, mypy (sim, loops,
 - Open from Opus: exp07 diagnosis (noise-free run, signed errors, 24 h records, weaker
   disturbance); derivative advice to include PV noise vs OUT range; ABB TI/TD printed as
   UNCONFIRMED with export blocked until A7 is confirmed.
+- `identification_oe.py` (output-error refit, numpy only): on a single-step record with noise
+  sd 0.05 it recovers gain 2.0, tau 39-41, delay 4.7-5.6 (true 2 / 40 / 5) where ARX gave tau 6 and
+  delay 26. At noise sd 0.2 gain stays right (1.97-2.0) but tau/delay trade off (27-29 s / 16 s).
+  `tuning_report` uses the refit only when its free-run R2 beats the ARX fit.
+- exp07 diagnosis (table in its README): no bug; the gain miss is a finite-sample effect of the
+  load disturbance (error ~1/sqrt(N)). Target I1 stays failed.
