@@ -82,3 +82,24 @@ is then 0.9 * L_pass applied to period/2 (10 % slack for the period estimate, fi
 (H, floor) must pass for every L >= L_pass (true by construction unless the floor itself breaks it). Only after Gate 1c the
 scoreboard is run, once, as Gate 2 (T1-T3 as frozen, T3' reported). Stop rule: two consecutive failed rounds end the work on
 candidate A as a pure OP method and the product ships with the documented limit.
+
+### Round 3 result (2026-10-15): Gate 1c PASSED, Gate 2 FAILED
+Derivation (synthetic only): L_pass was 30 for H = 3, 25 for H = 5, 20 for H = 7; chosen H = 7, floor 18 samples per half-cycle
+(0.9 * 20). Gate 1c: L = 20 detection 100 % / 84 % (s = 0.05 / 0.15), L = 30 100 % / 97 %, L = 60 100 % / 100 %, false alarm 0 %
+everywhere; at s = 0.30 only L = 60 detects (39 %).
+Gate 2 (scoreboard, once): T1 3/6 (held-out 1/3) MISSED; T2 0/11 met; T3 4/17 MISSED. Flagged: Horch level, Pisa power, Pisa
+chemical (indices 1.0, 0.68, 0.89). Per-loop reasons for the rest: Pisa oil&gas has 8 samples per half-cycle (12 s sampling:
+below the information limit shown in exp11, nothing to fix in the method); Horch flow has half-cycle lengths varying too much;
+Eastman LC2 reads 0.30 on OP = WRONG verdict (integrating level loop); negatives are inconclusive because they do not oscillate
+(no periodicity, fewer than 6 cycles) or have under 18 samples per half-cycle (other-F-horch, tuning-Q, sensor-F, saturation-T).
+Rounds 2 and 3 both missed T1 on the scoreboard, so by the stop rule candidate A stops being refined as a pure OP method.
+
+### Round 4 (frozen 2026-10-15 BEFORE any code): candidate B = route by process type, level loops on PV
+B = candidate A (unchanged constants H = 7, floor 18) applied to OP for loops of kind F, P, Q, T and to PV for kind L (integrating
+processes, He et al. 2007, abstract-level reading; the kind comes from `labels.csv`, i.e. from the loop settings in the product,
+never guessed from data). No other change. Gate 1 for B is the same as Gate 1c, because the PV of an integrating loop under
+stiction is a triangle and under a tuning/disturbance oscillation a sine, the same synthetic class (the argument is stated, not
+tested; a PV noise level above OP noise is the open risk). Gate 2: the scoreboard once with detector `candidate_b`, T1-T3 as
+frozen; additionally T3' = share of loops that oscillate (period found and >= 6 cycles on the used signal) that get a verdict
+other than inconclusive, reported, not a target. One round, one change. If T1 is still missed after round 4 the detector ships as
+"works on clean OP/PV with >= 18 samples per half-cycle; abstains otherwise" and the remaining misses are listed as data limits.

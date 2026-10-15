@@ -16,7 +16,7 @@ HARMONICS_KEPT = 7
 NOISE_FROM_HARMONIC = 8
 MIN_SAMPLES_AFTER_UPSAMPLING = 64
 MIN_NOISE_BINS = 16
-MIN_HALF_CYCLE_SAMPLES = 20  # from the exp12 synthetic Gate 1, not from real data
+MIN_HALF_CYCLE_SAMPLES = 18  # 0.9 * L_pass (20), exp12 round 3, synthetic data only
 EPS = 1e-12
 
 
