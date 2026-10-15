@@ -483,3 +483,14 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   PV (B). T1 (>= 4/6) and T3 (>= 11/17 answered) are MISSED; Pisa oil&gas is under the information limit (8 samples per half-cycle).
 - Not in the package yet. Open decision for the owner: put B into the package (needs loop kind in settings, exp01 acceptance
   T4, PROVENANCE row for the noise-corrected index as our own construction) and/or allow a round 5.
+
+## exp13: stiction as a ranked suspicion (2026-10-15)
+- After the Opus review: the hard passive verdict was the wrong product. New output: oscillation window (>= 6 regular cycles,
+  quiet setpoint), curve-fit index (candidate A, PV for level loops) plus Horch cross-correlation oddness, a suspicion score in
+  [0, 1], "test the valve" at >= 0.5. Targets frozen first (`experiments/exp13_stiction_suspicion/README.md`).
+- Horch constants and its use (F only: AUC 0.83 on synthetic loops; L 0.47, so off for L) were derived on a synthetic closed
+  loop (PI + stiction valve), not on SACAC. Label fix: `other-F-chemicals` kind L -> F.
+- SACAC: all targets met (AUC 1.00 on 6 vs 2, 6/6 sticking flagged, 0 of 2 ranked non-sticking), but 9 of 11 non-sticking loops
+  have no oscillation window, so the test rests on 2 negatives from one source. Treat as a smoke test and demo, not accuracy.
+- Not in the package. Next (new frozen targets): classifier trained on synthetic loops over these test outputs, scored on the
+  same SACAC targets untouched; then plant data with valve-test labels from the owner.
