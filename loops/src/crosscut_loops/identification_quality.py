@@ -25,6 +25,7 @@ MOVE_RANGE_FRACTION = 0.02
 # sigma = 1.4826 * median(|x - median(x)|). It is robust to the few large dU that
 # are exactly the moves we want to keep.
 MAD_TO_SIGMA = 1.4826
+SQRT_TWO = 2.0**0.5
 
 
 @dataclass(frozen=True)
@@ -143,3 +144,17 @@ def assess_fit(model: FopdtModel, u: ArrayLike, y: ArrayLike, dt_s: float) -> Fi
         low_confidence=bool(reasons),
         reasons=tuple(reasons),
     )
+
+
+def pv_noise_sd(y: ArrayLike) -> float:
+    """Estimate the standard deviation of white measurement noise on ``y``.
+
+    Differencing removes the slow process movement, so what is left is mostly noise; for
+    white noise var(dy) = 2 var(noise), hence the division by sqrt(2). The MAD ignores
+    the few large differences at real process moves.
+    """
+    increments = np.diff(np.asarray(y, dtype=float))
+    if increments.size == 0:
+        return 0.0
+    spread = MAD_TO_SIGMA * np.median(np.abs(increments - np.median(increments)))
+    return float(spread) / SQRT_TWO

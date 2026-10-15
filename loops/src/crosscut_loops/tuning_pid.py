@@ -31,6 +31,10 @@ _AMIGO_PID_TD_DELAY = 0.3
 # 7.4 report about a doubling of the integral gain at a normalized dead time of
 # 0.5; choosing 0.5 as the cutoff is OUR heuristic, not a rule from the paper.
 _DERIVATIVE_MAX_NORMALIZED_DEAD_TIME = 0.5
+# OUR heuristic: noise peaks (3 sd) moving the output by more than this share of its range
+# wear the valve, so derivative action is not worth it.
+_NOISE_PEAK_SD = 3.0
+_MAX_NOISE_OUTPUT_FRACTION = 0.05
 
 # The ideal-to-series conversion needs Ti >= 4 Td so the square root below stays
 # real (SIMC chapter, eq. 30).
@@ -264,3 +268,36 @@ def high_frequency_gain(settings: PidSettings) -> float:
         The high-frequency gain (dimensionless).
     """
     return settings.kc * (1.0 + settings.filter_ratio_n)
+
+
+def noise_checked_advice(
+    advice: tuple[bool, str], settings: PidSettings, pv_noise_sd: float, out_span: float
+) -> tuple[bool, str]:
+    """Withdraw a "use derivative" advice when PV noise would shake the output too much.
+
+    The noise reaches the output multiplied by the high-frequency gain Kc(1+N), so its
+    3-sd peak on the output is 3 * Kc(1+N) * sd. A peak above
+    ``_MAX_NOISE_OUTPUT_FRACTION`` of the output range turns the advice into "do not use". Advice that already
+    says "do not use" is returned unchanged.
+
+    Args:
+        advice: ``(use_derivative, reason)`` from ``derivative_advice``.
+        settings: PID settings in ideal form.
+        pv_noise_sd: Standard deviation of the PV noise, in PV units.
+        out_span: Span of the output, in output units.
+
+    Returns:
+        The advice, possibly turned off with a reason that quotes the numbers.
+    """
+    if not advice[0] or out_span <= 0.0:
+        return advice
+    peak = _NOISE_PEAK_SD * high_frequency_gain(settings) * pv_noise_sd
+    fraction = peak / out_span
+    if fraction <= _MAX_NOISE_OUTPUT_FRACTION:
+        return advice
+    reason = (
+        f"PV noise too high for derivative action: its 3-sd peak would move the output by "
+        f"{fraction:.0%} of the range (limit {_MAX_NOISE_OUTPUT_FRACTION:.0%}); filter the "
+        "PV or keep the controller PI."
+    )
+    return False, reason

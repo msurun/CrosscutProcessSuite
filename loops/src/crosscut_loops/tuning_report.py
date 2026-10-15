@@ -20,8 +20,19 @@ import numpy as np
 
 from crosscut_loops.identification import identify_fopdt
 from crosscut_loops.identification_oe import refine_output_error
-from crosscut_loops.identification_quality import FitAssessment, assess_fit, free_run_r2
-from crosscut_loops.tuning_pid import PidSettings, amigo_pid, derivative_advice, high_frequency_gain
+from crosscut_loops.identification_quality import (
+    FitAssessment,
+    assess_fit,
+    free_run_r2,
+    pv_noise_sd,
+)
+from crosscut_loops.tuning_pid import (
+    PidSettings,
+    amigo_pid,
+    derivative_advice,
+    high_frequency_gain,
+    noise_checked_advice,
+)
 from crosscut_loops.tuning_rules import (
     ConversionForm,
     FopdtModel,
@@ -140,12 +151,22 @@ def build_tuning_report(
     if model is None:
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
     report = _identified_report(loop_name, model, robustness, stiction_verdict)
+    report = _check_derivative_noise(report, y, out_span)
     report = _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
     report = _flag_low_confidence(report, assess_fit(model, u, y, dt_s))
     if report.simc is not None:
         report.vendor_forms = vendor_summaries(report.simc, pv_span, out_span)
         if report.pid is not None and report.pid_advice and report.pid_advice[0]:
             report.vendor_forms_pid = vendor_summaries(report.simc, pv_span, out_span, report.pid)
+    return report
+
+
+def _check_derivative_noise(report: TuningReport, y: np.ndarray, out_span: float) -> TuningReport:
+    """Turn the derivative advice off when the PV noise would be amplified into the output."""
+    if report.pid is not None and report.pid_advice is not None:
+        report.pid_advice = noise_checked_advice(
+            report.pid_advice, report.pid, pv_noise_sd(y), out_span
+        )
     return report
 
 

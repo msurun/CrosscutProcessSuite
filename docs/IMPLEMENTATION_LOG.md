@@ -378,3 +378,9 @@ The vendor section of the tuning report now prints a banner for every form whose
 "verified" and writes ABB TI/TD/TF as "<value> s (UNCONFIRMED)". There is no export or auto-apply
 path in the code yet; when one is added it must refuse unconfirmed forms. Still open: derivative
 advice that weighs PV noise x Kc(1+N) against the OUT range (exp06 P3 reported as failed).
+
+## Derivative advice checks PV noise (2026-10-14)
+`pv_noise_sd(y)` (MAD of first differences / sqrt 2) and `noise_checked_advice` in tuning_pid:
+"use derivative" is withdrawn when 3 * Kc(1+N) * noise sd exceeds 5 % of the OUT range (our
+heuristic, thresholds not yet validated on plant data). Wired into `build_tuning_report` before
+the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as failed; unchanged.
