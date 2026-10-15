@@ -1,6 +1,6 @@
 """Round 2 of exp10: level (integrating) loops scored on PV, the rest on OP, floor 30 as shipped.
 
-Targets are frozen in README.md ("Round 2"). Usage: python -I run2.py <folder with the unzipped SACAC data>
+Targets are frozen in README.md ("Round 2"). Usage: python -I run2.py <unzipped SACAC data folder>
 """
 
 from __future__ import annotations
@@ -31,9 +31,13 @@ def main(root: Path) -> None:
         level = name in LEVEL_LOOPS
         idx = median_index(root, stems, dt_s, PV_COLUMN if level else 3)
         hits += int(level and idx is not None and idx >= STICTION_INDEX)
-        print(f"{name:22s} {'PV' if level else 'OP'}  index {idx if idx is None else round(idx, 2)}")
-    print(f"target L (>= {MIN_LEVEL_HITS} of 3 level loops >= {STICTION_INDEX}): {hits} ->",
-          "met" if hits >= MIN_LEVEL_HITS else "MISSED")
+        print(
+            f"{name:22s} {'PV' if level else 'OP'}  index {idx if idx is None else round(idx, 2)}"
+        )
+    print(
+        f"target L (>= {MIN_LEVEL_HITS} of 3 level loops >= {STICTION_INDEX}): {hits} ->",
+        "met" if hits >= MIN_LEVEL_HITS else "MISSED",
+    )
 
 
 if __name__ == "__main__":
