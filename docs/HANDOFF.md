@@ -1,4 +1,4 @@
-# Handoff (2026-10-14, night): steps 1-4 done, what is next
+# Handoff (2026-10-15): steps 1-4 done, tuning part 2, Fuzzy Studio backtest done; next is public data round two
 
 Written for the next session (Claude or the owner). The plan P1-P7 of module 1 is done and pushed
 (last commit when written: f7b5bc2). Details per step are in `docs/IMPLEMENTATION_LOG.md`.
@@ -40,7 +40,49 @@ rejects absolute interpreter paths, so install the returned file by hand and che
 code critically: `readiness.py` and `anonymise.py` came back with real bugs. In shell heredocs write regexes with
 `chr(92)` or a raw file edit: a backslash-b inside a normal Python string became a backspace character once.
 
-## Done in the last session (details: `docs/IMPLEMENTATION_LOG.md`, last two sections)
+## State on 2026-10-15 (read first)
+
+Everything below is committed and pushed to origin/main; ruff, mypy and the full pytest were green at the last
+commit ("Fuzzy Studio: backtest against operator moves, rule matrix data, exp09"). Added since the 2026-10-14 text:
+- Sampling period under timestamp jitter fixed (`monitor.sampling_period`); `identification_quality.py` flags
+  low-confidence fits (events < 2 or free-run R2 < 0.6) as a report note; output-error refit
+  (`identification_oe.py`) used when it reproduces y better than ARX. Limit: at noise sd 0.2 tau and delay still
+  trade off (gain is right).
+- exp07 (closed-loop identification): I1 stays FAILED; diagnosis is a finite-sample load-disturbance effect (error
+  about 1/sqrt(N)), not a bug; thresholds unchanged.
+- ABB TI/TD/TF print as "s (UNCONFIRMED)" with a banner in the vendor section of the report. There is no export
+  or auto-apply path yet; when one is added it MUST refuse unconfirmed forms. Still open: the ABB time unit (owner).
+- Derivative advice is withdrawn when 3 * Kc(1+N) * PV noise sd exceeds 5 % of the OUT range
+  (`tuning_pid.noise_checked_advice`; the 5 % is our heuristic, not validated on plant data). exp06 P3 is still
+  reported as failed.
+- Fuzzy Studio: `crosscut_fuzzy.backtest` + `POST /datasets/{id}/fuzzy/backtest`, `crosscut_fuzzy.matrix` +
+  `POST /fuzzy/matrix`; exp09 targets frozen first: B1-B4 met, **B5 missed** (43 % of operator moves met a silent
+  rule base). The operator is our own simulation, so this says nothing about a real operator. The matrix SCREEN
+  is not built (no Node.js).
+
+### Open, in the order I would take them
+1. **Public data round two (started, nothing downloaded).** Candidates from one search, NOT verified: the
+   "Industrial PID Control Loop Data Repository" (Horch et al., Ind. Eng. Chem. Res. 58(26), 2019; 25 SISO loops
+   with PV, SP and OP; the article is CC BY 4.0 but the licence of the DATA must be read on its hosting page) and
+   the ISDB of Jelali and Huang (about 100 loops, no free download found). Rule: check the licence, add the
+   PROVENANCE row FIRST, then download into its own empty folder (untrusted data, `python -I`), do not commit it.
+   Use it to run the stiction and Harris checks and the tuning report on real PV/SP/OP and say what the OE refit
+   and the low-confidence flags do there. The assistant stopped before the second search (the user interrupted).
+2. **Silent moves in exp09 (B5).** Find which operator moves meet silence (size, sign), then a tuning round on the
+   FIRST half only with the check half untouched; log both numbers whatever they are.
+3. **Report confidence flags end to end.** A report-level test of the low-confidence note and the single-step
+   regression case; show `low_confidence` and the vendor/PID fields in the API/frontend payload.
+4. Optional: refined IV (SRIVC idea) for exp07; `ruff format --check` lists 8 pre-existing files (not enforced).
+5. Screens and Node.js items below stay blocked until the owner installs Node.
+
+Tooling notes learned this round: MCP `delegate` needs ABSOLUTE `context_files`; relative paths fail with
+"context file not found". `verify` only accepts the prefixes `.venv/Scripts/python -m pytest`, `python -m ruff
+check` etc. and runs from another folder, so install the answer by hand (`install.py <result-id> <dest>` in the
+session scratchpad is just a code-block extractor; rewrite it if needed). Free models cut off on larger test files;
+DeepSeek Flash and Gemini worked. Check delegated code: a test compared a list with a tuple and one used a random
+integer series as a "ramp".
+
+## Done earlier (details: `docs/IMPLEMENTATION_LOG.md`, last two sections)
 
 Steps 1-4 of the earlier list: stiction band discrepancy explained (seed noise, 14/20), public flotation benchmark
 (`exp04_public_flotation`), customer validation kit (`docs/customer_kit/`, anonymiser, readiness check), connectors
