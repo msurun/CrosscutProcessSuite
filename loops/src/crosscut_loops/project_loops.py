@@ -31,6 +31,8 @@ ENG_MAX_KEY = "eng_max"
 DELAY_KEY = "delay_s"
 ULTIMATE_PERIOD_KEY = "ultimate_period_s"
 AMPLITUDE_LIMIT_KEY = "amplitude_limit"
+PROCESS_KIND_KEY = "process_kind"
+DEFAULT_PROCESS_KIND = "self_regulating"
 
 # The four tag ids a loop must reference to be analysable.
 REQUIRED_TAG_KEYS = (PV_KEY, SP_KEY, OUT_KEY, MODE_KEY)
@@ -132,6 +134,7 @@ def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, An
         amplitude_limit=entry.get(AMPLITUDE_LIMIT_KEY),
         out_low=out_low,
         out_high=out_high,
+        process_kind=entry.get(PROCESS_KIND_KEY, DEFAULT_PROCESS_KIND),
     )
 
 

@@ -99,6 +99,7 @@ class LoopTags:
     amplitude_limit: float | None = None
     out_low: float | None = None  # engineering minimum of the OUT tag; None = OUT_LOW
     out_high: float | None = None  # engineering maximum of the OUT tag; None = OUT_HIGH
+    process_kind: str = "self_regulating"  # or "integrating" (level loop)
 
 
 @dataclass(frozen=True)
@@ -447,6 +448,7 @@ def default_settings(loop: LoopTags) -> LoopSettings:
         ),
         out_low=_first_given(loop.out_low, OUT_LOW),
         out_high=_first_given(loop.out_high, OUT_HIGH),
+        process_kind=loop.process_kind,
     )
 
 
@@ -516,6 +518,9 @@ def _report_row(
         # Verdict on valve stiction; may be None if the loop is not saturated or no oscillation was
         # found.
         "stiction_verdict": report.stiction_verdict,
+        # Ranked stiction suspicion (0..1 or None) and the advice derived from it.
+        "stiction_suspicion": report.stiction_suspicion,
+        "stiction_advice": report.stiction_advice,
         # Downsampled PV values for the inline sparkline chart.
         "sparkline": _sparkline(pv_values),
     }

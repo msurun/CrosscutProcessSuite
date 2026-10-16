@@ -504,3 +504,15 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   adds about 0.02, level loops are the weak class.
 - Open: better features for level loops and for fewer than 18 samples per half-cycle; real evidence still needs plant data with
   valve tests. Package unchanged.
+
+## Ranked stiction suspicion in the package (2026-10-15)
+- New `loops/src/crosscut_loops/stiction_suspicion.py` (port of exp12 candidate A and exp13; scores identical to the experiment code on
+  40 synthetic and 11 SACAC files, max difference 0.0). Output: score 0..1, advice `test_valve` (>= 0.5) / `unlikely` / `not_ranked`,
+  He index, Horch value, period. A ranking that says which valve to test, never a diagnosis; the old `stiction_verdict` stays.
+- Wiring: `LoopSettings.process_kind` ("self_regulating" or "integrating", from the new optional `process_kind` key in
+  `project.schema.json` / `LoopTags`), `LoopReport.stiction_suspicion` and `stiction_advice`, a report finding "stiction possible
+  ... run a valve test", and the two keys in the overview row. Frontend types and locale strings are NOT updated (no Node.js).
+- Tests: `test_stiction_suspicion.py`, two tests in `test_monitor_stiction.py`; ruff, mypy, pytest green.
+- exp01 acceptance (targets frozen first, `acceptance_suspicion.py`): low noise 10/10 at bands 4-8 %, 0 false alarms in all classes
+  (also the square wave), but 0-1 of 10 at full noise because the window search on PV finds no regular oscillation (shipped verdict:
+  8 of 10 at band 8 %). Both outputs stay; improving the window at high noise is the first item of the next round.

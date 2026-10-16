@@ -14,6 +14,7 @@ from crosscut_loops.metrics import (
     saturation_fraction,
 )
 from crosscut_loops.stiction import detect_stiction
+from crosscut_loops.stiction_suspicion import SuspicionResult, stiction_suspicion
 
 MIN_STAMPS_FOR_PERIOD = 2
 
@@ -33,6 +34,7 @@ class LoopSettings:
     manual_limit: float = 0.5  # service factor below this means "the loop is not in use"
     flatline_limit: float = 0.05
     scan_period_s: float | None = None  # nominal logging period; overrides the estimate when set
+    process_kind: str = "self_regulating"  # or "integrating" (level loop): picks the signal tested
 
 
 def sampling_period(t_s: np.ndarray, nominal_s: float | None = None) -> float:
@@ -67,6 +69,8 @@ class LoopReport:
     classification: str
     findings: list[str]
     stiction_verdict: str = "not_checked"
+    stiction_suspicion: float | None = None  # ranked suspicion 0..1, None when not ranked
+    stiction_advice: str = "not_checked"  # "test_valve", "unlikely", "not_ranked", "not_checked"
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,7 @@ class LoopArrays:
     harris: float
     period_s: float | None
     stiction: str
+    suspicion: SuspicionResult
 
 
 def _longest_run(mask: np.ndarray) -> slice:
@@ -211,6 +216,21 @@ def _stiction_verdict(pv: np.ndarray, out: np.ndarray, dt_s: float, settings: Lo
         return "not_checked"
 
 
+def _suspicion(
+    series: LoopSeries, segment: slice, dt_s: float, settings: LoopSettings
+) -> SuspicionResult:
+    """Ranked stiction suspicion for one uninterrupted AUTO stretch (never raises).
+
+    The suspicion needs a regular oscillation window inside the stretch; without one the loop
+    is simply "not_ranked". Short stretches and NaN samples are "not_checked", as for the verdict.
+    """
+    pv, out, sp = series.pv[segment], series.out[segment], series.sp[segment]
+    if len(pv) < settings.min_segment_samples or np.isnan([pv, out, sp]).any():
+        return SuspicionResult(None, "not_checked", None, None, None, "stretch too short or NaN")
+    kind = "L" if settings.process_kind == "integrating" else "F"
+    return stiction_suspicion(sp, pv, out, dt_s, kind)
+
+
 def _classify(report: LoopReport, settings: LoopSettings) -> str:
     """Name the most important problem of the loop; the order is the order of urgency.
 
@@ -287,6 +307,11 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
         found.append(messages[report.classification])
     if report.stiction_verdict == "stiction":
         found.append("stiction suspected: fix the valve before retuning the controller")
+    elif report.stiction_advice == "test_valve":
+        found.append(
+            f"stiction possible (suspicion {report.stiction_suspicion:.2f}): "
+            "run a valve test on this loop before retuning"
+        )
     return found
 
 
@@ -356,13 +381,15 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         # Left empty on purpose: findings are appended by the later analysis stages.
         findings=[],
         stiction_verdict=arrays.stiction,
+        stiction_suspicion=arrays.suspicion.score,
+        stiction_advice=arrays.suspicion.advice,
     )
 
 
 def _longest_segment_metrics(
     series: LoopSeries, active: np.ndarray, settings: LoopSettings
-) -> tuple[float, float | None, str]:
-    """Harris index, oscillation period and stiction verdict of the longest active stretch.
+) -> tuple[float, float | None, str, SuspicionResult]:
+    """Harris index, oscillation period, stiction verdict and suspicion of the longest stretch.
 
     A control loop's behaviour is judged only while it is "active" (disturbed, not sitting
     at steady state).  This function picks the single longest continuously-active stretch
@@ -375,7 +402,8 @@ def _longest_segment_metrics(
     * stiction verdict   -- a string label describing valve stiction, the mechanical
                         sticking of the control valve that shows up as small limit cycles.
 
-    Returns ``(harris, period_s, stiction)``.
+    Returns ``(harris, period_s, stiction, suspicion)``; the suspicion is the ranked score of
+    :func:`crosscut_loops.stiction_suspicion.stiction_suspicion`.
     """
 
     # `active` is a boolean mask over the samples; `_longest_run` returns a slice selecting
@@ -395,7 +423,9 @@ def _longest_segment_metrics(
     # command, `out`) and the resulting process variable (`pv`), not from the error.
     stiction = _stiction_verdict(series.pv[segment], series.out[segment], dt_s, settings)
 
-    return harris, period_s, stiction
+    suspicion = _suspicion(series, segment, dt_s, settings)
+
+    return harris, period_s, stiction, suspicion
 
 
 def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
@@ -420,7 +450,7 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
     # Compute the Harris index, dominant oscillation period, and stiction verdict on the
     # longest contiguous run of active samples. These three metrics rely on a continuous
     # AUTO stretch, so they are extracted before the per-sample statistics are assembled.
-    harris, period_s, stiction = _longest_segment_metrics(series, active, settings)
+    harris, period_s, stiction, suspicion = _longest_segment_metrics(series, active, settings)
     return LoopArrays(
         pv=series.pv,
         out=series.out,
@@ -433,6 +463,7 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
         harris=harris,
         period_s=period_s,
         stiction=stiction,
+        suspicion=suspicion,
     )
 
 

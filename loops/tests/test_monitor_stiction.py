@@ -50,3 +50,19 @@ def test_stiction_loop_in_manual_is_not_checked() -> None:
     pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     report = run_report(pv, out, mode_value=MAN)
     assert report.stiction_verdict == "not_checked"
+
+
+def test_stiction_loop_gets_test_valve_advice() -> None:
+    """Sticking loop (seed 1) through analyze_loop: suspicion advises a valve test."""
+    pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
+    report = run_report(pv, out)
+    assert report.stiction_advice == "test_valve"
+    assert report.stiction_suspicion is not None
+    assert report.stiction_suspicion >= 0.5
+
+
+def test_stiction_loop_in_manual_advice_is_not_checked() -> None:
+    """Sticking loop in manual mode has stiction_advice not_checked."""
+    pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
+    report = run_report(pv, out, mode_value=MAN)
+    assert report.stiction_advice == "not_checked"

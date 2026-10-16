@@ -81,6 +81,14 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "description": "Acceptable oscillation amplitude in PV units."
+          },
+          "process_kind": {
+            "type": "string",
+            "enum": [
+              "self_regulating",
+              "integrating"
+            ],
+            "description": "Process type; integrating (for example a level loop) changes the stiction test."
           }
         }
       }

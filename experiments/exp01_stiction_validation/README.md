@@ -51,3 +51,33 @@ The discrepancy is sampling noise in small seed sets, not a different set-up or 
 moving the loop (operator gain 1.0, probe on the same seeds) the verdict was inconclusive in 20 of 20 runs: the
 detector needs a loop that is not disturbed by hand. The claim "band of about 8 % is found with full noise" holds
 as "about 70 % of runs, 20 seeds, simulator only".
+
+## Acceptance of the ranked suspicion (frozen 2026-10-15 BEFORE the run)
+
+`acceptance_suspicion.py` runs the same grid and seeds through `crosscut_loops.stiction_suspicion` (advice "test_valve" is
+counted like "stiction", "unlikely" like "no_stiction", "not_ranked" like "inconclusive"; tables in `results/acceptance_suspicion.md`).
+The record carries no setpoint column, so the setpoint is passed as a constant (a deviation; a step inside the window would
+normally disqualify it). Targets on the held-out seeds 11-20, no tuning after the run:
+- Positives: band >= 6 % at both noise levels, and band 4 % at low noise: "test_valve" in >= 8 of 10.
+- Negatives (nominal wander, aggressive tuning, sine forcing): "test_valve" in <= 2 of 10 each (a valve test is cheap, a wrong
+  diagnosis is not). Square forcing is reported; failures are expected, as for the verdict.
+- The shipped verdict (`acceptance.md`) is unchanged because `detect_stiction` is not touched.
+
+### Result of the suspicion acceptance run (2026-10-15, `results/acceptance_suspicion.md`)
+
+Held-out seeds 11-20, 10 per cell, "test_valve" counted:
+
+| Case | test_valve | Target |
+|---|---|---|
+| band 4, 6, 8 %, low noise | 10 of 10 each | met |
+| band 6 % full noise | 0 of 10 | MISSED |
+| band 8 % full noise | 1 of 10 | MISSED (the shipped verdict gave 8 of 10) |
+| band 2 %, band 4 % full noise | 0 of 10 | (not in target) |
+| healthy: wander, aggressive tuning | 0 of 10 each, "not_ranked" | met |
+| healthy: sine forcing | 0 of 10, "unlikely" | met |
+| healthy: square forcing | 0 of 10, "unlikely" (the shipped verdict: 10 of 10 false alarms) | reported |
+
+Reading: no false alarms, including the square wave that fools the shipped verdict. But at full noise the window search on PV
+finds no regular oscillation (autocorrelation peak below 0.5), so the ranking says "not_ranked" where the shipped verdict still
+found 8 of 10 at band 8 %. The two outputs are complementary, which is why both stay in the report. Not tuned; a window search on
+OUT or a lower regularity limit is a candidate for the next round (needs frozen targets and a synthetic check first).
