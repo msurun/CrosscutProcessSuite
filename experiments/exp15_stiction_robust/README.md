@@ -45,3 +45,24 @@ Final set, cells of 20 (exp01) or 100 (synthetic):
 
 sha256 of this text in the log before the first run; grep that final seeds appear in no dev script; constants table with provenance;
 per-cell tables with Wilson bounds; ablations (without He, without Horch, without the new feature); exp01 verdict report unchanged.
+
+## Dev log of rounds 1-4 (2026-10-16; dev data only: exp01 seeds 1-20, synth14 seeds 100-159, shifted seeds 1-40)
+
+Records: the final seeds (exp01 21-40, synth14 500-599, shifted 1000-1099) have not been used.
+
+| Round | Candidates | Dev result |
+|---|---|---|
+| 1 | C1a (lag-1 regularity, spectral period, window on OUT or PV), C1b (+ folding) | exp01 full noise, band 8 %: 9/20. T7 check then showed C1a finds a window in 100 % of white-noise records (lag-1 ratio explodes): REJECTED, the gain was partly spurious. C1b = C1a on exp01. |
+| 2 | C2a (longest window with a significant spectral peak, prominence gate 36.5 = pooled p97 of noise-only records), C2b (+ folding) | T7 met (1.5-3 % windows on noise). exp01 full noise band 8 %: 6/20; no false alarms. |
+| 3 | C3a (OUT and PV agree on a moderate peak, gate from independent noise pairs), C4a (window, else He index on the whole record) | C3a REJECTED: 10-11/20 false alarms on wander and aggressive tuning (OUT and PV in a closed loop share wander, so agreement proves nothing). C4a: band 8 % full noise 13/20, band 6 % 7/20, false alarms 0-1/20 in all exp01 classes. |
+| 4 | C5a (score = curve-fit index of the epoch-folded wave), C5b (+ 25 % Horch) | exp01: square forcing now 20/20 false alarms, full noise worse than C4a. Synthetic: sine false alarms down to 3-4 %, square 77-79 %, tuning 18-28 %. NOT better overall. |
+
+Synthetic dev AUC (abstain = 0) of the best variants versus the shipped one: shipped 0.74 (s14) / 0.67 (shifted), C4a 0.73 / 0.68, C4b 0.69 / 0.70,
+C5a 0.66 / 0.71. False alarms of the shipped one on synthetic healthy loops: sine 26 %, square 49 %, tuning 8 %.
+
+What the single-feature study (`feature_study.py`, dev) says: the curve-fit index of the folded wave separates stiction from sine forcing
+(AUC 0.99 F, 0.95 L) and tuning (0.91 F), Horch is weak (0.60-0.72 F, below 0.5 for L), and square forcing is not separable by the index
+(0.52) but is separable by the third-harmonic ratio of OUT (stiction OUT is triangular, square-forced OUT is not).
+
+Status against the frozen dev expectations: T4 (AUC >= 0.85) and the synthetic part of T3 are NOT met by any candidate. By protocol
+(max 4 rounds) the search stops here; the advisor decides whether a further round (a classifier on folded-wave features) is allowed.
