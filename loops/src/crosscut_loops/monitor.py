@@ -309,8 +309,10 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
         found.append("stiction suspected: fix the valve before retuning the controller")
     elif report.stiction_advice == "test_valve":
         found.append(
-            f"stiction possible (suspicion {report.stiction_suspicion:.2f}): "
-            "run a valve test before retuning (periodic upstream disturbances can mimic stiction)"
+            f"stiction possible (suspicion {report.stiction_suspicion:.2f}, a weak ranking): "
+            "periodic upstream forcing can look the same; confirm with a valve test or a gain "
+            "change (a stiction cycle changes period with the gain, a forced one does not) "
+            "before retuning"
         )
     return found
 
