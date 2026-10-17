@@ -516,3 +516,6 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - exp01 acceptance (targets frozen first, `acceptance_suspicion.py`): low noise 10/10 at bands 4-8 %, 0 false alarms in all classes
   (also the square wave), but 0-1 of 10 at full noise because the window search on PV finds no regular oscillation (shipped verdict:
   8 of 10 at band 8 %). Both outputs stay; improving the window at high noise is the first item of the next round.
+
+## exp15 protocol frozen (2026-10-16)
+- `experiments/exp15_stiction_robust/README.md` sha256 6f1e7d19fcbb03e203da8656329c2c540b413fbe54803b963f5ecc42e3566bd6 (recorded before any exp15 code ran). Final data: exp01 seeds 21-40, synth14 seeds 500-599, shifted generator seeds 1000-1099: run once.
