@@ -536,3 +536,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   setpoint-forced training data and the SP column in exp01 records.
 
 - exp15 audit follow-up (2026-10-17): README addendum with corrections, ablations of C4a (dev), paired McNemar p = 0.0078 for T2, disclosure of the final.py reformat; docstring LIMITS extended.
+
+## exp16: does stiction suspicion generalise? (2026-10-17)
+
+- Independent data: ISDB v1.0 (Jelali & Huang 2010, 114 loops; 10 are SACAC twins) downloaded, hashed, labelled only from provider comments, sealed; counted set 13 sticking + 14 other (high confidence, independent). New generator G3 written by a different model from a physics spec (setpoint forcing, cascade, multi-tone, sensor chain, three stiction models); a spec gap and a double-integration bug were fixed and logged; ideal-valve twin rule for stick records. G3 differs from G1/G2 more than they differ from each other and is in SACAC's range.
+- LOFO (dev): shipped worst-family AUC 0.549, C7a (C6 features retrained on G1+G2+G3) 0.739, C7b (+ shape features) 0.678 -> finalist C7a, threshold 0.5.
+- Final single run (salt = commit 2bb08f9...): C7a worst family 0.714 vs 0.522, bootstrap interval [+0.165, +0.218]; exp01 and T7 fine; SACAC veto 3 non-sticking flagged (limit 2) and ISDB other flagged 10/14 vs 1/14 for the shipped module, AUC 0.32 vs 0.67. Not shipped. Package change: stiction finding text now says periodic forcing can look the same and asks for a valve test or a gain change (a stiction cycle changes period with gain, a forced one does not).
+- ISDB per-loop scores are kept outside the repository; label table isdb_labels.csv is untracked (third-party derived). Do not publish before asking the data providers.
+

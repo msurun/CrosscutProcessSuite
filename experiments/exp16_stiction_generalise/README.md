@@ -96,3 +96,44 @@ a gain-change / valve test; the score stays a ranking, never a diagnosis.
 4. Acceptance additions (reported, not selecting): worst-family sensitivity at a fixed 10 %
    healthy-flag rate per family, pAUC at FPR <= 0.1, AUC on the ranked subset with coverage.
    The paired-bootstrap interval of worst-family AUC against shipped is computed on final seeds.
+
+### 2026-10-17 round 1 result and freeze (dev only; no final seed exists yet)
+
+- LOFO worst-family AUC (dev): shipped 0.549, C7a 0.739, C7b 0.678 (area/squareness features
+  lowered coverage and G3). C7b gain over C7a is negative, so the stop rule applies: finalist = C7a.
+- Threshold frozen by pick_threshold.py (original rule, exp01 dev healthy cells <= 2/20, T7 <= 5 %):
+  0.5 (worst healthy cell 1/20, T7 2 %, band 8 full noise 10/20 versus shipped 13/20).
+  c7_model.json had stored the train_c7 default 0.9; it was set to 0.5 here, before any seed.
+- Smoke run of final16.py (EXP16_SMOKE=1: salt "smoke", 2 seeds per cell, no ISDB) passed technically.
+  Dev look at SACAC loops with C7a (SACAC is veto-only, already used in exp13-15): all 6 sticking
+  loops score 0.69-0.89, but 3 of the 5 ranked non-sticking loops score >= 0.79; the veto may fail
+  on false flags. It is reported as is, not tuned.
+- Final: salt = full hash 2bb08f93e76a59b760f2d8ae4d1cc71b8b9543fa (commit made after the finalist
+  features/model were frozen). Hashes of the two files after the threshold edit:
+  6439a0b6208b10d3f4576b8eba129204c408c5a58ba7005221c4c17de16fe4ba  c7_model.json
+  5fc13364e1c4ad0f0c5330f781eef727fcbb80a89d6468bf58aea892574c2348  final16.py
+
+## FINAL RESULT (2026-10-17, results/final16.md, single run, salted seeds): C7a is NOT shipped
+
+- Synthetic: worst-family AUC shipped 0.522 -> C7a 0.714 (gain +0.192, paired bootstrap 95 %
+  interval [+0.165, +0.218]); G1 0.749 -> 0.915, G2 0.661 -> 0.898, G3 0.522 -> 0.714. exp01
+  healthy cells 0/20 everywhere, T7 1/100, sticking at full noise band 8: 9/20 (shipped 13/20).
+- SACAC veto: sticking 6/6 flagged for both, non-sticking flagged 3 (shipped 1; veto <= 2) -> MISSED.
+- ISDB counted set (13 sticking, 14 other, independent, high confidence): shipped flags 6/13 and
+  1/14 (AUC abstain=0 0.670); C7a flags 5/13 and 10/14 (AUC 0.324, below chance) -> MISSED.
+- Verdict: the acceptance rule requires ISDB other flagged <= shipped + 1; C7a flags 10 of 14.
+  The rule is applied as written. The shipped module stays; only the weaker wording changed.
+
+What this says (interpretation, not tuned away): gains across three synthetic families do not
+transfer to independent real loops. On real "other" loops (disturbances, quantisation, sensor
+faults, tuning problems) C7a ranks almost every record (12/14) and scores most of them high, so
+the learned shapes are driven by features of the simulators (sustained clean oscillation = stiction)
+rather than by stiction. The shipped module abstains on half of those loops, which is why it looks
+better there. ISDB is now used for C7a; it must not be used to select a next candidate.
+
+Unproven or open: precision in a real plant; what real non-stiction oscillations look like to the
+features (an ISDB-derived training set would need new sealed data); level loops (5 of the
+counted ISDB "other" loops); half-cycles < 18 samples (G3 had few); rank wording needs a minimum
+loop-list size; exp01 has no setpoint forcing (G3 covers it synthetically only).
+Round 2 is not started: the Opus rule allows at most 3 rounds, but a further round would be
+selected against ISDB, which is burned for this purpose.
