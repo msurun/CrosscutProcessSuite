@@ -521,3 +521,16 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - `experiments/exp15_stiction_robust/README.md` sha256 6f1e7d19fcbb03e203da8656329c2c540b413fbe54803b963f5ecc42e3566bd6 (recorded before any exp15 code ran). Final data: exp01 seeds 21-40, synth14 seeds 500-599, shifted generator seeds 1000-1099: run once.
 
 - exp15 amendment 1 (round 5, combiner C6): README sha256 9ca28c05b61dbbb16eef83a8ca9cd54492d846cf31e6bcdcfabd6f7615f6de22, recorded before any round-5 code.
+
+## exp15: robust stiction suspicion, rounds 1-5 and final run (2026-10-16)
+- Protocol agreed with an Opus advisor (README sha256 recorded before any code; amendment 1 for round 5). Dev data and never-seen final
+  seeds kept apart; a shifted synthetic generator (Kano-style stiction, coloured noise) added. Details and every rejected candidate in
+  `experiments/exp15_stiction_robust/README.md`; final numbers in `results/final.md`.
+- Rejected: C1a (lag-1 regularity: a window in 100 % of white-noise records), C3a (OUT/PV agreement: 10/20 false alarms on wander),
+  C5 (folded-wave index alone: 77-79 % flags on square forcing), C6 (combiner: failed the exp01 dev gate, 20/20 on square forcing).
+- Shipped: C4a = window by spectral-peak prominence (gate 36.5 from noise-only records) with the curve-fit index on the whole record as
+  fallback. Final data: exp01 full noise band 8 % 10/20 (was 2/20), no exp01 false alarm above 2/20, SACAC 6/6 and 1 negative flagged.
+- NOT achieved: synthetic AUC >= 0.85 (0.77 and 0.65, unchanged by C4a) and <= 10 % flags on healthy synthetic classes (sine about 28 %,
+  square about 50 %). A "test_valve" advice is a reason to test the valve, not evidence. Real plant data with valve tests is still missing.
+- Open: C6-style combiner scored AUC 0.85-0.95 on synthetic data of its own family but failed exp01 (setpoint forcing); retry needs
+  setpoint-forced training data and the SP column in exp01 records.

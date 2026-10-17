@@ -1,7 +1,8 @@
 """exp15 FINAL run: finalist C4a versus the shipped module on never-seen seeds. Run ONCE.
 
-Final data: exp01 seeds 21-40, synth14 seeds 500-599, shifted generator seeds 1000-1099, a noise-only
-set with a new seed, and the SACAC veto. Writes results/final.md and refuses to run twice.
+Final data: exp01 seeds 21-40, synth14 seeds 500-599, shifted generator seeds 1000-1099,
+a noise-only set with a new seed, and the SACAC veto. Writes results/final.md and
+refuses to run twice.
 Usage: python final.py <SACAC folder>
 """
 
@@ -157,8 +158,11 @@ def synth_report(g: list[dict], tag: str, gen: str, rng: np.random.Generator) ->
 
     short = [r for r in g if r["half"] < SHORT_HALF]
     out = [
-        f"- {gen}: AUC abstain=0 overall {a0(g):.3f} (ranked only {a0(g, True):.3f}); F {a0([r for r in g if r['kind'] == 'F']):.3f}; "
-        f"L {a0([r for r in g if r['kind'] == 'L']):.3f}; half-cycle < {SHORT_HALF:.0f}: {a0(short):.3f} (n={len(short)})"
+        f"- {gen}: AUC abstain=0 overall {a0(g):.3f} "
+        f"(ranked only {a0(g, True):.3f}); "
+        f"F {a0([r for r in g if r['kind'] == 'F']):.3f}; "
+        f"L {a0([r for r in g if r['kind'] == 'L']):.3f}; "
+        f"half-cycle < {SHORT_HALF:.0f}: {a0(short):.3f} (n={len(short)})"
     ]
     rand = np.mean(
         [
@@ -193,13 +197,15 @@ def run_noise(lines: list[str]) -> None:
             stats[tag][1] += flagged
     lines += ["## T7 noise-only records (100)", ""]
     lines += [
-        f"- {t}: ranked {r}/100, flagged {f}/100 -> {'met' if (r if t == 'shipped' else f) <= 5 else 'MISSED'}"
+        f"- {t}: ranked {r}/100, flagged {f}/100 -> "
+        f"{'met' if (r if t == 'shipped' else f) <= 5 else 'MISSED'}"
         for t, (r, f) in stats.items()
     ] + [""]
 
 
 def run_sacac(root: Path, lines: list[str]) -> None:
-    """T5 veto on the 17 counted SACAC loops: flagged sticking, flagged non-sticking, newly ranked."""
+    """T5 veto on the 17 counted SACAC loops: flagged sticking, flagged non-sticking,
+    newly ranked."""
     for tag, variant in CANDIDATES:
         flagged_pos = flagged_neg = ranked_neg = 0
         for lp in (x for x in load_loops() if x.confidence != "low"):
@@ -218,7 +224,8 @@ def run_sacac(root: Path, lines: list[str]) -> None:
                 flagged_neg += flag
                 ranked_neg += 1
         lines.append(
-            f"- SACAC {tag}: sticking flagged {flagged_pos}/6, non-sticking flagged {flagged_neg}, non-sticking ranked {ranked_neg}/11"
+            f"- SACAC {tag}: sticking flagged {flagged_pos}/6, "
+            f"non-sticking flagged {flagged_neg}, non-sticking ranked {ranked_neg}/11"
         )
     lines.append("")
 

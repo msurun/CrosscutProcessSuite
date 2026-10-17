@@ -83,7 +83,8 @@ def main(folder: Path) -> None:
     for kind in "FL":
         sub = [(p, r) for p, r in zip(prob, rows, strict=True) if r["kind"] == kind]
         print(
-            f"  CV AUC kind {kind}: {cv_auc([r for _, r in sub], np.array([p for p, _ in sub])):.3f}"
+            f"  CV AUC kind {kind}: "
+            f"{cv_auc([r for _, r in sub], np.array([p for p, _ in sub])):.3f}"
         )
     for label, keep in (("without h3", [0, 3, 4, 5]), ("without Horch", [0, 1, 2, 4, 5])):
         print(f"  ablation {label}: CV AUC {cv_auc(rows, cv_probabilities(rows, keep)):.3f}")

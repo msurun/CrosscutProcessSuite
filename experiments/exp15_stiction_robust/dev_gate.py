@@ -1,4 +1,5 @@
-"""Dev gate of amendment 1: C6 versus C4a on exp01 dev, shifted dev (read-only) and noise-only (T7').
+"""Dev gate of amendment 1: C6 versus C4a on exp01 dev, shifted dev (read-only) and
+noise-only (T7').
 
 Usage: python dev_gate.py <exp01 cache> <synth cache>
 """

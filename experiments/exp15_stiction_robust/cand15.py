@@ -16,6 +16,7 @@ FOLD_BINS = 64  # phase bins of the folded waveform
 MIN_FOLDED_HALF_SAMPLES = 3.0  # samples per half-cycle the folded index accepts (many cycles)
 MIN_FOLDED_CYCLES = 10
 VARIANTS = ("base", "c1a", "c1b", "c2a", "c2b", "c3a", "c3b", "c4a", "c4b", "c5a", "c5b")
+MIN_REGULARITY = 0.5  # lag-1 regularity gate of the rejected C1a, kept for reproducibility
 PROMINENCE_MIN = (
     36.5  # pooled 97th percentile of noise-only records (calib_prominence.py, synthetic)
 )
@@ -63,7 +64,7 @@ def try_segment(sp: ARRAY, signals: tuple[ARRAY, ARRAY], a: int, b: int) -> ss.W
             continue
         reg = regularity_lag1(x, period)
         quiet = np.ptp(sp[a:b]) <= ss.MAX_SP_SWING * max(np.ptp(_detrend(signals[1][a:b])), ss.EPS)
-        if reg >= ss.MIN_REGULARITY and quiet and (best is None or reg > best.regularity):
+        if reg >= MIN_REGULARITY and quiet and (best is None or reg > best.prominence):
             best = ss.Window(a, b, period, reg)
     return best
 
@@ -76,7 +77,7 @@ def find_window(sp: ARRAY, pv: ARRAY, out: ARRAY) -> ss.Window | None:
         for i in range(k):
             w = try_segment(sp, (out, pv), i * n // k, (i + 1) * n // k)
             if w is not None:
-                found.append((w.regularity + 0.05 * np.log2(w.stop - w.start), w))
+                found.append((w.prominence + 0.05 * np.log2(w.stop - w.start), w))
     return max(found, key=lambda f: f[0])[1] if found else None
 
 
@@ -199,7 +200,7 @@ def try_segment_p(sp: ARRAY, signals: tuple[ARRAY, ARRAY], a: int, b: int) -> ss
         if found is None or (b - a) / found[0] < ss.MIN_CYCLES or found[1] < PROMINENCE_MIN:
             continue
         quiet = np.ptp(sp[a:b]) <= ss.MAX_SP_SWING * max(np.ptp(_detrend(signals[1][a:b])), ss.EPS)
-        if quiet and (best is None or found[1] > best.regularity):
+        if quiet and (best is None or found[1] > best.prominence):
             best = ss.Window(a, b, found[0], found[1])
     return best
 
@@ -212,7 +213,7 @@ def find_window_p(sp: ARRAY, pv: ARRAY, out: ARRAY) -> ss.Window | None:
         for i in range(k):
             w = try_segment_p(sp, (out, pv), i * n // k, (i + 1) * n // k)
             if w is not None:
-                found.append(((w.stop - w.start, w.regularity), w))
+                found.append(((w.stop - w.start, w.prominence), w))
     return max(found, key=lambda f: f[0])[1] if found else None
 
 
@@ -242,7 +243,7 @@ def find_window_c3(sp: ARRAY, pv: ARRAY, out: ARRAY) -> ss.Window | None:
         for i in range(k):
             w = try_segment_c3(sp, (out, pv), i * n // k, (i + 1) * n // k)
             if w is not None:
-                found.append(((w.stop - w.start, w.regularity), w))
+                found.append(((w.stop - w.start, w.prominence), w))
     return max(found, key=lambda f: f[0])[1] if found else None
 
 

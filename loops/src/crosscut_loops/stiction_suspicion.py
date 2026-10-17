@@ -1,10 +1,18 @@
 """Ranked stiction suspicion of one control loop: which valve should be tested first?
 
-Mean of two calibrated tests on the most regular oscillation window: a noise-corrected
-curve-fit index (He et al. 2007, band-limited variant) and Horch's cross-correlation oddness.
+Mean of two calibrated tests on an oscillation window: a noise-corrected curve-fit index
+(He et al. 2007, band-limited variant) and Horch's cross-correlation oddness. The window is the
+longest stretch of the record (whole, halves, quarters, eighths) in which OUT or PV has a
+spectral peak that stands out of its neighbourhood (prominence). If no such window exists, the
+curve-fit index is also tried on the whole record (no Horch test).
 
 The score is a RANKED SUSPICION in [0, 1], used to decide which valve to take out for a
 bump test. It is never a diagnosis: only the test itself shows stiction.
+
+LIMITS: a periodic upstream on/off or square disturbance gives a triangular controller output
+and mimics stiction; on synthetic healthy loops with sinusoidal or square disturbances the advice
+test_valve appeared in roughly 28 % and 50 % of cases (exp15); at high noise only part of the
+sticking valves are found; confirm with a valve test.
 
 Sources:
     * He, Wang, Pottmann, Qin 2007 curve-fit index: the half-cycles of OUT (or PV of an
@@ -41,7 +49,8 @@ MIN_SAMPLES_AFTER_UPSAMPLING = 64  # samples per half-cycle wanted after upsampl
 MIN_NOISE_BINS = 16  # fewer high-frequency bins give no noise estimate (noise = 0)
 MIN_HALF_CYCLE_SAMPLES = 18  # samples per half-cycle floor; synthetic data only (exp12)
 MIN_CYCLES = 6  # cycles a window must hold
-MIN_REGULARITY = 0.5  # autocorrelation at one period needed for a regular window
+PROMINENCE_MIN = 36.5  # pooled 97th percentile of noise-only records, exp15, synthetic
+NEIGHBOURHOOD = (0.5, 2.0)  # band around the peak (in frequency) that sets the noise floor
 SEGMENT_SPLITS = (1, 2, 4, 8)  # window candidates: whole record, halves, quarters, eighths
 MAX_SP_SWING = 0.3  # SP peak-to-peak allowed, relative to the PV oscillation peak-to-peak
 HORCH_NONSTICKING_MEDIAN = 0.51  # median oddness, synthetic closed loops (exp13), not real data
@@ -66,12 +75,12 @@ class SuspicionResult:
 
 @dataclass(frozen=True)
 class Window:
-    """A stretch [start, stop) of the record that holds a regular oscillation."""
+    """A stretch [start, stop) of the record that holds a prominent spectral peak."""
 
     start: int
     stop: int
     period: float  # samples
-    regularity: float
+    prominence: float  # peak power / median power around the peak
 
 
 @dataclass(frozen=True)
@@ -166,33 +175,51 @@ def _he_index(signal: ARRAY) -> tuple[float | None, str]:
     return float(np.median([_corrected_index(h, remaining) for h in halves])), ""
 
 
-def _regularity_at(x: ARRAY, lag: int) -> float:
-    """Normalised autocorrelation of ``x`` at ``lag`` (1 = perfectly periodic)."""
-    spectrum = np.fft.rfft(x, 2 * x.size)
-    acf = np.fft.irfft(spectrum * np.conj(spectrum))[: x.size]
-    return float(acf[lag] / acf[0]) if acf[0] > 0 else 0.0
+def _peak_prominence(x: ARRAY) -> tuple[float, float] | None:
+    """(period in samples, prominence) of the strongest spectral peak with >= MIN_CYCLES cycles.
 
-
-def _try_segment(sp: ARRAY, pv: ARRAY, a: int, b: int) -> Window | None:
-    """The segment as a Window if it has enough regular cycles and a quiet setpoint."""
-    x = _detrend(pv[a:b])
-    period = _period_samples(x)
-    if period is None or (b - a) / period < MIN_CYCLES:
+    Prominence = peak power / median power in the band NEIGHBOURHOOD times the peak frequency,
+    with the peak itself (+-3 bins) left out: a red-noise spectrum is lifted around the peak as
+    well, so a random wander does not look prominent, while a limit cycle stands out.
+    """
+    n = x.size
+    pad = 4 * n
+    power = np.abs(np.fft.rfft((x - x.mean()) * np.hanning(n), pad)) ** 2
+    k_min, k_max = int(MIN_CYCLES * 4), pad // 4
+    if k_min >= k_max - 8:
         return None
-    reg = _regularity_at(x, int(round(period)))
-    quiet = np.ptp(sp[a:b]) <= MAX_SP_SWING * max(np.ptp(x), EPS)
-    return Window(a, b, period, reg) if reg >= MIN_REGULARITY and quiet else None
+    k = k_min + int(np.argmax(power[k_min:k_max]))
+    lo, hi = int(NEIGHBOURHOOD[0] * k), min(int(NEIGHBOURHOOD[1] * k), power.size - 1)
+    around = np.r_[power[lo : k - 3], power[k + 4 : hi]]
+    if around.size < 8 or np.median(around) <= 0:
+        return None
+    a, b, c = np.log(power[k - 1 : k + 2] + EPS)
+    shift = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) != 0 else 0.0
+    return float(pad / (k + shift)), float(power[k] / np.median(around))
 
 
-def _find_window(sp: ARRAY, pv: ARRAY) -> Window | None:
-    """Best segment among whole record, halves, quarters, eighths (longer wins near ties)."""
+def _try_segment(sp: ARRAY, signals: tuple[ARRAY, ARRAY], a: int, b: int) -> Window | None:
+    """The segment as a Window (OUT or PV, higher prominence) if a peak is significant."""
+    best = None
+    for sig in signals:
+        found = _peak_prominence(_detrend(sig[a:b]))
+        if found is None or (b - a) / found[0] < MIN_CYCLES or found[1] < PROMINENCE_MIN:
+            continue
+        quiet = np.ptp(sp[a:b]) <= MAX_SP_SWING * max(np.ptp(_detrend(signals[1][a:b])), EPS)
+        if quiet and (best is None or found[1] > best.prominence):
+            best = Window(a, b, found[0], found[1])
+    return best
+
+
+def _find_window(sp: ARRAY, pv: ARRAY, out: ARRAY) -> Window | None:
+    """Longest segment with a significant peak; ties (same length) go to the higher prominence."""
     n = pv.size
     found = []
     for k in SEGMENT_SPLITS:
         for i in range(k):
-            w = _try_segment(sp, pv, i * n // k, (i + 1) * n // k)
+            w = _try_segment(sp, (out, pv), i * n // k, (i + 1) * n // k)
             if w is not None:
-                found.append((w.regularity + 0.05 * np.log2(w.stop - w.start), w))
+                found.append(((w.stop - w.start, w.prominence), w))
     return max(found, key=lambda f: f[0])[1] if found else None
 
 
@@ -230,10 +257,18 @@ def _rank(rec: Record, w: Window, dt_s: float) -> SuspicionResult:
     if not parts:
         return SuspicionResult(None, "not_ranked", he, horch, period_s, he_reason)
     score = float(np.mean(parts))
-    reason = f"mean of {len(parts)} test(s) on {w.stop - w.start} samples" + (
+    reason = f"mean of {len(parts)} test(s) on {w.stop - w.start} samples (prominent peak)" + (
         f"; curve-fit index unavailable: {he_reason}" if he is None else ""
     )
     return SuspicionResult(score, _advice(score), he, horch, period_s, reason)
+
+
+def _whole_record(rec: Record) -> SuspicionResult:
+    """No window: the curve-fit index on the whole record is the only test (no Horch)."""
+    he, why = _he_index(rec.pv if rec.kind == "L" else rec.out)
+    if he is None:
+        return _not_ranked(f"no window; curve-fit index unavailable: {why}")
+    return SuspicionResult(he, _advice(he), he, None, None, "whole record, no window")
 
 
 def _validate(arrays: tuple[ARRAY, ARRAY, ARRAY], dt_s: float, kind: str) -> None:
@@ -268,7 +303,6 @@ def stiction_suspicion(
         return _not_ranked("arrays contain NaN or infinite values")
     if arrays[0].size < 8 * MIN_CYCLES:
         return _not_ranked(f"fewer than {8 * MIN_CYCLES} samples")
-    w = _find_window(arrays[0], arrays[1])
-    if w is None:
-        return _not_ranked("no regular oscillation window found")
-    return _rank(Record(arrays[0], arrays[1], arrays[2], kind), w, dt_s)
+    rec = Record(arrays[0], arrays[1], arrays[2], kind)
+    w = _find_window(rec.sp, rec.pv, rec.out)
+    return _whole_record(rec) if w is None else _rank(rec, w, dt_s)

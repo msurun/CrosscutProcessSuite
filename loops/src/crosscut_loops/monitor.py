@@ -310,7 +310,7 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
     elif report.stiction_advice == "test_valve":
         found.append(
             f"stiction possible (suspicion {report.stiction_suspicion:.2f}): "
-            "run a valve test on this loop before retuning"
+            "run a valve test before retuning (periodic upstream disturbances can mimic stiction)"
         )
     return found
 
