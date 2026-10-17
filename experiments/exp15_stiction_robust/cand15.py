@@ -256,7 +256,7 @@ def whole_record_result(rec: ss.Record, dt_s: float) -> ss.SuspicionResult:
 
 
 def c5_segment(sp: ARRAY, pv: ARRAY, out: ARRAY, sig: ARRAY) -> tuple[slice, float] | None:
-    """Window by prominence, else the whole record if its single peak passes the whole-record gate."""
+    """Window by prominence, else the whole record if its single peak passes the whole gate."""
     w = find_window_p(sp, pv, out)
     if w is not None:
         return slice(w.start, w.stop), w.period

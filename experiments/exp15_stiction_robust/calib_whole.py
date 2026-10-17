@@ -1,4 +1,7 @@
-"""Prominence gate for a single whole-record peak: 97th percentile over noise-only records (synthetic)."""
+"""Prominence gate for a single whole-record peak: 97th percentile over noise-only records.
+
+Synthetic data only.
+"""
 
 from __future__ import annotations
 
@@ -16,5 +19,6 @@ if __name__ == "__main__":
                 f = cand15.peak_prominence(_detrend(noise(rng, kind, n)))
                 vals.append(0.0 if f is None else f[1])
     print(
-        f"whole-record noise prominence p95 {np.percentile(vals, 95):.1f} p97 {np.percentile(vals, 97):.1f} p99 {np.percentile(vals, 99):.1f}"
+        f"whole-record noise prominence p95 {np.percentile(vals, 95):.1f} "
+        f"p97 {np.percentile(vals, 97):.1f} p99 {np.percentile(vals, 99):.1f}"
     )

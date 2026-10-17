@@ -1,4 +1,4 @@
-"""Dev-only study: AUC of single candidate features, stiction versus each healthy class, per kind."""
+"""Dev-only study: AUC of single candidate features, stiction vs each healthy class, per kind."""
 
 from __future__ import annotations
 

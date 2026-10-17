@@ -44,7 +44,7 @@ def worst(rng: np.random.Generator, kind: str, n: int) -> float:
 
 
 def worst_pair(rng: np.random.Generator, kind: str, n: int) -> float:
-    """Largest min(prominence OUT, prominence PV) over segments where the two periods agree (5 %)."""
+    """Largest min(prominence OUT, prominence PV) over segments where periods agree (5 %)."""
     out, pv = noise(rng, kind, n), noise(rng, kind, n)
     best = 0.0
     for k in ss.SEGMENT_SPLITS:
@@ -85,7 +85,8 @@ if __name__ == "__main__":
         vals = [worst(rng, kind, n) for n in LENGTHS for _ in range(N_RECORDS)]
         allv[kind] = vals
         print(
-            f"{kind:8s} max-prominence p50 {np.percentile(vals, 50):6.1f} p99 {np.percentile(vals, 99):6.1f}"
+            f"{kind:8s} max-prominence p50 {np.percentile(vals, 50):6.1f} "
+            f"p99 {np.percentile(vals, 99):6.1f}"
         )
     pooled = np.concatenate(list(allv.values()))
     print(f"pooled p99 = {np.percentile(pooled, 99):.1f}, p97 = {np.percentile(pooled, 97):.1f}")

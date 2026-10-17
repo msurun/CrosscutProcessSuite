@@ -78,7 +78,8 @@ def summarise(rows: list[dict], variant: str) -> None:
         print(f"  false alarm {case:7s} {np.mean([r['flagged'] for r in neg]):.1%} (n={len(neg)})")
     pos = pick(case="stick")
     print(
-        f"  stick flagged {np.mean([r['flagged'] for r in pos]):.1%}, ranked {np.mean([r['ranked'] for r in pos]):.1%}"
+        f"  stick flagged {np.mean([r['flagged'] for r in pos]):.1%}, "
+        f"ranked {np.mean([r['ranked'] for r in pos]):.1%}"
     )
 
 
