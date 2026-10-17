@@ -1,4 +1,4 @@
-"""Ablations of the shipped suspicion (C4a) on DEV data only: without He, without Horch, without fallback.
+"""Ablations of the shipped suspicion (C4a) on DEV data: without He, Horch, or the fallback.
 
 Usage: python ablate_c4a.py <exp01 cache> <synth cache>. Final seeds are not read.
 """
@@ -11,7 +11,6 @@ from pathlib import Path
 import cand15
 import numpy as np
 from crosscut_loops import stiction_suspicion as ss
-from crosscut_loops.stiction_curvefit import _detrend
 from eval_synth import auc
 
 VARIANTS = ("full", "no_he", "no_horch", "no_fallback")
@@ -61,7 +60,7 @@ def exp01(folder: Path) -> None:
 
 
 def synth(folder: Path) -> None:
-    """AUC (abstain = 0) and flags per healthy class on synth14 dev 100-399 and shifted dev 1-100."""
+    """AUC (abstain = 0) and healthy-class flags on synth14 dev 100-399 and shifted dev 1-100."""
     data = {v: [] for v in VARIANTS}
     for f in sorted(folder.glob("*.npz")):
         gen, kind, case, _lv, seed = f.stem.split("_")
