@@ -99,3 +99,42 @@ sanity, square-forcing false alarms split by the ratio of forcing period to inte
 holds (exp01 full noise band 8 %), no T3 regression on exp01 (<= 2/20 per healthy class, square excepted and reported), T7 met.
 Otherwise nothing new ships. Targets are not lowered; the advice text may mention that periodic on/off or square disturbances mimic
 stiction (a PI output under a square wave is roughly triangular when the forcing period is short against the integral time).
+
+## Round 5 (amendment 1): C6 and the dev gate (2026-10-16)
+
+C6 (logistic combiner on folded-wave features, trained on synth14 dev seeds 100-399 only). Grouped 5-fold CV on synth14: AUC 0.949
+(F 0.956, L 0.917); threshold 0.6 by the frozen rule; flagged sine 10.0 %, tuning 9.3 %, square 1.8 %, stiction 86.8 %. Ablations (CV AUC):
+without h3 0.871, without Horch 0.945 (Horch adds almost nothing; the third-harmonic ratios carry the separation from square forcing).
+Shifted dev (seeds 1-100, read-only): AUC 0.846 versus 0.680 for C4a (L 0.903 versus 0.627); flags sine 11 %, square 6 %, tuning 29 %.
+T7' (noise-only flagged): C6 1.0 %, C4a 0.7 %.
+**Dev gate failed:** on exp01 dev C6 flags square forcing in 20/20 (both noise levels) and sine forcing at full noise in 20/20, against the
+frozen limit of 2/20. By the frozen rule C4a is the finalist. A plausible cause, not tested: exp01 forces the SETPOINT (the record has no
+SP column, a constant SP is passed), while the synthetic training set forces the LOAD; so C6 may be mis-calibrated for setpoint forcing, or
+its good shifted-dev score may partly come from sharing the training generator's family. C6 was not run on the final data.
+
+## FINAL RESULT (single run, `results/final.md`, 2026-10-16)
+
+Finalist C4a versus the shipped module, never-seen seeds (exp01 21-40, synth14 500-599, shifted 1000-1099):
+
+| Target | Result |
+|---|---|
+| T1 exp01 low noise bands 4, 6, 8 % >= 18/20 | 20/20 each (both): met |
+| T2 exp01 full noise band 8 % >= 14/20 | C4a 10/20 [30 %, 70 %]; shipped 2/20 [3 %, 30 %]: MISSED, clear gain |
+| T3 exp01 healthy classes <= 2/20 | C4a: 0, 0, 0, 2, 0, 0 (wander, aggressive tuning, sine; low/full noise), square 0/20: met |
+| T3 synthetic healthy <= 10 % per class and noise | MISSED by both: sine 28 % (s14), square 45-59 %, tuning (s14) 5-13 % C4a vs 1-5 % shipped; shifted sine 7-50 % by noise |
+| T4 AUC abstain = 0 >= 0.85 (s14 overall / F / L / short) | shipped 0.771 / 0.833 / 0.709 / 0.562; C4a 0.766 / 0.843 / 0.690 / 0.538: MISSED, no gain |
+| T4 shifted AUC >= 0.80 | shipped 0.655, C4a 0.648: MISSED |
+| T5 SACAC veto | shipped 6/6, 0 negatives flagged, 2 of 11 negatives ranked; C4a 6/6, 1 negative flagged, 3 of 11 ranked: met |
+| T7 noise-only | C4a ranked 2/100, flagged 0/100; shipped 0/100: met |
+| T6 `acceptance.md` of the shipped verdict | unchanged (not touched) |
+
+Reading, plainly: C4a is not a better ranker in general (AUC unchanged). What it adds is detection of slow limit cycles at high noise in the
+mill simulation (2/20 -> 10/20) without new false alarms there. Its price is a higher flag rate on synthetic tuning loops. Both versions
+flag about 28 % of sine-forced and about 50 % of square-forced healthy synthetic loops: periodic disturbances mimic stiction by shape, so a
+"test_valve" advice is a reason to test the valve, not evidence of stiction. No target of T4 or the synthetic T3 was met by any candidate.
+Shipping rule (amendment 1): AUC within 0.02 of the shipped module (yes: -0.005 and -0.007), T2 gain (yes), no exp01 T3 regression (yes),
+T7 (yes) -> C4a ships, with the limits in the module docstring and the report finding.
+
+Constants of C4a and where they come from: PROMINENCE_MIN 36.5 = pooled 97th percentile of the largest peak prominence of 900 noise-only
+records (white, AR(1) 0.5/0.9/0.98, random walk; `calib_prominence.py`, synthetic); all other constants are those of the shipped module.
+Final seeds appear only in `final.py` (grep audit: `cache_synth.py` mentions them only in a comment).
