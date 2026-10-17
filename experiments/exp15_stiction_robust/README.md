@@ -66,3 +66,36 @@ What the single-feature study (`feature_study.py`, dev) says: the curve-fit inde
 
 Status against the frozen dev expectations: T4 (AUC >= 0.85) and the synthetic part of T3 are NOT met by any candidate. By protocol
 (max 4 rounds) the search stops here; the advisor decides whether a further round (a classifier on folded-wave features) is allowed.
+
+## Amendment 1 (2026-10-16, written BEFORE any round-5 code): round 5, one candidate C6
+
+Declared protocol deviation: round 4 gave no gain, so round 5 exceeds the stop rule. The advisor allowed it once, as a written amendment.
+The final seeds (exp01 21-40, synth14 500-599, shifted 1000-1099) are still unused.
+
+**C6 = a trained combiner on epoch-folded-wave features, one model per kind (F, L).**
+- Segment: as C5 (longest window with a significant spectral peak, gate 36.5; else the whole record when its single peak passes 20.0;
+  else the record is not ranked, score 0).
+- Six features, fixed now: (1) he_fold = curve-fit index of the epoch-folded wave (OUT for F, PV for L; 0.5 when unavailable);
+  (2) h3_out = |FFT bin 3 / bin 1| of the folded OUT wave; (3) h3_pv = the same for PV; (4) odd = Horch oddness of OUT and PV (F; 0 for L);
+  (5) log2(half-period in samples); (6) ln(peak prominence).
+- Model: logistic regression, L2 with lambda 1 on standardised features (training statistics only), balanced class weights, Newton steps,
+  numpy only. Positives = stiction, negatives = sine, square and tuning classes together.
+- Training data: synth14 dev seeds 100-399 only (all kinds and cases). Cross-validation grouped by seed (5 folds). The shifted generator
+  is a read-only dev check (seeds 1-100), never used for fitting or thresholds; note `feature_study.py` already looked at shifted dev.
+- Threshold, fixed now: the smallest p in {0.5, 0.6, 0.7, 0.8, 0.9} for which the cross-validated flag rate is <= 10 % on both the sine and
+  the tuning class (pooled over kinds); square is reported separately. Never changed after this.
+- T7 for C6: a combiner always scores, so T7 becomes "noise-only records flagged <= 5 %" (same noise kinds as t7.py, other seed).
+
+**Dev gate (decides the finalist, dev data only).** C6 goes to the final run only if on exp01 dev (seeds 1-20) it flags square forcing in
+<= 2/20 at BOTH noise levels and no other healthy class in more than 2/20, AND its synth14 CV AUC (abstain = 0) beats C4a's, AND its shifted-dev
+AUC is not below C4a's by more than 0.02. Otherwise C4a is the finalist.
+
+**Final run (once), finalist plus the shipped module as reference.** Reported: AUC with abstain = 0 and over ranked records, per kind and
+per short-half-cycle subset, flags per healthy class and noise level with Wilson bounds, exp01 cells (20 seeds), T7, random-score
+sanity, square-forcing false alarms split by the ratio of forcing period to integral time (where measurable), ablations on dev
+(without h3, without Horch). T4 (>= 0.85) was set without a baseline (shipped 0.74 on synth14 dev); it stays, and the miss is reported.
+
+**Shipping rule, fixed now.** The finalist ships only if on the final data: AUC not more than 0.02 below the shipped module, the T2 gain
+holds (exp01 full noise band 8 %), no T3 regression on exp01 (<= 2/20 per healthy class, square excepted and reported), T7 met.
+Otherwise nothing new ships. Targets are not lowered; the advice text may mention that periodic on/off or square disturbances mimic
+stiction (a PI output under a square wave is roughly triangular when the forcing period is short against the integral time).
