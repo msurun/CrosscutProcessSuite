@@ -12,7 +12,10 @@ bump test. It is never a diagnosis: only the test itself shows stiction.
 LIMITS: a periodic upstream on/off or square disturbance gives a triangular controller output
 and mimics stiction; on synthetic healthy loops with sinusoidal or square disturbances the advice
 test_valve appeared in roughly 28 % and 50 % of cases (exp15); at high noise only part of the
-sticking valves are found; confirm with a valve test.
+sticking valves are found; below 18 samples per half-cycle the curve-fit index is unavailable and
+the ranking is near chance (AUC about 0.54). Validated on simulation and 17 public loops only: no
+plant data with valve tests exists, model error beyond the synthetic generators is unmeasured, and
+level loops rest on 3 real loops. Confirm with a valve test.
 
 Sources:
     * He, Wang, Pottmann, Qin 2007 curve-fit index: the half-cycles of OUT (or PV of an

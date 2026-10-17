@@ -104,7 +104,7 @@ stiction (a PI output under a square wave is roughly triangular when the forcing
 
 C6 (logistic combiner on folded-wave features, trained on synth14 dev seeds 100-399 only). Grouped 5-fold CV on synth14: AUC 0.949
 (F 0.956, L 0.917); threshold 0.6 by the frozen rule; flagged sine 10.0 %, tuning 9.3 %, square 1.8 %, stiction 86.8 %. Ablations (CV AUC):
-without h3 0.871, without Horch 0.945 (Horch adds almost nothing; the third-harmonic ratios carry the separation from square forcing).
+without h3 0.871, without Horch 0.945 (for C6 only, not tested for C4a: Horch adds almost nothing there; the third-harmonic ratios carry the separation from square forcing).
 Shifted dev (seeds 1-100, read-only): AUC 0.846 versus 0.680 for C4a (L 0.903 versus 0.627); flags sine 11 %, square 6 %, tuning 29 %.
 T7' (noise-only flagged): C6 1.0 %, C4a 0.7 %.
 **Dev gate failed:** on exp01 dev C6 flags square forcing in 20/20 (both noise levels) and sine forcing at full noise in 20/20, against the
@@ -119,7 +119,7 @@ Finalist C4a versus the shipped module, never-seen seeds (exp01 21-40, synth14 5
 | Target | Result |
 |---|---|
 | T1 exp01 low noise bands 4, 6, 8 % >= 18/20 | 20/20 each (both): met |
-| T2 exp01 full noise band 8 % >= 14/20 | C4a 10/20 [30 %, 70 %]; shipped 2/20 [3 %, 30 %]: MISSED, clear gain |
+| T2 exp01 full noise band 8 % >= 14/20 | C4a 10/20 [30 %, 70 %]; shipped 2/20 [3 %, 30 %]: MISSED; gain: 8 seeds flagged only by C4a, none only by the shipped one, paired exact McNemar p = 0.0078 (dev had 13/20, the final 10/20) |
 | T3 exp01 healthy classes <= 2/20 | C4a: 0, 0, 0, 2, 0, 0 (wander, aggressive tuning, sine; low/full noise), square 0/20: met |
 | T3 synthetic healthy <= 10 % per class and noise | MISSED by both: sine 28 % (s14), square 45-59 %, tuning (s14) 5-13 % C4a vs 1-5 % shipped; shifted sine 7-50 % by noise |
 | T4 AUC abstain = 0 >= 0.85 (s14 overall / F / L / short) | shipped 0.771 / 0.833 / 0.709 / 0.562; C4a 0.766 / 0.843 / 0.690 / 0.538: MISSED, no gain |
@@ -138,3 +138,39 @@ T7 (yes) -> C4a ships, with the limits in the module docstring and the report fi
 Constants of C4a and where they come from: PROMINENCE_MIN 36.5 = pooled 97th percentile of the largest peak prominence of 900 noise-only
 records (white, AR(1) 0.5/0.9/0.98, random walk; `calib_prominence.py`, synthetic); all other constants are those of the shipped module.
 Final seeds appear only in `final.py` (grep audit: `cache_synth.py` mentions them only in a comment).
+
+## FINAL addendum after the Opus audit (2026-10-17)
+
+Corrections to the reading above (the audit found the wording stronger than the numbers):
+- "No exp01 T3 regression" means only: every exp01 healthy class stays within the 2/20 limit. Rises against the shipped module: aggressive
+  tuning at full noise 0 -> 2/20 (at the limit), SACAC non-sticking flagged 0 -> 1, synthetic tuning (s14) 4/200 -> 16/200 flagged.
+- AUC changes of C4a against the shipped module: overall -0.005 (s14) and -0.007 (shifted), but kind L -0.019 and -0.020, and the
+  short-half-cycle subset -0.024; that subset sits near chance (0.54). Level loops rest on 3 real loops; the L estimates are the weakest.
+- T2 gain, paired: on the same 20 seeds 8 were flagged only by C4a and none only by the shipped module (exact McNemar p = 0.0078). The dev
+  count was 13/20, the final 10/20 (the dev pick looked better than it was). T2 (14/20) stays missed.
+- T7 caveat: the noise-only records come from the same generator family as the prominence calibration, so T7 is a weak check. The
+  shipped module was judged on "ranked" and C4a on "flagged" (C4a ranked 2/100, also within 5).
+- Limits that stay open: model error beyond the two synthetic generators is unmeasured; there is no plant data with valve tests; level
+  loops rest on 3 real loops.
+- Disclosure: `final.py` was reformatted (line wrapping only, by a small model and `ruff format`) after the single final run. The version
+  that ran is commit 055fe02; `git diff -w 055fe02 HEAD -- final.py` shows only string and docstring splits. The "shipped" column of
+  `results/final.md` is the module of commit aa4e0f9; from HEAD `cand15` "base" now points to the new module, so reproducing "shipped"
+  needs that commit. Verified with git: the original README text was only appended to (0 deleted lines since the freeze commit 8b9baaa);
+  `experiments/exp01_stiction_validation/results/acceptance.md` has one commit (the original P1).
+
+Ablations of C4a on dev data only (`ablate_c4a.py`; exp01 seeds 1-20 flags, synth14 100-399 and shifted 1-100 AUC with abstain = 0):
+
+| Variant | exp01 band 8 % full noise | exp01 band 6 % full | exp01 square forcing full | s14 AUC / flags sine, square, tuning | shifted AUC |
+|---|---|---|---|---|---|
+| full (shipped) | 13/20 | 7/20 | 0/20 | 0.745 / 35 %, 49 %, 10 % | 0.680 |
+| without He | 6/20 | 4/20 | 0/20 | 0.608 / 22 %, 20 %, 8 % | 0.541 |
+| without Horch | 10/20 | 3/20 | 20/20 | 0.769 / 17 %, 57 %, 2 % | 0.724 |
+| without whole-record fallback | 6/20 | 4/20 | 0/20 | 0.741 / 35 %, 49 %, 10 % | 0.680 |
+
+Reading: the whole-record fallback is what produces the exp01 gain (13 against 6). He is essential. Horch is a mixed bag: dropping it raises
+the synthetic AUC (0.745 -> 0.769 and 0.680 -> 0.724) and lowers sine flags, but exp01 square (setpoint) forcing is then flagged 20/20, so
+Horch protects there. A better use of Horch (or a replacement) is the obvious next round, with new frozen targets and, ideally, plant data.
+
+Auditor's summary for the product owner: by the frozen shipping rule C4a ships, but the ranking is NOT "good" in the sense of the targets
+(AUC 0.85 / 0.80 and false alarms on periodic disturbances were missed). It finds more slowly sticking valves in noisy simulated loops
+(2 -> 10 of 20) without new false alarms there, and a "test_valve" advice is a reason to test the valve, never a diagnosis.

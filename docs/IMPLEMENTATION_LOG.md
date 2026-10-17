@@ -534,3 +534,5 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   square about 50 %). A "test_valve" advice is a reason to test the valve, not evidence. Real plant data with valve tests is still missing.
 - Open: C6-style combiner scored AUC 0.85-0.95 on synthetic data of its own family but failed exp01 (setpoint forcing); retry needs
   setpoint-forced training data and the SP column in exp01 records.
+
+- exp15 audit follow-up (2026-10-17): README addendum with corrections, ablations of C4a (dev), paired McNemar p = 0.0078 for T2, disclosure of the final.py reformat; docstring LIMITS extended.
