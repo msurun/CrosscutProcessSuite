@@ -544,3 +544,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Final single run (salt = commit 2bb08f9...): C7a worst family 0.714 vs 0.522, bootstrap interval [+0.165, +0.218]; exp01 and T7 fine; SACAC veto 3 non-sticking flagged (limit 2) and ISDB other flagged 10/14 vs 1/14 for the shipped module, AUC 0.32 vs 0.67. Not shipped. Package change: stiction finding text now says periodic forcing can look the same and asks for a valve test or a gain change (a stiction cycle changes period with gain, a forced one does not).
 - ISDB per-loop scores are kept outside the repository; label table isdb_labels.csv is untracked (third-party derived). Do not publish before asking the data providers.
 
+## Loop health KPIs and tuning from history (2026-10-18)
+
+- Direction change after the Opus strategic review: stiction detection from passive data is closed as a frozen weak hint (C4a, wording asks for a valve test or gain change); the definitive check is a guided valve test (not built yet). Effort moves to KPI triage and tuning.
+- New `health_kpis.py`: valve travel and reversals per hour, quantisation step and ratio, valve extremes and sizing hint, grouping of loops by shared oscillation period, Kendall trend. Wired into `analyze_loop` (new LoopReport fields, findings "quantisation" and "valve oversized/undersized", overview row keys). Grouping by period and trend are available as functions but not yet shown in the overview.
+- New `history_windows.py` and `history_tuning.py`: natural setpoint steps are found in AUTO data, an output-error FOPDT model is fitted per window, cross-checked on the other windows and graded high/medium/low/none; no step gives "no_excitation" and a bump-test recommendation. Closed-loop IV was rejected (wrong time constant on short windows). `tuning_report` got `identify_model` and `report_from_model`.
+- Evidence: simulation (clean data accurate within 2 %, disturbed data never graded high); real data (exp17): 26 of 86 records have a setpoint step, none reached medium or high, so history tuning rarely applies and bump tests remain the main route. KPI thresholds beyond quantisation >= 1 and the sizing medians (15 / 85 %) are not validated on real loops.
+- Tests: test_health_kpis, test_history_windows, test_history_tuning, test_monitor_valve_kpis; full loops suite green.
+

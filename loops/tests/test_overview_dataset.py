@@ -145,6 +145,10 @@ def _expected_report_keys():
         "stiction_verdict",
         "stiction_suspicion",
         "stiction_advice",
+        "valve_travel_per_h",
+        "valve_reversals_per_h",
+        "out_quantisation_ratio",
+        "valve_sizing_hint",
         "sparkline",
     }
 

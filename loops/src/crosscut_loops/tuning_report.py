@@ -161,6 +161,21 @@ def build_tuning_report(
     return report
 
 
+def identify_model(u: np.ndarray, y: np.ndarray, dt_s: float) -> FopdtModel | None:
+    """FOPDT model of one record (ARX fit, output-error refit when better); None on failure."""
+    return _identify_or_reason(u, y, dt_s)[0]
+
+
+def report_from_model(
+    loop_name: str,
+    model: FopdtModel,
+    robustness: float = DEFAULT_ROBUSTNESS,
+    stiction_verdict: str | None = None,
+) -> TuningReport:
+    """Tuning report for a model identified elsewhere (e.g. from historian step windows)."""
+    return _identified_report(loop_name, model, _clamp_robustness(robustness), stiction_verdict)
+
+
 def _check_derivative_noise(report: TuningReport, y: np.ndarray, out_span: float) -> TuningReport:
     """Turn the derivative advice off when the PV noise would be amplified into the output."""
     if report.pid is not None and report.pid_advice is not None:

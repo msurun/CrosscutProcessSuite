@@ -7,6 +7,13 @@ from dataclasses import dataclass, replace
 import numpy as np
 from crosscut_sim.core import MAN
 
+from crosscut_loops.health_kpis import (
+    QUANTISATION_LIMITING,
+    quantisation_ratio,
+    reversals_per_hour,
+    valve_extremes,
+    valve_travel_per_hour,
+)
 from crosscut_loops.metrics import (
     flatline_fraction,
     hagglund_oscillation,
@@ -17,6 +24,8 @@ from crosscut_loops.stiction import detect_stiction
 from crosscut_loops.stiction_suspicion import SuspicionResult, stiction_suspicion
 
 MIN_STAMPS_FOR_PERIOD = 2
+REVERSAL_MIN_MOVE_PERCENT = 0.1  # of output span; smaller output moves are not valve motion
+MIN_KPI_SAMPLES = 50
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,10 @@ class LoopReport:
     stiction_verdict: str = "not_checked"
     stiction_suspicion: float | None = None  # ranked suspicion 0..1, None when not ranked
     stiction_advice: str = "not_checked"  # "test_valve", "unlikely", "not_ranked", "not_checked"
+    valve_travel_per_h: float | None = None  # output movement, percent of span per hour (AUTO)
+    valve_reversals_per_h: float | None = None  # output direction changes per hour (AUTO)
+    out_quantisation_ratio: float | None = None  # output step / noise; >= 1 limits control
+    valve_sizing_hint: str | None = None  # "oversized" / "undersized" from the median output
 
 
 @dataclass(frozen=True)
@@ -99,6 +112,7 @@ class LoopArrays:
     period_s: float | None
     stiction: str
     suspicion: SuspicionResult
+    valve: dict[str, float | str | None]
 
 
 def _longest_run(mask: np.ndarray) -> slice:
@@ -314,6 +328,24 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
             "change (a stiction cycle changes period with the gain, a forced one does not) "
             "before retuning"
         )
+    found += _valve_findings(report)
+    return found
+
+
+def _valve_findings(report: LoopReport) -> list[str]:
+    """Findings from the valve KPIs: quantisation that limits control and valve sizing."""
+    found = []
+    ratio = report.out_quantisation_ratio
+    if ratio is not None and ratio >= QUANTISATION_LIMITING:
+        found.append(
+            f"quantisation: output resolution is {ratio:.1f}x the noise level, which limits "
+            "control and can look like stiction"
+        )
+    if report.valve_sizing_hint is not None:
+        found.append(
+            f"valve {report.valve_sizing_hint}: the output sits mostly "
+            f"{'low' if report.valve_sizing_hint == 'oversized' else 'high'} in its range"
+        )
     return found
 
 
@@ -385,6 +417,10 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         stiction_verdict=arrays.stiction,
         stiction_suspicion=arrays.suspicion.score,
         stiction_advice=arrays.suspicion.advice,
+        valve_travel_per_h=arrays.valve["travel"],
+        valve_reversals_per_h=arrays.valve["reversals"],
+        out_quantisation_ratio=arrays.valve["quantisation"],
+        valve_sizing_hint=arrays.valve["sizing"],
     )
 
 
@@ -430,6 +466,31 @@ def _longest_segment_metrics(
     return harris, period_s, stiction, suspicion
 
 
+def _valve_kpis(
+    series: LoopSeries, active: np.ndarray, settings: LoopSettings
+) -> dict[str, float | str | None]:
+    """Valve wear and sizing numbers of the longest AUTO stretch (None when it is too short)."""
+    empty: dict[str, float | str | None] = dict.fromkeys(
+        ("travel", "reversals", "quantisation", "sizing")
+    )
+    segment = _longest_run(active)
+    out = series.out[segment]
+    out = out[~np.isnan(out)]
+    if len(out) < MIN_KPI_SAMPLES or len(series.t_s[segment]) < MIN_STAMPS_FOR_PERIOD:
+        return empty
+    dt_s = sampling_period(series.t_s[segment], settings.scan_period_s)
+    span = settings.out_high - settings.out_low
+    ratio = quantisation_ratio(out)
+    return {
+        "travel": valve_travel_per_hour(out, dt_s, span),
+        "reversals": reversals_per_hour(out, dt_s, REVERSAL_MIN_MOVE_PERCENT / 100.0 * span),
+        "quantisation": None if np.isnan(ratio) else float(ratio),
+        "sizing": valve_extremes(
+            out, settings.out_low + 0.05 * span, settings.out_high - 0.05 * span
+        ).sizing_hint,
+    }
+
+
 def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
     """Validate the series, pick the active samples and compute the stuck-out metrics.
 
@@ -466,6 +527,7 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
         period_s=period_s,
         stiction=stiction,
         suspicion=suspicion,
+        valve=_valve_kpis(series, active, settings),
     )
 
 

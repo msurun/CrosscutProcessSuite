@@ -521,6 +521,10 @@ def _report_row(
         # Ranked stiction suspicion (0..1 or None) and the advice derived from it.
         "stiction_suspicion": report.stiction_suspicion,
         "stiction_advice": report.stiction_advice,
+        "valve_travel_per_h": report.valve_travel_per_h,
+        "valve_reversals_per_h": report.valve_reversals_per_h,
+        "out_quantisation_ratio": report.out_quantisation_ratio,
+        "valve_sizing_hint": report.valve_sizing_hint,
         # Downsampled PV values for the inline sparkline chart.
         "sparkline": _sparkline(pv_values),
     }
