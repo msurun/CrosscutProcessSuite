@@ -172,7 +172,7 @@ export interface LoopSummary {
   classification: string;
   findings: LoopFinding[];
   service_percent: number;
-  saturation_percent: number;
+  saturation_percent: number | null; // null: OUT range not configured
   harris_index: number | null;
   oscillation_period_s: number | null;
   stiction_verdict: string;

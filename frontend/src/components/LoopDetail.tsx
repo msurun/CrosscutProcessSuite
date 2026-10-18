@@ -111,7 +111,7 @@ function KeyNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
   return (
     <dl className="key-numbers">
       <KeyNumber label={t("loops.inUse")} value={`${loop.service_percent} %`} />
-      <KeyNumber label={t("loops.saturated")} value={`${loop.saturation_percent} %`} />
+      <KeyNumber label={t("loops.saturated")} value={loop.saturation_percent === null ? NOT_AVAILABLE : `${loop.saturation_percent} %`} />
       <KeyNumber label={t("loops.harris")} value={formatNumber(loop.harris_index, 2)} />
       <KeyNumber label={t("loops.oscillation")} value={oscillation} />
     </dl>
