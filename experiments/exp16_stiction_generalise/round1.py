@@ -1,6 +1,7 @@
 """Round 1: LOFO worst-family AUC of C7a (6 features) and C7b (+2 shape features), dev table.
 
-Usage: python round1.py <table.npz> <shape.npz>. Stop rule: C7b must beat C7a by >= 0.02 worst-family.
+Usage: python round1.py <table.npz> <shape.npz>.
+Stop rule: C7b must beat C7a by >= 0.02 worst-family.
 """
 
 from __future__ import annotations

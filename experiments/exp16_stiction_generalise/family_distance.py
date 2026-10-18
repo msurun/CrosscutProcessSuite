@@ -35,7 +35,8 @@ def main(path: Path) -> None:
                 for f in ("G1", "G2", "G3")
             }
             print(
-                f"  {name:10s} {ks(v['G1'], v['G2']):.2f}  {ks(v['G1'], v['G3']):.2f}  {ks(v['G2'], v['G3']):.2f}"
+                f"  {name:10s} {ks(v['G1'], v['G2']):.2f}  {ks(v['G1'], v['G3']):.2f}"
+                f"  {ks(v['G2'], v['G3']):.2f}"
             )
 
 

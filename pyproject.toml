@@ -13,6 +13,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Frozen by sha256 in the exp16 protocol: do not edit these files to satisfy the linter.
+"experiments/exp16_stiction_generalise/g3_chain.py" = ["B905"]
+"experiments/exp16_stiction_generalise/final16.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true

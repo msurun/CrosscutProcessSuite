@@ -36,7 +36,8 @@ def summary(label: str, rows: list[tuple[int, str]]) -> None:
     """Print how many records have windows and the confidence histogram."""
     with_windows = sum(w > 0 for w, _ in rows)
     conf = Counter(c for _, c in rows)
-    print(f"{label}: {with_windows}/{len(rows)} records with a setpoint step; confidence {dict(conf)}")
+    print(f"{label}: {with_windows}/{len(rows)} records with a setpoint step; "
+          f"confidence {dict(conf)}")
 
 
 def main(sacac: Path, isdb: Path, labels: Path) -> None:
