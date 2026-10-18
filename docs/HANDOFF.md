@@ -1,122 +1,104 @@
-# Handoff (2026-10-15): steps 1-4 done, tuning part 2, Fuzzy Studio backtest done; next is public data round two
+# Handoff (2026-10-18): stiction closed as a weak hint, valve KPIs and tuning from history added; next is the guided valve test
 
-Written for the next session (Claude or the owner). The plan P1-P7 of module 1 is done and pushed
-(last commit when written: f7b5bc2). Details per step are in `docs/IMPLEMENTATION_LOG.md`.
+Written for the next session (Claude or the owner). Details per step are in `docs/IMPLEMENTATION_LOG.md`
+(last three sections) and in `experiments/exp15..exp17`.
 
-## Owner to-do (needs the owner at the physical computer, after coming home)
+## FIRST: git state (nothing from this session is pushed)
 
-1. **UaExpert check.** Start a demo (`python opcua/examples/live_demo.py`), connect UaExpert to the
-   printed endpoint, follow `docs/LIVE_DEMO.md`. Add one line to the log: UaExpert version, what
-   worked, what did not. Until then the OPC UA server is tested with a Python client only.
-2. **ADR 008 review** (AGPL-3.0, `docs/adr/`): read the reasons, accept or change.
-3. **ABB and Siemens documents for A7 (now optional: the assistant starts from the public manuals, see next steps item 0).** Give the PID manuals (or names and versions) so the PI
-   parameter forms in `loops/tuning_rules.py` (`convert_pi`) can be checked. Scope fixed by the owner:
-   ABB and Siemens only. Until then A7 stays open and the forms are marked unverified.
-4. **Install the tools permanently** (so any session can run all gates; this PC had none of them).
-   The assistant cannot make permanent installs without you at the computer:
-   - Python 3.12 (already installed) and a repo venv (`.venv/` is git-ignored): `py -3.12 -m venv .venv`, then
-     `.venv\Scripts\python -m pip install -r requirements-dev.txt` (now includes `uvicorn`).
-   - Node.js LTS (the frontend needs it): `winget install OpenJS.NodeJS.LTS`, then in `frontend/`: `npm ci`
-     (brings Vite, Vitest, TypeScript and `playwright-core`).
-   - Microsoft Edge (already present; used for the browser checks through `playwright-core`).
-   - GitHub CLI to read CI results: `winget install GitHub.cli`, then `gh auth login`.
-   - Git (present). Optional, only for the C++ core in `core/`: CMake, Ninja and a compiler; the earlier
-     local route was the pip packages `cmake`, `ninja`, `ziglang`, `pybind11` (see the log, T0.11).
-   - UaExpert (for item 1), free download from the vendor.
-   - Add the venv `Scripts` folder and Node to the user PATH, or tell the assistant the paths.
-5. **Check CI on GitHub** for the last pushes (no `gh` on this PC): jobs `cpp` and `frontend`.
+Four commits exist only locally on `main`: 2bb08f9 (exp16: G3 generator, LOFO, protocol), e0a545e (exp16 final
+result), 9041f58 (PROVENANCE: Horch citation), f1339f2 (valve KPIs, tuning from history, exp17). Claude Code's
+auto-mode classifier blocked `git push` twice (reason: results derived from third-party ISDB data). The ISDB label
+table `experiments/exp16_stiction_generalise/isdb_labels.csv` is deliberately UNTRACKED and must stay so until the
+data providers (see PROVENANCE) are asked; the commits contain counts only. The owner decides: `git push origin main`
+by hand, or allow it in the Claude Code permission rules. `experiments/exp10_sacac_stiction/results/` is also
+untracked (SACAC-derived, do not commit).
 
-## Environment
+## Direction decision (owner, 2026-10-18, after an Opus strategic review with literature)
 
-`.venv/` exists on this PC (Python 3.12, `requirements-dev.txt` installed; git-ignored). If it is gone:
-`py -3.12 -m venv .venv`, then `.venv\Scripts\python -m pip install -r requirements-dev.txt`.
-There is NO Node.js here, so the frontend gates (`tsc --noEmit`, `vitest run`, `vite build`) and the Edge
-browser check cannot run until the owner installs Node (item 4 above). Do not claim frontend changes verified.
+Not a rebuild. The package already has the shape of a loop-performance-monitoring product (KPI triage, oscillation,
+Harris, modes and saturation, guarded step-test tuning, advisory only). Passive stiction detection from SP/PV/OP is
+**closed**: the shipped scorer (C4a) stays frozen as a weak "check the valve" hint; its finding text says periodic
+forcing looks the same and asks for a valve test or a gain change (a stiction cycle changes period with the gain, a
+forced one does not). Do not start another stiction classifier on passive data.
 
-Gates before every commit: `.venv\Scripts\python -m ruff check .`, `-m mypy sim loops/src api/src connectors/src`,
-`-m pytest`. Style: functions <= 20 code lines, <= 4 parameters, <= 3 nesting levels. `foremankit check` is not
-installed in the venv. MCP `delegate`: give ABSOLUTE `context_files`; its `verify` runs from the parent folder and
-rejects absolute interpreter paths, so install the returned file by hand and check it yourself. Read delegated
-code critically: `readiness.py` and `anonymise.py` came back with real bugs. In shell heredocs write regexes with
-`chr(92)` or a raw file edit: a backslash-b inside a normal Python string became a backspace character once.
+Reasons, with numbers: exp15/exp16. Shipped scorer: synthetic AUC 0.52-0.75, ISDB AUC 0.67 (6/13 sticking flagged,
+1/14 other flagged). A retrained scorer (C7a) gained +0.19 worst-family AUC on three synthetic families (G1 synth14,
+G2 shifted, G3 independent generator) but flagged 10/14 non-sticking ISDB loops (AUC 0.32) and 3 non-sticking SACAC
+loops, so it was rejected under the frozen rule. ISDB is burned for stiction selection. Literature (Scali 2005,
+Choudhury, Jelali & Huang) agrees that no passive detector is reliable and that an on-plant valve test decides.
 
-## State on 2026-10-15 (read first)
+## What was built this session (all green: ruff, full `loops` pytest)
 
-Everything below is committed and pushed to origin/main; ruff, mypy and the full pytest were green at the last
-commit ("Fuzzy Studio: backtest against operator moves, rule matrix data, exp09"). Added since the 2026-10-14 text:
-- Sampling period under timestamp jitter fixed (`monitor.sampling_period`); `identification_quality.py` flags
-  low-confidence fits (events < 2 or free-run R2 < 0.6) as a report note; output-error refit
-  (`identification_oe.py`) used when it reproduces y better than ARX. Limit: at noise sd 0.2 tau and delay still
-  trade off (gain is right).
-- exp07 (closed-loop identification): I1 stays FAILED; diagnosis is a finite-sample load-disturbance effect (error
-  about 1/sqrt(N)), not a bug; thresholds unchanged.
-- ABB TI/TD/TF print as "s (UNCONFIRMED)" with a banner in the vendor section of the report. There is no export
-  or auto-apply path yet; when one is added it MUST refuse unconfirmed forms. Still open: the ABB time unit (owner).
-- Derivative advice is withdrawn when 3 * Kc(1+N) * PV noise sd exceeds 5 % of the OUT range
-  (`tuning_pid.noise_checked_advice`; the 5 % is our heuristic, not validated on plant data). exp06 P3 is still
-  reported as failed.
-- Fuzzy Studio: `crosscut_fuzzy.backtest` + `POST /datasets/{id}/fuzzy/backtest`, `crosscut_fuzzy.matrix` +
-  `POST /fuzzy/matrix`; exp09 targets frozen first: B1-B4 met, **B5 missed** (43 % of operator moves met a silent
-  rule base). The operator is our own simulation, so this says nothing about a real operator. The matrix SCREEN
-  is not built (no Node.js).
+- `loops/src/crosscut_loops/health_kpis.py`: valve travel and reversals per hour, quantisation step and ratio,
+  valve extremes with sizing hint (median output < 15 % oversized, > 85 % undersized), `group_by_period` (loops sharing
+  an oscillation period), `kendall_trend`. Wired into `analyze_loop` (LoopReport fields `valve_travel_per_h`,
+  `valve_reversals_per_h`, `out_quantisation_ratio`, `valve_sizing_hint`; findings "quantisation:" and
+  "valve oversized/undersized:") and into the overview row keys. Grouping and trend are NOT shown anywhere yet.
+- `history_windows.py` + `history_tuning.py`: natural setpoint steps in AUTO data, output-error FOPDT fit per window,
+  cross-check on the other windows, confidence high/medium/low/none, "no_excitation" and a bump-test recommendation
+  when there is no step, `cautious_step` for medium confidence. `tuning_report.py` gained `identify_model` and
+  `report_from_model`. Closed-loop IV was tried and rejected (right gain, tau 4 s instead of 60 s on short windows).
+- Evidence (exp17): simulation: clean data accurate within 2 % and graded high; disturbed data never high. Real data:
+  26 of 86 SACAC/ISDB records have a setpoint step, none reached medium or high. So history tuning rarely applies;
+  most loops get "do a bump test".
+- exp16 infrastructure kept for reuse: G3 generator (`g3*.py`, written by a delegated model from `G3_SPEC.md`, hashes in
+  the README), LOFO harness (`lofo.py`, `build_table.py`), single-use final script `final16.py` (results in
+  `results/final16.md`; do not rerun, it refuses). Protocol and its amendments are in `experiments/exp16_*/README.md`.
 
-### Open, in the order I would take them
-1. **Public data round two (STARTED 2026-10-15: SACAC repository, 4 loops looked at exploratorily, see the log; PROVENANCE row added; licence of the data is NOT stated, local use only).** Original note: Candidates from one search, NOT verified: the
-   "Industrial PID Control Loop Data Repository" (Horch et al., Ind. Eng. Chem. Res. 58(26), 2019; 25 SISO loops
-   with PV, SP and OP; the article is CC BY 4.0 but the licence of the DATA must be read on its hosting page) and
-   the ISDB of Jelali and Huang (about 100 loops, no free download found). Rule: check the licence, add the
-   PROVENANCE row FIRST, then download into its own empty folder (untrusted data, `python -I`), do not commit it.
-   Use it to run the stiction and Harris checks and the tuning report on real PV/SP/OP and say what the OE refit
-   and the low-confidence flags do there. The assistant stopped before the second search (the user interrupted).
-2. **Silent moves in exp09 (B5).** Find which operator moves meet silence (size, sign), then a tuning round on the
-   FIRST half only with the check half untouched; log both numbers whatever they are.
-3. **Report confidence flags end to end.** A report-level test of the low-confidence note and the single-step
-   regression case; show `low_confidence` and the vendor/PID fields in the API/frontend payload.
-4. Optional: refined IV (SRIVC idea) for exp07; `ruff format --check` lists 8 pre-existing files (not enforced).
-5. Screens and Node.js items below stay blocked until the owner installs Node.
+## Next steps, in the order I would take them (Opus plan, steps 1-3)
 
-Tooling notes learned this round: MCP `delegate` needs ABSOLUTE `context_files`; relative paths fail with
-"context file not found". `verify` only accepts the prefixes `.venv/Scripts/python -m pytest`, `python -m ruff
-check` etc. and runs from another folder, so install the answer by hand (`install.py <result-id> <dest>` in the
-session scratchpad is just a code-block extractor; rewrite it if needed). Free models cut off on larger test files;
-DeepSeek Flash and Gemini worked. Check delegated code: a test compared a list with a tuple and one used a random
-integer series as a "ramp".
+1. **KPI triage validation on real loops.** Thresholds from published defaults, frozen BEFORE any run. Score the
+   oscillation/KPI findings on SACAC (17 loops) and ISDB against the providers' comments (oscillating or not);
+   pass = at least 80 % agreement with Wilson intervals; say that ISDB was already seen for stiction. Still to add:
+   idle index, a data-driven oscillation detector (ACF regularity; Hagglund needs per-loop limits), show
+   `group_by_period` and trend in the overview, a priority score (severity x `benefit.py` value) with the next action.
+2. **Guided valve stroke test** (the only definitive stiction check). Specify from ANSI/ISA-75.25.01 and ISA-TR75.25.02
+   (small steps up and down, dwell times, abort limits on PV and OP, rate limit) and compute apparent deadband and
+   resolution from the OP-PV steps. Validate on a valve simulator written by a different model from the standard's
+   definitions (the G3 rule): deadband error <= 0.25 % of span across noise and load steps; 100 % aborts in a
+   limit-breach suite. Claim nothing for plants until one real test record exists. Read-only stance stays until the
+   V5 write-path suite passes; the test must be a procedure for the operator, not an automatic write.
+3. **Prioritised worklist reviewed blind** by an independent control engineer on about 20 loops (Kendall tau >= 0.5,
+   >= 80 % agreement on the next action). No simulator can fake this.
+4. Frontend: types and locale strings for the new LoopReport fields (`stiction_suspicion`, `stiction_advice`,
+   `valve_*`, `out_quantisation_ratio`) are NOT updated (no Node.js on this PC).
+5. Tuning from history: ramp and rate-limited setpoint changes, cascade secondary loops and level loops are untested.
 
-## Done earlier (details: `docs/IMPLEMENTATION_LOG.md`, last two sections)
+## Working with the third-party data (rules that held this session)
 
-Steps 1-4 of the earlier list: stiction band discrepancy explained (seed noise, 14/20), public flotation benchmark
-(`exp04_public_flotation`), customer validation kit (`docs/customer_kit/`, anonymiser, readiness check), connectors
-(DST fall-back repeats, header units, long-format CSV, SQL over any DB-API connection, OPC UA namespace URI and
-reconnect), and a code review with 10 fixes. Last commit c05615f, everything pushed.
+Unzipped data lives in the session scratchpad, NOT in the repo: SACAC (`sacac/`), ISDB (`isdb/isdb10.mat`, converted
+to `isdb_npz/` by `exp16_*/isdb_to_npz.py` using a scratch venv with scipy, run with `python -I`). Scratchpad paths are
+session-specific and may be gone: re-download SACAC from https://sacac.org.za/resources/ and ISDB.zip from
+https://sites.ualberta.ca/~bhuang/Stiction-Book.htm (sha256 of the zip and of `isdb10.mat` are in PROVENANCE). Neither
+has a stated licence; ISDB's manual says it was published so other researchers can test methods and asks for citation.
+Research use only, never commit the data or loop-level derived tables, ask piddata@sacac.org.za and the ISDB providers
+before publishing derived tables. The Horch citation (Control Eng. Practice 7 (1999) 1221-1231) is confirmed from
+citing papers; the paper itself was not read.
 
-## Next steps the assistant can do without the owner
+## Owner to-do (unchanged from 2026-10-15, still open)
 
-Rule from the owner: delegate tests and bulk code, keep integration, one commit per step, push main without force,
-log every step, state limits plainly. Suggested order (the owner asked for the whole list in a fresh session):
+1. **UaExpert check** (`python opcua/examples/live_demo.py`, `docs/LIVE_DEMO.md`), add one line to the log.
+2. **ADR 008 review** (AGPL-3.0, `docs/adr/`).
+3. ABB and Siemens documents for A7 are optional (forms already derived from public manuals; ABB TI/TD unit still open).
+4. **Install Node.js LTS** (`winget install OpenJS.NodeJS.LTS`, then `npm ci` in `frontend/`), GitHub CLI, optional C++
+   tools; see the 2026-10-15 text in git history for details. Until Node exists no frontend change can be claimed verified.
+5. Check CI on GitHub after the owner pushes.
+6. New: decide the push (see top) and whether to ask SACAC/ISDB providers about publishing derived tables.
 
-0. **A7: DONE 2026-10-14 (see `docs/VENDOR_PID_FORMS.md`); open: ABB TI/TD unit, wiring into `tuning_report.py`.** Original task: The manuals are public, the owner's documents are not needed for this. Siemens: PID_Compact (all times in seconds, S7-200 used minutes; https://support.industry.siemens.com/cs/attachments/109481448/109481448_S7200-S71200_PID_Compact_en.pdf, exact equation is in the S7-1200/1500 PID Control function manual). ABB: AC 800M PidCC in the Control Libraries manuals (e.g. 3BSE035981-510 on library.e.abb.com); the AC 500 CtrlPidParallel page is another product line and is NOT evidence for AC 800M. Fetch the PDFs, extract equation, parameter names and units, compare with `convert_pi` in `loops/src/crosscut_loops/tuning_rules.py`, add tests, mark each form verified or still unverified (quote page and version, do not copy text), add PROVENANCE rows, update A7 in the log. Owner documents are only needed for the exact system versions used at the plant.
-1. **Fault layer V1, rest.** Timestamp jitter and mode flips in `sim/faults.py` (mode flips are `Event`s), with
-   tests; then show whether the loop analysis (`loops/monitor.py`, `readiness.py`) copes with them.
-2. **Connector gaps.** DST fall-back for naive timestamps in `sql_import` (the CSV fix in `csv_import._resolve_instant`
-   is the model), units in the long-format CSV (optional `unit` column into the tags document), OPC UA
-   subscriptions (the importer only polls). ODBC was never tried with a real driver: say so if it comes up.
-3. **(DONE 2026-10-14, see the log: exp06-exp08)** **Tuning, part 2 (C3).** Derivative term (PID), closed-loop identification (biased gain with the operator on,
-   see exp00), cascade order; each with an experiment and acceptance targets frozen BEFORE the run, as in
-   exp02/exp03. Derive `std_reduction` for the benefit page from loop reports automatically.
-4. **(DONE 2026-10-15 except the matrix screen, see the log: exp09)** **Fuzzy Studio.** Rule matrix view; backtest of a rule base against operator moves (output `feed_change` is a
-   delta of the SP tag). Advisory only.
-5. **Public data, round two.** The flotation data has no SP/OUT. Look for an open dataset WITH controller output
-   (stiction/oscillation benchmarks); check the licence before downloading and add the PROVENANCE row first.
-   `exp04` notes why the flotation run says little about oscillation (no setpoint, untuned amplitude limit).
-6. **Screens (needs Node.js, so only after the owner installed it).** Manual window drag on the trend, undo zoom,
-   range presets, modules map page. Check each in Edge.
-7. **Later stages (design first, then ask the owner):** V4 lab test bed, V5 virtual DCS with a soft PLC and a
-   write-path test suite (must pass before any real write), V7 pilot package. Not before the owner has seen the
-   V3/V6 results.
+## Environment and gates
+
+`.venv/` (Python 3.12, `requirements-dev.txt`). Gates before every commit: `.venv\Scripts\python -m ruff check .`,
+`-m mypy sim loops/src api/src connectors/src` (not run this session on the new modules: run it), `-m pytest`.
+Style: functions <= 20 lines, <= 4 parameters, <= 3 nesting levels. `ruff format` over `loops` touches unrelated
+files: format only the files you edited. MCP `delegate`: `verify` only accepts a few prefixes and runs from the parent
+folder (`foremankit check` is not on PATH), results land in `<Python Scripts>/.agent-out/` (the PARENT folder), install
+them by hand and read them critically (this session: tests had wrong expectations, a generated simulator had a physics
+bug and a double integration). Files in `loops/` use CRLF; edit with CRLF-aware scripts.
 
 ## Known limits to keep stating
 
-All data is synthetic. Time constant and delay are poorly identified at full noise (gain is fine).
-Stiction needs sampling faster than about 15 s and a band above about 8 % at full noise; a square-wave load
-is a known false alarm. Overshoot and settling in exp03 are measured on a 60 s moving average. Tuning is
-advisory: nothing writes to a DCS. The "example" window of a whole-record finding is a heuristic.
+All validation of tuning and KPIs is on synthetic loops plus 17 SACAC and 27 counted ISDB loops without tuning ground
+truth. Stiction suspicion is a weak ranking, confusable with periodic forcing, near chance for half-cycles < 18 samples,
+weak for level loops, never a diagnosis. Time constant and delay are poorly identified at full noise. Tuning is
+advisory: nothing writes to a DCS. KPI thresholds other than quantisation >= 1 and the 15/85 % sizing medians are not
+validated on real loops.
