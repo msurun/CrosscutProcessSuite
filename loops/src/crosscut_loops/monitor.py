@@ -27,10 +27,29 @@ MIN_STAMPS_FOR_PERIOD = 2
 REVERSAL_MIN_MOVE_PERCENT = 0.1  # of output span; smaller output moves are not valve motion
 MIN_KPI_SAMPLES = 50
 
+# Per-loop knowledge a conclusion depends on. A conclusion whose knowledge is not in
+# LoopSettings.known is reported as "not assessed" instead of being computed from a placeholder
+# (exp18: placeholder ranges and limits flagged 42 of 44 real loops).
+OUT_RANGE = "out_range"  # engineering range of OUT: saturation and valve KPIs
+DELAY = "delay"  # process dead time: Harris index
+OSCILLATION_LIMITS = "oscillation_limits"  # ultimate period and amplitude limit: Hagglund
+KNOWN_ALL = frozenset({OUT_RANGE, DELAY, OSCILLATION_LIMITS})
+# What is withheld when a piece of knowledge is missing, in the order not_assessed lists it.
+WITHHELD_BY = (
+    ("saturation", OUT_RANGE),
+    ("valve_kpis", OUT_RANGE),
+    ("harris", DELAY),
+    ("oscillation", OSCILLATION_LIMITS),
+)
+
 
 @dataclass(frozen=True)
 class LoopSettings:
-    """Per-loop knowledge and thresholds; the first three have no sensible universal default."""
+    """Per-loop knowledge and thresholds; the first three have no sensible universal default.
+
+    ``known`` names the fields that come from configuration rather than a placeholder; the
+    default (all known) keeps callers that pass real values unchanged.
+    """
 
     delay_s: float  # process dead time, sets the Harris benchmark
     ultimate_period_s: float  # period of the loop's natural oscillation (Hagglund threshold)
@@ -44,6 +63,12 @@ class LoopSettings:
     flatline_limit: float = 0.05
     scan_period_s: float | None = None  # nominal logging period; overrides the estimate when set
     process_kind: str = "self_regulating"  # or "integrating" (level loop): picks the signal tested
+    known: frozenset[str] = KNOWN_ALL  # subset of KNOWN_ALL backed by configuration
+
+
+def not_assessed(settings: LoopSettings) -> tuple[str, ...]:
+    """Conclusions withheld because the knowledge they need is not configured (fixed order)."""
+    return tuple(name for name, needs in WITHHELD_BY if needs not in settings.known)
 
 
 def sampling_period(t_s: np.ndarray, nominal_s: float | None = None) -> float:
@@ -84,6 +109,7 @@ class LoopReport:
     valve_reversals_per_h: float | None = None  # output direction changes per hour (AUTO)
     out_quantisation_ratio: float | None = None  # output step / noise; >= 1 limits control
     valve_sizing_hint: str | None = None  # "oversized" / "undersized" from the median output
+    not_assessed: tuple[str, ...] = ()  # conclusions withheld for missing knowledge (WITHHELD_BY)
 
 
 @dataclass(frozen=True)
@@ -195,17 +221,30 @@ def _segment_metrics(
     # divide by: both cases make the Harris index undefined, so report nothing.
     if len(error) < settings.min_segment_samples or np.var(error) == 0.0:
         return float("nan"), None
+    return _harris_if_known(error, dt_s, settings), _hagglund_if_known(error, dt_s, settings)
+
+
+def _harris_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> float:
+    """Harris index of the stretch, or NaN when the dead time is not configured."""
+    if DELAY not in settings.known:
+        return float("nan")
     # The Harris index needs the dead time of the loop expressed as a whole number of
     # samples. Rounding the quotient delay_s / dt_s can give 0, but the algorithm needs
     # at least one sample of lag, hence the max(1, ...).
     delay_samples = max(1, round(settings.delay_s / dt_s))
-    harris = harris_index(error, delay_samples)
+    return harris_index(error, delay_samples)
+
+
+def _hagglund_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> float | None:
+    """Hagglund oscillation period in seconds, or None (no cycle, or limits not configured)."""
+    if OSCILLATION_LIMITS not in settings.known:
+        return None
     # Hagglund's method detects a sustained oscillation (limit cycle) and returns it
     # with its period; a stretch that does not oscillate yields period None.
     oscillation = hagglund_oscillation(
         error, dt_s, settings.amplitude_limit, settings.ultimate_period_s
     )
-    return harris, oscillation.period_s
+    return oscillation.period_s
 
 
 def _stiction_verdict(pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings) -> str:
@@ -403,7 +442,11 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
     # inactive rows (startup/shutdown gaps) would otherwise bias the fraction. out_low/out_high are
     # the output limits in percent of output span, and the resulting saturation is a fraction in [0,
     # 1].
-    saturation = saturation_fraction(arrays.out[arrays.active], settings.out_low, settings.out_high)
+    saturation = (
+        saturation_fraction(arrays.out[arrays.active], settings.out_low, settings.out_high)
+        if OUT_RANGE in settings.known
+        else float("nan")  # unknown OUT range: "at the limit" has no meaning
+    )
     return LoopReport(
         n_samples=arrays.n_samples,
         service_factor=float(np.mean(arrays.active)),
@@ -431,6 +474,7 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         valve_reversals_per_h=arrays.valve.reversals,
         out_quantisation_ratio=arrays.valve.quantisation,
         valve_sizing_hint=arrays.valve.sizing,
+        not_assessed=not_assessed(settings),
     )
 
 
@@ -483,14 +527,17 @@ def _valve_kpis(series: LoopSeries, active: np.ndarray, settings: LoopSettings) 
     out = out[~np.isnan(out)]
     if len(out) < MIN_KPI_SAMPLES or len(series.t_s[segment]) < MIN_STAMPS_FOR_PERIOD:
         return ValveKpis()
+    ratio = quantisation_ratio(out)  # step / noise, scale-free: needs no OUT range
+    quantisation = None if np.isnan(ratio) else float(ratio)
+    if OUT_RANGE not in settings.known:
+        return ValveKpis(quantisation=quantisation)
     dt_s = sampling_period(series.t_s[segment], settings.scan_period_s)
     span = settings.out_high - settings.out_low
-    ratio = quantisation_ratio(out)
     low, high = settings.out_low + 0.05 * span, settings.out_high - 0.05 * span
     return ValveKpis(
         travel=valve_travel_per_hour(out, dt_s, span),
         reversals=reversals_per_hour(out, dt_s, REVERSAL_MIN_MOVE_PERCENT / 100.0 * span),
-        quantisation=None if np.isnan(ratio) else float(ratio),
+        quantisation=quantisation,
         sizing=valve_extremes(out, low, high).sizing_hint,
     )
 

@@ -20,7 +20,14 @@ import numpy as np
 
 from crosscut_loops.example_windows import example_window
 from crosscut_loops.finding_windows import finding_window
-from crosscut_loops.monitor import LoopReport, LoopSettings, analyze_loop
+from crosscut_loops.monitor import (
+    DELAY,
+    OSCILLATION_LIMITS,
+    OUT_RANGE,
+    LoopReport,
+    LoopSettings,
+    analyze_loop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -289,23 +296,23 @@ def _stiction_finding(report: LoopReport) -> Finding | None:
 def _harris_share(harris_value: float) -> float:
     """Fraction (0..1) of the Harris weight a loop keeps for its Harris index.
 
-    The Harris index measures how well a loop's references match the Harris matrix, which
-    records the order in which statements are known to depend on each other; a higher value
-    means the loop agrees with that ordering. This function is the scoring curve that maps the
-    raw index to the share of the loop's weight the loop actually earns.
+    The Harris index is the minimum-variance benchmark variance divided by the loop's achieved
+    error variance (Harris 1989): 1.0 means no controller could do better with this dead time,
+    values near 0 mean most of the variance could be removed by better control. This function is
+    the scoring curve that maps the index to the share of the Harris weight the loop keeps.
 
     A NaN index means the benchmark could not be computed: the loop is given the neutral half
     instead of being punished for missing data.
 
     Returns a value in [0.0, 1.0]; HARRIS_NEUTRAL for a missing measurement.
     """
-    # Unit of harris_value: a correlation-like score in [-1, 1], where 1 means the loop's
-    # references agree perfectly with the Harris matrix (so it scores 100%).
+    # harris_value is a variance ratio, nominally in [0, 1]; estimation noise can push it a
+    # little outside, hence the clamps below.
     if np.isnan(harris_value):
         return HARRIS_NEUTRAL
     if harris_value >= HARRIS_FULL_SCORE:
         return 1.0
-    # A non-positive index earns nothing: the loop violates the known ordering and gets no credit.
+    # A non-positive index (only possible from estimation noise) earns nothing.
     if harris_value <= 0.0:
         return 0.0
     # Linear ramp between 0 and HARRIS_FULL_SCORE: the score is used directly as the share.
@@ -352,8 +359,12 @@ def health_percent(report: LoopReport) -> int | None:
 
 
 def _time_share(report: LoopReport) -> float:
-    """Fraction of time the loop is in use, not saturated and not frozen."""
-    in_use = report.service_factor * (1.0 - report.saturation_fraction)
+    """Fraction of time the loop is in use, not saturated and not frozen.
+
+    An unknown saturation (NaN: the OUT range is not configured) is not penalised.
+    """
+    saturation = 0.0 if np.isnan(report.saturation_fraction) else report.saturation_fraction
+    in_use = report.service_factor * (1.0 - saturation)
     return in_use * (1.0 - report.flatline_fraction)
 
 
@@ -406,17 +417,16 @@ def status_level(report: LoopReport, settings: LoopSettings) -> str:
     Returns:
         One of UNUSED_LEVEL, PROBLEM_LEVEL, WARNING_LEVEL, OK_LEVEL.
     """
-    # A "manual" loop is one a human wrote by hand instead of the optimizer generating it. There is
-    # nothing to diagnose or tune in it, so it is reported as unused before any other rule applies.
+    # A "manual" loop spends most of the time out of AUTO (service factor below manual_limit):
+    # the operator runs it by hand, so there is no controller behaviour to judge yet.
     if report.classification == MANUAL_CLASSIFICATION:
         return UNUSED_LEVEL
-    # _is_problem decides from measured quantities (see settings thresholds) whether the loop wastes
-    # enough time or space to be worth fixing; it is the only check that can yield the top severity.
+    # A suspected sticking valve or a frozen PV needs maintenance, not retuning: top severity.
     if _is_problem(report, settings):
         return PROBLEM_LEVEL
-    # Neither unused nor a clear problem, but still off: it runs in a degenerate regime (the trip
-    # count is pinned at its maximum, the iteration count flips between values, or the measured
-    # performance sits below the expected one for this loop shape).
+    # Off but not broken: OUT pinned at a limit, a sustained oscillation, or a Harris index below
+    # the threshold. Each of these is only reached when its knowledge is configured (see
+    # monitor.WITHHELD_BY); otherwise the report lists it under not_assessed.
     if report.classification in ("saturated", OSCILLATING_CODE, "poor_performance"):
         return WARNING_LEVEL
     # Nothing above fired: the loop is diagnosed as healthy and simply reported as such.
@@ -436,11 +446,15 @@ def default_settings(loop: LoopTags) -> LoopSettings:
     Args:
         loop: the loop to build settings for.
 
+    Placeholders keep the numbers defined, but ``known`` lists only what the project file gave,
+    so the analysis withholds the conclusions that would rest on a placeholder.
+
     Returns:
         Settings with the standard timing values and a 2 % amplitude limit, or 1.0 PV unit when
         the engineering range is unknown.
     """
     return LoopSettings(
+        known=_known_from_tags(loop),
         delay_s=_first_given(loop.delay_s, DELAY_S),
         ultimate_period_s=_first_given(loop.ultimate_period_s, ULTIMATE_PERIOD_S),
         amplitude_limit=_first_given(
@@ -450,6 +464,22 @@ def default_settings(loop: LoopTags) -> LoopSettings:
         out_high=_first_given(loop.out_high, OUT_HIGH),
         process_kind=loop.process_kind,
     )
+
+
+def _known_from_tags(loop: LoopTags) -> frozenset[str]:
+    """The per-loop knowledge the project file actually provides.
+
+    The oscillation limits need the ultimate period plus an amplitude limit, either given
+    directly or derived from a configured PV engineering range (AMPLITUDE_FRACTION of it).
+    """
+    has_range = loop.eng_min is not None and loop.eng_max is not None
+    given = {
+        OUT_RANGE: loop.out_low is not None and loop.out_high is not None,
+        DELAY: loop.delay_s is not None,
+        OSCILLATION_LIMITS: loop.ultimate_period_s is not None
+        and (loop.amplitude_limit is not None or has_range),
+    }
+    return frozenset(name for name, ok in given.items() if ok)
 
 
 def _first_given(value: float | None, fallback: float) -> float:
@@ -465,6 +495,11 @@ def _optional_float(value: float) -> float | None:
 def _rounded_percent(fraction: float) -> int:
     """A 0..1 fraction as a rounded integer percentage."""
     return int(round(fraction * 100.0))
+
+
+def _optional_percent(fraction: float) -> int | None:
+    """A 0..1 fraction as a rounded percentage, or None when it is NaN (not assessed)."""
+    return None if np.isnan(fraction) else _rounded_percent(fraction)
 
 
 def _sparkline(pv: np.ndarray, points: int = SPARKLINE_POINTS) -> list[float]:
@@ -509,9 +544,9 @@ def _report_row(
         "findings": _finding_rows(report, settings),
         # Percentage of time the controller is in automatic mode (service factor), rounded.
         "service_percent": _rounded_percent(report.service_factor),
-        # Percentage of time the controller output sits at a limit (0% or 100%), rounded.
-        "saturation_percent": _rounded_percent(report.saturation_fraction),
-        # Harris index: dimensionless performance metric; higher values indicate worse control.
+        # Percentage of time OUT sits at a limit, rounded; None when the OUT range is unknown.
+        "saturation_percent": _optional_percent(report.saturation_fraction),
+        # Harris index: achieved variance vs minimum-variance benchmark; 1.0 is best, lower worse.
         "harris_index": _optional_float(report.harris_index),
         # Dominant oscillation period in seconds; None if no oscillation was detected.
         "oscillation_period_s": _optional_period(report.oscillation_period_s),
@@ -525,6 +560,8 @@ def _report_row(
         "valve_reversals_per_h": report.valve_reversals_per_h,
         "out_quantisation_ratio": report.out_quantisation_ratio,
         "valve_sizing_hint": report.valve_sizing_hint,
+        # Conclusions withheld because their per-loop knowledge is not configured.
+        "not_assessed": list(report.not_assessed),
         # Downsampled PV values for the inline sparkline chart.
         "sparkline": _sparkline(pv_values),
     }

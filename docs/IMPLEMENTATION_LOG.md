@@ -562,3 +562,19 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Consequence: the saturation and valve-sizing findings are unreliable when the OP range is unknown; they need an OP range
   from tag configuration or must be suppressed. Next: exp19 with a frozen OP-range rule and a stricter flag. Details in
   `experiments/exp18_kpi_triage/README.md`.
+
+## Not assessed instead of guessed (2026-10-18, step 1 of the post-exp18 plan)
+
+- Direction (owner + Opus review): no placeholder may drive a status. `LoopSettings.known` names the per-loop knowledge
+  backed by configuration (`out_range`, `delay`, `oscillation_limits`; default all, so direct callers are unchanged).
+  Missing OUT range: saturation NaN, valve travel/reversals/sizing None (quantisation stays, it is scale-free). Missing
+  delay: Harris NaN. Missing oscillation limits: Hagglund not run. `LoopReport.not_assessed` and the overview row key
+  `not_assessed` list what was withheld; `saturation_percent` is None when not assessed; health does not penalise it.
+- `overview.default_settings` fills `known` only from LoopTags fields actually given (oscillation limits need the
+  ultimate period plus an amplitude limit or a PV engineering range).
+- Fixed fabricated comments in overview.py (Harris "matrix", "optimizer/trip count"); Harris is a variance ratio.
+- Tests: test_not_assessed (delegated, one broken fixture fixed); dataset and finding-window fixtures now configure
+  their knowledge explicitly. Frontend type `saturation_percent: number` must become `number | null` and show
+  `not_assessed`: NOT done (no Node.js).
+- Expected consequence: with nothing configured, loops will mostly show "ok" plus a not_assessed list until the
+  parameter-free ACF oscillation detector (step 2) exists.

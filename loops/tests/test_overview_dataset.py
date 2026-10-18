@@ -78,6 +78,11 @@ def _make_loop_tags(name: str, pv_tag: str, out_tag: str) -> LoopTags:
         unit="degC",
         eng_min=0.0,
         eng_max=100.0,
+        # Configured per-loop knowledge (the former placeholders), so every check is assessed.
+        delay_s=30.0,
+        ultimate_period_s=600.0,
+        out_low=0.0,
+        out_high=100.0,
     )
 
 
@@ -149,6 +154,7 @@ def _expected_report_keys():
         "valve_reversals_per_h",
         "out_quantisation_ratio",
         "valve_sizing_hint",
+        "not_assessed",
         "sparkline",
     }
 
