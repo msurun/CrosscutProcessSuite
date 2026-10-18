@@ -87,6 +87,16 @@ class LoopReport:
 
 
 @dataclass(frozen=True)
+class ValveKpis:
+    """Valve wear and sizing numbers of the longest AUTO stretch; None when unavailable."""
+
+    travel: float | None = None
+    reversals: float | None = None
+    quantisation: float | None = None
+    sizing: str | None = None
+
+
+@dataclass(frozen=True)
 class LoopSeries:
     """The caller-supplied series of one loop, before any per-sample filtering."""
 
@@ -112,7 +122,7 @@ class LoopArrays:
     period_s: float | None
     stiction: str
     suspicion: SuspicionResult
-    valve: dict[str, float | str | None]
+    valve: ValveKpis
 
 
 def _longest_run(mask: np.ndarray) -> slice:
@@ -417,10 +427,10 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         stiction_verdict=arrays.stiction,
         stiction_suspicion=arrays.suspicion.score,
         stiction_advice=arrays.suspicion.advice,
-        valve_travel_per_h=arrays.valve["travel"],
-        valve_reversals_per_h=arrays.valve["reversals"],
-        out_quantisation_ratio=arrays.valve["quantisation"],
-        valve_sizing_hint=arrays.valve["sizing"],
+        valve_travel_per_h=arrays.valve.travel,
+        valve_reversals_per_h=arrays.valve.reversals,
+        out_quantisation_ratio=arrays.valve.quantisation,
+        valve_sizing_hint=arrays.valve.sizing,
     )
 
 
@@ -466,29 +476,23 @@ def _longest_segment_metrics(
     return harris, period_s, stiction, suspicion
 
 
-def _valve_kpis(
-    series: LoopSeries, active: np.ndarray, settings: LoopSettings
-) -> dict[str, float | str | None]:
+def _valve_kpis(series: LoopSeries, active: np.ndarray, settings: LoopSettings) -> ValveKpis:
     """Valve wear and sizing numbers of the longest AUTO stretch (None when it is too short)."""
-    empty: dict[str, float | str | None] = dict.fromkeys(
-        ("travel", "reversals", "quantisation", "sizing")
-    )
     segment = _longest_run(active)
     out = series.out[segment]
     out = out[~np.isnan(out)]
     if len(out) < MIN_KPI_SAMPLES or len(series.t_s[segment]) < MIN_STAMPS_FOR_PERIOD:
-        return empty
+        return ValveKpis()
     dt_s = sampling_period(series.t_s[segment], settings.scan_period_s)
     span = settings.out_high - settings.out_low
     ratio = quantisation_ratio(out)
-    return {
-        "travel": valve_travel_per_hour(out, dt_s, span),
-        "reversals": reversals_per_hour(out, dt_s, REVERSAL_MIN_MOVE_PERCENT / 100.0 * span),
-        "quantisation": None if np.isnan(ratio) else float(ratio),
-        "sizing": valve_extremes(
-            out, settings.out_low + 0.05 * span, settings.out_high - 0.05 * span
-        ).sizing_hint,
-    }
+    low, high = settings.out_low + 0.05 * span, settings.out_high - 0.05 * span
+    return ValveKpis(
+        travel=valve_travel_per_hour(out, dt_s, span),
+        reversals=reversals_per_hour(out, dt_s, REVERSAL_MIN_MOVE_PERCENT / 100.0 * span),
+        quantisation=None if np.isnan(ratio) else float(ratio),
+        sizing=valve_extremes(out, low, high).sizing_hint,
+    )
 
 
 def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:

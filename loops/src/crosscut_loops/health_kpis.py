@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 SECONDS_PER_HOUR = 3600.0
 SIGNIFICANT_DIGITS_STEP = 6
@@ -47,7 +48,7 @@ class TrendResult:
     direction: str
 
 
-def _as_valid_signal(values) -> np.ndarray:
+def _as_valid_signal(values: ArrayLike) -> np.ndarray:
     """Return a 1-D float array with NaN samples dropped."""
     signal = np.asarray(values, dtype=float).ravel()
     return signal[~np.isnan(signal)]
@@ -58,7 +59,7 @@ def _median_absolute_deviation(values: np.ndarray) -> float:
     return float(np.median(np.abs(values - np.median(values))))
 
 
-def valve_travel_per_hour(op, dt_s: float, out_span: float = 100.0) -> float:
+def valve_travel_per_hour(op: ArrayLike, dt_s: float, out_span: float = 100.0) -> float:
     """Return total OP movement per hour as percent of out_span.
 
     Travel is sum|diff(OP)| / out_span * 100, spread over the record duration.
@@ -77,7 +78,7 @@ def valve_travel_per_hour(op, dt_s: float, out_span: float = 100.0) -> float:
     return float(total_travel_percent / record_hours)
 
 
-def reversals_per_hour(op, dt_s: float, min_move: float) -> float:
+def reversals_per_hour(op: ArrayLike, dt_s: float, min_move: float) -> float:
     """Count direction changes per hour using min_move hysteresis.
 
     A reversal is registered only when OP retraces by at least min_move since the
@@ -115,7 +116,7 @@ def _count_reversals(signal: np.ndarray, min_move: float) -> int:
     return reversal_count
 
 
-def quantisation_step(x) -> float:
+def quantisation_step(x: ArrayLike) -> float:
     """Return the resolution of a signal: 5th percentile of nonzero |diff(x)|.
 
     The step is rounded to 6 significant digits. Returns NaN when there are
@@ -131,7 +132,7 @@ def quantisation_step(x) -> float:
     return float(f"{raw_step:.{SIGNIFICANT_DIGITS_STEP}g}")
 
 
-def quantisation_ratio(x) -> float:
+def quantisation_ratio(x: ArrayLike) -> float:
     """Return quantisation_step(x) over the noise sigma from MAD(diff(x)).
 
     sigma = 1.4826 * MAD(diff) / sqrt(2). A ratio >= QUANTISATION_LIMITING means
@@ -149,11 +150,11 @@ def quantisation_ratio(x) -> float:
     sigma = MAD_TO_SIGMA * _median_absolute_deviation(increments) / DIFF_VARIANCE_FACTOR
     if sigma == 0.0:
         return float("inf")
-    return step / sigma
+    return float(step / sigma)
 
 
 def valve_extremes(
-    op, low: float = DEFAULT_LOW_PERCENT, high: float = DEFAULT_HIGH_PERCENT
+    op: ArrayLike, low: float = DEFAULT_LOW_PERCENT, high: float = DEFAULT_HIGH_PERCENT
 ) -> ValveExtremes:
     """Summarise OP distribution and suggest valve sizing.
 
@@ -235,7 +236,7 @@ def _cluster_median_period(cluster: list[str], periods: dict[str, float]) -> flo
 
 
 def kendall_trend(
-    values, higher_is_worse: bool = True, min_points: int = DEFAULT_MIN_TREND_POINTS
+    values: ArrayLike, higher_is_worse: bool = True, min_points: int = DEFAULT_MIN_TREND_POINTS
 ) -> TrendResult:
     """Return the Kendall trend of a KPI series.
 

@@ -88,7 +88,7 @@ citing papers; the paper itself was not read.
 ## Environment and gates
 
 `.venv/` (Python 3.12, `requirements-dev.txt`). Gates before every commit: `.venv\Scripts\python -m ruff check .`,
-`-m mypy sim loops/src api/src connectors/src` (not run this session on the new modules: run it), `-m pytest`.
+`-m mypy sim loops/src api/src connectors/src`, `-m pytest` (all three green at the last commit; mypy errors in the new modules were fixed after the first handoff commit).
 Style: functions <= 20 lines, <= 4 parameters, <= 3 nesting levels. `ruff format` over `loops` touches unrelated
 files: format only the files you edited. MCP `delegate`: `verify` only accepts a few prefixes and runs from the parent
 folder (`foremankit check` is not on PATH), results land in `<Python Scripts>/.agent-out/` (the PARENT folder), install

@@ -177,7 +177,7 @@ def _estimate_noise_std(pv: np.ndarray) -> float:
         return 0.0
     differences = np.diff(pv)
     mad = float(np.median(np.abs(differences - np.median(differences))))
-    return MAD_TO_STD_FACTOR * mad / DIFF_VARIANCE_FACTOR
+    return float(MAD_TO_STD_FACTOR * mad / DIFF_VARIANCE_FACTOR)
 
 
 def _step_threshold(pv: np.ndarray, settings: WindowSettings) -> float:
@@ -261,7 +261,7 @@ def _first_settled_index(
     if not run_ends[first_run_end]:
         return None
     run_length = int(_run_lengths(inside)[first_run_end])
-    return step_index + first_run_end - run_length + 1
+    return int(step_index + first_run_end - run_length + 1)
 
 
 def _run_lengths(mask: np.ndarray) -> np.ndarray:

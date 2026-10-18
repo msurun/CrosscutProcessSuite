@@ -96,7 +96,9 @@ def cautious_step(current: float, proposed: float, factor: float = CAUTIOUS_FACT
     return float(min(max(proposed, current / factor), current * factor))
 
 
-def _fit_windows(windows, sp, op, pv, dt_s: float) -> list[_Fit]:
+def _fit_windows(
+    windows: list[ExcitationWindow], sp: np.ndarray, op: np.ndarray, pv: np.ndarray, dt_s: float
+) -> list[_Fit]:
     """Closed-loop FOPDT fit of the largest windows; failing windows are skipped."""
     ranked = sorted(windows, key=lambda w: -abs(w.step_size))[:MAX_WINDOWS]
     fits = []
@@ -109,7 +111,9 @@ def _fit_windows(windows, sp, op, pv, dt_s: float) -> list[_Fit]:
     return fits
 
 
-def _best_fit(fits: list[_Fit], op, pv, dt_s: float) -> tuple[_Fit, float | None]:
+def _best_fit(
+    fits: list[_Fit], op: np.ndarray, pv: np.ndarray, dt_s: float
+) -> tuple[_Fit, float | None]:
     """Fit with the best mean R2 on the other windows (own R2 when there is only one)."""
     if len(fits) == 1:
         return fits[0], None
@@ -151,7 +155,16 @@ def _ratio(values: list[float]) -> float:
     return float(max(values) / min(values)) if values and min(values) > 0 else float("inf")
 
 
-def _result(status, confidence, found, used, model, report, reasons, cross=None) -> HistoryTuning:
+def _result(
+    status: str,
+    confidence: str,
+    found: int,
+    used: int,
+    model: FopdtModel | None,
+    report: TuningReport | None,
+    reasons: tuple[str, ...],
+    cross: float | None = None,
+) -> HistoryTuning:
     """Assemble the result with the matching recommendation."""
     recommendation = {"high": "retune", "medium": "retune_cautiously"}.get(confidence, "bump_test")
     factor = CAUTIOUS_FACTOR if confidence == "medium" else None
