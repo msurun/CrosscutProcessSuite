@@ -552,3 +552,13 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Evidence: simulation (clean data accurate within 2 %, disturbed data never graded high); real data (exp17): 26 of 86 records have a setpoint step, none reached medium or high, so history tuning rarely applies and bump tests remain the main route. KPI thresholds beyond quantisation >= 1 and the sizing medians (15 / 85 %) are not validated on real loops.
 - Tests: test_health_kpis, test_history_windows, test_history_tuning, test_monitor_valve_kpis; full loops suite green.
 
+
+## exp18: KPI triage on real loops (2026-10-18)
+
+- Protocol frozen first (3310b7c), script `run18.py` delegated (Gemini), reviewed: it passed OP as `op=` instead of
+  `out` (would have turned every loop into "error"); fixed before the run. One run, 44 loops scored.
+- Result: T1 36/38 flagged (pass on paper, vacuous: 4/5 negatives flagged too), T3 quantisation 0/3 and saturation 0/1
+  (miss), sizing "oversized" 23/44 (artefact). Cause: OP assumed 0-100 %, real OP is often a deviation variable.
+- Consequence: the saturation and valve-sizing findings are unreliable when the OP range is unknown; they need an OP range
+  from tag configuration or must be suppressed. Next: exp19 with a frozen OP-range rule and a stricter flag. Details in
+  `experiments/exp18_kpi_triage/README.md`.
