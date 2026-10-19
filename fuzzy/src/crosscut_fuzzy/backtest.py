@@ -45,8 +45,9 @@ def find_operator_moves(sp: np.ndarray, dead_band: float) -> tuple[np.ndarray, n
     """Locate operator setpoint moves as runs of samples that jump beyond dead_band.
 
     A single operator move can span several samples (a ramp faster than dead_band per
-    sample), so contiguous above-threshold differences are collapsed into ONE move; its delta
-    is the plain sum of those differences, so a run mixing up and down steps can sum to ~0.
+    sample), so contiguous above-threshold differences of the SAME SIGN are collapsed into ONE
+    move; its delta is the sum of those differences. A jump followed directly by a jump the
+    other way is two moves (otherwise they would cancel to a delta of ~0 and vanish).
     The move index is the first sample AFTER the jump, i.e. the position in `sp` where
     the new setpoint is already in effect.
 
@@ -54,8 +55,8 @@ def find_operator_moves(sp: np.ndarray, dead_band: float) -> tuple[np.ndarray, n
     summed setpoint change over each move. Both are empty when there is no move.
     """
     diffs = np.diff(np.asarray(sp, dtype=float))
-    is_jump = np.abs(diffs) > dead_band
-    start_position, length = _jump_run_starts(is_jump)
+    jump_sign = np.sign(diffs) * (np.abs(diffs) > dead_band)  # +1 up, -1 down, 0 no jump
+    start_position, length = _jump_run_starts(jump_sign)
     if start_position.size == 0:
         return np.empty(0, dtype=int), np.empty(0, dtype=float)
     deltas = _sum_diffs_over_runs(diffs, start_position, length)
@@ -63,18 +64,20 @@ def find_operator_moves(sp: np.ndarray, dead_band: float) -> tuple[np.ndarray, n
     return indices.astype(int), deltas
 
 
-def _jump_run_starts(is_jump: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return (first index, run length) for each run of True in a boolean array.
+def _jump_run_starts(jump_sign: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return (first index, run length) for each run of equal non-zero values in ``jump_sign``.
 
-    Runs are the maximal blocks of consecutive True values. The padding trick lets us
-    detect a run start wherever the value rises from False to True.
+    ``jump_sign`` holds +1 / -1 where the setpoint jumped up / down beyond the dead band and 0
+    elsewhere. A run is a maximal block of the same non-zero sign, so a jump and a jump the
+    other way never share a run. Padding with zeros makes every run start and end visible as a
+    change between neighbours.
     """
-    padded = np.concatenate(([False], np.asarray(is_jump, dtype=bool), [False]))
-    changes = np.diff(padded.astype(int))
-    start_position = np.flatnonzero(changes == 1)
-    length = np.flatnonzero(changes == -1) - start_position
-    return start_position, length
-
+    padded = np.concatenate(([0], np.asarray(jump_sign, dtype=int), [0]))
+    boundaries = np.flatnonzero(padded[1:] != padded[:-1])  # diff index where a new block starts
+    start_position = boundaries[:-1]
+    length = boundaries[1:] - start_position
+    is_run = (start_position < jump_sign.size) & (padded[start_position + 1] != 0)
+    return start_position[is_run], length[is_run]
 
 def _sum_diffs_over_runs(
     diffs: np.ndarray, start_position: np.ndarray, length: np.ndarray

@@ -15,7 +15,7 @@ from typing import Any
 
 from crosscut_fuzzy.model import FuzzyModelError, system_from_dict
 
-ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 SOURCE_EXAMPLE = "example"
 SOURCE_USER = "user"
 
@@ -35,9 +35,9 @@ def check_id(system_id: str) -> str:
     Raises:
         FuzzyModelError: for anything that could be a path or is empty or too long.
     """
-    # ID_PATTERN is anchored, so match() succeeds only when the whole string is a plain identifier;
-    # anything empty, too long, or containing non-identifier characters fails here.
-    if not ID_PATTERN.match(system_id):
+    # fullmatch() succeeds only when the WHOLE string is a plain identifier. ``$`` would also
+    # accept a trailing newline, which must never reach a file name.
+    if not ID_PATTERN.fullmatch(system_id):
         raise FuzzyModelError(f"invalid system id: {system_id!r}")
     return system_id
 

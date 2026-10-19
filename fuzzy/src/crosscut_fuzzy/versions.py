@@ -17,7 +17,7 @@ from crosscut_fuzzy.library import check_id
 from crosscut_fuzzy.model import FuzzyModelError
 
 HISTORY_DIR_NAME = "_history"
-VERSION_ID_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{12}Z$")
+VERSION_ID_PATTERN = re.compile(r"[0-9]{8}T[0-9]{12}Z")
 VERSION_ID_FORMAT = "%Y%m%dT%H%M%S%fZ"
 
 DEFAULT_OPERATOR = "and"
@@ -120,9 +120,9 @@ def check_version_id(version_id: str) -> str:
         FuzzyModelError: for anything that could be a path or is not a
             well-formed id (empty, contains a slash, any other format).
     """
-    # The pattern is anchored with ^...$, so a value that merely contains a valid id somewhere
-    # in the middle is rejected.
-    if not VERSION_ID_PATTERN.match(version_id):
+    # fullmatch() rejects a value that merely contains a valid id somewhere; ``$`` alone would
+    # also accept a trailing newline.
+    if not VERSION_ID_PATTERN.fullmatch(version_id):
         raise FuzzyModelError(f"invalid version id: {version_id!r}")
     return version_id
 

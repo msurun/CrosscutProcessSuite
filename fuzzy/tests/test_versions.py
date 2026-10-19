@@ -7,8 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from crosscut_fuzzy.library import check_id
 from crosscut_fuzzy.model import FuzzyModelError
-from crosscut_fuzzy.versions import diff_documents, list_versions, load_version, save_version
+from crosscut_fuzzy.versions import (
+    check_version_id,
+    diff_documents,
+    list_versions,
+    load_version,
+    save_version,
+)
 
 EARLY = datetime(2026, 10, 11, 10, 15, 0, 0, tzinfo=UTC)
 LATE = datetime(2026, 10, 11, 10, 15, 0, 500, tzinfo=UTC)
@@ -171,3 +178,23 @@ def test_adding_and_removing_a_rule_is_reported_in_a_stable_order() -> None:
         {"code": "rule_added", "rule": "r3"},
         {"code": "rule_removed", "rule": "r1"},
     ]
+
+
+@pytest.mark.parametrize("version_id", ["20260101T000000000000Z\n", "x20260101T000000000000Z", ""])
+def test_a_version_id_with_extra_characters_is_rejected(version_id: str) -> None:
+    """Only the exact id format passes; a trailing newline or a prefix must not slip through."""
+    with pytest.raises(FuzzyModelError):
+        check_version_id(version_id)
+
+
+@pytest.mark.parametrize("system_id", ["mill_feed\n", "../x", "a b", ""])
+def test_a_system_id_with_a_newline_or_path_part_is_rejected(system_id: str) -> None:
+    """System ids become file names, so a trailing newline or a path part is refused."""
+    with pytest.raises(FuzzyModelError):
+        check_id(system_id)
+
+
+def test_valid_ids_are_accepted() -> None:
+    """The documented formats still pass after the stricter match."""
+    assert check_version_id("20260101T000000000000Z") == "20260101T000000000000Z"
+    assert check_id("mill_feed-2") == "mill_feed-2"

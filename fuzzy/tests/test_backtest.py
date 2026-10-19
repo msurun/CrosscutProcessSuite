@@ -65,6 +65,15 @@ def test_two_adjacent_jumps_form_one_single_move() -> None:
     assert deltas.tolist() == pytest.approx([6.0])
 
 
+def test_adjacent_jumps_of_opposite_sign_are_two_moves() -> None:
+    """A +5 jump directly followed by a -5 jump is two moves, not one move of delta 0."""
+    prices = np.array([0.0, 0.0, 5.0, 0.0, 0.0])
+
+    indices, deltas = find_operator_moves(prices, dead_band=2.0)
+
+    assert indices.tolist() == [2, 3]
+    assert deltas.tolist() == pytest.approx([5.0, -5.0])
+
 def test_a_downward_move_is_found_with_a_negative_delta() -> None:
     """A -4 drop is reported with a negative delta."""
     prices = np.array([0.0, 0.0, 0.0, -4.0])
