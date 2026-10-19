@@ -17,16 +17,18 @@ NOISE_BAND_Z = 1.96  # 95 % band of a white-noise ACF is +-1.96 / sqrt(n) (Box a
 FLAT_RELATIVE_STD = 1e-12  # detrended std below this share of the signal scale is rounding only
 BAND_BARTLETT = "bartlett"
 BAND_WHITE = "white"
+BAND_BARTLETT_LAG = "bartlett_lag"  # Bartlett variance with n - k pairs at lag k (exp21)
 
 
 @dataclass(frozen=True)
 class AcfConfig:
-    """Detector variant; the defaults are the shipped detector (exp20 compares variants)."""
+    """Detector variant; the defaults are the shipped detector (exp20/exp21 compare variants)."""
 
-    band: str = BAND_BARTLETT  # BAND_BARTLETT (MA(q) band) or BAND_WHITE (1.96 / sqrt(n))
+    band: str = BAND_BARTLETT  # BAND_BARTLETT, BAND_BARTLETT_LAG or BAND_WHITE (1.96 / sqrt(n))
     min_crossings: int = MIN_ZERO_CROSSINGS
     max_lag_fraction: float = 0.5  # ACF lags used, as a share of the record length
     unbiased: bool = False  # divide the lag-k sum by n - k instead of n
+    peak_z: float = 0.0  # 0 = off; else the first lobe after lag 0 must peak above peak_z sigma
 
 
 SHIPPED = AcfConfig()
@@ -71,16 +73,18 @@ def acf_regularity(error: np.ndarray, dt_s: float, config: AcfConfig = SHIPPED) 
         return AcfOscillation(False, None, None, "flat signal")
 
     acf = _autocorrelation(samples, config)
-    zero_crossings = _zero_crossings(acf, _noise_band(acf, samples.size, config))
+    sigma = _noise_sigma(acf, samples.size, config)
+    zero_crossings = _zero_crossings(acf, NOISE_BAND_Z * sigma)
 
     if len(zero_crossings) < config.min_crossings:
         return AcfOscillation(False, None, None, "too few ACF zero crossings")
 
     regularity, period_samples = _regularity(zero_crossings)
-    if regularity > REGULARITY_THRESHOLD:
-        period_s = float(period_samples * dt_s)
-        return AcfOscillation(True, period_s, float(regularity), "")
-    return AcfOscillation(False, None, float(regularity), f"irregular (r={regularity:.2f})")
+    if regularity <= REGULARITY_THRESHOLD:
+        return AcfOscillation(False, None, float(regularity), f"irregular (r={regularity:.2f})")
+    if config.peak_z > 0.0 and not _peak_is_strong(acf, sigma, zero_crossings, config.peak_z):
+        return AcfOscillation(False, None, float(regularity), "weak ACF peak")
+    return AcfOscillation(True, float(period_samples * dt_s), float(regularity), "")
 
 
 def _validate_inputs(error: np.ndarray, dt_s: float) -> None:
@@ -123,22 +127,40 @@ def _autocorrelation(samples: np.ndarray, config: AcfConfig) -> np.ndarray:
     return np.asarray(acf / acf[0], dtype=float)
 
 
-def _noise_band(acf: np.ndarray, n_samples: int, config: AcfConfig) -> float:
-    """Half-width of the 95 % band of ACF estimation noise beyond the first zero crossing.
+def _noise_sigma(acf: np.ndarray, n_samples: int, config: AcfConfig) -> np.ndarray:
+    """Standard deviation of the ACF estimation noise at every lag (one value per lag).
 
     Bartlett's formula for an MA(q) process, var(r_k) = (1 + 2 * sum r_j^2) / n, with q the lag
     before the first zero crossing (Box and Jenkins). A white-noise band (q = 0) was too narrow
     for correlated disturbances: AR(1) with phi = 0.9 passed as regular in 23 of 100 runs.
+    BAND_BARTLETT_LAG divides by the n - k sample pairs at lag k instead of n, the variance of
+    the unbiased estimator; it widens the band where few pairs remain.
     """
     if config.band == BAND_WHITE:
-        return float(NOISE_BAND_Z / np.sqrt(n_samples))
+        return np.full(acf.size, 1.0 / np.sqrt(n_samples))
     nonpositive = np.flatnonzero(acf <= 0.0)
     q = int(nonpositive[0]) if len(nonpositive) else len(acf)
-    variance = (1.0 + 2.0 * float(np.sum(acf[1:q] ** 2))) / n_samples
-    return float(NOISE_BAND_Z * np.sqrt(variance))
+    bartlett_sum = 1.0 + 2.0 * float(np.sum(acf[1:q] ** 2))
+    pairs = np.full(acf.size, float(n_samples))
+    if config.band == BAND_BARTLETT_LAG:
+        pairs = n_samples - np.arange(acf.size, dtype=float)
+    return np.sqrt(bartlett_sum / pairs)
 
 
-def _zero_crossings(acf: np.ndarray, band: float) -> np.ndarray:
+def _peak_is_strong(
+    acf: np.ndarray, sigma: np.ndarray, crossings: np.ndarray, peak_z: float
+) -> bool:
+    """True when the first positive lobe after lag 0 peaks above peak_z noise sigmas (exp21).
+
+    That lobe lies between the second and third crossing, centred near one period. A real
+    cycle gives a wide lobe far outside the band; chance exceedances of fast noise do not.
+    """
+    start, stop = int(np.ceil(crossings[1])), int(np.floor(crossings[2])) + 1
+    lag = start + int(np.argmax(acf[start:stop]))
+    return bool(acf[lag] > peak_z * sigma[lag])
+
+
+def _zero_crossings(acf: np.ndarray, band: np.ndarray) -> np.ndarray:
     """Fractional lags where the ACF passes from one side of the noise band to the other.
 
     Our addition to Thornhill et al.: a crossing counts only when the ACF leaves +-band on
@@ -146,7 +168,7 @@ def _zero_crossings(acf: np.ndarray, band: float) -> np.ndarray:
     every few lags almost evenly, pass r > 1 for 5 of 10 seeds, and let estimation noise add
     spurious double crossings to a real cycle. Crossings inside one passage are averaged.
     """
-    outside = np.flatnonzero(np.abs(acf) > band)
+    outside = np.flatnonzero(np.abs(acf) > band)  # band: half-width per lag
     side = acf[outside] > 0
     passages = np.flatnonzero(side[1:] != side[:-1])
     crossings = [_passage_lag(acf, int(outside[p]), int(outside[p + 1])) for p in passages.tolist()]
