@@ -40,3 +40,11 @@ and **not oscillating** when the error changes sign at most 4 times after the fi
 - If H1 fails: `tune_from_history` gains a guard (refuse high/medium when the fitted tau exceeds a multiple of the
   window length or the fit looks integrating), designed in a new frozen round; until then the README and the
   tuning report say that level loops are not validated.
+
+## Amendment 1 (2026-10-19, before the run)
+
+The harness review found that with measurement noise 0.2 % PV the frozen judgement could not work: the hysteresis
+band (2 % of a 5 % step = 0.1) and the settled limit (0.5) sit inside the noise. The question is the stability of the
+recommended controller, so every step response is now simulated **without load and noise** (deterministic). The
+history used for tuning keeps its load and noise. Also fixed before the run: the error is taken from the setpoint
+step (t >= 50 s), and sign changes are counted from the first time PV reaches the new setpoint, as the protocol says.
