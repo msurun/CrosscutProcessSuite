@@ -58,3 +58,34 @@ these records have none, so none is used.**
   the 3 quantisation-truth loops (exp18: 0 of 3; the quantisation code did not change).
 - Thresholds, settings, labels and the flag rule above are not edited after the run. One run; the script refuses
   to overwrite an existing result file.
+
+## RESULT (2026-10-18, one run of `run19.py` at commit dc63cdd; 44 loops scored, 19 excluded, 0 errors)
+
+Per-loop rows are in `results19.md`, which is untracked (third-party derived, see `.gitignore`).
+
+| Target | Result | Verdict |
+| --- | --- | --- |
+| O1 sensitivity | detected 9/20 (45 %, Wilson 26-66 %); SACAC 5/7, ISDB 4/13 | **MISS** |
+| O2 calm loops | detected 0/7 | PASS |
+| O3 triage breadth | flagged 2/7 negatives (exp18: 4/5); all loops 20/44 flagged (exp18: 41/44); ok 24, warning 14, problem 6 | PASS |
+| O4 rule check | 0 violations | PASS |
+| Reported | unlabelled loops detected 7/17; quantisation finding 0/3 on truth loops, 5 on others (unchanged from exp18) | - |
+
+**Reading.** The not-assessed rule did what it was for: the triage no longer flags almost everything, and the
+detector raised no oscillation on any calm loop. But it is too conservative: it missed 11 of 20 documented
+oscillating loops, 9 of 13 on ISDB. The 2 flagged calm loops are `problem` from the flatline finding, not oscillation.
+
+**Cause, from a diagnostic read after the run (not a re-score):** every missed ISDB loop ends with "too few ACF zero
+crossings". The noise band was 0.18-0.66 on these records, so the ACF hardly leaves it. Two of my own additions to
+Thornhill's method cause this on short records with few cycles (ISDB records here are 200-2700 samples):
+(1) the Bartlett band sums r_j^2 up to the first zero crossing, which for a slow limit cycle is P/4 strongly
+correlated lags, so the band widens exactly for the signals sought; (2) requiring 7 crossings within lags <= n/2
+means at least about 7 cycles in the record. Synthetic check afterwards: square wave plus noise is detected 50/50
+with 10 or more cycles in the record and 0/50 with 5-6 cycles. The synthetic suite that chose the constants had
+records of 3000 samples with 50 cycles, so it never tested this regime. That is a gap in the suite, not in the data.
+
+**Consequence.** The shipped ACF detector stays as it is (no false alarms seen, misses short records); the finding
+"no oscillation detected" must not be read as "calm" when the record holds fewer than about 10 cycles. A changed
+detector cannot be validated on SACAC/ISDB any more (seen twice now). Next: a synthetic suite with short records
+(3-10 cycles, n 200-3000, square and sine cycles, coloured noise) frozen BEFORE changing the band rule, and a fresh
+real data set for any claim.

@@ -32,3 +32,4 @@ Thumbs.db
 # Third-party derived tables (SACAC/ISDB): private repo only, see docs/HANDOFF.md
 experiments/exp10_sacac_stiction/results/
 experiments/exp16_stiction_generalise/isdb_labels.csv
+experiments/exp19_triage_no_knowledge/results19.md

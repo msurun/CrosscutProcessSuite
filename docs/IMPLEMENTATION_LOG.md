@@ -600,3 +600,12 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Overview: `analyze_dataset` adds the row key `same_period_as` (other loops whose period is within 10 %,
   `health_kpis.group_by_period`), a hint at a shared disturbance source. Tests delegated (Haiku).
   `kendall_trend` is still not shown: it needs KPI history over several recordings, which the overview has not.
+## exp19: triage with no per-loop knowledge (2026-10-18)
+
+- Protocol frozen first (b6d8ceb), script delegated in two parts (the first answer was cut off and loaded every SACAC
+  loop with label "no" and a non-existent column; fixed by hand), committed before the run (dc63cdd). One run.
+- O1 MISS (oscillating loops detected 9/20), O2 PASS (0/7 calm loops detected), O3 PASS (2/7 calm flagged; 20/44
+  flagged overall vs 41/44 in exp18), O4 PASS. Exploratory: both data sets seen before.
+- Cause of the misses: the Bartlett noise band and the 7-crossing rule (both my additions) need about 10 cycles
+  in the record; ISDB records are short. The synthetic suite never had short records. Detector unchanged; next is a
+  frozen short-record synthetic suite before any change. Details in `experiments/exp19_triage_no_knowledge/README.md`.
