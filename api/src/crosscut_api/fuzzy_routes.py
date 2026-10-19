@@ -82,18 +82,19 @@ class _FuzzyEndpoints:
 
     def get_systems(self) -> list[dict[str, str]]:
         """Bundled examples and the user's saved systems."""
-        # Each entry is a small dict of strings, typically {"id": ..., "name": ...}.
+        # Each entry is a small dict of strings: {"id": ..., "name": ..., "source": ...}.
         return list_systems(self.user_dir)
 
     def get_system(self, system_id: str) -> dict[str, Any]:
         """Return one fuzzy rule-base document as JSON.
 
         The document is identified by ``system_id``, the name of the rule base
-        (for example ``"temperature_control"``). It is read from the user's directory.
+        (for example ``"temperature_control"``). The user's saved copy wins over a bundled
+        example with the same id. The content is returned as stored, without re-validation.
 
         Raises:
-            HTTPException: 404 when no document with that name exists; 422 when the
-                file exists but does not describe a valid fuzzy model.
+            HTTPException: 404 when no document with that name exists; 422 when
+                ``system_id`` is not a plain identifier.
         """
         try:
             return load_document(system_id, self.user_dir)
@@ -102,10 +103,8 @@ class _FuzzyEndpoints:
         # requested name so the caller sees exactly what could not be found.
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=f"unknown system: {system_id}") from error
-        # The file exists but its contents are not a usable fuzzy model (for
-        # example a malformed rule or an unknown membership-function type).
-        # The request was well formed, so the failure is semantic: "422
-        # Unprocessable Entity", carrying the validation message from the loader.
+        # The id is not a plain identifier (it could be a path): "422 Unprocessable Entity",
+        # carrying the message of the id check.
         except FuzzyModelError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -170,9 +169,8 @@ class _FuzzyEndpoints:
         try:
             return infer_payload(system, request.inputs)
         except FuzzyModelError as error:
-            # A FuzzyModelError means the model itself rejected the inputs (for example a value
-            # outside the variable's universe of discourse), so it is again a client error, not a
-            # server failure.
+            # A FuzzyModelError means the model rejected the inputs (for example a missing input
+            # value), so it is again a client error, not a server failure.
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     def post_backtest(self, dataset_id: str, request: BacktestRequest) -> dict[str, Any]:
@@ -204,7 +202,8 @@ class _FuzzyEndpoints:
         Returns a JSON-serialisable dictionary with the replayed time series.
 
         Raises HTTPException with status 422 if the request body does not define a usable fuzzy
-        system, or if the replay itself fails on the data (e.g. a variable is missing a range).
+        system, or if the replay fails on the data (an input without a tag, or a tag that is not
+        a column of the dataset).
         """
         system = _system_or_422(request.document)
 

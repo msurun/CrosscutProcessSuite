@@ -80,8 +80,8 @@ def import_opcua(
 
     OPC UA (Open Platform Communications Unified Architecture) is the industrial
     protocol used by PLCs and sensors to expose their values. Each value lives at
-    a "node id" such as ``ns=2;s=Temperature``, and clients read nodes on demand:
-    there is no push, so this client simply reads all nodes once per period.
+    a "node id" such as ``ns=2;s=Temperature``. This importer polls: it reads all nodes
+    once per period (``opcua_subscribe`` is the variant where the server pushes changes).
 
     Parameters
     ----------
@@ -116,10 +116,9 @@ def import_opcua(
     tag_ids = [_sanitize_tag_name(tag) for tag in nodes]
 
     # Two distinct tags may normalise to the same id, which would silently merge
-    # two different signals into one column. The helper rejects that case;
-    # tag_ids itself has no duplicates when it returns, so the name is not
-    # misleading: the list is the unique identifiers.
-    unique_tag_ids = _check_identifier_uniqueness(nodes, tag_ids)
+    # two different signals into one column. The helper raises in that case and
+    # returns the list unchanged otherwise.
+    unique_tag_ids = _check_identifier_uniqueness(tag_ids)
 
     # Node id strings, in the same order as ``nodes``; the parallel order with
     # ``tag_ids`` (and therefore ``unique_tag_ids``) is what lets the collected
@@ -133,7 +132,7 @@ def import_opcua(
     # the same shape and holds local GOOD/BAD ints, not raw OPC UA StatusCodes.
     ts_ns, values, qualities = asyncio.run(_collect_samples(endpoint, node_ids, plan))
 
-    # Persist everything in one call so the dataset is written atomically.
+    # Persist everything in one call: samples, tag list and source description.
     info = _dataset_info(target.dataset_id, endpoint, ts_ns, (unique_tag_ids, node_ids))
     write_dataset(target.out_dir, Samples(ts_ns, unique_tag_ids, values, qualities), info)
 
@@ -190,13 +189,12 @@ def _validate_arguments(nodes: Mapping[str, str], plan: PollPlan) -> None:
         raise ValueError("period_s must be strictly positive")
 
 
-def _check_identifier_uniqueness(nodes: Mapping[str, str], tag_ids: list[str]) -> list[str]:
+def _check_identifier_uniqueness(tag_ids: list[str]) -> list[str]:
     """Validate that sanitised tag identifiers are unique.
 
     A "tag identifier" is the sanitised (cleaned up) form of a node name: sanitisation
     may map two distinct node names onto the same identifier, e.g. by lowercasing them
-    or replacing spaces with underscores. `nodes` maps each original node name to its
-    tag identifier; it is passed in for context and inspection but is not read here.
+    or replacing spaces with underscores.
 
     Returns `tag_ids` unchanged when every identifier is distinct.
 
@@ -258,7 +256,7 @@ async def _poll_rounds(
         if all(np.isnan(value) for value, _ in sample) and await _restore_session_if_lost(client):
             resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
         rows.append([value for value, _ in sample])
-        # `strict=True` guards against a server returning a different node count.
+        # `strict=True` guards against a mismatch between the node list and the sample.
         for column, (_, quality) in zip(column_qualities, sample, strict=True):
             column.append(quality)
     return ts_ns, rows, column_qualities
@@ -384,11 +382,12 @@ def _is_status_good(status_code: Any) -> bool:
     """Return True when an OPC UA StatusCode represents success.
 
     OPC UA is the industrial protocol the server speaks. Every response carries a StatusCode: a
-    32-bit unsigned integer where 0 means "good" and any other value encodes a failure (bad
-    credentials, missing node, timeout...). This helper hides that encoding from the caller.
+    32-bit unsigned integer where 0 is "Good"; the top two bits give the severity (good,
+    uncertain, bad) and the rest says why (missing node, timeout...). This helper hides that
+    encoding from the caller.
 
-    Newer python-opcua versions call the helper ``is_good``; older versions expose
-    only ``value == 0``. Try both so the reader works across versions.
+    asyncua's StatusCode has an ``is_good()`` method; for an object that exposes only the
+    raw number the fallback compares ``value == 0``. Try both.
 
     Returns:
         True if the status means success, False otherwise.
@@ -452,18 +451,16 @@ def _make_report(values: np.ndarray, n_tags: int) -> OpcUaImportReport:
     `values` is the sampled "grid" of tag readings: one row per tag and one
     column per sample instant, so its second axis (shape[1]) is the number of
     sampling instants and its first axis (shape[0]) is the number of tags.
-    `n_tags` is the number of tags discovered in the source, which can be
-    larger than values.shape[0] because some tags may have produced no samples
-    at all and therefore have no row in the grid.
+    `n_tags` is passed in and equals shape[0].
 
-    Returns the report counting columns, tags and cells that hold NaN.
+    Returns the report with the number of sampling instants, the number of tags and the
+    number of cells that hold NaN.
     """
     return OpcUaImportReport(
         # Sampling instants captured, i.e. one axis-1 position per timestamp;
         # unit: instants (not seconds).
         n_rows=values.shape[1],
-        # Tags seen in the source; kept as a separate argument on purpose
-        # because tags without any sample never get a row in `values`.
+        # Number of tags (rows of `values`).
         n_tags=n_tags,
         # A NaN marks a reading that was missing or unreadable at that instant.
         # np.isnan gives a boolean grid of the same shape, and sum() counts the

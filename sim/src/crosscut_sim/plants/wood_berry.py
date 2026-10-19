@@ -1,4 +1,10 @@
-"""Wood-Berry binary distillation column simulation with dual PID composition control."""
+"""Wood-Berry binary distillation column simulation with dual PID composition control.
+
+Two composition loops (top: reflux, bottom: reboiler steam) coupled through a 2x2 matrix of
+first-order-plus-dead-time transfer functions, plus a feed-rate disturbance. Compositions are
+in wt% methanol, flows in lb/min, and the published minute-based time constants are converted
+to seconds. Source and status of the coefficients: docs/PROVENANCE.md.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from crosscut_sim.core import AUTO, CAS, GOOD, MAN, Event, Fopdt, Scenario, TagC
 from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
 from crosscut_sim.pid import PID, OutputLimits, PidTuning
 
+# Steady-state operating point: compositions in wt% methanol, flows in lb/min.
 NOMINAL: dict[str, float] = {
     "top_comp": 96.25,
     "bottom_comp": 0.5,
@@ -30,7 +37,8 @@ STEAM = "sim.wb.steam"
 
 FEED = "sim.wb.feed_rate"
 
-# BLT tuning parameters from the distillation literature.
+# PI settings of the two loops by the BLT (biggest log-modulus tuning) method of Luyben (1986),
+# see docs/PROVENANCE.md; Kc is dimensionless per unit, the integral times are minutes * 60 = s.
 TOP_PID_KC = 0.375
 TOP_PID_TI_S = 8.29 * 60.0
 
@@ -78,15 +86,12 @@ def _build_tag_catalog() -> TagCatalog:
 def _top_composition_spec() -> TagSpec:
     """Describe the tag holding the methanol mass fraction of the distillate stream.
 
-    wt% (mass percent) is used instead of mol% because the plant's operating
-    envelope and the DCS faceplate for this column are both expressed in mass
-    basis; converting between the two would need the full composition, which
-    the tag does not carry.
+    The unit is wt% (mass percent), as in the published Wood-Berry model.
 
     Returns:
         TagSpec: read-only spec (role "PV", i.e. the measured process value)
-        bounded to 0..100 wt%; nothing may write to it because the value comes
-        from the analyser, not from the operator.
+        bounded to 0..100 wt%; nothing may write to it because the value is
+        computed by the plant model and measured with sensor noise.
     """
     return TagSpec(
         id=TOP,
@@ -122,7 +127,7 @@ def _top_setpoint_spec() -> TagSpec:
         type="float",
         description="Top composition active setpoint",
         # Engineering range in the tag's own unit (wt%); 0..100 covers a full
-        # composition scale, and the HMI clamps operator input to these bounds.
+        # composition scale.
         eng_min=0.0,
         eng_max=100.0,
         # True: an operator is allowed to change this setpoint at runtime.
@@ -144,7 +149,7 @@ def _top_remote_setpoint_spec() -> TagSpec:
 
 
 def _top_mode_spec() -> TagSpec:
-    """Describe the OPC tag that exposes the controller's top composition loop mode.
+    """Describe the tag that exposes the top composition loop mode.
 
     Returns a TagSpec for TOP_MODE. The tag is an enumeration carrying no physical unit:
     the value is a discrete operating mode, not a measurement, so `unit` is empty and the
@@ -192,7 +197,7 @@ def _reflux_spec() -> TagSpec:
     return TagSpec(
         id=REFLUX,  # stable identifier used to look this tag up elsewhere
         unit="lb/min",  # mass flow rate, not volume: pounds (mass) per minute
-        role="OUT",  # direction from the model's point of view: a value it writes
+        role="OUT",  # controller output (the manipulated variable of the top loop)
         type="float",  # storage/transport type; floats can represent fractions
         description="Reflux flow rate",  # human-readable label shown on displays
         eng_min=0.0,  # lowest valid engineering value, in unit above (lb/min)
@@ -255,9 +260,9 @@ def _bottom_remote_setpoint_spec() -> TagSpec:
     """Describe the operator-facing tag for the bottom composition remote setpoint.
 
     In a distillation column the "bottom" product is the heavy stream leaving the reboiler, and
-    its composition is measured in weight percent (wt%). A "remote setpoint" (role "SP") is a
-    target value that an operator writes to a controller; the controller then drives the process
-    until the measured composition matches this target.
+    its composition is measured in weight percent (wt%). The "remote setpoint" is the target
+    that applies while the loop is in cascade mode (CAS), i.e. when another controller or a
+    supervisory system supplies it; the operator's own setpoint applies in MAN and AUTO.
 
     Returns:
         TagSpec: immutable metadata describing the tag, including its engineering range and the
@@ -296,9 +301,7 @@ def _bottom_mode_spec() -> TagSpec:
         role="MODE",  # Semantic role, telling consumers the tag's purpose.
         # "MODE" marks it as an operating-mode selector rather
         # than a measured value ("PV") or a target ("SP").
-        type="enum",  # Data type of the tag. "enum" means a closed set of
-        # integer codes with names, so the UI shows the names and
-        # the data layer rejects anything outside the set.
+        type="enum",  # Data type of the tag: "enum" means a small set of integer codes.
         # Human-readable description shown in operator displays and docs. The codes:
         #   0 = MAN  -> manual, operator sets the loop output directly
         #   1 = AUTO -> automatic, the controller computes the output
@@ -335,16 +338,16 @@ def _feed_spec() -> TagSpec:
     """Describe the tag that carries the column feed flow rate disturbance.
 
     Returns:
-        TagSpec: metadata for tag ``FEED``, the manipulated variable used by the
-        controller to inject a feed-flow disturbance.
+        TagSpec: metadata for tag ``FEED``, the feed flow that disturbs both compositions;
+        it is not manipulated by a controller, but a scenario or a client may write it.
     """
     return TagSpec(
         id=FEED,
         # Engineering unit of the values written to this tag: mass flow rate in
         # pounds (mass) per minute.
         unit="lb/min",
-        # "DV" = disturbance variable: an input the controller may drive, but that
-        # the plant does not measure as a controlled output.
+        # "DV" = disturbance variable: an input that disturbs the process and is not
+        # moved by any controller.
         role="DV",
         type="float",
         description="Column feed flow rate disturbance",
@@ -456,15 +459,13 @@ class WoodBerryPlant:
     def _apply_event_write(self, tag_id: str, value: float) -> None:
         """Apply an event write directly to internal state bypassing permissions.
 
-        Used when replaying a recorded event stream (a log of tag writes): the
-        values were already validated when the events were recorded, so the
-        permission checks done for a live write must be skipped here.
+        Used for the scheduled scenario events: they are part of the test design, so the
+        permission checks of a live client write (e.g. "REFLUX only in MAN") are skipped.
 
         Args:
             tag_id: Name of the tag to write, e.g. TOP_SP.
-            value: New value for the tag. Setpoints use the engineering unit of
-                the tag (e.g. bar for pressures, degC for temperatures); setpoint
-                modes use a small integer enum (0 = local, 1 = remote, ...).
+            value: New value for the tag in the tag's own unit (wt% for compositions, lb/min
+                for flows); modes are the codes MAN = 0, AUTO = 1, CAS = 2.
         """
         # Top and bottom loops each expose a setpoint (SP), a remote setpoint (RSP),
         # and a mode that selects between them.
@@ -637,13 +638,11 @@ class WoodBerryPlant:
     def read(self, tag_id: str) -> tuple[float, int]:
         """Return (value, quality); raise KeyError for unknown tags.
 
-        value is in engineering units (whatever the tag's section defines: bar,
-        degC, m3/h, ...); quality is GOOD when the value could be resolved, and
-        any other code signals a bad/stale reading to the caller.
+        value is in the tag's engineering unit (wt% for compositions, lb/min for flows);
+        quality is always GOOD, because this plant model has no faulty sensors itself (faults
+        are added by the ``FaultyPlant`` wrapper).
 
-        The dispatch order is deliberate: concrete tags of the top and bottom
-        sections first, then the derived feed field, so a tag that exists in a
-        section is never shadowed by the same name elsewhere.
+        The tag is looked up in the top section, then the bottom section, then the feed.
         """
         # Raise first for unknown tags so callers get a clear KeyError.
         if tag_id not in self.tags:
@@ -712,9 +711,8 @@ class WoodBerryPlant:
     def write(self, tag_id: str, value: float) -> None:
         """Write a tag value adhering to loop permissions and validation rules.
 
-        Dispatch order matters: a tag can be registered in more than one
-        category (for example a setpoint tag that also drives a ratio), so all
-        matching writers run and later writers see the effects of earlier ones.
+        Each tag belongs to exactly one category (mode, output, setpoint, remote setpoint
+        or feed); every writer below ignores the tags of the other categories.
 
         Raises:
             KeyError: if tag_id is not registered in self.tags.
@@ -732,8 +730,7 @@ class WoodBerryPlant:
             raise PermissionError(f"Tag {tag_id} is read-only")
 
         # Each _write_* helper handles exactly one tag category and does nothing for
-        # other tags. The fixed order below means the outcome is deterministic when a
-        # tag belongs to more than one category; later helpers see earlier writes.
+        # other tags.
         self._write_mode_tag(tag_id, value)
         self._write_output_tag(tag_id, value)
         self._write_setpoint_tag(tag_id, value)
@@ -762,8 +759,9 @@ class WoodBerryPlant:
             ValueError: if `value` is not one of the three known modes.
         """
         # Reject anything outside the three known mode codes before converting to int.
-        # The tuple contains both int and float forms because callers send either; the
-        # exact membership test also keeps bools out (True == 1 would pass a range check).
+        # The tuple contains both int and float forms because callers send either. A
+        # fractional value such as 1.5 is rejected (a range check would let it through);
+        # note that True == 1, so a bool passes as AUTO.
         if value not in (0, 1, 2, 0.0, 1.0, 2.0):
             raise ValueError(f"Invalid mode value: {value}")
         # Normalise to int so `_top_mode` always has one type, regardless of caller input.
@@ -789,7 +787,7 @@ class WoodBerryPlant:
         Raises:
             ValueError: If `value` is not one of the three valid mode codes.
         """
-        # Validate by exact membership, not a range: `True == 1` must not slip through.
+        # Validate by exact membership, not a range, so 1.5 is rejected (True == 1 passes).
         if value not in (0, 1, 2, 0.0, 1.0, 2.0):
             raise ValueError(f"Invalid mode value: {value}")
         new_mode = int(value)
@@ -811,7 +809,7 @@ class WoodBerryPlant:
         """Validate loop mode and store a new reflux output.
 
         Reflux is the liquid pumped back from the condenser into the top of the
-        column; its flow (UNIT: m3/h) is the manipulated variable of the top
+        column; its flow (UNIT: lb/min) is the manipulated variable of the top
         composition loop, so writing it by hand only makes sense when that loop
         is switched off (MAN mode).
 
@@ -825,8 +823,7 @@ class WoodBerryPlant:
         # REFLUX is bounded by the pump/valve range 0..5 lb/min (see REFLUX tag spec).
         clamped = float(np.clip(value, 0.0, 5.0))
         # Keep the manual demand (_reflux_man_out) equal to the actual output
-        # (_reflux_out): the manual value is remembered for bumpless transfer when
-        # the loop later returns to MAN.
+        # (_reflux_out): in MAN the PID reports this manual value as its output.
         self._reflux_man_out = clamped
         self._reflux_out = clamped
         return
@@ -834,7 +831,7 @@ class WoodBerryPlant:
     def _set_steam(self, value: float) -> None:
         """Validate loop mode and store a new steam output.
 
-        ``value`` is the requested steam output in tonnes per hour (t/h).
+        ``value`` is the requested steam output in lb/min.
         The steam flow controller only accepts manual commands: writing while
         the bottom loop is not in manual mode is refused with a PermissionError,
         so the operator cannot fight the automatic controller for the actuator.
@@ -845,9 +842,8 @@ class WoodBerryPlant:
         # The steam valve/actuator accepts 0..5 lb/min; clip rather than reject so an
         # out-of-range request is held at the nearest valid output.
         clamped = float(np.clip(value, 0.0, 5.0))
-        # Keep the manual demand separate from the applied output: _steam_man_out is
-        # remembered for a future bumpless transfer to MAN, while _steam_out is what
-        # the loop uses every scan.
+        # Keep the manual demand (_steam_man_out) equal to the applied output (_steam_out):
+        # in MAN the PID reports this manual value as its output.
         self._steam_man_out = clamped
         self._steam_out = clamped
         return
@@ -876,14 +872,13 @@ class WoodBerryPlant:
     def _write_ratio_tag(self, tag_id: str, value: float) -> None:
         """Handle writes to ratio tags TOP_RSP and BOT_RSP.
 
-        TOP_RSP and BOT_RSP are the operator-facing setpoints of a ratio control loop: two
-        response (RSP) values whose ratio the controller keeps. Each is stored unchanged, as a
-        fraction (dimensionless, typically 0.0 to 1.0), on the instance so the next scan of the
-        control logic uses it as the new setpoint.
+        TOP_RSP and BOT_RSP are the remote setpoints, the targets used while the loop is in
+        cascade mode (CAS). Each is stored unchanged, in wt% like the composition it
+        belongs to, and is used by the controller from the next scan on.
 
         Args:
-            tag_id: Name of the tag being written; only the two ratio constants are handled here.
-            value: New setpoint value for that tag, as a fraction (dimensionless).
+            tag_id: Name of the tag being written; only the two remote setpoints are handled here.
+            value: New remote setpoint for that tag, in wt%.
 
         Returns:
             None.

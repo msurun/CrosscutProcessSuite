@@ -16,8 +16,9 @@ class StictionSpec:
     """Size of the stiction, in % of valve travel.
 
     ``deadband`` is how far the command must move away from the valve position before the valve
-    breaks free; ``jump`` (0 <= jump <= deadband) is how much of that gap the valve closes when it
-    slips. ``deadband == 0`` means a healthy valve that follows the command exactly.
+    breaks free; ``jump`` (0 <= jump <= deadband) sets where it lands when it slips: it stops
+    ``deadband - jump`` short of the command. ``deadband == 0`` means a healthy valve that
+    follows the command exactly.
     """
 
     deadband: float = 0.0

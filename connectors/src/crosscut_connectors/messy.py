@@ -84,8 +84,8 @@ def _render_plain(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> bytes:
     signal column, and every row starting with that sample's timestamp.
 
     The rows are assembled by positional index rather than by joining arrays
-    column-wise, so every column array is assumed to be the same length as
-    ``ts_ns`` (a "ragged" input is silently truncated to the shortest array).
+    column-wise, so every column array must be at least as long as ``ts_ns``: a shorter
+    one raises IndexError, a longer one is cut at ``len(ts_ns)``.
 
     Args:
         ts_ns: Sample timestamps, in nanoseconds since the Unix epoch (UTC).
@@ -184,12 +184,11 @@ def _render_bom_preamble(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> b
 
 
 def _render_text_bad(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> bytes:
-    """Render plain CSV with missing values replaced by bad values.
+    """Render plain CSV in which every NaN is written as a text placeholder.
 
-    Used as the fallback when a file must be written in a plain-CSV format
-    that cannot represent "no data" natively. Every NaN is instead replaced
-    by a distinct placeholder string taken from the cyclical sequence
-    ``_get_bad_value``, so each missing cell is individually traceable.
+    Historian exports write "Bad", "I/O Timeout" or "#N/A" in a numeric column when a sensor
+    had no value. Each NaN is replaced by the next placeholder of the cycle defined by
+    ``_get_bad_value``, so a parser meets all three spellings.
 
     Args:
         ts_ns: 1-D array of timestamps, as integers, in NANOSECONDS since
@@ -203,23 +202,21 @@ def _render_text_bad(ts_ns: np.ndarray, columns: dict[str, np.ndarray]) -> bytes
         The complete CSV document encoded as UTF-8 bytes, including a
         trailing newline after every row.
 
-    Side effects:
-        Calls ``_get_bad_value(bad_count)``, which is stateful: it returns
-        successive placeholders as its counter advances. ``bad_count`` is
-        therefore a single stream of indices spanning all columns and rows,
-        not a per-column counter.
+    Note:
+        ``bad_count`` passed to ``_get_bad_value`` is a single running index over all columns
+        and rows (not a per-column counter), so the placeholders alternate through the file.
     """
     header = "timestamp," + ",".join(columns.keys()) + "\n"
     lines = [header]
-    # Running index handed to _get_bad_value; counts every NaN emitted so far
-    # across the whole file, so no two missing cells share a placeholder.
+    # Running index handed to _get_bad_value; counts every NaN emitted so far across the
+    # whole file, so consecutive missing cells get different placeholders.
     bad_count = 0
     for i in range(len(ts_ns)):
         timestamp = _format_timestamp_iso_utc(ts_ns[i])
         values = [timestamp]
         for col in columns.values():
-            # np.isnan is the only reliable NaN test because NaN != NaN is
-            # always True; a direct equality comparison would never fire.
+            # NaN never compares equal to anything (not even itself), so an equality test
+            # would never fire; np.isnan is the reliable check.
             if np.isnan(col[i]):
                 values.append(_get_bad_value(bad_count))
                 bad_count += 1
@@ -284,9 +281,10 @@ def render_messy_csv(
         columns: Dictionary mapping column names to arrays of values. Every
             array has the same length as ``ts_ns``; row ``i`` is the ``i``-th
             element of each array.
-        style: Style of the messy CSV, e.g. ``"plain"`` or ``"duplicates"``.
-        local_tz: Local time zone used when an eye-readable timestamp is
-            rendered; ignored by styles that keep raw epoch values.
+        style: Style of the messy CSV, one of ``STYLES`` (e.g. ``"plain"`` or
+            ``"duplicates_unsorted"``).
+        local_tz: Local time zone used by the styles that write local timestamps
+            (``semicolon_comma`` and ``tab_local``); ignored by the others, which write UTC.
 
     Returns:
         Bytes of the generated CSV file (UTF-8 unless the style adds another
@@ -297,8 +295,7 @@ def render_messy_csv(
     """
     renderer = _select_renderer(style)
 
-    # Plain, BOM-preamble and text-bad renderers never interpret a
-    # timestamp, so they need only the numeric arrays.
+    # Plain, BOM-preamble and text-bad write ISO-8601 UTC timestamps, so they need no time zone.
     if (
         renderer is _render_plain
         or renderer is _render_bom_preamble
@@ -306,8 +303,7 @@ def render_messy_csv(
     ):
         return renderer(ts_ns, columns)
 
-    # The duplicates_unsorted renderer writes formatted timestamps and
-    # uses no time zone, so it also takes only the numeric arrays.
+    # The duplicates_unsorted renderer also writes ISO-8601 UTC, so it takes no time zone either.
     if renderer is _render_duplicates_unsorted:
         return renderer(ts_ns, columns)
 
@@ -324,11 +320,11 @@ def _select_renderer(style: str) -> Callable[..., bytes]:
 
     Available styles:
         plain                - standard comma-separated output.
-        semicolon_comma      - semicolons between fields but commas inside them.
-        tab_local            - tab-delimited, as spreadsheet "export local" does.
-        bom_preamble         - byte-order-mark first, then the plain body.
-        text_bad             - a deliberately malformed file (bad quoting).
-        duplicates_unsorted  - header/rows not sorted, with repeated keys.
+        semicolon_comma      - semicolon-separated, decimal comma, dd.mm.yyyy local time.
+        tab_local            - tab-delimited, local-time timestamps.
+        bom_preamble         - byte-order-mark and three junk lines, then the plain body.
+        text_bad             - NaN written as "Bad", "I/O Timeout" or "#N/A".
+        duplicates_unsorted  - data rows shuffled, rows 10..14 present twice.
 
     Args:
         style: One of the style names listed above.

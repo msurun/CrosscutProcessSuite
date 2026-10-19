@@ -1,13 +1,13 @@
 """Fix style-gate findings one function at a time with a cheap model, keeping only verified results.
 
-For every finding reported by ``agentkit check`` the loop sends ONE function (not the file) to
-``agentkit delegate``, splices the answer into the file, and accepts it only if the file still
+For every finding reported by ``foremankit check`` the loop sends ONE function (not the file) to
+``foremankit delegate``, splices the answer into the file, and accepts it only if the file still
 parses, the number of findings in it drops and the test command passes. Otherwise the file is
 restored and the finding is skipped after ``MAX_ATTEMPTS`` tries.
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<agentkit dir> python tools/refactor_loop.py \
+    PYTHONPATH=<ForemanKit dir> python tools/refactor_loop.py \
         --tests "python -m pytest sim -q" FILE...
 """
 
@@ -69,7 +69,7 @@ def run(command: list[str] | str, shell: bool = False) -> subprocess.CompletedPr
 
 def read_findings(path: Path) -> list[Finding]:
     """The style-gate findings of one file."""
-    output = run([sys.executable, "-m", "agentkit.cli", "check", str(path)]).stdout
+    output = run([sys.executable, "-m", "foremankit.cli", "check", str(path)]).stdout
     matches = (FINDING_PATTERN.match(line) for line in output.splitlines())
     style = [
         Finding(path, int(match["line"]), match["code"], match["message"])
@@ -133,7 +133,7 @@ def ask_model(prompt: str, escalate: bool) -> str | None:
     command = [
         sys.executable,
         "-m",
-        "agentkit.cli",
+        "foremankit.cli",
         "delegate",
         prompt,
         "--kind",

@@ -64,7 +64,7 @@ class ImportReport:
 
 
 # --------------------------------------------------------------------------- #
-# Helper functions – each small and typed
+# Reading the text: delimiter, header, rows
 # --------------------------------------------------------------------------- #
 
 
@@ -90,8 +90,10 @@ def _split_lines(text: str) -> list[str]:
 def _detect_delimiter(lines: list[str]) -> str:
     """Detect the column delimiter.
 
-    The algorithm looks at the first 50 non‑empty lines and chooses the candidate
-    (',', ';' or '\\t') that yields the most common field count (at least 2).
+    The algorithm looks at the first 50 non‑empty lines. For each candidate (',', ';' or
+    '\\t') it finds the most common field count; candidates with fewer than 2 fields are
+    dropped, and the one whose modal count is shared by the most lines wins (the first
+    candidate on a tie).
 
     Returns the winning delimiter as a one-character string.
     Raises ValueError when no candidate splits the sample into at least two columns.
@@ -104,8 +106,8 @@ def _detect_delimiter(lines: list[str]) -> str:
     for delim in candidates:
         # For this candidate, `modal_cnt` is the most frequent number of fields per line
         # (unit: fields) and `modal_freq` is how many sample lines had exactly that count
-        # (unit: lines). A delimiter that occurs in the data (rather than separating
-        # columns) tends to give a stable count across lines, hence a high `modal_freq`.
+        # (unit: lines). The real delimiter splits every line into the same number of fields,
+        # so it gets a high `modal_freq`; a character that only occurs inside values does not.
         modal_cnt, modal_freq = _modal_field_count(sample, delim)
         # we need at least two columns to be a plausible CSV
         if modal_cnt < 2:
@@ -157,12 +159,12 @@ def _extract_header_and_rows(lines: list[str], delimiter: str) -> tuple[list[str
 
     Returns:
         A (header, data_rows) pair. Both are empty lists when no line matches the modal field
-        count. Cells are stripped of surrounding whitespace; the delimiter is not removed from
-        cells that are quoted and contain the delimiter.
+        count. Cells are stripped of surrounding whitespace. Quoting is not understood: a quoted
+        cell that contains the delimiter is split into several fields.
     """
     # --- Step 1: decide the record width (number of fields per line) ---
-    # field_counts[i] is the field count of lines[i]. Lines are read as plain text, so a blank
-    # line counts as 1 field, not 0: splitting an empty string on a delimiter yields [""].
+    # field_counts[i] is the field count of lines[i]. Lines are read as plain text, so a line
+    # without any delimiter (a "Page 1 of 3" footer) counts as 1 field.
     field_counts = [len(ln.split(delimiter)) for ln in lines]
     modal_cnt = max(set(field_counts), key=field_counts.count)
 
@@ -193,7 +195,8 @@ def _parse_iso8601(value: str) -> datetime | None:
     Timestamps may carry a UTC offset suffix like ``+02:00`` meaning "local time is
     two hours ahead of UTC". Python's ``datetime.fromisoformat`` knows how to read
     offsets, but the common shorthand ``Z`` (for "Zulu time", i.e. UTC) is only
-    accepted from Python 3.11 onward, so we translate it by hand for older versions.
+    accepted from Python 3.11 onward; we translate it by hand so the result does not depend
+    on the interpreter version.
 
     Args:
         value: The timestamp text, e.g. ``"2024-05-01T13:45:00Z"``.
@@ -246,8 +249,8 @@ def _try_timestamp_formats(
 ) -> tuple[str, Callable[[str], datetime | None]]:
     """Return a format name and a parsing callable that works for *all* rows.
 
-    The dataset stores timestamps as strings whose layout is not known up front
-    (ISO 8601, epoch seconds, "%Y-%m-%d %H:%M:%S", ...).  We guess the layout by
+    The file stores timestamps as strings whose layout is not known up front
+    (ISO 8601, "%d.%m.%Y %H:%M:%S" or "%Y-%m-%d %H:%M:%S").  We guess the layout by
     trying every known one against every string in ``candidates`` and keeping
     the first layout that parses all of them without raising.
 
@@ -267,7 +270,7 @@ def _try_timestamp_formats(
     # Order matters – the first that succeeds for every row wins.
     # The callable returns a ``datetime`` (may be naive or aware).
     for name, fn in _timestamp_format_candidates():
-        # we only verify that the function does not raise for any candidate string
+        # we only verify that the parser returns a datetime for every candidate string
         # – the actual conversion is done later.
         if _parses_every_candidate(fn, candidates):
             return name, fn
@@ -279,14 +282,14 @@ def _timestamp_format_candidates() -> list[tuple[str, Callable[[str], datetime |
 
     Returns a list of (format_label, parser) pairs. The label is for error messages only;
     the parser is called with the raw timestamp text and returns None when it does not match.
-    A caller walks this list in order and takes the first non-None result.
+    A caller walks this list in order and takes the first parser that accepts every row.
     """
     # The list is the single source of truth for which formats we accept, and the order
     # encodes precedence: a value that parses under several formats is read as the earliest
     # one listed here, so the most specific / least ambiguous format must come first.
     return [
-        # ISO 8601 (e.g. "2024-03-07T14:05:00Z"): year first, unambiguous, hand-written
-        # parser because _strptime does not cover timezone offsets like "+02:00".
+        # ISO 8601 (e.g. "2024-03-07T14:05:00Z"): year first, unambiguous; a "Z" suffix and
+        # offsets like "+02:00" are accepted, so it can return timezone-aware datetimes.
         ("ISO8601", _parse_iso8601),
         ("d.m.Y H:M:S", _strptime_or_none("%d.%m.%Y %H:%M:%S")),
         ("Y-m-d H:M:S", _strptime_or_none("%Y-%m-%d %H:%M:%S")),
@@ -382,7 +385,7 @@ def _parse_cell(cell: str, decimal: str) -> float:
 
 def _sanitize_tag_name(name: str) -> str:
     """Replace any character not allowed in an identifier with '_'."""
-    # allowed characters are defined by the test – we keep alphanum, . _ : -
+    # Keep letters, digits and . _ : - ; every other run of characters becomes one underscore.
     return re.sub(r"[^A-Za-z0-9_.:-]+", "_", name).strip("_")
 
 
@@ -424,7 +427,7 @@ def _sort_and_deduplicate(
 
 
 # --------------------------------------------------------------------------- #
-# Main public function
+# Timestamps, value matrices and the public import functions
 # --------------------------------------------------------------------------- #
 
 

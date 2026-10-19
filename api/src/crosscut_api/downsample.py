@@ -57,35 +57,29 @@ def _bucket_stats(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Minimum, maximum and mean per bucket; a bucket without finite samples gives NaN.
 
-    Used by chart downsampling: instead of plotting every point, the x axis is cut into adjacent
-    buckets and each bucket is drawn as one min/max envelope plus a mean line. Adjacent buckets
-    may share a boundary sample, so a value can be counted in two buckets.
+    Used by chart downsampling: instead of plotting every point, the series is cut into
+    adjacent buckets and each bucket is drawn as one min/max envelope plus a mean line. Bucket
+    i covers ``values[bucket_starts[i]:bucket_starts[i + 1]]`` (the last one runs to the end),
+    so every sample belongs to exactly one bucket.
 
     values: 1-D array of y values (same unit as the plotted series), may contain NaN gaps.
     bucket_starts: 0-based index in `values` where each bucket starts, strictly increasing and
         within bounds; these indices are also the cut points used by np.add.reduceat below.
-    Returns one array per bucket, in bucket order: (min, max, mean). A bucket with no finite
-    value anywhere gets NaN for all three.
+    Returns one array per bucket, in bucket order: (min, max, mean). A bucket that contains a
+    NaN gets NaN for all three, because the reduceat ufuncs propagate NaN; a bucket without any
+    finite value does too.
     """
-    # np.add.reduceat, np.minimum.reduceat and np.maximum.reduceat have no NaN-aware
-    # variant: reduceat over a slice that contains NaN gives NaN. We need min/max
-    # to ignore NaN gaps, so we reduce a copy where NaN entries are kept as NaN.
+    # np.add / np.minimum / np.maximum have no NaN-skipping variant for reduceat: one NaN in a
+    # slice makes its sum, minimum and maximum NaN. `v_nan` is a plain copy of `values`.
     v_nan = np.where(np.isnan(values), np.nan, values)
-    # counts uses np.isfinite(values), so NaN entries are not counted. It is used
-    # only as a guard against dividing by zero and against promoting an empty
-    # bucket to NaN below.
+    # Number of finite samples per bucket (True counts as 1); only used to blank out buckets
+    # without any finite sample and as the divisor of the mean.
     counts = np.add.reduceat(np.isfinite(values), bucket_starts)
-    # NaN propagates through +, so a bucket holding one NaN yields NaN here; the finite rows are
-    # still summed correctly, which is what min/max need per bucket.
     sum_v = np.add.reduceat(v_nan, bucket_starts)
-    # Both min_v and max_v ignore NaN because comparisons with NaN return False.
     min_v = np.minimum.reduceat(v_nan, bucket_starts)
-    # Same NaN-skipping behaviour as np.minimum above.
     max_v = np.maximum.reduceat(v_nan, bucket_starts)
 
-    # Guard each result: a bucket whose count is 0 is either empty or contains only
-    # NaN entries, so report NaN rather than risking division by zero or keeping a
-    # spurious NaN from reduceat over an empty slice.
+    # A bucket with count 0 holds no finite value: report NaN instead of dividing by zero.
     mean_downsampled = np.where(counts > 0, sum_v / counts, np.nan)
     min_downsampled = np.where(counts > 0, min_v, np.nan)
     max_downsampled = np.where(counts > 0, max_v, np.nan)

@@ -1,4 +1,8 @@
-"""PID controller with anti-windup and bumpless transfer."""
+"""PID controller with anti-windup and bumpless transfer.
+
+Discrete ISA-style PID: derivative on the process variable with a first-order filter, integral by
+conditional integration, back-calculated integral state in manual mode. Times in seconds.
+"""
 
 from __future__ import annotations
 
@@ -70,8 +74,8 @@ class PID:
         Raises:
             ValueError: if any of the five settings violates its allowed range.
         """
-        # The sample time (in seconds) is how often the controller is called. It must be positive
-        # because the derivative and integral recursion denominators include it.
+        # The sample time (in seconds) is how often the controller is called. Every discrete
+        # update scales with it, so a zero or negative step has no meaning.
         if self.dt_s <= 0:
             raise ValueError("dt_s must be positive")
 
@@ -109,7 +113,8 @@ class PID:
 
             output = Kc * e + (Kc / Ti) * integral_of(e) + Kc * Td * d(e) / dt
 
-        where ``e`` is the deviation between setpoint and process variable.  The equation is
+        where ``e`` is the signed deviation (sp - pv for reverse action, pv - sp for direct
+        action) and the derivative is taken on pv, see below.  The equation is
         solved recursively, not in closed form, so the previous calls' contributions are kept
         inside ``self._i`` (the integral/accumulated term, in output units) and ``self._d``
         (the filtered derivative term, also in output units).
@@ -163,15 +168,15 @@ class PID:
     def _update_derivative(self, pv: float) -> float:
         """Compute the filtered derivative term in output units, and store it as ``self._d``.
 
-        Skipped when Td == 0 because then the filter time constant would be 0 and the recursion
-        would divide by zero.
+        Td == 0 disables the term: both the filter time Td / N and the gain Kc * Td are zero, so
+        the derivative is 0 and the filter state stays 0.
         """
         if self.td_s == 0:
             return 0.0
 
         # Time constant of the 1st-order filter applied to the derivative, in seconds.
         # The filter is the usual "Td/N" one: N (td_filter_n) trades noise rejection
-        # (small N) against derivative speed (large N).  N = 8..10 is typical.
+        # (small N) against derivative speed (large N); the default N is 10.
         filter_time_s = self.td_s / self.td_filter_n
         # Change of the measurement since the previous step, in engineering units.
         # The first call has no previous value, so the change is taken as zero.

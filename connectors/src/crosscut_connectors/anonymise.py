@@ -42,6 +42,7 @@ class AnonymisedData:
     seed: int = 0  # the seed that drew every constant; keep it with the tag map
 
 
+# codecheck: allow too-many-parameters (public signature used by tests and the import tools)
 def anonymise(
     t_s: np.ndarray,
     columns: Mapping[str, np.ndarray],
@@ -64,27 +65,58 @@ def anonymise(
             or a column length differs from `t_s`.
     """
     _validate_tag_requests(len(t_s), columns, linked_groups, keep_values)
-    # Without a seed every call draws fresh random constants; a fixed default would give every
-    # customer the same scales and shift, which anyone with the code could undo.
-    seed = int(np.random.SeedSequence().entropy) if seed is None else seed  # type: ignore[arg-type]
+    seed = _resolve_seed(seed)
     rng = np.random.default_rng(seed)
 
     tag_map = {name: _tag_name(index) for index, name in enumerate(columns)}
-    transforms = _draw_transforms(columns, linked_groups, keep_values, rng)
-    time_shift_s = float(rng.integers(0, TIME_SHIFT_DAYS * SECONDS_PER_DAY))
+    transforms, time_shift_s = _draw_recipe(columns, linked_groups, keep_values, rng)
 
-    new_columns = {
-        tag_map[name]: _apply(transforms[tag_map[name]], values)
-        for name, values in columns.items()
-    }
     return AnonymisedData(
         t_s=np.asarray(t_s, dtype=float) + time_shift_s,
-        columns=new_columns,
+        columns=_transform_columns(columns, tag_map, transforms),
         tag_map=tag_map,
         transforms=transforms,
         time_shift_s=time_shift_s,
         seed=seed,
     )
+
+
+def _draw_recipe(
+    columns: Mapping[str, np.ndarray],
+    linked_groups: Sequence[Sequence[str]],
+    keep_values: Sequence[str],
+    rng: np.random.Generator,
+) -> tuple[dict[str, tuple[float, float]], float]:
+    """Draw the per-tag transforms, then the time shift (whole seconds within one year).
+
+    The draw order (transforms first) fixes which random numbers each part gets, so the same
+    seed always gives the same recipe.
+    """
+    transforms = _draw_transforms(columns, linked_groups, keep_values, rng)
+    return transforms, float(rng.integers(0, TIME_SHIFT_DAYS * SECONDS_PER_DAY))
+
+
+def _transform_columns(
+    columns: Mapping[str, np.ndarray],
+    tag_map: dict[str, str],
+    transforms: dict[str, tuple[float, float]],
+) -> dict[str, np.ndarray]:
+    """Apply each column's affine transform and store it under its new tag name."""
+    return {
+        tag_map[name]: _apply(transforms[tag_map[name]], values)
+        for name, values in columns.items()
+    }
+
+
+def _resolve_seed(seed: int | None) -> int:
+    """The given seed, or fresh OS entropy.
+
+    A fixed default would give every customer the same scales and shift, which anyone with
+    the code could undo.
+    """
+    if seed is None:
+        return int(np.random.SeedSequence().entropy)  # type: ignore[arg-type]
+    return seed
 
 
 def invert_values(data: AnonymisedData, name: str, values: np.ndarray) -> np.ndarray:
@@ -129,7 +161,11 @@ def _validate_tag_requests(
     for group in linked_groups:
         _require_known(group, known)
     _require_known(keep_values, known)
+    _require_disjoint_groups(linked_groups)
 
+
+def _require_disjoint_groups(linked_groups: Sequence[Sequence[str]]) -> None:
+    """Raise if a tag appears in two linked groups."""
     seen: set[str] = set()
     for group in linked_groups:
         for name in group:

@@ -16,8 +16,8 @@ from crosscut_sim.scenarios import build_scenario
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 
-import live_demo  # noqa: E402
-import retune_demo  # noqa: E402
+import live_demo
+import retune_demo
 
 
 @pytest.fixture

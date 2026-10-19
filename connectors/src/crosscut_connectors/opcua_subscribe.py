@@ -44,16 +44,16 @@ FIRST_EVENT = 1  # a node has one event as soon as the server has sent its initi
 class _ChangeCollector:
     """Subscription handler that records every data-change notification per node.
 
-    ``node_ids`` is the resolved node id list, passed as ``nodes_list`` to
-    ``subscribe_data_change`` so ``node.nodeid.to_string()`` compares to it.
+    ``node_ids`` is the resolved node id list; the nodes of the subscription are built from
+    it and a notification is matched to its node by ``node.nodeid.to_string()``.
     Every node pushes its current value right after subscribing, so a node with
     a wrong id simply never appears in ``events_by_node``.
     """
 
     def __init__(self, node_ids: list[str]) -> None:
         """Create one empty event list per node, in the same order as ``node_ids``."""
-        # ``events_by_node[i]`` holds (ts_ns, value, quality) of node ``node_ids[i]``,
-        # appended in arrival order, which the server keeps increasing in time.
+        # ``events_by_node[node_id]`` holds (ts_ns, value, quality) of that node, appended in
+        # arrival order and stamped with the local clock (UTC nanoseconds) on arrival.
         self.node_ids = node_ids
         # The server reports ids in canonical form ('i=2258'), a configuration may say
         # 'ns=0;i=2258': compare in canonical form and keep the configured spelling as key.
@@ -200,7 +200,7 @@ def import_opcua_subscription(
         If the endpoint cannot be reached, or the connection times out.
     """
     _validate_arguments(nodes, plan)
-    tag_ids = _check_identifier_uniqueness(nodes, [_sanitize_tag_name(tag) for tag in nodes])
+    tag_ids = _check_identifier_uniqueness([_sanitize_tag_name(tag) for tag in nodes])
     node_ids = [nodes[tag] for tag in nodes]
 
     grid_ns, events = asyncio.run(_collect_events(endpoint, node_ids, plan))
@@ -220,7 +220,7 @@ async def _collect_events(
     node_ids: list[str],
     plan: PollPlan,
 ) -> tuple[np.ndarray, list[list[tuple[int, float, int]]]]:
-    """Subscribe, record the pushed changes over the grid, then unsubscribe.
+    """Subscribe, record the pushed changes over the grid, then disconnect.
 
     Returns the grid timestamps ``(n_samples,)`` and, per node in ``node_ids``
     order, the list of (ts_ns, value, quality) notifications received during the
@@ -232,7 +232,7 @@ async def _collect_events(
         await _connect(client)
         resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
         collector, subscription = await _open_subscription(client, resolved, plan)
-        grid_ns = await _wait_for_grid(collector, plan)
+        grid_ns = await _wait_for_grid(plan)
         await _verify_session_alive(client, resolved[0])
     finally:
         # Close the session even if the wait or a notification raised.
@@ -269,7 +269,8 @@ async def _open_subscription(
     collector = _ChangeCollector(resolved_node_ids)
     period_ms = max(1, int(plan.period_s * MS_PER_S / PUBLISHES_PER_GRID_PERIOD))
     subscription = await client.create_subscription(period_ms, collector)
-    await subscription.subscribe_data_change([client.get_node(n) for n in resolved_node_ids])
+    nodes = [client.get_node(node_id) for node_id in resolved_node_ids]
+    await subscription.subscribe_data_change(nodes)
     await _wait_for_first_events(collector)
     return collector, subscription
 
@@ -285,7 +286,7 @@ async def _wait_for_first_events(collector: _ChangeCollector) -> None:
         await asyncio.sleep(INITIAL_VALUE_POLL_S)
 
 
-async def _wait_for_grid(collector: _ChangeCollector, plan: PollPlan) -> np.ndarray:
+async def _wait_for_grid(plan: PollPlan) -> np.ndarray:
     """Mark the grid start, sleep past its last instant plus one publishing interval.
 
     Returns the grid timestamps in nanoseconds since the epoch. Sleeping one

@@ -91,8 +91,8 @@ def _parse_timestamp(ts: Any, tz: str, previous_ns: int | None = None) -> tuple[
         return _resolve_instant(dt, tz, previous_ns)
     # Numbers are already epoch-relative, so they are simply scaled from
     # seconds to nanoseconds; int() truncates any sub-nanosecond float noise.
-    # bool is a subclass of int but is rejected above: True would silently
-    # become 1e9 ns, which is never a real timestamp.
+    # bool is a subclass of int and is NOT rejected here: True would silently become 1e9 ns
+    # (one second after the epoch), which is never a real timestamp.
     if isinstance(ts, (int, float)):
         return int(ts * NS_PER_S), False
     raise ValueError("timestamp must be a string or a numeric value")
@@ -137,10 +137,9 @@ def _pivot_rows(
 def _clean_value(raw: Any) -> float:
     """Convert a raw cell to float; NULL, non-numeric or non-finite cells become NaN.
 
-    This is the standardisation step before any numeric work (e.g. an AHP pairwise
-    matrix, where every cell must be a comparable number). "Dirty" cells are not an
-    error here: they are silently mapped to NaN so the caller can decide how to
-    handle missing data instead of crashing on one bad spreadsheet cell.
+    This is the standardisation step before any numeric work. "Dirty" cells are not an
+    error here: they are silently mapped to NaN (and later marked BAD) so one bad historian
+    cell does not abort the whole import.
 
     Returns:
         The cell as a float, or NaN when the cell is missing, not numeric, or
@@ -173,12 +172,12 @@ def _clean_value(raw: Any) -> float:
 def _parse_row(
     row: tuple[Any, ...], tz: str, previous_ns: int | None = None
 ) -> tuple[int, str, float, Any, bool]:
-    """Return (timestamp ns, sanitized tag, value, quality) for one query row.
+    """Return (timestamp ns, sanitized tag, value, quality, DST-repeat flag) for one query row.
 
     A "row" is one raw record coming back from the historian database, laid out
     positionally as (timestamp, tag name, value, quality):
 
-    * index 0 -- the sample instant, in a timezone-aware form that
+    * index 0 -- the sample instant: an ISO-8601 string or epoch seconds, which
       ``_parse_timestamp`` normalises to nanoseconds since the Unix epoch (int).
     * index 1 -- the raw tag name, normalised by ``_sanitize_tag_name``.
     * index 2 -- the measured value; may be NaN when the historian stored no
@@ -198,8 +197,8 @@ def _parse_row(
         repeated local time (DST fall-back) apart.
     :return: a tuple of (timestamp in nanoseconds since the Unix epoch,
         sanitized tag name, value as a float, quality flag, True if it was a DST repeat).
-    :raises ValueError: if the row has fewer than three fields, so there is no
-        value to read.
+    :raises ValueError: if the timestamp cannot be parsed. The check for fewer than three
+        fields is made by the caller (``_read_row``).
     """
     # _clean_value returns a float or NaN, so np.isnan needs a float; NULL or
     # non-numeric cells become NaN here rather than raising.
@@ -231,10 +230,6 @@ def _collect_samples(
     Returns four equal-length arrays; element i of each describes the same sample, and the
     number of rows read as the second pass of a repeated local time (DST fall-back).
 
-    The four values are also the input format of the timeseries model (a set of
-    measurements of the same quantity taken at successive instants, here one
-    column per measurement rather than one row per measurement).
-
     Raises:
         Whatever ``_parse_row`` raises for a malformed row, and
         ``_check_identifier`` for a tag that maps to two different raw identifiers.
@@ -255,11 +250,7 @@ def _collect_samples(
     last_ns_by_tag: dict[str, int] = {}
     dst_repeats = 0
     for row in rows:
-        if len(row) < MIN_ROW_FIELDS:
-            raise ValueError("a row needs at least timestamp, tag and value")
-        ts, tag, value, quality, was_repeat = _parse_row(row, tz, last_ns_by_tag.get(_key(row)))
-        _check_identifier(raw_by_tag, tag, row[1])
-        last_ns_by_tag[_key(row)] = ts
+        ts, tag, value, quality, was_repeat = _read_row(row, tz, raw_by_tag, last_ns_by_tag)
         dst_repeats += int(was_repeat)
         ts_ns.append(ts)
         tags.append(tag)
@@ -268,6 +259,18 @@ def _collect_samples(
     # Conversion to numpy lives in a separate helper so that the loop above stays
     # pure data gathering and this function stays short.
     return (*_build_sample_arrays(ts_ns, tags, values, qualities), dst_repeats)
+
+
+def _read_row(
+    row: tuple[Any, ...], tz: str, raw_by_tag: dict[str, Any], last_ns_by_tag: dict[str, int]
+) -> tuple[int, str, float, Any, bool]:
+    """Parse one row, check its tag identifier and record its instant as the tag's latest."""
+    if len(row) < MIN_ROW_FIELDS:
+        raise ValueError("a row needs at least timestamp, tag and value")
+    ts, tag, value, quality, was_repeat = _parse_row(row, tz, last_ns_by_tag.get(_key(row)))
+    _check_identifier(raw_by_tag, tag, row[1])
+    last_ns_by_tag[_key(row)] = ts
+    return ts, tag, value, quality, was_repeat
 
 
 def _build_sample_arrays(
@@ -284,7 +287,7 @@ def _build_sample_arrays(
     - timestamps: int64, nanoseconds since the Unix epoch (UTC)
     - tags: unicode strings, the signal name the sample belongs to
     - values: float64, the measurement in the signal's own unit
-    - qualities: uint8, the OPC-UA status code, 0 meaning "good"
+    - qualities: uint8, the quality code of the dataset contract (0 good, 1 uncertain, 2 bad)
     """
     # numpy needs one homogeneous dtype per array, so each column is converted
     # separately; dtype is given explicitly to fix the width and signedness

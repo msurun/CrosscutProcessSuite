@@ -156,8 +156,9 @@ def _parse_duration_or_exit(parser: argparse.ArgumentParser, text: str) -> float
 def _current_git_commit() -> str | None:
     """Return the short git revision of this repository, or None when it cannot be determined.
 
-    The revision is stored for reproducibility. No git history (or no git installed) is not
-    fatal: record() then stores "unknown".
+    The revision is stored for reproducibility. A directory without git history is not fatal:
+    None is returned and the dataset simply has no ``code`` block. (A missing git executable
+    raises FileNotFoundError, which is not caught here.)
     """
     try:
         return subprocess.run(

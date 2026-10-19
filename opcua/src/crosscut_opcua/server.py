@@ -1,4 +1,4 @@
-"""OPC UA server that exposes a simulated plant as a set of Double variables.
+"""OPC UA server that exposes a simulated plant as variables (Double; Int64 heartbeat).
 
 The server advances the plant in real time scaled by ``speed``, publishes every tag on each
 tick and forwards client writes to the plant. A heartbeat counter written by the client acts
@@ -91,8 +91,7 @@ class PlantServer:
         self._task: asyncio.Task[None] | None = None
         # Whether the publish loop is currently allowed to send value updates.
         self._publishing = False
-        # Heartbeat counter next expected from the client. The server stores the
-        # last client heartbeat; a change marks the client as alive.
+        # Last heartbeat counter received from the client; a change marks the client as alive.
         self._heartbeat_value = 0
         # Monotonic timestamp (seconds, from time.monotonic()) of the last time
         # the heartbeat value changed; used to detect a stalled client.
@@ -110,6 +109,7 @@ class PlantServer:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
+        """Stop the server on leaving the ``async with`` block; exception details are not used."""
         await self.stop()
 
     async def start(self) -> None:
@@ -153,8 +153,8 @@ class PlantServer:
         server.set_endpoint(self.endpoint)
         server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
         idx = await server.register_namespace(NAMESPACE_URI)
-        # A variable cannot live at the root of the address space, so the tags
-        # are grouped under a single "plant" object node.
+        # All tags are grouped under a single "Plant" object node, which the collector finds
+        # by its browse name.
         plant_obj = await server.nodes.objects.add_object(
             _node_id(idx, PLANT_OBJECT_NAME), PLANT_OBJECT_NAME
         )
@@ -233,9 +233,8 @@ class PlantServer:
     async def _run(self) -> None:
         """Drive the simulation loop at wall-clock speed until cancelled.
 
-        Each iteration advances the plant by ``steps`` simulation steps so the
-        simulated time elapsed per iteration matches ``self._tick_s`` real
-        seconds at the configured speed factor.
+        Each iteration advances the plant by ``steps`` simulation steps so that one tick of
+        ``tick_s`` wall-clock seconds covers ``speed * tick_s`` simulated seconds.
 
         Returns:
             Never returns; runs until the task is cancelled.
@@ -270,21 +269,21 @@ class PlantServer:
     async def _publish(self) -> None:
         """Copy every plant tag, the plant time and the heartbeat status to the address space.
 
-        The address space (OPC UA nodes) is the read-only mirror a supervisor sees; the plant
-        simulation owns the truth. Each tag is written one by one because that is the only
-        granularity the underlying client exposes.
+        The address space (OPC UA nodes) mirrors the plant; the plant simulation owns the
+        truth, and a client write is forwarded to the plant and read back (see the setter).
+        Each tag is written with its own call.
         """
         # Publish the live plant state first: the supervisor must never see a heartbeat that is
         # newer than the values it is checking.
         for spec in self.plant.tags:
-            # read() returns (value, quality); is_simulated/quality is not part of the mirror,
-            # so it is discarded. The cast to float normalises ints/bools to one node data type.
+            # read() returns (value, quality); the quality is not part of the mirror, so it is
+            # discarded. The cast to float normalises ints to the node's Double type.
             value, _ = self.plant.read(spec.id)
             await self._write(spec.id, float(value))
-        # TIME_TAG holds the plant clock in seconds since the simulation started (float64, UTC).
+        # TIME_TAG holds the plant clock in seconds since the simulation started (float64).
         await self._write(TIME_TAG, float(self.plant.time_s))
-        # Sent last, as a liveness flag: if the loop stalls before this await completes, the
-        # supervisor sees stale plant time and can trip on the missing beat.
+        # Status of the client's heartbeat (False = timed out), published after the plant
+        # values so a client that sees it flip also sees values of the same tick.
         await self._write(HEARTBEAT_OK_TAG, self._heartbeat_ok)
 
     async def _write(self, tag_id: str, value: float | bool) -> None:
@@ -308,22 +307,18 @@ class PlantServer:
         if isinstance(value, bool):
             variant = ua.Variant(value, ua.VariantType.Boolean)
         else:
-            # Every non-boolean tag is numeric, but the heartbeat carries a
-            # monotonically increasing counter (an integer), so it must be sent
-            # as Int64 to avoid losing precision on the wire. All other numeric
-            # tags are measurements and use Double, the OPC UA default for
-            # floating-point values.
+            # Every non-boolean tag is numeric. The heartbeat is an integer counter and is
+            # declared Int64 (the client writes it; this branch keeps the type correct if
+            # the server ever writes it). All other numeric tags use Double.
             variant_type = (
                 ua.VariantType.Int64 if tag_id == HEARTBEAT_TAG else ua.VariantType.Double
             )
             variant = ua.Variant(value, variant_type)
 
-        # ``_publishing`` marks this task as the writer and is read by the
-        # subscription/datachange callback. Without it, the server's own write
-        # would look like a value change coming from a client and could be
-        # echoed back as a client update (an infinite write loop). The flag is
-        # reset in ``finally`` so it is cleared even if the node write raises,
-        # keeping the invariant "flag is True only while a server write runs".
+        # ``_publishing`` is read by the value setter installed in ``_make_setter``. Without
+        # it, the server's own write would look like a client write and be forwarded to the
+        # plant again. The flag is reset in ``finally`` so it is cleared even if the node
+        # write raises, keeping the invariant "flag is True only while a server write runs".
         self._publishing = True
         try:
             # ``DataValue`` wraps the Variant with source/timestamp metadata; this
@@ -335,9 +330,11 @@ class PlantServer:
     # ----- heartbeat watchdog ----------------------------------------------------------------
 
     def _heartbeat_alive(self, now: float) -> bool:
+        """True while the client's heartbeat changed within ``heartbeat_timeout_s`` of ``now``."""
         return now - self._last_heartbeat_change <= self._config.heartbeat_timeout_s
 
     def _update_watchdog(self, now: float) -> None:
+        """Refresh the heartbeat status; on the first timeout release the CAS loops to AUTO."""
         alive = self._heartbeat_alive(now)
         if self._heartbeat_ok and not alive:
             self._return_cas_loops_to_auto()
@@ -410,6 +407,7 @@ class PlantServer:
         node.attributes[attr].value = ua.DataValue(ua.Variant(stored, ua.VariantType.Double))
 
     def _on_heartbeat(self, value: int) -> None:
+        """Note a heartbeat write; only a changed counter value proves the client is alive."""
         if value != self._heartbeat_value:
             self._heartbeat_value = value
             self._last_heartbeat_change = time.monotonic()
@@ -423,7 +421,7 @@ class PlantServer:
         and results in no change rather than an error surfaced to the caller.
 
         Args:
-            tag_id: name of the tag to change, for example "TIC101.SP".
+            tag_id: name of the tag to change, for example "sim.mc.mill_feed_sp".
             value: requested value in the tag's own engineering units.
         """
         spec = self.plant.tags[tag_id]
@@ -471,35 +469,34 @@ def _add_plant_arguments(parser: argparse.ArgumentParser) -> None:
         parser: The argument parser to populate; it is mutated in place and
             nothing is returned.
 
-    Raises:
-        ValueError: Propagated from ``argparse`` if ``--plant`` is missing or
-            holds an identifier that is not a key of ``PLANTS``.
+    ``--plant`` is required and must be a key of ``PLANTS``; otherwise argparse prints the
+    usage and exits with code 2 when the command line is parsed.
     """
     # PLANTS is the registry of the plant models the simulator can run; ``choices`` makes argparse
     # reject an unknown identifier at parse time instead of failing later when the model is built,
     # and sorted() keeps the help text and error message in a stable, alphabetical order.
     parser.add_argument("--plant", required=True, choices=sorted(PLANTS), help="plant identifier")
-    # A scenario is a named operating schedule for the plant (for example "nominal", the fault-free
-    # one, or a failure case); it is a plain string so new scenarios need no change here.
+    # A scenario is a named set of conditions and scheduled events for the plant (for example
+    # "nominal"); it is a plain string, validated later by build_scenario.
     parser.add_argument("--scenario", default="nominal", help="scenario name (default: nominal)")
-    # Fixing the seed makes every random draw reproducible, so two runs with the same seed produce
-    # byte-identical telemetry and a reported bug can be replayed exactly.
+    # Fixing the seed makes every random draw reproducible, so two runs with the same seed
+    # produce the same plant trajectory.
     parser.add_argument("--seed", type=int, default=42, help="random seed (default: 42)")
     # The simulated plant is reachable as an OPC UA server. 127.0.0.1 binds to the loopback
     # interface only, that is, the machine running the simulator and nobody else.
     parser.add_argument("--host", default="127.0.0.1", help="listen address (default: 127.0.0.1)")
-    # 4840 is the port reserved by the OPC UA specification for binary protocol servers; a client
-    # can therefore connect without being told a non-standard port.
+    # 4840 is the IANA-registered port of OPC UA binary (opc.tcp) servers, so a client can
+    # connect without being told a non-standard port.
     parser.add_argument("--port", type=int, default=4840, help="listen port (default: 4840)")
 
 
 def _add_timing_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the arguments that control simulation and publish timing.
 
-    The three rates are independent: `--speed` sets how fast the simulated plant advances,
-    `--tick` sets how often the runtime publishes, and `--heartbeat-timeout` sets how long the
-    runtime tolerates silence from a peer before it stops waiting for it. Each becomes a
-    `float` on the parsed namespace.
+    The three settings are independent: `--speed` sets how fast the simulated plant advances,
+    `--tick` sets how often the server steps the plant and publishes, and `--heartbeat-timeout`
+    sets how long the client's heartbeat may stay unchanged before the cascade (CAS) loops fall
+    back to AUTO. Each becomes a `float` on the parsed namespace.
 
     Args:
         parser: The argument parser to register the options on.
@@ -520,10 +517,8 @@ def _add_timing_arguments(parser: argparse.ArgumentParser) -> None:
         "--tick", type=float, default=0.1, help="publish period in seconds (default: 0.1)"
     )
 
-    # A CAS ("compare-and-swap") loop is a retry loop: read the shared value, try to swap it
-    # with our new one, and retry if another process won the race. Peers announce they are
-    # still alive with heartbeats; after this many seconds without one, the loop gives up
-    # waiting and falls back instead of retrying forever. Unit: seconds.
+    # The client proves it is alive by changing the heartbeat variable. After this many
+    # seconds without a change, loops in cascade mode (CAS) are put back to AUTO. Unit: seconds.
     parser.add_argument(
         "--heartbeat-timeout",
         type=float,
@@ -545,7 +540,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
 
     # argparse turns the strings into an object with one attribute per flag,
-    # e.g. args.endpoint holds the address the server listens on.
+    # e.g. args.port holds the port the server listens on.
     args = parser.parse_args(argv)
 
     # The address space and the transport are configured from `args`, so the
@@ -566,10 +561,9 @@ def _build_server(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
 
     Raises SystemExit (through parser.error) when the requested scenario is invalid.
     """
-    # A scenario is a fixed timeline of setpoints that the plant must follow during a
-    # simulation run. We always build a 24-hour one (duration_s is in seconds), so the
-    # simulation clock has a finite, reproducible end. build_scenario raises ValueError
-    # for an unknown plant/scenario name or for a scenario shorter than the duration.
+    # A scenario holds the plant conditions and the scheduled events of a run. We always
+    # build a 24-hour one (duration_s is in seconds). build_scenario raises ValueError
+    # for an unknown plant or scenario name.
     try:
         scenario = build_scenario(args.plant, args.scenario, duration_s=24 * 3600.0)
     except ValueError as e:
@@ -580,8 +574,8 @@ def _build_server(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     # PLANTS maps a plant name to its class; calling it instantiates the plant model to
     # simulate, which we pair with the scenario and the network/timing options.
     # Units: speed is a simulation time multiplier (1.0 = real time), tick_s is the
-    # interval between simulation steps in seconds, heartbeat_timeout_s is how long a
-    # client may stay silent before the server drops it, in seconds.
+    # wall-clock period of one step-and-publish iteration in seconds, heartbeat_timeout_s is
+    # how long the heartbeat may stay unchanged before CAS loops fall back to AUTO, in seconds.
     config = ServerConfig(
         seed=args.seed,
         host=args.host,

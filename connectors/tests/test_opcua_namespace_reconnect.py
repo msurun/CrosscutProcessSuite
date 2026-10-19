@@ -28,7 +28,7 @@ def test_a_node_named_by_namespace_uri_is_read(tmp_path: Path) -> None:
     nodes = {"y1": f"nsu={NAMESPACE_URI};s={TAG_Y1}"}
     server = make_server(free_port())
 
-    def call(endpoint: str):  # noqa: ANN202 - local adapter
+    def call(endpoint: str):
         return import_opcua(
             endpoint, nodes, ImportTarget(tmp_path / "ds", "nsu"), PollPlan(0.05, 4)
         )
@@ -44,7 +44,7 @@ def test_an_unknown_namespace_uri_is_a_clear_error(tmp_path: Path) -> None:
     nodes = {"y1": f"nsu=urn:not-there;s={TAG_Y1}"}
     server = make_server(free_port())
 
-    def call(endpoint: str):  # noqa: ANN202 - local adapter
+    def call(endpoint: str):
         return import_opcua(endpoint, nodes, ImportTarget(tmp_path / "ds", "x"), PollPlan(0.05, 2))
 
     with pytest.raises(ValueError, match="urn:not-there"):

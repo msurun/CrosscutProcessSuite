@@ -17,6 +17,8 @@ from crosscut_sim.disturbances import OrnsteinUhlenbeck, OuShape
 from crosscut_sim.pid import PID, OutputLimits, PidTuning
 from crosscut_sim.valve import StictionSpec, StictionValve
 
+# Operating point in each tag's unit: press N/mm2, feed t/h, water m3/h, hardness kWh/t,
+# moisture %, p80 um, powers kW.
 NOMINAL: dict[str, float] = {
     "hpgr_press": 3.5,
     "mill_feed": 150.0,
@@ -49,10 +51,14 @@ _CV_DESCRIPTIONS = {
     "mill_power": "Ball mill drive power (measured)",
     "hpgr_power": "HPGR drive power (measured)",
 }
+# Stationary standard deviation of the slow process noise and of the sensor noise of each CV,
+# in the CV's unit (the sensor noise is further scaled by Scenario.measurement_noise).
 _CV_PROCESS_SIGMA = {"p80": 1.0, "mill_power": 40.0, "hpgr_power": 20.0}
 _CV_MEAS_SD = {"p80": 0.5, "mill_power": 15.0, "hpgr_power": 8.0}
 
 # (driver, cv) -> (g0 per unit of driver, relative hardness slope s, tau in min, delay in min)
+# The gain at hardness H is g0 * (1 + s * (H - REFERENCE_HARDNESS)), see _gain; g0 is in CV unit
+# per driver unit (e.g. um per N/mm2).
 _PATHS: dict[tuple[str, str], tuple[float, float, float, float]] = {
     ("hpgr_press", "p80"): (-20.0, 0.08, 4.0, 1.0),
     ("mill_feed", "p80"): (0.45, 0.10, 8.0, 2.0),
@@ -86,7 +92,7 @@ class _LoopSpec:
 
     @property
     def tag(self) -> str:
-        """Return the simulator's tag as a Monte Carlo identifier built from its name."""
+        """Return the tag id of the loop's process variable: ``sim.mc.`` + loop name."""
         return f"sim.mc.{self.name}"
 
 
@@ -147,11 +153,11 @@ def _gain(base_gain: float, sensitivity: float, hardness: float) -> float:
 
 
 def _build_tag_catalog() -> TagCatalog:
-    """Assemble the full catalog of PI tag definitions the rest of the app queries.
+    """Assemble the catalog of every tag of the mill circuit.
 
-    A "tag" is one named time series in the plant historian (PI); a TagSpec describes one tag:
-    its name, data type and unit. This function produces the single catalog all callers share,
-    by gathering every tag family and concatenating them in a fixed order.
+    A "tag" is one named signal; a TagSpec describes one tag: its id, unit, role, type and
+    range. This function produces the single catalog all callers share, by gathering every
+    tag family and concatenating them in a fixed order.
 
     Returns:
         TagCatalog: immutable catalog holding every TagSpec, in the order added below:
@@ -167,7 +173,7 @@ def _build_tag_catalog() -> TagCatalog:
     for loop in LOOPS:
         specs.extend(_tag_specs_for_loop(loop))
 
-    # Disturbances are plant-wide (feed composition, ambient temperature), not owned by a loop,
+    # Disturbances (ore hardness and moisture) are plant-wide, not owned by a loop,
     # so they arrive as their own pre-built list.
     specs.extend(_tag_specs_for_disturbances())
 
@@ -185,9 +191,7 @@ def _tag_specs_for_loop(loop: _LoopSpec) -> list[TagSpec]:
     A control loop is one controller (a PLC block or a DCS faceplate) that keeps
     one process variable (PV) at a target setpoint by driving one output. Each
     role in that picture is exposed to the historian as its own tag, so one loop
-    becomes five tags. The list order matters: downstream code writes the PV
-    sample first, and a recorder that drops the tail of a batch still keeps the
-    PV.
+    becomes five tags; the list order is the order of the tags in the catalog.
 
     Returns:
         The PV tag, the two setpoint tags, the mode tag and the output tag, in
@@ -196,11 +200,9 @@ def _tag_specs_for_loop(loop: _LoopSpec) -> list[TagSpec]:
     return [
         # The process variable: the measured value the loop is trying to hold.
         _loop_pv_spec(loop),
-        # Two setpoints coexist rather than one, because a loop can be under
-        # local or remote control at any moment and operators compare both:
-        # "_sp" is the setpoint the loop is actually using right now,
-        # "_rsp" is the value pushed in from a supervisory system (the remote
-        # setpoint). When the loop runs locally the two diverge.
+        # Two setpoints coexist rather than one: "_sp" is the local setpoint, which the
+        # loop uses in MAN and AUTO (in CAS it is overwritten with "_rsp"); "_rsp" is the
+        # remote setpoint pushed in by a supervisory system, used only in CAS.
         _loop_sp_spec(loop, suffix="_sp", description_suffix="active setpoint"),
         _loop_sp_spec(loop, suffix="_rsp", description_suffix="remote setpoint"),
         # The mode tag says which source is in charge (auto, manual, cascade...).
@@ -247,8 +249,8 @@ def _loop_sp_spec(loop: _LoopSpec, suffix: str, description_suffix: str) -> TagS
     unique id and a `description_suffix` to make its human-readable text unique as well.
 
     `eng_min` and `eng_max` are the engineering-range limits in `loop.unit` (for example
-    0.0 to 100.0 degrees Celsius): the setpoint written through this tag must stay inside
-    them. `type="float"` means the value travels as a floating-point number.
+    0.0 to 6.0 N/mm2 for the HPGR pressure). `type="float"` means the value is a floating-point
+    number.
     """
     return TagSpec(
         id=f"{loop.tag}{suffix}",
@@ -312,23 +314,21 @@ def _loop_out_spec(loop: _LoopSpec) -> TagSpec:
 
 
 def _tag_specs_for_disturbances() -> list[TagSpec]:
-    """Return the hardness and moisture tags that drive the simulation.
+    """Return the hardness and moisture tags that disturb the simulation.
 
-    Each TagSpec describes one simulated plant tag: how to generate its raw
-    sensor values, its unit, and its expected range. Hardness and moisture both
-    shift the ore quality and therefore act as disturbances on the process, so
-    they are grouped here and refreshed once per simulation step.
+    Hardness and moisture both change the ore quality and therefore act as
+    disturbances on the process, so they are grouped here.
 
     Returns:
         A list of TagSpec, one per disturbance tag, in a fixed order so that
         callers can index by position.
     """
     return [
-        # Mean of the hardness tag: the slow-moving trend, in kWh/t, around which
-        # the faster estimate fluctuates.
+        # Mean of the true ore hardness, in kWh/t; the true hardness wanders around it
+        # (slow Ornstein-Uhlenbeck process).
         _hard_mean_spec(),
-        # Instantaneous hardness estimate: sample-and-hold reading in kWh/t,
-        # updated every 30 min and used by the controllers.
+        # Hardness estimate: sample-and-hold reading in kWh/t (true hardness plus noise),
+        # updated every 30 min and published as a tag; no controller uses it.
         _hard_est_spec(),
         # Moisture content of the ore feed, in % by mass.
         _moist_spec(),
@@ -368,18 +368,16 @@ def _hard_est_spec() -> TagSpec:
     """Return the ore hardness estimate tag, sampled every 30 min.
 
     Ore hardness is a physical property of the rock being milled. It cannot be
-    measured online, so it is estimated by a soft sensor and published as a
-    single number that the control loop treats as a measured variable.
+    measured online, so the model publishes an estimate (the true hardness plus
+    noise, refreshed every 30 min) as a tag for analysis; the loops do not use it.
 
     Returns:
         TagSpec: metadata for the hardness estimate tag. The unit is specific
         energy in kilowatt-hours per tonne of ore (kWh/t); higher values mean
         harder ore that needs more grinding energy per tonne.
     """
-    # role="DV" marks this tag as a Dependent (or Disturbance) Variable: an
-    # input the controller must accept as given rather than manipulate.
-    # type="float" says values are continuous, not categorical, so downstream
-    # code may interpolate or difference them.
+    # role="DV" marks this tag as a Disturbance Variable: an input that affects the
+    # process and is not manipulated by any controller.
     return TagSpec(
         id=HARD_EST,
         unit="kWh/t",
@@ -392,19 +390,12 @@ def _hard_est_spec() -> TagSpec:
 def _moist_spec() -> TagSpec:
     """Return the feed moisture tag, measured every step.
 
-    The tag is part of the plant-wide tag table that MPC (model predictive
-    control) tooling reads. Its fields tell that tooling how to treat the
-    signal:
-
     * ``unit`` is the physical unit of the value, here mass percent water in
       the feed (%, 0-100).
     * ``role="DV"`` marks the tag as a *disturbance variable*: a measured
-      input that the controller cannot move, but whose current value shifts
-      the predicted trajectories. Contrast with "MV" (manipulated variable,
+      input that no controller can move. Contrast with "MV" (manipulated variable,
       an output the controller steers) and "CV" (controlled variable, an
-      output that must be held near its setpoint).
-    * ``type="float"`` is the expected Python type of the sampled value, so
-      the reader can allocate the right buffer and detect a mis-wired tag.
+      output that must be held near its target).
     """
     return TagSpec(
         id=MOIST,
@@ -445,8 +436,8 @@ def _tag_spec_for_cv(cv: str) -> TagSpec:
         # Human-readable label shown on the operator screen.
         description=_CV_DESCRIPTIONS[cv],
         # Engineering range of the signal, in `unit`. The minimum is 0.0 for
-        # every CV by project convention (all CVs are non-negative physical
-        # quantities), hence the literal instead of another table lookup.
+        # every CV (all CVs are non-negative physical quantities), hence the literal
+        # instead of another table lookup.
         eng_min=0.0,
         # Upper end of the engineering range, in `unit`, per-signal.
         eng_max=_CV_ENG_MAX[cv],
@@ -470,28 +461,26 @@ class _Loop:
         Args:
             spec: Which loop to simulate; selects the nominal point and gains.
             dt_s: Outer-loop sample time in seconds.
-            inner_scale: Number of inner dynamics steps per outer control step.
-            rng: Random source for measurement noise; shared so runs reproduce.
+            inner_scale: Dimensionless multiplier of the inner disturbance's standard deviation
+                (scenario parameter ``inner_noise``; 0 switches the disturbance off).
+            rng: Random generator of this loop's inner disturbance (seeded per run).
         """
         self.spec = spec
-        # Outer loop: the PID the actuator and inner dynamics are commanded by.
+        # The PID controller: percent output from the loop's PV and setpoint.
         self.pid = self._build_pid(spec, dt_s)
-        # Nominal operating point (the linearisation point) for this loop. Used
-        # below to initialise every signal, so the loop starts already trimmed
-        # instead of drifting toward the trim point over the first seconds.
+        # Nominal operating point of this loop (in the loop's unit). Used
+        # below to initialise every signal, so the loop starts at steady state.
         nominal = NOMINAL[spec.name]
-        # Actuator turns the PID's command into a physical input, with its own
-        # gain, rate limit and dead time. Runs at the outer sample time dt_s.
+        # Actuator: turns the valve position (deviation of the PID output from NOMINAL_OUT, %)
+        # into a deviation of the driver in the loop's unit; first-order lag, no dead time.
         self.actuator = self._build_actuator(spec, dt_s)
         # Valve between the controller command and the actuator; healthy unless the scenario
         # asks for stiction (see MillCircuitPlant._init_loops).
         self.valve = StictionValve(StictionSpec())
-        # Inner loop: the fast dynamics between actuator and plant output.
-        # inner_scale sets how many inner steps happen per outer step, so the
-        # inner block is integrated at dt_s / inner_scale to stay stable.
+        # Inner disturbance: Ornstein-Uhlenbeck noise added to the driver after the actuator
+        # (flow or pressure fluctuations the PID has to fight); inner_scale scales its sigma.
         self.inner = self._build_inner(spec, inner_scale, dt_s, rng)
-        # Place all state variables (errors, integrator, filtered measurements)
-        # at their nominal values, which also zeroes the accumulated integrals.
+        # Put setpoints, outputs and the PV at their nominal values.
         self._init_signals(nominal)
 
     def _build_pid(self, spec: _LoopSpec, dt_s: float) -> PID:
@@ -503,12 +492,11 @@ class _Loop:
         """
         # Build the controller from the loop spec.
         #   kc       - proportional gain, dimensionless
-        #   ti_s=60  - integral (reset) time in SECONDS; 60 s means the integral term repeats
-        #              the proportional action once per minute (the classic reset-time form)
+        #   ti_s=60  - integral (reset) time in SECONDS
         #   dt_s     - scan period in SECONDS, supplied by the caller
-        #   out_min/out_max - output clamps in PERCENT (0..100), the controller's 0-100% range
+        #   out_min/out_max - output clamps in PERCENT (0..100)
         #   direct=False    - reverse acting: the output falls when the measurement rises
-        #                     above setpoint, the usual convention for a heating loop
+        #                     above setpoint (the actuator gain is positive for every loop)
         pid = PID(PidTuning(kc=spec.kc, ti_s=60.0), dt_s=dt_s, limits=OutputLimits(0.0, 100.0))
         # Nominal steady-state operating point for this loop: measurement and setpoint in
         # engineering units (whatever quantity the loop controls).
@@ -520,92 +508,53 @@ class _Loop:
         return pid
 
     def _build_actuator(self, spec: _LoopSpec, dt_s: float) -> Fopdt:
-        """Build the actuator model; the delay is already folded into the spec gains, so it is
-        zero here."""
+        """Build the actuator model: a first-order lag with the spec's gain and time constant.
+
+        The actuator has no dead time of its own (delay_s = 0); the dead times of the
+        process live in the driver-to-CV paths (see ``_PATHS``).
+        """
         return Fopdt(gain=spec.actuator_gain, tau_s=spec.actuator_tau_s, delay_s=0.0, dt_s=dt_s)
 
     def _build_inner(
         self, spec: _LoopSpec, inner_scale: float, dt_s: float, rng: np.random.Generator
     ) -> OrnsteinUhlenbeck:
-        """Build the inner disturbance; inner_scale scales the spec sigma for faster scenario
-        sweeps.
+        """Build the inner disturbance; inner_scale multiplies the spec's sigma.
 
         The inner disturbance is a zero-mean Ornstein-Uhlenbeck process: a mean-reverting
-        Gaussian noise, the continuous-time analogue of an AR(1). The spec fixes its intended
-        volatility; inner_scale is a dimensionless multiplier applied on top so a sweep can
-        temporarily inflate or damp the disturbance without rewriting the spec.
+        Gaussian noise, the continuous-time analogue of an AR(1), with a memory (time constant)
+        of 120 s. The spec fixes its standard deviation; inner_scale is the dimensionless
+        scenario multiplier (``inner_noise``) applied on top.
 
         Returns an OrnsteinUhlenbeck already parameterised for the current simulation step.
         """
         # sigma is the stationary standard deviation of the process (same unit as the
         # disturbed quantity); scaling it scales the whole noise amplitude linearly.
         shape = OuShape(mean=0.0, sigma=spec.inner_sigma * inner_scale, tau_s=120.0)
-        # dt_s is the integration step in seconds; the process is sampled on this grid.
+        # dt_s is the simulation step in seconds; the process is sampled on this grid.
         return OrnsteinUhlenbeck(shape, dt_s=dt_s, rng=rng)
 
     def _init_signals(self, nominal: float) -> None:
         """Start the loop in auto, with setpoint, manual output and PV all at the nominal.
 
-        Signature: `_init_signals(self, nominal: float) -> None`.
+        The loop holds these signals (EU = engineering unit of the loop's PV):
 
-        Algorithm / model
-        -----------------
-        This method is the *initialisation* (a.k.a. boot / cold-start) hook of a
-        feedback controller (think PID, but the same shape applies to any loop
-        that compares a setpoint with a process variable). The controller holds
-        six signals:
+            pv          measured process variable            EU
+            local_sp    local setpoint (MAN and AUTO)        EU
+            rsp         remote setpoint (used in CAS)        EU
+            out         controller output                    % (0..100)
+            manual_out  output used while in MAN             %
+            mode        MAN | AUTO | CAS code
 
-            pv          process variable          - the measured value, in EU
-            local_sp    local setpoint requested  - operator request, in EU
-            rsp         remote setpoint requested - value received from a remote
-                                                  source (SCADA / cascade), in EU
-            out         controller output         - the value actually driving the
-                                                  valve / actuator, in % (0..100)
-            manual_out  manual output requested   - operator-typed output, in %
-            mode        operating mode            - AUTO | MAN (or similar enum)
-
-        EU = "engineering units": the physical unit of the process (degC, bar,
-        m3/h, ...). It is *not* necessarily equal to percent.
-
-        Why "nominal"?
-        --------------
-        `nominal` is the value the process is supposed to sit at when nothing
-        else is known. Bootstrapping every signal from it makes the loop start
-        *bumbless*, i.e. with zero error and zero output jump:
-
-            error = sp - pv = nominal - nominal = 0      (nothing to correct)
-            output starts at NOMINAL_OUT                 (already in range)
-
-        Why keep a separate `rsp` and `local_sp`?
-        -----------------------------------------
-        Both setpoint *sources* exist at the same time, but only one is used at
-        runtime by the mode selector. The controller carries both so it can
-        switch source without losing the last value typed on the inactive one.
-        On boot they are deliberately made equal so the first switch cannot
-        produce a step.
-
-        Assumptions
-        -----------
-        * `nominal`, `NOMINAL_OUT`, `AUTO` are defined elsewhere (constants /
-          enum). No validation is done here: garbage in, garbage out, as this
-          function is only ever called with values the caller already validated.
-        * `NOMINAL_OUT` is assumed to be inside the actuator range (0..100 %).
-        * This method returns nothing. It is a state mutation, i.e. a *side
-          effect* on `self`; it must be called before the first scan / cycle of
-          the control loop.
+        Every signal starts at the nominal operating point: the error sp - pv is zero and
+        the output is NOMINAL_OUT, so the loop starts at steady state without a bump.
         """
         self.mode = AUTO
-        # Local setpoint is the value the operator would type in the HMI, in EU.
         self.local_sp = nominal
         self.rsp = nominal
-        # Manual output is pre-loaded, in %, so that if the loop is flipped to MAN
-        # before the first auto cycle, the actuator gets a sane value, not 0.
+        # Output used while in MAN, and the actual controller output, both in %.
         self.manual_out = NOMINAL_OUT
-        # Actual controller output, in %. Initialised equal to the manual one for a
-        # bumpless transfer AUTO <-> MAN.
         self.out = NOMINAL_OUT
-        # Measured process variable, in EU. Starting it at `nominal` is what
-        # makes the initial error (sp - pv) exactly zero.
+        # Measured process variable, in EU.
         self.pv = nominal
 
 
@@ -619,18 +568,18 @@ class MillCircuitPlant:
     def __init__(self) -> None:
         """Create the simulator with a full tag catalog and a deterministic initial state.
 
-        The catalog maps every tag the historian can read to its physical unit, and the
-        loop tag index maps every loop signal to the loop it belongs to. The simulation
-        clock is then reset so the instance is ready to be stepped.
+        The catalog describes every tag (unit, role, range), and the loop tag index maps
+        every loop signal to the loop it belongs to. The simulation is then reset (seed 0)
+        so the instance is ready to be stepped.
         """
         self.tags = _build_tag_catalog()
         # Simulation clock, in seconds, counting from process start.
         self.time_s = 0.0
-        # Control period of one simulation step, in seconds (1 Hz sampling).
+        # Simulation step in seconds (default 1 s; reset() takes it from the scenario).
         self.dt_s = 1.0
-        # Index from signal tag to (loop name, signal kind), e.g. "FIC101.PV" ->
-        # ("FIC101", "pv"). Built once here so loops can look up their own signals
-        # without scanning LOOPS on every step.
+        # Index from signal tag to (loop name, signal kind), e.g. "sim.mc.mill_feed_sp" ->
+        # ("mill_feed", "sp"). Built once here so a tag read or write finds its loop without
+        # scanning LOOPS.
         self._loop_tags: dict[str, tuple[str, str]] = {}
         for loop in LOOPS:
             for kind, suffix in _LOOP_KINDS:
@@ -659,8 +608,8 @@ class MillCircuitPlant:
             driver: One of ``DRIVERS``.
             cv: One of ``CVS``.
             hardness: Ore hardness to evaluate at; defaults to the current true hardness.
-                Hardness is a dimensionless index (typically ~1.0 for nominal ore); higher
-                means harder, more resistant ore that needs more energy per tonne.
+                Hardness is in kWh/t (``REFERENCE_HARDNESS`` = 14 for nominal ore); higher
+                means harder ore that needs more energy per tonne.
 
         Returns:
             The gain (0.0 for driver/CV pairs without a causal path).
@@ -685,8 +634,8 @@ class MillCircuitPlant:
         # Take only the two fields the gain formula needs; the last two are unused here.
         reference_gain, hardness_sensitivity, _, _ = path
         # _gain applies the first-order hardness correction:
-        # gain = reference_gain * (1 + hardness_sensitivity * (hardness - 1.0)),
-        # i.e. the gain grows (or shrinks) linearly as hardness departs from its nominal 1.0.
+        # gain = reference_gain * (1 + hardness_sensitivity * (hardness - REFERENCE_HARDNESS)),
+        # i.e. the gain grows (or shrinks) linearly as hardness departs from 14 kWh/t.
         return _gain(reference_gain, hardness_sensitivity, evaluated_hardness)
 
     def reset(self, seed: int, scenario: Scenario | None = None) -> None:
@@ -709,23 +658,21 @@ class MillCircuitPlant:
         # separate streams so that drawing a measurement noise sample does not shift the draws
         # of, say, the disturbance sequence.
         rngs = self._spawn_rngs(seed)
-        # Generators whose stream must be the same on every reset (sensor noise, weather, ...).
+        # Generators of the sensor noise and of the operator model.
         self._assign_fixed_rngs(rngs)
-        # Control loops: PID integrators and filters hold state, so they must start from the
-        # steady-state values they had before the run, otherwise the first seconds drift.
+        # Control loops: PID, actuator and inner disturbance, started at the nominal steady state.
         self._init_loops(dt_s, rngs)
-        # Ore feed rate/concentration and moisture content, the slow state variables of the mill.
+        # Ore hardness and moisture: the slow disturbances (Ornstein-Uhlenbeck processes).
         self._init_ore_and_moisture(dt_s, rngs)
-        # Unmodelled process disturbances (e.g. ore hardness drift) as filtered random walks.
+        # Slow process noise added to each controlled variable (Ornstein-Uhlenbeck).
         self._init_process_noise(dt_s, rngs)
-        # Recorded trajectories, one buffer per logged signal; cleared so old data cannot leak
-        # into the new episode.
+        # Dynamic models (first-order lag plus dead time) of every driver-to-CV path.
         self._init_paths(dt_s)
-        # Controlled variable (CV) states, i.e. the measured outputs the controllers regulate.
+        # True and measured values of the controlled variables (p80, mill and HPGR power).
         self._init_cv_states()
-        # Operator model: actions, timers and thresholds of the human/automation supervisor.
+        # Operator model: switch, noise level and time of the next setpoint change.
         self._init_operator()
-        # Event schedule: alarms, setpoint changes and other discrete events, all reset to t=0.
+        # Scenario events (scheduled tag writes), validated and rewound to the first.
         self._init_events()
 
     def _spawn_rngs(self, seed: int) -> list[np.random.Generator]:
@@ -788,15 +735,14 @@ class MillCircuitPlant:
         An Ornstein-Uhlenbeck (OU) process is the continuous-time analogue of an
         AR(1) process: a value that is pulled back towards its mean and kicked
         randomly at every step. It is used here to model the slow, noisy drift of
-        two uncontrollable properties of the incoming ore.
+        two uncontrollable properties of the incoming ore (hardness and moisture).
 
         Two separate generator streams (rngs[4], rngs[5]) are drawn from so that
         the hardness and moisture noise stay independent and reproducible, no
         matter which other random draws happen in between.
         """
-        # Nominal "true" hardness is stored on the instance so that other blocks
-        # can compare the current estimate against the design value (dimensionless
-        # work-index units, as defined in NOMINAL).
+        # Mean of the true hardness in kWh/t (as defined in NOMINAL); a scenario event may
+        # write HARD_MEAN to shift it.
         self._hard_mean = NOMINAL["ore_hardness"]
         # Hardness OU: mean 0 because the process models a DEVIATION from
         # self._hard_mean, not the absolute value. sigma is the stationary
@@ -810,7 +756,7 @@ class MillCircuitPlant:
         )
         # Moisture OU: same deviation-from-mean construction, but with sigma = 0.4
         # percent-by-mass and tau_s = 7200 (2-hour time constant), i.e. moisture
-        # wanders about four times faster than hardness.
+        # forgets a deviation twice as fast as hardness (4 h).
         self._moist_ou = OrnsteinUhlenbeck(
             OuShape(mean=0.0, sigma=self._scenario.param("moisture_sigma", 0.4), tau_s=7200.0),
             dt_s=dt_s,
@@ -829,11 +775,10 @@ class MillCircuitPlant:
     def _init_process_noise(self, dt_s: float, rngs: list[np.random.Generator]) -> None:
         """Create the per-CV Ornstein-Uhlenbeck process-noise generators.
 
-        An Ornstein-Uhlenbeck (OU) process is the mean-reverting continuous-time
-        random walk: dX = -(X - mean)/tau * dt + sigma * dW.  It returns towards
-        ``mean`` with time constant ``tau_s`` while being kicked by Gaussian
-        noise of amplitude ``sigma``; it is the standard model for slowly
-        drifting biases in navigation state estimation.
+        An Ornstein-Uhlenbeck (OU) process is a mean-reverting Gaussian process: it returns
+        towards ``mean`` with time constant ``tau_s`` while being kicked by Gaussian noise,
+        and its stationary standard deviation is ``sigma``. Here it models slow drifts that
+        the PID loops see as process disturbances.
 
         Args:
             dt_s: Simulator time step in SECONDS; the OU process is discretised
@@ -868,50 +813,35 @@ class MillCircuitPlant:
     def _init_paths(self, dt_s: float) -> None:
         """Build the first-order-plus-dead-time models for every driver-CV path.
 
-        A "path" is one dynamic relationship in this control study: how a single
-        manipulated driver (an independent/MV, e.g. a valve opening) moves a single
-        controlled variable (CV, e.g. a temperature). Each path is modelled as a
-        FOPDT (first-order-plus-dead-time) process: a step change in the driver does
-        not reach the CV instantly — there is transport/measurement delay (dead
-        time) — and the CV then approaches the new steady state along an exponential
-        curve set by its time constant. The steady-state ratio of the two step
-        changes is the process gain K.
+        A "path" is one dynamic relationship: how one driver (an actuator loop's process
+        variable, or ore hardness or moisture) moves one controlled variable (CV: p80, mill or
+        HPGR power). Each path is a FOPDT process: a step in the driver reaches the CV only
+        after the dead time and then approaches its new value along an exponential set by the
+        time constant. The path model itself has unit gain; the (hardness dependent) gain is
+        applied separately by ``_gain`` in ``_update_controlled_variables``.
 
-        This method turns the declarative ``_PATHS`` table into runtime list entries
-        ready for the controller identification/loop. It runs once, during setup.
+        Sets ``self._paths`` to a list of tuples ``(driver, cv, gain_initial, variance, model)``:
+
+        * ``driver`` / ``cv`` are the keys of ``DRIVERS`` / ``CVS``.
+        * ``gain_initial`` is the gain g0 at the reference hardness, in CV unit per driver unit.
+        * ``variance`` (a historical name) is the relative change of that gain per kWh/t of
+          hardness.
+        * ``model`` is the unit-gain ``Fopdt`` instance.
+
+        ``_PATHS`` stores the time constant and the dead time in MINUTES; they are converted
+        to seconds here to match ``dt_s``.
 
         Parameters
         ----------
         dt_s:
-            Simulation sampling interval in SECONDS. Must match the interval the
-            whole study is stepped at, because each FOPDT model discretises its
-            delay into a whole number of samples (delay_s / dt_s) internally.
-
-        Side effects
-        ------------
-        Sets ``self._paths`` to a list of tuples
-        ``(driver, cv, gain_initial, variance, model)`` where:
-
-        * ``driver`` / ``cv`` are the tag names of the input and output loops.
-        * ``gain_initial`` is the STARTING ESTIMATE of the process gain K, in
-          ENGINEERING UNITS OF CV PER ENGINEERING UNIT OF DRIVER
-          (e.g. degC per % valve opening). It seeds the estimator and also gives
-          the initial direction: its sign says whether the path acts normally or
-          reverse-acting.
-        * ``variance`` is the prior/assumed VARIANCE of the gain estimate, in
-          (CV units per driver unit) squared. It quantifies how much we trust
-          ``gain_initial``; used as the initial uncertainty (e.g. a Kalman/RLS
-          covariance) that shrinks as the study observes real data.
-        * ``model`` is the ``Fopdt`` instance (see the list comprehension below).
-
-        ``_PATHS`` is a dict keyed by the ``(driver, cv)`` tag pair; each value is
-        the tuple ``(gain_initial, variance, tau_minutes, delay_minutes)``, i.e.
-        the time constant and dead time are stored there in MINUTES for human
-        readability and converted to seconds here to match ``dt_s``.
+            Simulation step in seconds; each model rounds its dead time to a whole number of
+            steps.
         """
         # Build one entry per declarative path. The tuple layout
-        # (driver, cv, gain_initial, variance, model) is the invariant every later
-        # consumer of self._paths relies on, so keep the field order fixed.
+        # (driver, cv, gain_initial, variance, model) is relied on by
+        # _update_controlled_variables, so keep the field order fixed. Despite their names
+        # (historical), gain_initial is the gain g0 at the reference hardness and variance is
+        # the relative hardness slope s of ``_PATHS``.
         self._paths: list[tuple[str, str, float, float, Fopdt]] = [
             (
                 driver,
@@ -922,7 +852,7 @@ class MillCircuitPlant:
                 # minutes, so multiply by 60 s/min), discretised at the study's sampling
                 # interval dt_s.
                 Fopdt(
-                    gain=1.0,  # placeholder gain; the estimator starts from gain_initial
+                    gain=1.0,  # unit gain; the real gain is applied by _gain() at update time
                     tau_s=tau_minutes * 60.0,
                     delay_s=delay_minutes * 60.0,
                     dt_s=dt_s,
@@ -947,8 +877,8 @@ class MillCircuitPlant:
     def _init_events(self) -> None:
         """Validate scenario event tags and store events sorted by their start time.
 
-        An "event" is a scheduled change of a tag's value at a given time in the
-        simulated scenario, e.g. "at t_s=30 the tag 'valve_open' becomes True".
+        An "event" is a scheduled write of a value to a tag at a given time in the
+        simulated scenario, e.g. "at t_s=3600 write 16.0 to sim.mc.hardness_mean".
         The scenario is a list of such events, each carrying a tag id and a time.
 
         Raises:
@@ -978,11 +908,11 @@ class MillCircuitPlant:
         iteration). Events and operator actions are applied first so that everything
         downstream reacts to them immediately.
         """
-        # Events scheduled for this instant (valve trips, setpoint changes, ...) are injected
+        # Events scheduled for this instant (setpoint steps, mode changes, ...) are injected
         # before anything else so the rest of the tick already sees their effect.
         self._apply_due_events()
-        # A human operator's queued manual action, if it is due now, is applied on top of the
-        # automated control; it overrides the controller output until the operator releases it.
+        # The operator model changes the setpoints of the AUTO loops every OPERATOR_PERIOD_S
+        # (30 min), based on its noisy perception of the ore hardness.
         self._maybe_apply_operator_action()
         hardness = self._update_process_drivers()
         # Controllers (PID and friends) read the error between setpoint and measured value
@@ -1057,26 +987,26 @@ class MillCircuitPlant:
             )
 
     def _update_actuators(self) -> dict[str, float]:
-        """Advance the actuators one timestep and return the measured actuator values by name.
+        """Advance the actuators one timestep and return the true driver values by loop name.
 
-        The controlled variable (pv) of each loop is also refreshed here: the real world
-        never sees the actuator command exactly, so noise is added to the measured value.
+        The PV of each loop is also refreshed here: it is the true driver value plus sensor
+        noise (``meas_sd`` scaled by the scenario).
 
         Returns:
-            Measured actuator value by actuator name, each in the actuator's own
-            engineering unit (e.g. valve opening in %, speed in rpm).
+            True (noise-free) driver value by loop name, each in the loop's unit
+            (N/mm2 for hpgr_press, t/h for mill_feed, m3/h for cyc_water).
         """
         actual: dict[str, float] = {}
         for name, loop in self._loops.items():
             valve_position = loop.valve.move(loop.out - NOMINAL_OUT)
             deviation = loop.actuator.update(valve_position)
 
-            # Measured actuator output: nominal plus controller deviation plus inner-loop
-            # correction, all in the actuator's engineering unit.
+            # True driver value: nominal plus the actuator's response to the valve position
+            # plus the inner disturbance, all in the loop's engineering unit.
             actual[name] = NOMINAL[name] + deviation + loop.inner.update()
 
-            # Controller's process variable: simulated output plus measurement noise
-            # (standard deviation loop.spec.meas_sd, same unit as the actuator).
+            # The PV the PID sees: true driver value plus measurement noise
+            # (standard deviation loop.spec.meas_sd, same unit as the driver).
             loop.pv = actual[name] + self._noise(loop.spec.meas_sd)
         return actual
 
@@ -1111,7 +1041,7 @@ class MillCircuitPlant:
         if tag_id not in self.tags:
             raise KeyError(f"Unknown tag: {tag_id}")
 
-        # --- Tags that are constants during a run (read as-is) ---
+        # --- Ore tags (stored values, no loop) ---
         if tag_id == HARD_MEAN:
             return self._hard_mean, GOOD
         if tag_id == HARD_EST:
@@ -1119,7 +1049,7 @@ class MillCircuitPlant:
         if tag_id == MOIST:
             return self._moist_meas, GOOD
 
-        # --- Controlled variables (CVs) of the control loops ---
+        # --- Controlled variables (CVs): measured values, noise included ---
         # CV_TAGS maps a CV name to the tag that publishes its measured value.
         for cv, cv_tag in CV_TAGS.items():
             if tag_id == cv_tag:
@@ -1282,20 +1212,20 @@ class MillCircuitPlant:
         """Operator writes local setpoints of AUTO loops based on the observed ore hardness.
 
         Simulates the human operator of the grinding circuit. Each control loop that is in
-        AUTO mode receives a new setpoint derived from the operator's *belief* about the ore
-        hardness, not from the true value: the operator only measures hardness indirectly
-        (through power draw, throughput, etc.), so `h_obs` is the true hardness plus a bias.
-        Loops left in MANUAL keep whatever setpoint the operator set by hand earlier.
+        AUTO mode receives a new setpoint derived from the operator's *perception* of the ore
+        hardness, not from the true value: `h_obs` is the true hardness plus a random error,
+        so the setpoint moves are correlated with the hardness (a confounder for any causal
+        analysis). Loops in MAN or CAS keep their setpoint.
         """
-        # h_obs: operator's perceived ore hardness (same unit as true_hardness, a grindability
-        # index centred on 14.0). `_operator_draw(x)` returns a random deviation of typical
-        # magnitude x, modelling that the operator never reads the process exactly.
+        # h_obs: operator's perceived ore hardness (kWh/t, nominal 14.0). `_operator_draw(x)`
+        # returns a random deviation of standard deviation x (times the scenario's
+        # operator_noise), modelling that the operator never reads the process exactly.
         h_obs = self.true_hardness + self._operator_draw(0.3)
 
-        # HPGR (high-pressure grinding rolls) pressing force.
-        # Setpoint in MPa. Harder ore drags more material into the rolls, so the operator
-        # raises the force proportionally to the perceived hardness deviation from nominal
-        # (14.0). Clipped to the safe operating window of the machine.
+        # HPGR (high-pressure grinding rolls) specific pressing force.
+        # Setpoint in N/mm2. Model assumption: the operator raises the force proportionally
+        # to the perceived hardness deviation from nominal (14.0 kWh/t). Clipped to the
+        # operating window 2.5 to 4.5 N/mm2.
         press = self._loops["hpgr_press"]
         if press.mode == AUTO:
             sp = 3.5 + 0.12 * (h_obs - 14.0) + self._operator_draw(0.1)
@@ -1303,7 +1233,7 @@ class MillCircuitPlant:
 
         # Mill feed rate.
         # Setpoint in t/h. Opposite correction to the press: harder ore is harder to grind,
-        # so the operator reduces the feed to protect the mill from overload.
+        # so the operator reduces the feed to avoid overloading the mill. Clipped to 100-200 t/h.
         feed = self._loops["mill_feed"]
         if feed.mode == AUTO:
             sp = 150.0 - 4.0 * (h_obs - 14.0) + self._operator_draw(3.0)

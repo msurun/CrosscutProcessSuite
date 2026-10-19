@@ -1,7 +1,7 @@
 """Add explanatory comments to Python functions with a cheap model, changing no code.
 
 For every function of a file (longest first is not needed: the file is processed bottom-up so line
-numbers stay valid) the loop asks ``agentkit delegate`` to add comments that teach the reader the
+numbers stay valid) the loop asks ``foremankit delegate`` to add comments that teach the reader the
 model, the formula or the data structure behind the code. A result is kept only if
 
 * the syntax tree without docstrings is identical to the original (so no code changed),
@@ -10,7 +10,7 @@ model, the formula or the data structure behind the code. A result is kept only 
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<agentkit dir> python tools/comment_loop.py \
+    PYTHONPATH=<ForemanKit dir> python tools/comment_loop.py \
         --tests "python -m pytest sim -q" FILE...
 """
 

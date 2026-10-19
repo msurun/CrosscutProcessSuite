@@ -1,4 +1,8 @@
-"""Read-only HTTP API over Crosscut datasets (the backend of the trend viewer)."""
+"""HTTP API over Crosscut datasets (the backend of the trend viewer).
+
+Datasets and loops are read-only; the only thing a client can write is a fuzzy rule base, which
+is configuration kept under the data root (see fuzzy_routes). Nothing here writes to a plant.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ WideTable = tuple[np.ndarray, dict[str, np.ndarray]]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
+    """Parse one UTF-8 JSON file into a dict."""
     with path.open(encoding="utf-8") as handle:
         document: dict[str, Any] = json.load(handle)
     return document
@@ -58,14 +63,12 @@ def _dataset_dir(data_root: Path, dataset_id: str) -> Path:
 def _summary(document: dict[str, Any]) -> dict[str, Any]:
     """Return the compact summary card for a dataset document.
 
-    A document is a downloaded dataset manifest: it holds one entry per
-    physical tag (a sensor channel, e.g. "temperature_bearing_1"), plus
-    dataset-level metadata. The "row_count" field is the total number of
-    rows in the file, counted across ALL tags at once, so dividing it by
-    the tag count recovers the number of rows each single tag occupies.
+    A document is the ``dataset.json`` manifest of a dataset: the list of tag ids plus
+    dataset-level metadata. The data file is in long layout (one row per tag and instant),
+    so "row_count" counts the rows of ALL tags together and dividing it by the tag count
+    gives the number of samples of each single tag.
     """
-    # "tags" is the list of sensor channel names in this dataset; its length
-    # is the dataset width (number of channels).
+    # "tags" is the list of tag ids in this dataset; its length is the number of channels.
     n_tags = len(document["tags"])
     return {
         "id": document["dataset_id"],
@@ -82,7 +85,7 @@ def _summary(document: dict[str, Any]) -> dict[str, Any]:
 
 def _json_floats(values: np.ndarray) -> list[float | None]:
     """Convert to a JSON-safe list: NaN has no JSON representation, so it becomes null."""
-    return [None if math.isnan(x) else x for x in values.tolist()]
+    return [None if math.isnan(item) else item for item in values.tolist()]
 
 
 @dataclass
@@ -137,8 +140,8 @@ def _window(
     if end is not None:
         mask &= ts <= end
 
-    # Timestamps are whatever unit the caller used (seconds, epochs, ...); this
-    # function only compares them against the bounds, it does not convert them.
+    # Timestamps and bounds must already be in the same unit (the API passes UTC nanoseconds);
+    # this function only compares them, it does not convert.
     return ts[mask], values[mask]
 
 
@@ -147,7 +150,7 @@ def _tags_from_document(tag_document: dict[str, Any]) -> list[dict[str, Any]]:
 
     A tag document is the JSON file that stores the metadata of every tag in a
     dataset: it maps the key "tags" to a list of tag dictionaries (each with
-    attributes such as its name and the nodes it applies to). This helper
+    attributes such as its id, unit and role). This helper
     isolates the single place where that list is pulled out of the document,
     so the format is validated once and the rest of the code can trust it.
 
@@ -204,9 +207,8 @@ class DatasetStore:
     def find_loop(self, dataset_dir: Path, loop_name: str) -> Any:
         """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
 
-        In this domain a dataset is a folder on disk that may contain several *loops*; a loop is a
-        named, closed circuit of graph nodes. Callers refer to a loop by its user-facing name,
-        which is not its position in the folder.
+        A dataset is a folder on disk that may contain several control *loops*; a loop is the
+        set of tags of one controller (pv, sp, out, mode). Callers refer to a loop by its name.
 
         Raises:
             HTTPException: 404 when no loop in the dataset carries that name, so a missing name
@@ -228,7 +230,7 @@ class SeriesQuery:
     dataset_id: str
     # May hold the same tag twice; each entry produces one series in the response.
     tag: Annotated[list[str], Query(min_length=1)]
-    # Epoch-second bounds (inclusive start, exclusive end); None means unbounded.
+    # Bounds in UTC nanoseconds since the epoch, both inclusive; None means unbounded.
     start: int | None = None
     end: int | None = None
     # Upper bound on returned points per tag; the client picks it, the server clamps it.
@@ -263,9 +265,8 @@ def _envelope_document(tag_id: str, envelope: Envelope) -> dict[str, Any]:
     we keep the lowest, highest and average sample value, so a caller can draw
     the signal's outer shape without shipping every raw sample over the wire.
 
-    Returns a JSON-serialisable dict. Keys are one letter long where possible because this
-    document is repeated for every tag and size matters on the wire: ``t``, ``min``, ``max``,
-    ``mean``.
+    Returns a JSON-serialisable dict with the keys ``tag``, ``downsampled``, ``t`` (timestamps
+    as stored, UTC nanoseconds) and ``min``, ``max``, ``mean`` (same length as ``t``).
     """
     return {
         "tag": tag_id,
@@ -326,7 +327,8 @@ class _DatasetEndpoints:
         lighter set of points that still shows the shape of the curve.
 
         `tag` may repeat, so several series are requested in one call. `start` and
-        `end` are optional epoch-second bounds; `None` means "no bound on that side".
+        `end` are optional bounds in UTC nanoseconds since the epoch (the unit of the stored
+        timestamps), both inclusive; `None` means "no bound on that side".
         """
         return {
             # Echo the dataset id so the caller can match the answer to the request.
@@ -370,15 +372,15 @@ class _LoopEndpoints:
         this handler never sees them as separate arguments. Returns the JSON payload built by
         `benefit_payload`. Raises 422 when the user's assumptions are not usable.
         """
-        # Folders are laid out as one directory per dataset, the loop stored inside it.
+        # Check the dataset id first (404), then that the loop exists in it (404).
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
         loop = self.store.find_loop(dataset_dir, loop_name)
         # The measured series: `t_s` is the time axis in seconds, `values` the signals,
         # both sorted by time.
         t_s, values = self.store.load_seconds(dataset_id)
         try:
-            # The calculation is pure and raises ValueError on bad assumptions (unknown
-            # tariff name, missing loop points); the HTTP layer turns that into a 422.
+            # The calculation is pure and raises ValueError on unusable assumptions (for example
+            # an invalid side, std_reduction or margin_sigmas); the HTTP layer turns that into 422.
             return benefit_payload(loop, t_s, values, request.to_request())
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -412,8 +414,8 @@ def create_app(data_root: Path) -> FastAPI:
     """Create the API for the datasets stored in the sub-directories of ``data_root``."""
     store = DatasetStore(Path(data_root))
     app = FastAPI(title="Crosscut data API")
-    # The fuzzy-matching endpoints need the same loaded tables, so they share the
-    # cached loader instead of reading the dataset again.
+    # The fuzzy rule-base endpoints (replay, backtest) need the same loaded tables, so they
+    # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
     _register_health_route(app)
     app.include_router(_dataset_router(store))

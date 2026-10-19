@@ -7,12 +7,21 @@ so this module turns a FuzzySystem into plain JSON-ready data.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from crosscut_fuzzy.model import AND, FuzzyModelError, FuzzySystem
 
 # A placed rule must combine exactly these many clauses (one per matrix axis).
 REQUIRED_CONDITION_COUNT = 2
+
+
+@dataclass(frozen=True)
+class _Axis:
+    """One matrix axis: the input variable id and the names of its terms in display order."""
+
+    variable_id: str
+    term_names: list[str]
 
 
 def rule_matrix(system: FuzzySystem, row_id: str, column_id: str, output_id: str) -> dict[str, Any]:
@@ -85,7 +94,7 @@ def _place_rules(
     unplaced: list[str] = []
     for rule in system.rules:
         position = _cell_position(
-            rule, row_variable.id, column_variable.id, output_id, rows, columns
+            rule, output_id, _Axis(row_variable.id, rows), _Axis(column_variable.id, columns)
         )
         if position is None:
             unplaced.append(rule.id)
@@ -96,12 +105,7 @@ def _place_rules(
 
 
 def _cell_position(
-    rule: Any,
-    row_id: str,
-    column_id: str,
-    output_id: str,
-    rows: list[str],
-    columns: list[str],
+    rule: Any, output_id: str, row_axis: _Axis, column_axis: _Axis
 ) -> tuple[int, int] | None:
     """Where the rule belongs in the grid, or None when it cannot be placed.
 
@@ -113,16 +117,16 @@ def _cell_position(
     if len(rule.conditions) != REQUIRED_CONDITION_COUNT:
         return None
     first, second = rule.conditions
-    if _clause_matches(first, row_id, rows) and _clause_matches(second, column_id, columns):
-        return rows.index(first.term), columns.index(second.term)
-    if _clause_matches(first, column_id, columns) and _clause_matches(second, row_id, rows):
-        return rows.index(second.term), columns.index(first.term)
+    if _clause_matches(first, row_axis) and _clause_matches(second, column_axis):
+        return row_axis.term_names.index(first.term), column_axis.term_names.index(second.term)
+    if _clause_matches(first, column_axis) and _clause_matches(second, row_axis):
+        return row_axis.term_names.index(second.term), column_axis.term_names.index(first.term)
     return None
 
 
-def _clause_matches(clause: Any, variable_id: str, term_names: list[str]) -> bool:
-    """Whether the clause reads ``variable_id IS <one of term_names>``."""
-    return clause.variable == variable_id and clause.term in term_names
+def _clause_matches(clause: Any, axis: _Axis) -> bool:
+    """Whether the clause reads ``axis variable IS <one of the axis terms>``."""
+    return clause.variable == axis.variable_id and clause.term in axis.term_names
 
 
 def _cell_entry(rule: Any) -> dict[str, Any]:

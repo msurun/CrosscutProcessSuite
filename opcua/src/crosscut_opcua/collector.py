@@ -116,7 +116,7 @@ class _Recording:
     """Samples gathered so far; the three lists have one entry per recorded sample, same order.
 
     ``ts_ns`` holds Unix nanoseconds, ``rows`` the float tag values in ``tag_ids`` order and
-    ``quality_rows`` the 0/1 quality flags aligned with ``rows``.
+    ``quality_rows`` the quality codes (0 good, 2 bad) aligned with ``rows``.
     """
 
     start_ns: int
@@ -225,7 +225,8 @@ async def collect(endpoint: str, out_dir: str | Path, config: CollectorConfig) -
     """Record plant samples from an OPC UA server into ``out_dir`` and return the dataset document.
 
     OPC UA is an industrial protocol: the client connects to an ``endpoint`` URL and reads
-    *nodes*, each addressed by a numeric node id. Here one node carries the plant clock (simulated
+    *nodes*, each addressed by a node id (here namespace index plus the tag id as string).
+    Here one node carries the plant clock (simulated
     seconds, not wall-clock time) and the remaining nodes carry the tag values recorded in the
     dataset.
 
@@ -291,7 +292,7 @@ def _git_commit() -> str | None:
                 cwd=Path(__file__).parent,
                 # capture_output keeps git's chatter off stdout; text=True decodes bytes to str;
                 # check=True raises CalledProcessError on a non-zero exit status (not a repo, no
-                # commits yet, git not installed).
+                # commits yet).
                 capture_output=True,
                 text=True,
                 check=True,
@@ -309,10 +310,10 @@ def _git_commit() -> str | None:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser that the collector module runs on.
 
-    The collector is a long-running process: it connects to a live OPC UA server and copies
-    every value change into a Parquet dataset, so all its inputs come from the command line
-    rather than from a config file. Two clocks are in play and the option names make this
-    explicit:
+    The collector is a long-running process: it connects to a live OPC UA server, polls the
+    plant tags and writes the samples into a Parquet dataset, so all its inputs come from the
+    command line rather than from a config file. Two clocks are in play and the option
+    names make this explicit:
 
       * plant time - the timeline of the simulated plant, the clock the recorded data carries;
       * wall-clock time - the real time the collector process spends running.
@@ -332,14 +333,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--endpoint", required=True, help="e.g. opc.tcp://127.0.0.1:4840")
     # Length of the recording, measured on the plant clock (not how long the process runs).
     parser.add_argument("--duration", required=True, help="plant time to record, e.g. 1h")
-    # Interval between two consecutive samples, again on the plant clock. The default of one
-    # second is the resolution at which the plant's tags are intended to be observed.
+    # Interval between two consecutive samples, again on the plant clock (default 1 s).
     parser.add_argument("--sample-period", default="1s", help="plant time between samples (1s)")
     # Directory that will hold the Parquet files; Path conversion turns the shell string into
     # a pathlib.Path so the rest of the code never has to deal with raw strings.
     parser.add_argument("--out", required=True, type=Path, help="output root directory")
-    # Optional label for the produced dataset. When omitted the collector computes one itself
-    # (by convention plant, scenario and start timestamp are folded into it).
+    # Optional label for the produced dataset. When omitted the collector derives it from the
+    # plant and scenario names (``<plant>_<scenario or opcua>_collected``).
     parser.add_argument("--dataset-id", default=None, help="dataset id (default: derived)")
     # Which known plant layout to talk to. Restricting the choices here means a typo fails at
     # parse time, with the list of valid names in the error message, instead of at connect time.
@@ -347,10 +347,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # Free-form scenario label, copied verbatim into the dataset metadata; it does not change
     # what is recorded, only how the recording is described later.
     parser.add_argument("--scenario", default=None, help="scenario name used for the metadata")
-    # Random seed handed to the server, so a run can be reproduced. None lets the server pick.
+    # Seed the server was started with; it is only written into the dataset metadata (the
+    # collector does not talk to the server's random generators).
     parser.add_argument("--seed", type=int, default=None, help="seed used by the server")
-    # Plant-time instant assigned to the first sample. Fixing it makes two recordings of the
-    # same plant comparable even if they are made on different days.
+    # UTC instant assigned to the first sample (the plant clock only supplies the elapsed time).
+    # Fixing it makes two recordings comparable even if they are made on different days.
     parser.add_argument(
         "--start-utc", default=DEFAULT_START_UTC, help="timestamp of the first sample"
     )
@@ -377,8 +378,9 @@ def _validate_scenario(
 ) -> None:
     """Exit with a usage error when ``--scenario`` is given but cannot be built.
 
-    A scenario describes how the simulated plant behaves over time; building it writes the
-    scenario files into the plant folder and validates its name.
+    A scenario describes how the simulated plant behaves over time. Only the name is checked
+    here, by building the scenario object (nothing is written); the server was started with
+    the scenario separately.
     """
     if args.scenario is None:
         return
@@ -392,9 +394,9 @@ def _build_config(
     args: argparse.Namespace, duration_s: float, sample_period_s: float
 ) -> CollectorConfig:
     """Translate the parsed command line into a :class:`CollectorConfig`."""
-    # If the user gave no id, derive one from what identifies the recording. The fallback
-    # 'opcua' means live values were recorded, not a scenario replay. The dataset_id doubles
-    # as the folder name that collection creates (and refuses to overwrite).
+    # If the user gave no id, derive one from the plant and scenario names; without
+    # --scenario the word 'opcua' stands in. The dataset_id doubles as the folder name
+    # that collection creates (and refuses to overwrite).
     dataset_id = args.dataset_id or f"{args.plant}_{args.scenario or 'opcua'}_collected"
     return CollectorConfig(
         sim_duration_s=duration_s,

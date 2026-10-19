@@ -44,16 +44,14 @@ class FaultyPlant:
     """Wrapper that corrupts what a client reads from a plant."""
 
     def __init__(self, plant: Plant, faults: list[Fault]) -> None:
-        """Wire a simulator to a plant and its faults, failing fast on bad fault tags.
+        """Wrap ``plant`` with its ``faults``, failing fast on a fault that names an unknown tag.
 
-        Stores the plant and faults for the simulation run and initialises the
-        per-run state used by ``simulate``:
+        Initialises the per-run state:
 
-        * ``_rng`` is the random number generator, created lazily so that a
-          caller can seed it before the first draw (None means "not seeded yet").
-        * ``_freeze_memory`` remembers the value a tag held when it was frozen,
-          so it can be restored when the fault is lifted.
-        * ``_snapshot`` holds the pre-fault state of tags for rollback.
+        * ``_rng`` is the fault random number generator; it stays None until ``reset`` seeds it.
+        * ``_freeze_memory`` remembers the reading a tag showed when its freeze began, so the
+          same reading is reported for as long as the freeze is active.
+        * ``_snapshot`` is the faulted snapshot returned by ``read`` and ``snapshot``.
 
         Raises:
             KeyError: if a fault references a tag id that the plant does not
@@ -94,7 +92,7 @@ class FaultyPlant:
         ``seed`` so that a run is fully reproducible: same seed, same faults.
         """
         # Hand the episode seed to the plant first, so plant state and fault
-        # decisions are driven by the same episode identity.
+        # decisions are driven by the same episode seed.
         self._plant.reset(seed, scenario)
 
         # Separate RNG for the fault injector, seeded from the episode seed and
@@ -176,8 +174,8 @@ class FaultyPlant:
         # owns both the value and the quality.
         if fault.kind == "freeze":
             return self._apply_freeze(fault, value, quality)
-        # "drift": a slow bias is added to the value; the reading is still
-        # considered trustworthy, so the quality code is left as it was.
+        # "drift": a bias growing linearly with time since start_s is added to the value; the
+        # reading is still considered trustworthy, so the quality code is left as it was.
         if fault.kind == "drift":
             return self._apply_drift(fault, value), quality
         # "spike": one large outlier is added on top of the value; quality is
@@ -185,9 +183,9 @@ class FaultyPlant:
         if fault.kind == "spike":
             return self._apply_spike(fault, value), quality
         # "bad_quality": the number is still plausible but must not be trusted,
-        # so only the quality code is downgraded (e.g. to "uncertain" / "bad").
+        # so only the quality code is downgraded (always to BAD).
         if fault.kind == "bad_quality":
-            return value, self._apply_bad_quality(quality)
+            return value, self._apply_bad_quality()
         # "dropout": the sensor sends nothing at all. The helper returns the
         # conventional (value, quality) pair for a missing sample, hence the
         # whole result replaces the pair instead of one of its members.
@@ -203,7 +201,7 @@ class FaultyPlant:
         return self._freeze_memory[fault.tag_id]
 
     def _apply_drift(self, fault: Fault, value: float) -> float:
-        """Apply the drift fault."""
+        """Apply the drift fault: bias = magnitude (units/hour) * hours since the fault started."""
         return value + fault.magnitude * (self.time_s - fault.start_s) / SECONDS_PER_HOUR
 
     def _apply_spike(self, fault: Fault, value: float) -> float:
@@ -236,7 +234,7 @@ class FaultyPlant:
             return value + fault.magnitude * sign
         return value
 
-    def _apply_bad_quality(self, quality: int) -> int:
+    def _apply_bad_quality(self) -> int:
         """Apply the bad quality fault."""
         return BAD
 

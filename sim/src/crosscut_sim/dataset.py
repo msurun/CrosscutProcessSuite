@@ -1,4 +1,8 @@
-"""Record plant runs into Parquet datasets and read them back."""
+"""Record plant runs into Parquet datasets and read them back.
+
+On disk a dataset is ``dataset.json`` + ``tags.json`` + daily long-format Parquet files
+(columns ts, tag_id, value, quality). In memory the samples are wide: one row per instant.
+"""
 
 from __future__ import annotations
 
@@ -42,12 +46,10 @@ def compute_data_sha256(table: pa.Table) -> str:
     # without it, ["ab", "c"] and ["a", "bc"] would produce the same bytes.
     tag_ids = "\n".join(table["tag_id"].to_pylist()).encode("utf-8")
 
-    # "value" is the numeric reading and "quality" is a status code (for example a bit
-    # mask or a severity level, not a unit). to_numpy() gives the array in the column's
-    # own dtype – float32, float64, int16, ... – and tobytes() writes that array's raw,
-    # native-endian buffer, so the digest can differ across machines with opposite byte
-    # order. That is accepted here: digests are compared only between files read on the
-    # same machine.
+    # "value" is the numeric reading and "quality" the code 0 good / 1 uncertain / 2 bad.
+    # to_numpy() gives the array in the column's own dtype (float64 and uint8 as written by
+    # this module) and tobytes() writes that array's raw, native-endian buffer, so on a
+    # machine with the opposite byte order the digest of the same data would differ.
     values = table["value"].to_numpy().tobytes()
     qualities = table["quality"].to_numpy().tobytes()
 
@@ -201,7 +203,8 @@ def _simulate_samples(
     """Run the plant and return ``(values, qualities)``, one row per kept sample.
 
     ``values[sample, column]`` is the tag value (float64, in the tag's own unit);
-    ``qualities[sample, column]`` is an OPC-UA style code (uint8, 0 = GOOD). Step 0 is always
+    ``qualities[sample, column]`` is the quality code (uint8; 0 good, 1 uncertain, 2 bad).
+    Step 0 is always
     sampled, so the sample count is ``ceil(n_steps / every)`` (``-(-a // b)`` is integer ceil).
     """
     n_steps = round(scenario.duration_s / scenario.dt_s)

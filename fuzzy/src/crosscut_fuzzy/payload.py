@@ -54,7 +54,7 @@ def _outputs(result: Inference) -> dict[str, dict[str, Any]]:
     """Crisp value, universe and aggregated membership shape of every output.
 
     `Inference` is the result of a Mamdani fuzzy inference system: several output
-    variables, each one an `Output` holding three arrays produced by defuzzification.
+    variables, each one an `OutputResult` holding three arrays produced by defuzzification.
 
     Each output is serialised as a JSON-friendly dict with these keys:
       "crisp": the single defuzzified number, e.g. the centre of gravity of the
@@ -65,8 +65,8 @@ def _outputs(result: Inference) -> dict[str, dict[str, Any]]:
       "aggregated": the membership degree (0.0 to 1.0) of the aggregated fuzzy set
         at each point of "universe".
 
-    `output.crisp[0]` is taken because `crisp` is an array with one element per
-    output variable, and this helper handles a single output at a time.
+    `[0]` is taken because the arrays have one row per sample and this payload evaluates
+    exactly one sample.
     """
     return {
         output_id: {
@@ -91,8 +91,8 @@ def replay_payload(
 ) -> dict[str, Any]:
     """Run the system over recorded data; the result is thinned to at most ``max_points`` samples.
 
-    A "replay" re-evaluates a fuzzy model against a recording (for example a log from a machine)
-    so it can be compared with what really happened. Every series is sampled down to at most
+    A "replay" re-evaluates a fuzzy model against a recording (a recorded dataset) so it can be
+    compared with what really happened. Every series is sampled down to at most
     ``max_points`` points before being serialised, because sending a full recording to the
     front end would be far more data than a chart can show.
 
@@ -187,6 +187,7 @@ NS_PER_S = 1e9
 MIN_BACKTEST_SAMPLES = 3
 
 
+# codecheck: allow too-many-parameters (public signature used by crosscut_api.fuzzy_routes)
 def backtest_payload(
     system: FuzzySystem,
     t_ns: np.ndarray,
@@ -205,17 +206,11 @@ def backtest_payload(
         FuzzyModelError: when the output is unknown, has no tag in the data, or the recording
             is too short to have a sampling period.
     """
-    variable = next((item for item in system.outputs if item.id == output_id), None)
-    if variable is None or variable.tag is None or variable.tag not in columns:
-        tag = variable.tag if variable else None
-        message = f"output {output_id} (tag {tag}) has no SP column in the data to compare with"
-        raise FuzzyModelError(message)
-    if len(t_ns) < MIN_BACKTEST_SAMPLES:
-        raise FuzzyModelError("the recording is too short for a backtest")
+    sp_tag = _sp_tag(system, columns, output_id)
+    dt_s = _sampling_period_s(t_ns)
     inputs = {item.id: _column(item.id, item.tag, columns) for item in system.inputs}
     advice = evaluate(system, inputs).outputs[output_id].crisp
-    dt_s = float(np.median(np.diff(t_ns))) / NS_PER_S
-    sp = columns[variable.tag]
+    sp = columns[sp_tag]
     first, second = split_halves(len(sp))
     return {
         "output": output_id,
@@ -223,6 +218,23 @@ def backtest_payload(
         "first_half": _metrics_json(backtest(advice, sp, dt_s, settings, first)),
         "second_half": _metrics_json(backtest(advice, sp, dt_s, settings, second)),
     }
+
+
+def _sampling_period_s(t_ns: np.ndarray) -> float:
+    """Median spacing of the timestamps (ns) in seconds; FuzzyModelError for a too short record."""
+    if len(t_ns) < MIN_BACKTEST_SAMPLES:
+        raise FuzzyModelError("the recording is too short for a backtest")
+    return float(np.median(np.diff(t_ns))) / NS_PER_S
+
+
+def _sp_tag(system: FuzzySystem, columns: Mapping[str, np.ndarray], output_id: str) -> str:
+    """The data tag of output ``output_id``; FuzzyModelError when it is unknown or not recorded."""
+    variable = next((item for item in system.outputs if item.id == output_id), None)
+    if variable is None or variable.tag is None or variable.tag not in columns:
+        tag = variable.tag if variable else None
+        message = f"output {output_id} (tag {tag}) has no SP column in the data to compare with"
+        raise FuzzyModelError(message)
+    return variable.tag
 
 
 def _metrics_json(metrics: BacktestMetrics) -> dict[str, float | int | None]:

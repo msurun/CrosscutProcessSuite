@@ -35,30 +35,31 @@ class Inference:
     outputs: dict[str, OutputResult]
 
 
-def membership(term: Term, x: np.ndarray) -> np.ndarray:
-    """Membership degree of ``x`` in ``term`` (0..1). Shoulders are allowed: a == b or c == d.
+def membership(term: Term, positions: np.ndarray) -> np.ndarray:
+    """Membership degree of ``positions`` in ``term`` (0..1); shoulders (a == b or c == d) allowed.
 
     This is fuzzy-set membership: each input is mapped to a degree between 0 and 1
     (0 = "not in the set at all", 1 = "fully in the set"). A ``term`` is a fuzzy set,
     either a Gaussian bell ("gauss") or a trapezoid defined by four x-positions.
 
-    Returns a float array with one degree per element of ``x``, same shape.
+    Returns a float array with one degree per element of ``positions``, same shape.
     """
-    x = np.asarray(x, dtype=float)
+    positions = np.asarray(positions, dtype=float)
     if term.shape == "gauss":
         # A Gaussian (normal) bell centred on ``mean`` with standard deviation ``sigma``
-        # (both in the same unit as ``x``). The exponent -0.5 * ((x - mean) / sigma)**2
-        # is the usual normal density term without the 1/(sigma*sqrt(2*pi)) factor, so
-        # the peak equals exactly 1 at x == mean. sigma must be > 0.
+        # (both in the same unit as ``positions``). The exponent
+        # -0.5 * ((positions - mean) / sigma)**2 is the usual normal density term without the
+        # 1/(sigma*sqrt(2*pi)) factor, so the peak equals exactly 1 at positions == mean.
+        # sigma must be > 0.
         mean, sigma = term.params
-        return np.asarray(np.exp(-0.5 * ((x - mean) / sigma) ** 2))
-    # Trapezoid: read its four corners left to right (units of ``x``):
+        return np.asarray(np.exp(-0.5 * ((positions - mean) / sigma) ** 2))
+    # Trapezoid: read its four corners left to right (units of ``positions``):
     # foot_left, shoulder_left, shoulder_right, foot_right. The degree is 0 on the
     # outside feet, rises linearly from foot_left up to 1 at shoulder_left, stays 1
     # across the top, and falls linearly back to 0 at foot_right.
     foot_left, shoulder_left, shoulder_right, foot_right = _trapezoid_corners(term)
-    rising = _ramp(x, foot_left, shoulder_left)
-    falling = _fall(x, shoulder_right, foot_right)
+    rising = _ramp(positions, foot_left, shoulder_left)
+    falling = _fall(positions, shoulder_right, foot_right)
     # The trapezoid is the intersection (logical AND) of the rising and falling
     # ramps, so its degree is the smaller of the two at every point. Taking the
     # point-wise minimum yields a plateau of 1 wherever both ramps are 1.
@@ -94,18 +95,18 @@ def _trapezoid_corners(term: Term) -> tuple[float, float, float, float]:
     return foot_left, shoulder_left, shoulder_right, foot_right
 
 
-def _fall(x: np.ndarray, start: float, end: float) -> np.ndarray:
+def _fall(positions: np.ndarray, start: float, end: float) -> np.ndarray:
     """1 up to ``start``, 0 beyond ``end``, linear in between; a shoulder keeps 1 at its edge."""
     if end == start:
-        return (x <= end).astype(float)
-    return np.asarray(np.clip((end - x) / (end - start), 0.0, 1.0))
+        return (positions <= end).astype(float)
+    return np.asarray(np.clip((end - positions) / (end - start), 0.0, 1.0))
 
 
-def _ramp(x: np.ndarray, start: float, end: float) -> np.ndarray:
+def _ramp(positions: np.ndarray, start: float, end: float) -> np.ndarray:
     """0 below ``start``, 1 above ``end``, linear in between; a step when start == end."""
     if end == start:
-        return (x >= end).astype(float)
-    return np.asarray(np.clip((x - start) / (end - start), 0.0, 1.0))
+        return (positions >= end).astype(float)
+    return np.asarray(np.clip((positions - start) / (end - start), 0.0, 1.0))
 
 
 def fuzzify(
@@ -114,8 +115,10 @@ def fuzzify(
     """Membership of every input value in every term of its variable."""
     degrees: dict[str, dict[str, np.ndarray]] = {}
     for variable in system.inputs:
-        x = np.atleast_1d(np.asarray(values[variable.id], dtype=float))
-        degrees[variable.id] = {term.name: membership(term, x) for term in variable.terms}
+        raw_values = np.atleast_1d(np.asarray(values[variable.id], dtype=float))
+        degrees[variable.id] = {
+            term.name: membership(term, raw_values) for term in variable.terms
+        }
     return degrees
 
 

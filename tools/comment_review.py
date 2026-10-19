@@ -8,7 +8,7 @@ touched. Accepted edits are appended to a JSON-lines log.
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<agentkit dir> python tools/comment_review.py \
+    PYTHONPATH=<ForemanKit dir> python tools/comment_review.py \
         --tests "python -m pytest sim -q" --log review.jsonl FILE...
 """
 
@@ -73,7 +73,7 @@ def ask_model_text(prompt: str, files: list[Path], escalate: bool = False) -> st
     command = [
         sys.executable,
         "-m",
-        "agentkit.cli",
+        "foremankit.cli",
         "delegate",
         prompt,
         "--kind",

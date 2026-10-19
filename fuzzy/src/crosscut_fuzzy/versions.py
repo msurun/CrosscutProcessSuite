@@ -79,8 +79,8 @@ def list_versions(system_id: str, user_dir: Path) -> list[str]:
 def load_version(system_id: str, version_id: str, user_dir: Path) -> dict[str, Any]:
     """The saved document of one version.
 
-    A "system" is a named workspace; each system owns a history directory of versions,
-    one JSON file per version, named after the version id.
+    Each system owns a history directory of versions, one JSON file per version, named after
+    the version id.
 
     Raises:
         FileNotFoundError: when that version does not exist.
@@ -97,8 +97,8 @@ def load_version(system_id: str, version_id: str, user_dir: Path) -> dict[str, A
     if not path.exists():
         raise FileNotFoundError(version_id)
 
-    # The document is an arbitrary user-defined structure; json.loads gives plain
-    # dicts, lists and scalars, which is why the return type is bare Any.
+    # The document is the rule base as the user saved it; json.loads gives plain dicts, lists
+    # and scalars, so the values are typed Any.
     document: dict[str, Any] = json.loads(path.read_text(encoding="utf8"))
     return document
 
@@ -106,22 +106,22 @@ def load_version(system_id: str, version_id: str, user_dir: Path) -> dict[str, A
 def check_version_id(version_id: str) -> str:
     """The version id when it looks like one.
 
-    A version id names a stored snapshot of a model. It must be a short,
-    single-segment token, never a filesystem path, because callers use it to
-    build paths and query strings: letters, digits, dots, dashes, underscores.
+    A version id names a stored snapshot. Because it becomes a file name, it must have exactly
+    the form produced by ``format_version_id`` (``YYYYMMDDTHHMMSSffffffZ``, UTC) and can
+    therefore never be a path.
 
     Args:
-        version_id: The candidate id, as typed by the user or read from a config.
+        version_id: The candidate id, as received from a request.
 
     Returns:
         The same string, unchanged, once it is known to be well formed.
 
     Raises:
         FuzzyModelError: for anything that could be a path or is not a
-            well-formed id (empty, contains a slash, has unexpected characters).
+            well-formed id (empty, contains a slash, any other format).
     """
-    # Anchored-match ("fullmatch" semantics via ^...$ inside the pattern), so a
-    # value that merely contains a valid id somewhere in the middle is rejected.
+    # The pattern is anchored with ^...$, so a value that merely contains a valid id somewhere
+    # in the middle is rejected.
     if not VERSION_ID_PATTERN.match(version_id):
         raise FuzzyModelError(f"invalid version id: {version_id!r}")
     return version_id
@@ -140,9 +140,8 @@ def diff_documents(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[
     An empty list means the two documents describe the same system.
 
     Returns:
-        All changes in both directions (old -> new only; this is a directed
-        diff, so a removal in one direction shows up as an addition in the
-        other), sorted by ``_sort_key``.
+        All changes from ``old`` to ``new``, sorted by ``_sort_key``. The diff is directed: a
+        rule removed going old -> new shows up as added when the arguments are swapped.
     """
     # Variable changes and rule changes are computed separately, then concatenated before sorting by
     # _sort_key.
@@ -164,20 +163,16 @@ def _variables_by_id(document: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 def _variable_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Range and term differences of every variable present in either document.
 
-    A "document" here is a parsed optimisation model: a mapping whose keys name the
-    model parts (variables, constraints, ...) and whose values are the parsed
-    content of that part. The mapping is JSON-like (nested dicts, lists, strings),
-    so `Any` is used for the values. The two documents are two revisions of the
-    same model, and this function describes how the variable part differs.
+    A "document" is a rule base as saved JSON: input and output variables (id, low, high,
+    terms) plus rules. Inputs and outputs are compared together, matched by variable id.
 
     Returns a list of change records, one dict per change. Each record has a
     "code" key whose value tells which change happened:
       * "variable_added"   - present only in the new document, has "variable"
       * "variable_removed" - present only in the old document, has "variable"
-      * "variable_retyped" - bounds changed kind (e.g. free -> integer)
-      * "lower_bound_changed" / "upper_bound_changed" - moved numeric bound
-    The last three records are produced by `_sorted_variable_changes` and also
-    carry the old and new values.
+      * "range_changed"    - [low, high] differs; also carries "old" and "new"
+      * "term_added" / "term_removed" / "term_changed" - from the terms of the variable
+    The last two groups are produced by `_sorted_variable_changes`.
     """
     old_variables = _variables_by_id(old)
     new_variables = _variables_by_id(new)
@@ -237,14 +232,13 @@ def _sorted_variable_changes(
 def _term_changes(variable_id: str, old_terms: Any, new_terms: Any) -> list[dict[str, Any]]:
     """Added, removed and changed terms of one variable, matched by term name.
 
-    A "term" is one named polynomial piece of a Pyomo expression, e.g. the cost term
-    ``3 * x`` (coefficient times power of the variable). Terms are matched between the
-    old and the new version of the model by their name, because that name is the only
-    stable identity: the coefficients and exponents inside them may both change.
+    A "term" is a fuzzy set of the variable such as "cold" or "hot" (shape plus parameters).
+    Terms are matched between the old and the new version by their name, because the name is
+    the only stable identity: the shape and its parameters may both change.
 
-    Returns one change dict per added term, per removed term and per term whose
-    shape (coefficient and exponent) differs between the two versions. A term that
-    is identical in both versions produces no dict.
+    Returns one change dict per added term, per removed term and per term whose shape
+    or parameters differ between the two versions. A term that is identical in both versions
+    produces no dict.
     """
     # Index both term lists by name so a lookup by name costs O(1) instead of a
     # linear scan. Invariant: term names are unique inside one model version, so the
@@ -279,11 +273,9 @@ def _term_changes(variable_id: str, old_terms: Any, new_terms: Any) -> list[dict
 def _added_and_removed_terms(
     variable_id: str, old_by_name: dict[str, Any], new_by_name: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Report the terms (categorical values) that only one version of a variable has.
+    """Report the terms (fuzzy sets) that only one version of a variable has.
 
-    A variable is a column; a term is one of the values it can take (for example the
-    categories of a "status" column). Both mappings are keyed by term name, so the
-    comparison is a pair of set differences.
+    Both mappings are keyed by term name, so the comparison is a pair of set differences.
 
     Returns one change dict per term, with keys "code", "variable" and "term".
     The order is: all removals first, then all additions.
@@ -313,9 +305,9 @@ def _rules_by_id(document: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 def _rule_changes(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Added, removed and changed rules, matched by rule id.
 
-    Both mappings are firewall-rule collections (the "before" and "after" states of a policy).
-    Each returned change is a dict describing one rule id: it is present only when the rule was
-    added, removed, or its content differs. A rule that is identical on both sides yields no entry.
+    The rules of ``old`` and ``new`` are matched by their "id". Each returned change is a dict
+    describing one rule id: it is present only when the rule was added, removed, or its content
+    differs. A rule that is identical on both sides yields no entry.
 
     Returns:
         One dict per added/removed/modified rule, in no particular order (a set is iterated).
@@ -340,11 +332,10 @@ def _rule_change(
 ) -> dict[str, Any] | None:
     """The change of one rule id: added, removed or changed; None when it is unchanged.
 
-    A "rule" is one entry of a detection policy: `rule_id` names it and the mapping holds its
-    settings (severity, pattern, enabled flag...). Callers pass the two sides of a diff:
-    `before` is the rule as it was configured, `after` is how it is configured now. Either side
-    is `None` when the rule does not exist there, which is how "added" and "removed" are told
-    apart from "changed".
+    `rule_id` names the rule and the mapping holds its definition ("if", "then", operator,
+    weight, enabled). `before` is the rule in the old document, `after` the rule in the new one.
+    Either side is `None` when the rule does not exist there, which is how "added" and
+    "removed" are told apart from "changed".
 
     Returns a dict with at least a "code" key ("rule_added", "rule_removed" or "rule_changed")
     and the "rule" id; a change also carries the list of differing field names under "fields".
@@ -367,9 +358,8 @@ def _rule_change(
 def _changed_rule_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[str]:
     """Names of the rule fields that differ, with missing optional fields read as their default.
 
-    A "rule" is one entry of a rule file: it has a required condition ("if"), a required action
-    ("then") and optional settings (OPTIONAL_RULE_FIELDS, e.g. a priority) that may be absent.
-    Comparing two versions of a rule is how the tool decides which rules to re-apply.
+    A rule has a required condition list ("if"), a required consequent ("then") and optional
+    settings (OPTIONAL_RULE_FIELDS: operator, weight, enabled) that may be absent from the JSON.
 
     Returns the field names whose value changed between the two versions, in a stable order:
     "if" and "then" first, then the optional fields as listed in OPTIONAL_RULE_FIELDS.
@@ -377,8 +367,8 @@ def _changed_rule_fields(before: Mapping[str, Any], after: Mapping[str, Any]) ->
     # Required fields: a plain lookup, because absence and a value are already different things.
     fields = [field for field in ("if", "then") if before.get(field) != after.get(field)]
     # Optional fields: route through _optional_field so that "key missing" is compared as the
-    # field's default value, not as None. Without it, adding an optional field that already held
-    # its default value would look like a change and trigger a needless rule update.
+    # field's default value, not as None. Without it, writing out an optional field that equals
+    # its default (e.g. "weight": 1.0) would be reported as a change although nothing changed.
     fields += [
         field
         for field in OPTIONAL_RULE_FIELDS

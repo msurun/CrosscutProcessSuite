@@ -196,8 +196,8 @@ class Fopdt:
         # operating point (deviation 0); assign ``value`` to start elsewhere.
         self.value = 0.0
 
-    def update(self, u: float) -> float:
-        """Consume the input ``u`` of this step and return the output of the next step.
+    def update(self, input_value: float) -> float:
+        """Consume ``input_value`` of this step and return the output of the next step.
 
         The filter is a first-order exponential moving average (EMA), also called a
         first-order low-pass filter. In plain words it keeps a running weighted
@@ -207,24 +207,24 @@ class Fopdt:
         ``self._a`` is the smoothing factor, unitless, in [0, 1): it is the fraction
         of the previous output that survives each step. ``self.gain`` is the unitless
         steady-state gain: after many constant inputs the output tends to
-        ``gain * u``, not ``u``.
+        ``gain * input_value``, not ``input_value``.
 
         ``self._buf`` is a fixed-length FIFO ring of the last inputs, used to delay
         the input by ``len(self._buf)`` steps (dead time). When it is ``None`` the
-        filter has no delay and consumes itself.
+        filter has no delay and uses the input of this step directly.
 
-        Returns the filtered output at this step, in the same unit as ``u``.
+        Returns the filtered output at this step, in the same unit as ``input_value``.
         """
         if self._buf is None:
-            u_delayed = u
+            delayed_input = input_value
         else:
             # Shift the window: the leftmost element is the input from delay_steps steps ago;
             # store the new input at the right end, dropping the oldest.
-            u_delayed = self._buf[0]
-            self._buf.append(u)
+            delayed_input = self._buf[0]
+            self._buf.append(input_value)
         # Weighted recurrence of the EMA: new = a * old + (1 - a) * current input.
         # (1 - a) is the weight on the fresh sample; ``gain`` rescales the input.
-        self.value = self._a * self.value + self.gain * (1.0 - self._a) * u_delayed
+        self.value = self._a * self.value + self.gain * (1.0 - self._a) * delayed_input
         return self.value
 
 

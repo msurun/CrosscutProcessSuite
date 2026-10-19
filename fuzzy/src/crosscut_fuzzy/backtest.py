@@ -12,10 +12,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# A move delta is compared to np.sign(...); a delta can never be exactly 0 because a
-# move is built from a run of |diff| > dead_band, so the sign is always +1 or -1.
-_ADVICE_IS_SILENT = True  # placeholder removed below; see silent_share computation
-
 # Pearson correlation needs at least three points to be meaningful and to have a
 # non-degenerate denominator.
 MIN_MOVES_FOR_CORRELATION = 3
@@ -25,7 +21,7 @@ MIN_MOVES_FOR_CORRELATION = 3
 class BacktestSettings:
     """Knobs of the advisory backtest, in engineering units of the setpoint and seconds."""
 
-    dead_band: float = 2.0  # moves with |delta| <= dead_band are ignored (SP units)
+    dead_band: float = 2.0  # one-sample SP steps with |diff| <= dead_band are no move (SP units)
     lookback_s: float = 900.0  # fuzzy advice is averaged over this time before a move
     silent_band: float = 1.0  # |advice| <= silent_band counts as "fuzzy was silent"
 
@@ -49,7 +45,8 @@ def find_operator_moves(sp: np.ndarray, dead_band: float) -> tuple[np.ndarray, n
     """Locate operator setpoint moves as runs of samples that jump beyond dead_band.
 
     A single operator move can span several samples (a ramp faster than dead_band per
-    sample), so contiguous above-threshold differences are collapsed into ONE move.
+    sample), so contiguous above-threshold differences are collapsed into ONE move; its delta
+    is the plain sum of those differences, so a run mixing up and down steps can sum to ~0.
     The move index is the first sample AFTER the jump, i.e. the position in `sp` where
     the new setpoint is already in effect.
 
@@ -123,13 +120,7 @@ def score_moves(advice: np.ndarray, deltas: np.ndarray, silent_band: float) -> B
     deltas = deltas[is_usable]
 
     if advice.size == 0:
-        return BacktestMetrics(
-            n_moves=0,
-            sign_agreement=float("nan"),
-            correlation=float("nan"),
-            majority_share=float("nan"),
-            silent_share=float("nan"),
-        )
+        return _no_usable_moves()
 
     is_silent = np.abs(advice) <= silent_band
     return BacktestMetrics(
@@ -139,6 +130,12 @@ def score_moves(advice: np.ndarray, deltas: np.ndarray, silent_band: float) -> B
         majority_share=_majority_share(deltas),
         silent_share=float(np.mean(is_silent)),
     )
+
+
+def _no_usable_moves() -> BacktestMetrics:
+    """Metrics for an empty set of usable moves: NaN everywhere, 0 moves."""
+    nan = float("nan")
+    return BacktestMetrics(0, nan, nan, nan, nan)
 
 
 def _sign_agreement(advice: np.ndarray, deltas: np.ndarray, is_silent: np.ndarray) -> float:
@@ -187,6 +184,7 @@ def split_halves(n_samples: int) -> tuple[slice, slice]:
     return slice(0, midpoint), slice(midpoint, n_samples)
 
 
+# codecheck: allow too-many-parameters (public signature used by payload.py, exp09, tests)
 def backtest(
     fuzzy: np.ndarray,
     sp: np.ndarray,
@@ -206,13 +204,7 @@ def backtest(
     settings = settings or BacktestSettings()
     fuzzy = np.asarray(fuzzy, dtype=float)
     sp = np.asarray(sp, dtype=float)
-    if fuzzy.shape != sp.shape:
-        raise ValueError(
-            f"fuzzy and sp must have the same length, got {fuzzy.size} and {sp.size}"
-        )
-    if dt_s <= 0.0:
-        raise ValueError(f"dt_s must be positive seconds, got {dt_s}")
-
+    _check_inputs(fuzzy, sp, dt_s)
     indices, deltas = find_operator_moves(sp, settings.dead_band)
     if part is not None:
         is_in_part = (indices >= part.start) & (indices < part.stop)
@@ -222,3 +214,13 @@ def backtest(
     lookback_samples = max(1, round(settings.lookback_s / dt_s))
     advice = advice_before(fuzzy, indices, lookback_samples)
     return score_moves(advice, deltas, settings.silent_band)
+
+
+def _check_inputs(fuzzy: np.ndarray, sp: np.ndarray, dt_s: float) -> None:
+    """Raise ValueError for series of different length or a non-positive sampling period."""
+    if fuzzy.shape != sp.shape:
+        raise ValueError(
+            f"fuzzy and sp must have the same length, got {fuzzy.size} and {sp.size}"
+        )
+    if dt_s <= 0.0:
+        raise ValueError(f"dt_s must be positive seconds, got {dt_s}")

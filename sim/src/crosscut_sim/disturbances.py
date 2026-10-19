@@ -1,4 +1,8 @@
-"""Stochastic disturbance generators."""
+"""Stochastic disturbance generators.
+
+Currently the Ornstein-Uhlenbeck process: mean-reverting, Gaussian, with a given stationary
+standard deviation and memory time. Used to make slow, realistic feed disturbances.
+"""
 
 from __future__ import annotations
 
@@ -62,9 +66,10 @@ class OrnsteinUhlenbeck:
 
         The process is defined by the stochastic differential equation
         ``dX = (mean - X) / tau_s * dt + sigma * sqrt(2 / tau_s) * dW``.
-        Here ``sigma`` sets the size of a single random kick and ``tau_s`` (the
+        Here ``sigma`` is the stationary standard deviation (the noise gain
+        ``sigma * sqrt(2 / tau_s)`` is chosen to give exactly that spread) and ``tau_s`` (the
         "relaxation" or "memory" time in seconds) sets how long the process remembers a
-        deviation from the mean: after about ``tau_s`` the process has forgotten it.
+        deviation from the mean: it shrinks by a factor 1/e every ``tau_s``.
 
         Args:
             shape: Long-run mean, stationary standard deviation (the spread the process
@@ -139,11 +144,11 @@ class OrnsteinUhlenbeck:
         # dt_s is the time step in seconds; phi close to 1 when dt_s is small relative to tau_s.
         phi = np.exp(-self.dt_s / self.tau_s)
         if self.sigma == 0:
-            # No randomness: the process decays deterministically to the mean.
+            # No randomness: the process sits on the mean (it does not start elsewhere).
             self.value = self.mean
         else:
-            # Euler-exact update: keep the reverted part of the deviation from the mean, then add a
-            # fresh shock.
+            # Exact discretisation of the OU equation over one step: keep the fraction phi of the
+            # deviation from the mean, then add a fresh independent Gaussian shock.
             # The shock std is sigma * sqrt(1 - phi**2) so the process keeps its stationary
             # standard deviation sigma regardless of dt_s.
             self.value = (

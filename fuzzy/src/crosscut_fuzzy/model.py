@@ -117,7 +117,7 @@ def _variable(item: Mapping[str, Any]) -> Variable:
             "terms" is a sequence of term mappings, each consumed by _term.
 
     Returns:
-        The constructed Variable, with terms clipped to [low, high].
+        The constructed Variable (the terms are not clipped to [low, high]).
 
     Raises:
         FuzzyModelError: If the range is empty or inverted (low >= high).
@@ -131,10 +131,10 @@ def _variable(item: Mapping[str, Any]) -> Variable:
         raise FuzzyModelError(f"variable {item['id']}: low must be below high")
     # Each term (fuzzy set) is built once, eagerly. Stored as a tuple: terms are
     # fixed at build time and the tuple keeps them immutable and hash-friendly.
-    terms = tuple(_term(str(item["id"]), raw, low, high) for raw in item["terms"])
+    terms = tuple(_term(str(item["id"]), raw) for raw in item["terms"])
     # Assemble the domain. "label" and "unit" are presentation metadata ("" when absent, so callers
-    # never compare against None). "tag" is an optional free-form marker carried through unchanged
-    # -- it defaults to None because, unlike label/unit, an empty string would be a meaningful tag.
+    # never compare against None). "tag" is the dataset tag the variable is replayed from or
+    # compared with; None means the variable is not bound to recorded data.
     return Variable(
         id=str(item["id"]),
         low=low,
@@ -146,15 +146,12 @@ def _variable(item: Mapping[str, Any]) -> Variable:
     )
 
 
-def _term(variable_id: str, raw: Mapping[str, Any], low: float, high: float) -> Term:
+def _term(variable_id: str, raw: Mapping[str, Any]) -> Term:
     """Build one fuzzy set (a "term", e.g. "cold", "warm") of a variable.
 
     `raw` is the JSON-like mapping for this term: its `name` (label), its `shape`
     (membership-function kind, a key of SHAPE_PARAMETER_COUNTS) and its `params`
     (the floats that define that shape, in the order the shape expects).
-
-    `low` and `high` are the variable's universe bounds; kept in the signature for
-    callers that validate against them, unused here.
 
     Returns a Term. Raises FuzzyModelError if the parameter count or ordering does
     not fit the shape.
@@ -246,7 +243,7 @@ def _check_unique(system: FuzzySystem) -> None:
     ids.
 
     Raises:
-        DuplicateError: if any id or term name appears more than once.
+        FuzzyModelError: if any id or term name appears more than once.
     """
     # Variables are keyed independently of the input/output split: names must be
     # unique across both lists, so build one flat id lookup covering both.
@@ -274,12 +271,12 @@ def _check_references(system: FuzzySystem) -> None:
     A fuzzy system is a set of IF-THEN rules. Each rule has 'conditions' (the IF part)
     and exactly one 'consequent' (the THEN part). A clause is a single term of the form
     '<variable> IS <term>', e.g. 'temperature IS hot'; it names a variable by id and a
-    term by id. This function cross-checks those ids against the variables that really
+    term by name. This function cross-checks those ids against the variables that really
     exist in the system, so a typo in a rule is reported as an error instead of silently
     making the rule dead.
 
     Raises:
-        ReferenceError: if any clause names a variable or term that does not exist, or
+        FuzzyModelError: if any clause names a variable or term that does not exist, or
             names it in the wrong place (an input variable in the THEN part, or an
             output variable in the IF part). The exception message carries the rule id and
             the offending clause so the user can find the mistake.
@@ -317,10 +314,10 @@ def _check_clause(rule_id: str, clause: Clause, variables: Mapping[str, Variable
         FuzzyModelError: if the variable is unknown, or if the variable exists but
             has no term with that name.
     """
-    # values in a mapping are their own kind: this is a cross-check, not a title lookup.
+    # A rule may name a variable that was never declared (a typo): report it with the rule id.
     variable = variables.get(clause.variable)
     if variable is None:
         raise FuzzyModelError(f"rule {rule_id}: unknown variable {clause.variable}")
-    # like a query can actually be found: term names are the per-variable list of strings.
+    # The term must be one of the terms declared on that variable.
     if clause.term not in [term.name for term in variable.terms]:
         raise FuzzyModelError(f"rule {rule_id}: {clause.variable} has no term {clause.term}")

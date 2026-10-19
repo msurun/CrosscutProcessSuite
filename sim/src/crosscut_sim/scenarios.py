@@ -7,8 +7,8 @@ The public API consists of:
 * :func:`available_scenarios` – list scenario names for a given plant.
 * :func:`build_scenario` – construct a :class:`~crosscut_sim.core.Scenario` instance.
 
-Only the ``wood_berry`` plant is currently supported, but the implementation is
-extensible via a registry mapping plant identifiers to builder callables.
+The ``wood_berry`` and ``mill_circuit`` plants are supported; a new plant is added by
+registering a builder callable under its identifier in ``_PLANT_BUILDERS``.
 """
 
 from __future__ import annotations
@@ -128,16 +128,16 @@ def random_binary_events(tag_id: str, signal: BinarySignal, seed: int) -> tuple[
 def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenario:
     """Create a :class:`Scenario` for the Wood‑Berry plant.
 
-    The Wood–Berry plant is a classic benchmark model of a binary distillation
-    column: a feed entering a column is split into a distillate and a bottoms
-    product, and the dynamics describe how composition and holdup evolve.
+    The Wood–Berry plant is the classic 2x2 benchmark of a binary distillation column:
+    reflux and reboiler steam drive the top and bottom composition, with the feed rate as
+    a disturbance.
 
     Supported ``scenario_name`` values are:
 
-    * ``"nominal"`` — steady conditions, used as the baseline.
-    * ``"noisy_feed"`` — feed measurement carries noise, for filter tests.
-    * ``"feed_step"`` — a step change in the feed, for tracking tests.
-    * ``"excited"`` — a driving signal rich in frequencies, for identification.
+    * ``"nominal"`` — steady conditions with sensor noise only, used as the baseline.
+    * ``"noisy_feed"`` — a slowly wandering (Ornstein-Uhlenbeck) feed disturbance.
+    * ``"feed_step"`` — one step change of the feed rate, for disturbance rejection.
+    * ``"excited"`` — random binary setpoint moves on both compositions, for identification.
 
     ``duration_s`` is the simulated time span in seconds. Every scenario uses the
     same sampling period ``dt`` (seconds) so they can be compared directly.
@@ -163,29 +163,22 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
 def _build_wood_berry_nominal(duration_s: float, dt: float) -> Scenario:
     """Return the nominal Wood‑Berry scenario: no disturbance, no events.
 
-    The Wood–Berry model is a small compartmental model used to benchmark
-    state estimators: a reactor is fed by a stream whose composition can
-    drift, and the estimator must recover the states from noisy measurements.
-
     Arguments:
         duration_s: how long the simulation runs, in seconds.
         dt: simulation step, in seconds.
 
     Returns:
-        A Scenario with idealised settings: white measurement noise only,
-        no process disturbance and no scheduled events.
+        A Scenario with the nominal sensor noise only, no process disturbance and no
+        scheduled events.
     """
     return Scenario(
         name="nominal",
         duration_s=duration_s,
         dt_s=dt,
-        # Standard deviation of the measurement noise, in the units of the
-        # measured variables: 1.0 unit gives a signal-to-noise ratio of about
-        # 10:1 against the nominal state magnitudes of this model.
+        # Scale factor of the nominal sensor noise (dimensionless): 1.0 is the nominal level,
+        # 0.0 would switch the noise off.
         measurement_noise=1.0,
-        # Standard deviation of the process disturbance, same units: 0.0 means
-        # the states evolve exactly as the (unknown to the estimator) model
-        # predicts, so any error the estimator makes is its own.
+        # Standard deviation of the stochastic feed disturbance: 0.0 means none.
         disturbance_sigma=0.0,
         # Empty tuple: no time-scheduled interventions (e.g. a step change in
         # the feed) happen during the run.
@@ -213,8 +206,7 @@ def _build_wood_berry_noisy_feed(duration_s: float, dt: float) -> Scenario:
         name="noisy_feed",
         duration_s=duration_s,
         dt_s=dt,
-        # Standard deviation of the measurement noise added to the outputs:
-        # unit is mole-fraction of the measured composition.
+        # Scale factor of the nominal sensor noise (dimensionless), 1.0 = nominal.
         measurement_noise=1.0,
         # The disturbance is modelled as an Ornstein-Uhlenbeck process
         # (mean-reverting random walk): disturbance_sigma is its stationary
@@ -295,9 +287,9 @@ def _build_wood_berry_excited(duration_s: float, dt: float) -> Scenario:
 def _build_wood_berry_excitation_events(duration_s: float) -> tuple[Event, ...]:
     """Return the merged, time-sorted excitation events for the excited scenario.
 
-    The Wood-Berry distillation column has two manipulated compositions: the
-    top (distillate) and bottom (bottoms) composition setpoints. In the excited
-    scenario both setpoints are driven by independent random binary signals, so
+    The Wood-Berry distillation column has two controlled compositions: the top
+    (distillate) and the bottom (bottoms) composition, each with its own setpoint. In the
+    excited scenario both setpoints are driven by independent random binary signals, so
     each signal is built separately and the resulting events are merged.
 
     Args:
@@ -483,11 +475,10 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
     """Return the tuple of scenario names available for ``plant_name``.
 
     A *scenario* is a named, fixed set of simulation conditions used to
-    exercise one plant model: "nominal" means no disturbance at all, while
-    the other names inject a specific perturbation (noisy feed, step in a
-    setpoint, excitation signal, plant shut down, and so on).  Callers look
-    scenarios up by name, so this function is the authoritative catalogue
-    of what may be requested.
+    exercise one plant model: "nominal" is the baseline, while the other
+    names inject a specific perturbation (noisy feed, step, excitation signal,
+    a sticking valve, ...).  Callers look scenarios up by name, so this
+    function is the authoritative catalogue of what may be requested.
 
     Parameters
     ----------
@@ -524,8 +515,8 @@ def build_scenario(
 ) -> Scenario:
     """Construct a :class:`Scenario` instance for a given plant and scenario.
 
-    A plant is a physical site (a biomass plant, a gas turbine, ...) and a
-    scenario is one way of running it (normal day, blackout, ...). Each plant
+    A plant is a simulated process (``wood_berry`` or ``mill_circuit``) and a
+    scenario is one named way of running it (see ``available_scenarios``). Each plant
     ships its own builder, so this function only dispatches: it looks up the
     builder registered for ``plant_name`` and hands the remaining arguments
     over to it.

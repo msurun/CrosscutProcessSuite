@@ -1,4 +1,8 @@
-"""Artifact manifest handling."""
+"""Artifact manifest handling.
+
+An artifact is a directory of payload files plus ``manifest.json``: schema version, type,
+creator and a SHA-256 hash per payload file. This module writes, reads and verifies it.
+"""
 
 from __future__ import annotations
 
@@ -100,7 +104,7 @@ def check_schema_version(version: str) -> None:
         raise ArtifactVersionError(f"Unsupported schema version: {version}")
 
 
-def _validate_payload_path(path: str, reading: bool = False) -> None:
+def _validate_payload_path(path: str) -> None:
     """Validate the given payload path.
 
     A payload path names a file or directory inside an artifact bundle. It is stored and later
@@ -113,7 +117,6 @@ def _validate_payload_path(path: str, reading: bool = False) -> None:
 
     Args:
         path: The payload path to validate, in POSIX form (``/`` as the separator).
-        reading: Unused for now; kept so callers can share one signature for read and write.
 
     Raises:
         ArtifactError: If the path is empty, absolute, or contains a separator or ``..``
@@ -254,9 +257,8 @@ def write_artifact(
 
 def _validate_artifact_request(artifact_type: str, payload: Mapping[str, bytes]) -> None:
     """Reject an artifact type or payload that must never reach the disk."""
-    # The type becomes part of a filename and of lookups elsewhere, so it is
-    # restricted to a lowercase "snake_case" identifier: no path separators,
-    # no dots, nothing that could escape the artifact directory.
+    # The type is restricted to a lowercase "snake_case" identifier, so it is safe wherever
+    # it is used later (lookups, file names): no path separators, no dots.
     if not re.fullmatch(r"^[a-z][a-z0-9_]*$", artifact_type):
         raise ValueError(f"Invalid artifact type: {artifact_type}")
 
@@ -318,13 +320,13 @@ def _optional_manifest_fields(metadata: ArtifactMetadata) -> dict[str, Any]:
 def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     """Read the manifest from the given artifact directory.
 
-    A "manifest" is the JSON index of a model artifact: it lists the files that
-    make up the artifact together with their metadata (size, checksum, ...).
-    The `checksum` field of each entry identifies the file content by hash, so a
+    A "manifest" is the JSON index of an artifact: it lists the payload files that
+    make up the artifact together with their relative path and SHA-256 hash.
+    The `sha256` field of each entry identifies the file content by hash, so a
     reader can detect a corrupted or edited artifact.
 
     Args:
-        path: directory that holds the manifest, or the manifest file itself.
+        path: directory that holds ``manifest.json`` (not the file itself).
         verify: when True, also hash the payload files on disk and compare the
             result against the checksums stored in the manifest. This costs one
             full read of every file, so callers that only want the metadata can
@@ -334,9 +336,10 @@ def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
         The manifest as a dict with the parsed document structure.
 
     Raises:
-        FileNotFoundError: if the manifest is missing under `path`.
-        ValueError: if the document is not a valid manifest, or if verify=True
-            and a payload file does not match its recorded checksum.
+        ArtifactError: if the manifest is missing under `path`, is not valid JSON or not a
+            valid manifest, or has an unsupported schema version (ArtifactVersionError).
+        ArtifactIntegrityError: if verify=True and a payload file is missing or does not
+            match its recorded hash.
     """
     # Normalise early (str, Path and other path-likes) so every helper below can
     # assume it receives a real Path.
@@ -350,8 +353,8 @@ def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     # with the expected keys, so the assertions further down are safe to rely on.
     _validate_manifest_document(doc, path)
 
-    # Step 3: optional integrity check. Skipped by default in cheap callers
-    # because it reads every payload file (hash of the whole file, disk-bound).
+    # Step 3: integrity check (the default). Callers that only want the metadata pass
+    # verify=False because it reads every payload file (hash of the whole file, disk-bound).
     if verify:
         _verify_payload_files(doc, path)
 
@@ -361,9 +364,9 @@ def read_manifest(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
 def _load_manifest_document(path: Path) -> dict[str, Any]:
     """Load and parse the manifest JSON document.
 
-    A "manifest" is the metadata file an artifact ships with: it describes the artifact
-    (name, version, thresholds, and so on) as a JSON object. This function reads it from
-    disk and returns it as a plain Python dict.
+    The manifest is the metadata file an artifact ships with: it describes the artifact
+    (schema version, type, creator, payload hashes, ...) as a JSON object. This function
+    reads it from disk and returns it as a plain Python dict.
 
     The document lives at ``<path>/manifest.json``. We deliberately distinguish three
     failure modes so the caller can print a useful message:
@@ -427,19 +430,16 @@ def _validate_manifest_document(doc: dict[str, Any], path: Path) -> None:
     # interpret any other field with the current rules.
     check_schema_version(doc["schema_version"])
     # Every payload entry must name a file that lives inside the artifact
-    # directory; reading=True asks the path check to run in read mode, i.e. the
-    # target is expected to already exist rather than be created.
+    # directory (the same path rules as when writing).
     for item in doc["payload"]:
-        _validate_payload_path(item["path"], reading=True)
+        _validate_payload_path(item["path"])
 
 
 def _verify_payload_files(doc: dict[str, Any], path: Path) -> None:
     """Verify that every payload file exists and matches its recorded hash.
 
-    A "payload" is a manifest entry: a document (here `doc`) that was serialised alongside
-    the files it references, so a later reader can detect tampering or truncation. Each
-    entry in `doc["payload"]` stores the file's POSIX path relative to `path` plus the
-    SHA-256 digest the file had when the manifest was written. Recomputing the digest now
+    Each entry in `doc["payload"]` stores a file's POSIX path relative to `path` plus the
+    SHA-256 digest the file had when the artifact was written. Recomputing the digest now
     and comparing it to the recorded one answers "is this still the exact same bytes?":
     any single flipped bit changes the hash, so a mismatch means corruption or tampering.
 
