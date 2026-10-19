@@ -106,3 +106,24 @@ def test_invalid_mode_and_parameters() -> None:
         make(dt_s=0.0)
     with pytest.raises(ValueError):
         make(ti_s=0.0)
+
+
+def test_derivative_state_follows_the_measurement_in_manual() -> None:
+    """Back in AUTO after a long MAN stretch the output stays at the manual value (no kick).
+
+    In MAN the measurement ramps from 0 to 10 and then stands still while the operator holds
+    the output at 40. The derivative state must follow the real one-step changes in MAN; with a
+    stale previous measurement it kept a phantom change of 10 per step and released it as a
+    jump on the SECOND AUTO step (about +33 output units here).
+    """
+    pid = make(kc=1.0, ti_s=10.0, td_s=5.0)
+    for pv in (0.0, 0.0, 0.0):
+        pid.update(pv=pv, sp=0.0, mode="AUTO")
+    for step in range(1, 11):
+        pid.update(pv=float(step), sp=10.0, mode="MAN", man_out=40.0)
+    for _ in range(20):
+        pid.update(pv=10.0, sp=10.0, mode="MAN", man_out=40.0)
+    first_auto = pid.update(pv=10.0, sp=10.0, mode="AUTO")
+    second_auto = pid.update(pv=10.0, sp=10.0, mode="AUTO")
+    assert first_auto == pytest.approx(40.0, abs=0.1)
+    assert second_auto == pytest.approx(40.0, abs=0.1)

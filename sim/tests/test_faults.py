@@ -47,6 +47,16 @@ def test_freeze_holds_the_last_good_value_and_keeps_quality_good() -> None:
     assert next(iter(frozen))[1] == GOOD
 
 
+def test_a_second_freeze_on_the_same_tag_holds_its_own_value() -> None:
+    """Two separate freezes of one tag each hold the reading from their own start."""
+    first_freeze = Fault("freeze", TOP, start_s=20.0, end_s=30.0)
+    second_freeze = Fault("freeze", TOP, start_s=40.0, end_s=50.0)
+    readings = run([first_freeze, second_freeze], 60)
+    first = {readings[i] for i in range(22, 29)}
+    second = {readings[i] for i in range(42, 49)}
+    assert len(first) == 1 and len(second) == 1
+    assert first != second  # measurement noise makes the two start readings differ
+
 def test_readings_outside_the_fault_window_are_unchanged() -> None:
     readings = run([Fault("freeze", TOP, start_s=20.0, end_s=40.0)], 60)
     reference = clean(60)

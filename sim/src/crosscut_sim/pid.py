@@ -147,14 +147,16 @@ class PID:
         error = self._signed_error(pv, sp)
         proportional = self.kc * error
         derivative = self._update_derivative(pv)
+        # The measurement is remembered in both modes: the derivative state ``_d`` is updated
+        # from it in MAN too, so a stale value would feed a wrong pv_change into the filter and
+        # kick the output on the first AUTO step.
+        self._prev_pv = pv
         integral_increment = self._integral_increment(error)
 
         if mode == "MAN":
             return self._apply_manual_output(man_out, proportional, derivative, integral_increment)
 
-        output = self._compute_auto_output(proportional, derivative, integral_increment)
-        self._prev_pv = pv
-        return output
+        return self._compute_auto_output(proportional, derivative, integral_increment)
 
     def _signed_error(self, pv: float, sp: float) -> float:
         """Deviation between measurement and setpoint, in engineering units.

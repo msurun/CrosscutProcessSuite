@@ -61,9 +61,11 @@ class FaultyPlant:
         self._faults = faults
         self._rng: np.random.Generator | None = None
 
-        # tag_id -> (frozen value, quality) captured when the freeze began; the
-        # value is recalled on every later read while the fault is active.
-        self._freeze_memory: dict[str, tuple[float, int]] = {}
+        # fault -> (frozen value, quality) captured when that freeze began; the value is
+        # recalled on every later read while the fault is active. Keyed by the fault itself
+        # (a frozen dataclass), not by the tag, so a second freeze of the same tag later in
+        # the run captures its own starting reading.
+        self._freeze_memory: dict[Fault, tuple[float, int]] = {}
 
         # tag_id -> (value, quality) of the current faulted snapshot. This cache
         # is what read() and snapshot() return.
@@ -195,10 +197,10 @@ class FaultyPlant:
         return value, quality
 
     def _apply_freeze(self, fault: Fault, value: float, quality: int) -> tuple[float, int]:
-        """Apply the freeze fault."""
-        if fault.tag_id not in self._freeze_memory:
-            self._freeze_memory[fault.tag_id] = (value, quality)
-        return self._freeze_memory[fault.tag_id]
+        """Apply the freeze fault: report the reading the tag showed when this fault began."""
+        if fault not in self._freeze_memory:
+            self._freeze_memory[fault] = (value, quality)
+        return self._freeze_memory[fault]
 
     def _apply_drift(self, fault: Fault, value: float) -> float:
         """Apply the drift fault: bias = magnitude (units/hour) * hours since the fault started."""
