@@ -64,3 +64,24 @@ grows as 1/(n - k) instead of 1/n (Bartlett's formula with the effective sample 
 
 The winner's constants become the `AcfConfig` defaults in the package; the loop report adds an "inconclusive: too few
 cycles in the record" note when the reason is "too few ACF zero crossings". That note is a reporting change, not a detection change.
+
+## RESULT (2026-10-19; dev 2000..2099 `results21_dev.md`, test 3000..3099 `results21_test.md`)
+
+Development: G, H and I met F; G had the highest S and was chosen. Test (once, G vs A):
+
+| | F (worst cell / pooled) | S (c >= 5, SNR >= 1) | L (c = 20, SNR >= 1) |
+| --- | --- | --- | --- |
+| G | PASS (3.0 % / 0.5 %) | 82.5 % | 80.6 % |
+| A (shipped) | would fail (AR(0.5) n=3000: 12 %) | 50.1 % | 84.9 % |
+
+**Ship: no.** G loses 4.3 points of L against A, the rule allows 2. A stays in the package, unchanged.
+
+What was learned:
+- The peak gate removes the fast-noise false alarms of A (worst cell 12 % -> 1-3 %) and the short-record misses
+  (S +32 points). It is the first variant that is both safer and more sensitive than A.
+- G's L loss sits in n = 300, c = 20 (period 15 samples): 99 -> 91 % even for a clean sine; F (same ACF, no gate)
+  loses the same, so the cause is the unbiased ACF / 3n/4 lag range, not the gate.
+- Protocol flaw, mine: the selection rule ranked by S alone and did not apply the L tolerance on the development
+  seeds. Candidate I (biased ACF, constant Bartlett band, peak gate 3) had F pass, S 79.2 % and L 84.7 % on dev and
+  would have met the ship rule. Choosing I now from these results would be selection after the test; a new round
+  (exp23) with fresh seeds and the L tolerance inside the selection rule is the honest route.
