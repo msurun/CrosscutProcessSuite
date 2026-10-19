@@ -3,13 +3,16 @@
 **Read this first in every new session, then `docs/HANDOFF.md` (owner to-do for when the owner is at the computer, and next steps the assistant can do alone).** It records what is done, what is pending and in which order.
 Update it at the end of every work block (task board, session log, open items) and before suggesting a new session.
 
-Last updated: 2026-10-11 (session 2: fuzzy versions and diff backend, mypy clean)
+Last updated: 2026-10-19 (end of stage 1 / module 1: state table and next steps are in `docs/HANDOFF.md`; the log
+below is chronological, so the task boards further down show the state of their date, not today's)
 
 ## Project snapshot
 
 Crosscut Process Suite: modular process-control toolkit for mineral processing (loop monitoring, PID tuning,
 soft sensors, anomaly detection, MPC, fuzzy/expert rules, ML-based operating-range recommendation, optimization).
-Every module is optional. Status: **stage 0 (foundations)**; nothing is usable yet.
+Every module is optional. Status (2026-10-19): stage 0 (foundations) and stage 1 are done; **module 1 (loop
+monitoring and tuning) is usable as an advisory library, API and web UI**, validated on simulated loops and, for the
+KPI triage, exploratory on two public datasets; nothing in the suite writes to a control system.
 
 - Stack: C++20 core (CMake, pybind11) + Python offline tooling; Windows and Linux from one code base.
 - Rules: code, comments, commit messages and docs in English; all data synthetic; no code, data or parameters
@@ -17,7 +20,8 @@ Every module is optional. Status: **stage 0 (foundations)**; nothing is usable y
   until the trademark registers have been checked.
 - Planning documents (Polish: strategy, plan, stage specs) are private and live outside this repository
   (owner's machine, `OpenExpert/docs/`). They are not available in clones of this repo.
-- Repository is private. Never force-push. Commit at natural milestones.
+- Repository is public under AGPL-3.0-only with a commercial licence offered (`LICENSING.md`, ADR 008, ADR 009).
+  Never force-push. Commit at natural milestones.
 
 ## Environment and commands
 
@@ -66,9 +70,9 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 | ID | Task | Stage | Status |
 |---|---|---|---|
 | V1 | Fault-injection layer for the simulators (sensor freeze/spike/drift/bad quality, stiction, jitter, dropouts, mode flips) | 1 | done except stiction: `faults.py` (`FaultyPlant`: freeze, drift, spike, bad_quality, dropout), `timing_faults.py` (timestamp jitter `jitter_timestamps`/`jitter_samples`, mode flips `ModeFlip` + `mode_flip_events` as scenario `Event`s), experiment `experiments/exp05_timing_faults/`. Stiction in the plant: see the valve model (`valve.py`) |
-| V2 | Messy-export corpus generator + importer robustness tests | 1 | todo |
-| V6 | Customer-run validation kit (export guide, readiness checklist, anonymizer, report template) | 1 | todo |
-| V3 | Public dataset benchmarks (flotation quality, anomaly, degradation); add licence rows to PROVENANCE | 1-2 | todo |
+| V2 | Messy-export corpus generator + importer robustness tests | 1 | done (A2: `messy.py`) |
+| V6 | Customer-run validation kit (export guide, readiness checklist, anonymizer, report template) | 1 | partly: readiness check (`readiness.py`), anonymiser (`anonymise.py`); export guide and report template todo |
+| V3 | Public dataset benchmarks (flotation quality, anomaly, degradation); add licence rows to PROVENANCE | 1-2 | partly: flotation CSV connector (`flotation_public.py`); SACAC and ISDB loop data used locally for the loop experiments (PROVENANCE rows); anomaly and degradation sets todo |
 | V4 | Lab testbed bridge via OPC UA (low-cost thermal control kit) | 2 | todo |
 | V5 | Virtual DCS with a soft PLC and write-path test suite; must pass before any real write | 2-3 | todo |
 | V7 | Pilot partner package (agreement outline, security checklist) | 3 | todo |
@@ -94,7 +98,7 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 | D5 | Benefit report screen (S6) | done (v1) | backend `loops/benefit_payload.py` (default limit when none is given and flagged as such, notes as codes, normal curves now/after), `GET /datasets/{id}/loops/{loop}/benefit`; frontend `BenefitPage` (assumptions marked as such, result, distribution sketch, Markdown export). The estimate itself is the existing C4 library. Not yet: deriving the variability cut from a tuning result, histogram of real data, saving assumptions per loop |
 | F1 | Fuzzy Studio backend | done (v1) | new package `fuzzy/` (`model.py` data model + validation, `inference.py` Mamdani with centroid, `library.py` examples + user systems in `<data>/_fuzzy`, `payload.py` what-if and replay), `schemas/fuzzy.schema.json`, API routes `GET /fuzzy`, `GET/PUT /fuzzy/{id}`, `POST /fuzzy/infer`, `POST /datasets/{id}/fuzzy/replay`; example `mill_feed_supervisor`. Tests found a real bug (right shoulder membership 0 at its edge), fixed. Not yet: weighted-average defuzzification, rule matrix view, versions/diff, backtest against operator moves, any write path (stays advisory) |
 | F2 | Fuzzy Studio screen | done (v1) | tab Fuzzy: library select + save-as (user copy), membership charts (SVG) with live value marker and term parameter fields, rules as editable sentences with weights/switches/add/delete, what-if sliders with firing bars, aggregated output shape, 'because' line, replay on the chosen dataset (fuzzy output next to the actual tag). Verified in Edge: what-if -8.367 t/h for power 3300 / P80 150 equals the engine. Not yet: dragging handles on the chart, matrix view of rules, versions and diff, auto-calibration, explanations in operator language, tests for the page components (only `fuzzy.ts` is unit-tested) |
-| E1/E2 | Customer validation kit (V6), public benchmarks (V3) | todo | |
+| E1/E2 | Customer validation kit (V6), public benchmarks (V3) | partly | see V6 and V3 above |
 
 ## Decisions
 

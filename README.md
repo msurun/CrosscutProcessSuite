@@ -1,6 +1,6 @@
 # Crosscut Process Suite
 
-Process performance suite for mineral processing. **Status: early development. Module 1 (loop monitoring and PID tuning) works on synthetic data only; nothing has been tested on a real plant.**
+Process performance suite for mineral processing. **Status: early development. Module 1 (loop monitoring and PID tuning) is usable as an advisory tool and is validated on simulated loops; only parts of the triage were checked on public real-loop data, and nothing has been tested on a plant.**
 
 The goal is a toolkit that a process engineer can configure without programming:
 
@@ -14,28 +14,31 @@ Every module is optional; a plant picks what it needs.
 
 ## Module 1: loop monitoring and PID tuning
 
-What a process engineer can do today, on simulator data or on a CSV / SQL export:
+What a process engineer can do today, on simulator data or on a CSV / SQL export (details, evidence and limits per
+item: [docs/HANDOFF.md](docs/HANDOFF.md)):
 
-- **Loop overview and detail** (web UI, `frontend/`, API in `api/`): health in %, findings (manual, saturated,
-  flatline, oscillating, poor performance, stiction), key numbers, trends. A finding with a stretch of data behind it
-  links to that stretch in the trend.
-- **Stiction detection** (`loops/`): shape of the controller output (He et al. 2007 curve fitting). Finds a sticking
-  valve with low noise from a 4 % band, and with full noise only from about 8 % (about 70 % of 20 runs there, none with an operator moving the loop); a square-wave load
-  disturbance is a known false alarm. See `experiments/exp01_stiction_validation/`.
-- **Tuning report**: FOPDT model from a step test, SIMC and AMIGO PI settings, conversion to vendor forms. The report
-  is withheld when stiction is suspected or when the model fits the data badly (R squared below 0.5).
-- **Proof in closed loop** (`experiments/exp03_retune/`): detuned mill-circuit loops retuned from a recorded step
-  test improved their IAE by 70-93 % in 14 of 15 runs (5 seeds, 3 loops); the 15th was refused by the poor-fit guard.
-  Identification accuracy by noise level: `experiments/exp02_identification_accuracy/`.
-- **Benefit estimate** with its assumptions next to the number; the variability cut can come from a measured retune.
+- **Loop overview and worklist** (web UI `frontend/`, API `api/`, logic `loops/`): health in %, findings (manual,
+  saturated, flatline, oscillating, poor performance, valve hints), key numbers, trends, and per loop a **next action
+  and a priority rank**. The ranking is a rule, not a validated score. Conclusions that need per-loop knowledge
+  (output range, dead time, oscillation limits) are reported as "not assessed" instead of being guessed.
+- **Oscillation without configuration**: a parameter-free ACF regularity test (Thornhill et al. 2003 with our noise
+  band). It misses records with fewer than about eight cycles and can raise false alarms on fast noise in long records
+  (up to 9 % in simulation); the finding says so.
+- **Valve**: travel, reversals, output resolution and sizing hints; a **weak stiction hint** from passive data (never a
+  diagnosis) and a **guided valve stroke test** that gives deadband and resolution from a deliberate test
+  ([docs/VALVE_STROKE_TEST.md](docs/VALVE_STROKE_TEST.md); validated on simulation only).
+- **Tuning report**: FOPDT model from a step test, SIMC and AMIGO PI/PID settings, conversion to vendor forms
+  (Siemens checked against public manuals, ABB partly), withheld when the model fits badly. **Tuning from history**
+  uses natural setpoint steps; on real data it rarely applies and then says "do a bump test".
+- **Benefit estimate** with its assumptions next to the number.
 - **Fuzzy Studio** (advisory rule bases with what-if and replay) and **live OPC UA demos**:
   [docs/LIVE_DEMO.md](docs/LIVE_DEMO.md).
 
-Limits you should know: all data is synthetic; the time-constant and delay estimates are poor at full noise (gain is
-usable); only setpoint steps were tested; only open-loop step tests identify well; conversion to ABB and Siemens
-parameter forms is not yet checked against vendor documents (assumption A7); the OPC UA server was tested with a
-Python client only, not with UaExpert. Tuning is advisory: nothing in this repository writes to a DCS.
-
+Limits you should know: all data in this repository is synthetic and all validation is simulated, apart from
+exploratory runs on two public loop datasets (SACAC, ISDB; not redistributed). Stiction cannot be diagnosed from
+passive data, time-constant and delay estimates are poor at full noise, the sluggish-loop (idle index) idea was tried
+and dropped, and the OPC UA server was tested with a Python client only. Tuning and advice are advisory: nothing in
+this repository writes to a DCS.
 ## Foundations (stage 0)
 
 - Simulators with known ground truth: Wood-Berry distillation column and a grinding circuit (HPGR, mill, cyclone)
@@ -68,7 +71,7 @@ python experiments/exp00_sp_vs_mv/exp00.py --seeds 5 --hours 48
 | `opcua/` | OPC UA test server and data collector |
 | `artifacts/` | Artifact manifests (read, write, verify) |
 | `core/` | C++20 runtime core with Python bindings |
-| `loops/` | Loop monitoring, stiction detection, identification, tuning, benefit |
+| `loops/` | Loop monitoring, KPIs and worklist, valve tests, identification, tuning, benefit |
 | `api/` | FastAPI backend of the web UI |
 | `frontend/` | Web UI (React, TypeScript) |
 | `connectors/` | CSV, SQL and OPC UA import |

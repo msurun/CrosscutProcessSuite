@@ -1,3 +1,5 @@
+// Vite and Vitest configuration of the web UI: React plugin, a dev-server proxy that forwards
+// "/api" to the local FastAPI backend (port 8000, prefix stripped) and the jsdom test setup.
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
