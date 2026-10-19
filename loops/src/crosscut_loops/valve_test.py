@@ -238,22 +238,19 @@ def procedure_text(plan: StrokePlan) -> list[str]:
     Returns:
         List of strings, each a numbered step in plain English.
     """
-    lines: list[str] = []
-    lines.append("1. Put the loop in MANUAL.")
-    lines.append(f"2. Set the output to {plan.op_start:.2f}% and wait one dwell time.")
-    for step in plan.steps:
-        lines.append(
-            f"{step.index + 3}. Set the output to {step.op_target:.2f}% "
-            f"and wait {step.dwell_s} seconds."
-        )
+    # The abort rule comes before the first move, so the operator knows it while stepping.
+    abort = "If anything looks wrong at any time, abort: return the output to "
+    abort += f"{plan.op_start:.2f}% and put the loop back in AUTO."
     if plan.pv_band is not None:
-        lines.append(
-            f"{len(plan.steps) + 3}. If the PV deviates from its starting value by more "
-            f"than {plan.pv_band:.2f} at any time, abort the test and return the output "
-            f"to {plan.op_start:.2f}%."
-        )
-    lines.append(f"{len(plan.steps) + 4}. Put the loop back in AUTO.")
-    return lines
+        abort = f"If the PV moves more than {plan.pv_band:.2f} from its starting value, " + abort
+    texts = ["Put the loop in MANUAL.", abort]
+    texts.append(f"Set the output to {plan.op_start:.2f}% and wait {plan.dwell_s} seconds.")
+    texts += [
+        f"Set the output to {step.op_target:.2f}% and wait {step.dwell_s} seconds."
+        for step in plan.steps
+    ]
+    texts.append(f"Return the output to {plan.op_start:.2f}% and put the loop back in AUTO.")
+    return [f"{number}. {text}" for number, text in enumerate(texts, start=1)]
 
 
 def _find_change_points(op: np.ndarray, min_step: float) -> np.ndarray:

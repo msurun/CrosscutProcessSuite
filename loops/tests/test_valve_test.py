@@ -127,10 +127,10 @@ def test_procedure_starts_in_manual_and_ends_in_auto():
 
 
 def test_procedure_has_one_line_per_step_plus_framing():
-    """Without an abort band there are len(steps) + 3 lines: MANUAL, start, AUTO."""
+    """There are len(steps) + 4 lines: MANUAL, abort rule, start hold, return and AUTO."""
     plan = _default_plan()
     lines = procedure_text(plan)
-    assert len(lines) == len(plan.steps) + 3
+    assert len(lines) == len(plan.steps) + 4
 
 
 def test_procedure_mentions_abort_when_a_band_is_set():
