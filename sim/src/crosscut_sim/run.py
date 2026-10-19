@@ -157,8 +157,8 @@ def _current_git_commit() -> str | None:
     """Return the short git revision of this repository, or None when it cannot be determined.
 
     The revision is stored for reproducibility. A directory without git history is not fatal:
-    None is returned and the dataset simply has no ``code`` block. (A missing git executable
-    raises FileNotFoundError, which is not caught here.)
+    None is returned and the dataset simply has no ``code`` block. A missing git executable
+    (FileNotFoundError, an OSError) is treated the same way.
     """
     try:
         return subprocess.run(
@@ -168,7 +168,7 @@ def _current_git_commit() -> str | None:
             text=True,
             check=True,
         ).stdout.strip()
-    except subprocess.SubprocessError:
+    except (subprocess.SubprocessError, OSError):
         return None
 
 

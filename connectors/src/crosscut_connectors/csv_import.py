@@ -209,10 +209,10 @@ def _parse_iso8601(value: str) -> datetime | None:
         if value.endswith("Z"):
             value = value[:-1] + "+00:00"
         return datetime.fromisoformat(value)
-    except Exception:
-        # Any malformed input (wrong shape, unknown fields, out-of-range parts)
-        # surfaces as one of many exception types; callers only care that parsing
-        # failed, so we normalise all of them to ``None``.
+    except (ValueError, OverflowError):
+        # ``fromisoformat`` reports malformed text and out-of-range parts as ValueError (a
+        # year beyond the supported range can surface as OverflowError); callers only care
+        # that parsing failed, so both become ``None``.
         return None
 
 

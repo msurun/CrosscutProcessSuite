@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from crosscut_sim.run import main, parse_duration
+from crosscut_sim.run import _current_git_commit, main, parse_duration
 
 
 @pytest.mark.parametrize(
@@ -83,3 +83,13 @@ def test_main_runs_the_mill_circuit(tmp_path: Path) -> None:
     )
     assert doc["source"]["plant"] == "mill_circuit"
     assert doc["row_count"] == 600 * 21
+
+
+def test_missing_git_executable_gives_no_code_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a git executable the revision is simply unknown (None), not a crash."""
+
+    def no_git(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    assert _current_git_commit() is None
