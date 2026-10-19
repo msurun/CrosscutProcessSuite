@@ -84,3 +84,12 @@ What this supports: on a simulated FOPDT process with an instantaneous valve and
 bracket estimator recovers deadbands of 0.3-2 % to within one fine step. What it does not: real valves with
 positioner dynamics, PV as a poor proxy for position (slow or integrating loops, interacting loops), operators who
 cannot hold the dwell. No real test record exists yet; the result in the product is labelled accordingly.
+
+## Post-run change and regression check (2026-10-19)
+
+A read-only review by a different model found that ramps (rate-limited OP) and OP noise shattered the segmentation
+("no gain" on a healthy valve), NaN slipped through, and the resolution count skipped a move on the reversal step.
+Fixed in 073cd34 with tests that fail on the old code. The numbers above belong to the version before the fix. A
+regression check of the fixed code on NEW seeds 100..119 (`recheck25.py`, `results25_recheck.md`; not the frozen
+validation) gives V1 100 %, V2 100 %, V3 100 %, and the same report-only picture (87-90 % with a load step or
+noise 0.2).
