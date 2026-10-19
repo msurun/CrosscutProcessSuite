@@ -408,9 +408,9 @@ def _oscillation_message(report: LoopReport) -> str:
     return (
         f"oscillating: regular cycle of {report.oscillation_period_s:.0f} s period "
         f"(ACF regularity {report.oscillation_regularity:.1f}); whether its amplitude is "
-        "tolerable is not assessed without an amplitude limit; on fast noise without any cycle "
-        "this method still reports one in up to 9 % of records of 1000+ samples (synthetic, exp24), "
-        "so confirm the cycle on the trend"
+        "tolerable is not assessed without an amplitude limit; on fast noise without any "
+        "cycle this method still reports one in up to 9 % of records of 1000+ samples "
+        "(synthetic, exp24), so confirm the cycle on the trend"
     )
 
 
