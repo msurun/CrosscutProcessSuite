@@ -643,3 +643,4 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   record yet. CLI: `python -m crosscut_loops.valve_test_cli plan --op-start 50 --dwell-s 60` and
   `... analyze record.csv --op-start 50 --dwell-s 60` (columns t_s, op, pv).
 - CI: one lint failure (my unchecked commit), fixed in 5e43ff1. Full gates green afterwards.
+- **Level loops, exp26:** history tuning on simulated integrating loops: H1 PASS (12/12 high/medium recommendations safe); 98.5 % of runs end low/none (bump test). Low-confidence results no longer carry a tuning report (some implied Ti 20-50x too short). A read-only review of the new modules (different model) found segmentation, NaN, CSV and worklist edge cases; fixed in 073cd34 with tests, exp25 rechecked on new seeds (V1-V3 still 100 %).

@@ -76,7 +76,9 @@ def tune_from_history(
     best, cross = _best_fit(fits, op, pv, dt_s)
     confidence, reasons = _grade(fits, best, cross)
     robust = robustness if confidence == "high" else max(robustness, CAUTIOUS_ROBUSTNESS)
-    report = report_from_model(loop_name, best.model, robust)
+    # Low confidence gives no settings at all (exp26: some low-confidence level-loop fits
+    # implied Ti 20-50 times too short); the model stays for diagnosis, the answer is a bump test.
+    report = None if confidence == "low" else report_from_model(loop_name, best.model, robust)
     return _result(
         "ok" if confidence in ("high", "medium") else "low_confidence",
         confidence,

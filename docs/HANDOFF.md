@@ -12,7 +12,7 @@ section) and in `experiments/exp21..exp26`. Everything is pushed to `main`; CI w
 | Stiction | frozen weak hint (C4a) asking for a valve test | exp15/16 | never a diagnosis |
 | Valve stroke test | plan, operator procedure, analysis of a recorded test, CLI | exp25 simulated: deadband within 0.25 % in 100 % (no load) | no real test record yet |
 | Worklist | next action + priority rank per loop | rule only | needs the blind engineer review |
-| Tuning | SIMC/AMIGO from bump tests, vendor forms (Siemens verified, ABB TI unit open), tuning from history | exp03-08, exp17, exp26 | history tuning rarely applies on real data (exp17); level loops: see exp26 |
+| Tuning | SIMC/AMIGO from bump tests, vendor forms (Siemens verified, ABB TI unit open), tuning from history | exp03-08, exp17, exp26 | history tuning rarely applies on real data (exp17); level loops: confident advice safe in simulation (exp26, 12/12), low confidence now gives no settings |
 | Sluggish loops | nothing (idle index tried and stopped, exp22) | exp22 design exploration | |
 
 ## Decisions made tonight (and why)

@@ -48,3 +48,15 @@ band (2 % of a 5 % step = 0.1) and the settled limit (0.5) sit inside the noise.
 recommended controller, so every step response is now simulated **without load and noise** (deterministic). The
 history used for tuning keeps its load and noise. Also fixed before the run: the error is taken from the setpoint
 step (t >= 50 s), and sign changes are counted from the first time PV reaches the new setpoint, as the protocol says.
+
+## RESULT (2026-10-19, one run, `results26.md`)
+
+**H1 PASS:** 12 high/medium recommendations in 800 runs, all 12 settled and not oscillating on the integrating
+plant; their fits had implied integrator rates within 0.94-1.12 of the truth (FOPDT with very large tau). The
+running controllers were safe in 800/800 reference responses.
+
+What else the run shows (report-only): the tool is cautious on level loops - 98.5 % of runs end in low or none
+confidence, i.e. "do a bump test". But the SIMC numbers attached to low-confidence results were often unsafe-looking
+(Ti 0.02-0.07 of the integrating SIMC value in many noisy runs). Consequence, shipped with this result:
+`tune_from_history` no longer returns a tuning report for low confidence (`report=None`, model kept for
+diagnosis), so no low-confidence settings can reach a user.
