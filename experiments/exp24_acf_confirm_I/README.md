@@ -50,3 +50,17 @@ noise std 1, n in {300, 1000, 3000}. Seeds 8000..8399.
 If all hold: I's constants become the `AcfConfig` defaults (claim: "beats A on the synthetic suite"). In both cases
 the loop report gains an honest caveat about the remaining false-alarm risk on fast noise. Reported without target:
 the n = 300, c = 20 cells (period 15 samples) separately, and the report-only cells for I and A.
+
+## RESULT (2026-10-19, `results24.md`, one run)
+
+| | worst negative cell | pooled false alarms | S | L |
+| --- | --- | --- | --- | --- |
+| I | 5/400 (AR(0.5) n=3000) | 0.2 % | 78.9 % | 82.97 % (2987/3600) |
+| A (shipped) | 36/400 (AR(0.5) n=3000), 29/400 white n=3000 | 1.1 % | 50.2 % | 85.03 % (3061/3600) |
+
+F PASS, S PASS, no-cell-worse PASS, **L MISS by 2 runs of 3600** (needed >= 83.03 %). **Ship I: no.** As frozen,
+the ACF-variant line ends here; A stays. Report-only: both detect the AR(2) r = 0.97 resonance in 30-42 % of runs (a
+narrow-band disturbance, arguably a real cycle); drift is not detected; at n = 300, c = 20 I loses 2-6 points to A.
+
+Consequence in the package: the ACF "oscillating" finding now says that the method reports a cycle in up to 9 % of
+records of 1000+ samples of fast noise (A's rates here: 29/400 and 36/400) and asks to confirm the cycle on the trend.
