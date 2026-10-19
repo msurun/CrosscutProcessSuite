@@ -30,6 +30,13 @@ class AcfConfig:
     unbiased: bool = False  # divide the lag-k sum by n - k instead of n
     peak_z: float = 0.0  # 0 = off; else the first lobe after lag 0 must peak above peak_z sigma
 
+    def __post_init__(self) -> None:
+        """Reject lag ranges that would divide by n - k = 0 or read past the record."""
+        if not 0.0 < self.max_lag_fraction < 1.0:
+            raise ValueError("max_lag_fraction must be between 0 and 1 (exclusive)")
+        if self.peak_z < 0.0:
+            raise ValueError("peak_z must be non-negative")
+
 
 SHIPPED = AcfConfig()
 
@@ -155,6 +162,8 @@ def _peak_is_strong(
     That lobe lies between the second and third crossing, centred near one period. A real
     cycle gives a wide lobe far outside the band; chance exceedances of fast noise do not.
     """
+    if len(crossings) < 3:  # no complete first lobe: nothing to confirm, so no strong peak
+        return False
     start, stop = int(np.ceil(crossings[1])), int(np.floor(crossings[2])) + 1
     lag = start + int(np.argmax(acf[start:stop]))
     return bool(acf[lag] > peak_z * sigma[lag])

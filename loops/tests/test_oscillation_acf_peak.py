@@ -102,3 +102,35 @@ def test_weak_peak_reason():
 
     assert _peak_is_strong(acf, sigma, crossings, peak_z=2.5) is True
     assert _peak_is_strong(acf, sigma, crossings, peak_z=3.5) is False
+
+
+def test_weak_peak_reason_end_to_end():
+    """AR(1) noise seed 2 passes the regularity test but fails the gate: reason 'weak ACF peak'."""
+    rng = np.random.default_rng(2)
+    innovations = rng.standard_normal(AR_LENGTH)
+    samples = np.zeros(AR_LENGTH)
+    for k in range(1, AR_LENGTH):
+        samples[k] = AR_PHI * samples[k - 1] + innovations[k]
+    gated = AcfConfig(BAND_BARTLETT, 5, 0.75, False, 3.0)
+    result = acf_regularity(samples, dt_s=1.0, config=gated)
+    assert not result.regular
+    assert result.reason == "weak ACF peak"
+
+
+def test_peak_gate_with_fewer_than_three_crossings_is_not_strong():
+    """A crossings array that is too short gives False instead of an IndexError."""
+    acf = np.array([1.0, 0.5, 0.2, -0.2])
+    assert _peak_is_strong(acf, np.full(4, 0.1), np.array([2.5, 3.5]), peak_z=2.0) is False
+
+
+@pytest.mark.parametrize("fraction", [0.0, 1.0, 1.5, -0.1])
+def test_config_rejects_lag_fraction_outside_open_unit_interval(fraction):
+    """max_lag_fraction must be strictly between 0 and 1 (n - k would reach 0)."""
+    with pytest.raises(ValueError):
+        AcfConfig(max_lag_fraction=fraction)
+
+
+def test_config_rejects_negative_peak_z():
+    """A negative peak_z has no meaning and is refused."""
+    with pytest.raises(ValueError):
+        AcfConfig(peak_z=-1.0)
