@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -381,22 +382,27 @@ def _flatline_findings(report: LoopReport, settings: LoopSettings) -> list[str]:
 
 def _classification_findings(report: LoopReport) -> list[str]:
     """The sentence that belongs to the loop classification, if it names a problem."""
-    messages = {
+    # Every entry is a function, so only the sentence of the loop's own class is ever built: the
+    # inputs of the other sentences (a period, a Harris index) may legitimately be missing.
+    messages: dict[str, Callable[[], str]] = {
         # service_factor is the fraction of samples that are active (valid PV/SP, quality 0 when
         # given, and not MAN). It is a ratio in [0, 1] and is rendered as a percentage.
-        "manual": f"manual: in use only {report.service_factor:.0%} of the time",
+        "manual": lambda: f"manual: in use only {report.service_factor:.0%} of the time",
         # saturation_fraction is the share of time the controller output sits at its low or
         # high limit, i.e. the manipulated variable cannot move any further.
-        "saturated": f"saturated: output at its limit {report.saturation_fraction:.0%} of the time",
+        "saturated": lambda: (
+            f"saturated: output at its limit {report.saturation_fraction:.0%} of the time"
+        ),
         # oscillation_period_s is the period of the detected cycle in seconds; the '_s' suffix
         # denotes seconds.
-        "oscillating": _oscillation_message(report),
+        "oscillating": lambda: _oscillation_message(report),
         # harris_index is the ratio of the best achievable (minimum-variance) variance to the
         # variance the loop actually delivers. A value near 1 means the controller is close to
         # optimal; smaller values mean poor control.
-        "poor_performance": f"poor_performance: Harris index {report.harris_index:.2f}",
+        "poor_performance": lambda: f"poor_performance: Harris index {report.harris_index:.2f}",
     }
-    return [messages[report.classification]] if report.classification in messages else []
+    build_sentence = messages.get(report.classification)
+    return [build_sentence()] if build_sentence is not None else []
 
 
 def _stiction_findings(report: LoopReport) -> list[str]:

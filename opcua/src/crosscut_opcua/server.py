@@ -307,13 +307,9 @@ class PlantServer:
         if isinstance(value, bool):
             variant = ua.Variant(value, ua.VariantType.Boolean)
         else:
-            # Every non-boolean tag is numeric. The heartbeat is an integer counter and is
-            # declared Int64 (the client writes it; this branch keeps the type correct if
-            # the server ever writes it). All other numeric tags use Double.
-            variant_type = (
-                ua.VariantType.Int64 if tag_id == HEARTBEAT_TAG else ua.VariantType.Double
-            )
-            variant = ua.Variant(value, variant_type)
+            # Every other tag the server writes is a Double (plant values and the plant time).
+            # The Int64 heartbeat counter is written only by the client, never by this method.
+            variant = ua.Variant(value, ua.VariantType.Double)
 
         # ``_publishing`` is read by the value setter installed in ``_make_setter``. Without
         # it, the server's own write would look like a client write and be forwarded to the

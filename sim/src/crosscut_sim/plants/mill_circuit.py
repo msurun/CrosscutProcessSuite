@@ -820,12 +820,11 @@ class MillCircuitPlant:
         time constant. The path model itself has unit gain; the (hardness dependent) gain is
         applied separately by ``_gain`` in ``_update_controlled_variables``.
 
-        Sets ``self._paths`` to a list of tuples ``(driver, cv, gain_initial, variance, model)``:
+        Sets ``self._paths`` to a list of tuples ``(driver, cv, base_gain, hardness_slope, model)``:
 
         * ``driver`` / ``cv`` are the keys of ``DRIVERS`` / ``CVS``.
-        * ``gain_initial`` is the gain g0 at the reference hardness, in CV unit per driver unit.
-        * ``variance`` (a historical name) is the relative change of that gain per kWh/t of
-          hardness.
+        * ``base_gain`` is the gain g0 at the reference hardness, in CV unit per driver unit.
+        * ``hardness_slope`` is the relative change of that gain per kWh/t of hardness (s).
         * ``model`` is the unit-gain ``Fopdt`` instance.
 
         ``_PATHS`` stores the time constant and the dead time in MINUTES; they are converted
@@ -838,16 +837,15 @@ class MillCircuitPlant:
             steps.
         """
         # Build one entry per declarative path. The tuple layout
-        # (driver, cv, gain_initial, variance, model) is relied on by
-        # _update_controlled_variables, so keep the field order fixed. Despite their names
-        # (historical), gain_initial is the gain g0 at the reference hardness and variance is
-        # the relative hardness slope s of ``_PATHS``.
+        # (driver, cv, base_gain, hardness_slope, model) is relied on by
+        # _update_controlled_variables, so keep the field order fixed. base_gain is the gain g0
+        # at the reference hardness and hardness_slope the relative slope s of ``_PATHS``.
         self._paths: list[tuple[str, str, float, float, Fopdt]] = [
             (
                 driver,
                 cv,
-                gain_initial,
-                variance,
+                base_gain,
+                hardness_slope,
                 # The FOPDT model's own time constant and dead time in SECONDS (table stores
                 # minutes, so multiply by 60 s/min), discretised at the study's sampling
                 # interval dt_s.
@@ -860,7 +858,8 @@ class MillCircuitPlant:
             )
             # Unpack each table row so its four numbers become named locals with their
             # units made explicit by the loop variable names.
-            for (driver, cv), (gain_initial, variance, tau_minutes, delay_minutes) in _PATHS.items()
+            for (driver, cv), row in _PATHS.items()
+            for base_gain, hardness_slope, tau_minutes, delay_minutes in [row]
         ]
 
     def _init_cv_states(self) -> None:
@@ -1020,9 +1019,9 @@ class MillCircuitPlant:
             "feed_moisture": self.true_moisture - NOMINAL["feed_moisture"],
         }
         contributions = {cv: 0.0 for cv in CVS}
-        for driver, cv, gain0, gain_response, path in self._paths:
+        for driver, cv, base_gain, hardness_slope, path in self._paths:
             driver_deviation = path.update(drivers[driver])
-            contributions[cv] += _gain(gain0, gain_response, hardness) * driver_deviation
+            contributions[cv] += _gain(base_gain, hardness_slope, hardness) * driver_deviation
         for cv in CVS:
             self._cv_true[cv] = NOMINAL[cv] + contributions[cv] + self._process_ou[cv].update()
             self._cv_meas[cv] = self._cv_true[cv] + self._noise(_CV_MEAS_SD[cv])

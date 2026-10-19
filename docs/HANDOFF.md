@@ -60,22 +60,22 @@ section) and in `experiments/exp21..exp26`. Everything is pushed to `main`; CI w
   use the Edit tool.
 - Third-party data (SACAC, ISDB): never committed; see `docs/PROVENANCE.md`.
 
-## Known issues found by the 2026-10-19 code review (not fixed on purpose)
+## Issues found by the 2026-10-19 code review: all fixed
 
-Found while cleaning the code; each needs a decision because fixing it changes behaviour or stored data.
+Found while cleaning the code, then fixed with a test that fails on the old code (except the renames).
 
-| Where | Issue | Why not fixed now |
+| Where | Issue | Fix |
 | --- | --- | --- |
-| `api/downsample.py` `_bucket_stats` | A bucket containing one NaN gives NaN for min, max and mean (reduceat propagates NaN) | Changes what the trend viewer shows; decide whether a gap should hide a bucket |
-| `sim/pid.py` | In MAN the derivative state `_d` is updated but `_prev_pv` is not: a derivative kick on the first step back to AUTO | Changes simulator output, hence dataset hashes and recorded experiments |
-| `fuzzy/backtest.py` | Consecutive above-dead-band jumps of opposite sign are summed into one move (delta near 0, `np.sign` = 0) | Changes backtest numbers |
-| `sim/faults.py` | `_freeze_memory` is cleared only on `reset`: a second freeze fault on the same tag reuses the old frozen value | Needs a decision on fault semantics |
-| `opcua/server.py` | The Int64 branch for `HEARTBEAT_TAG` in `_write` is unreachable (`_publish` never writes the heartbeat) | Dead path; remove together with a server test |
-| `fuzzy/versions.py` | `check_version_id` uses `$`, which also matches before a trailing newline | Use `\Z` or `fullmatch`; check callers |
-| `loops/monitor.py` | `_oscillation_message` is built eagerly for every classified loop; an ACF-classified report with no period would raise TypeError in the format | Cannot happen today (method and period are set together) |
-| `mill_circuit._init_paths` | Locals named `gain_initial` and `variance` hold the base gain and the hardness slope | Rename in a change that also touches the plant tests |
-| `fuzzy_routes.BacktestRequest` | Repeats the `BacktestSettings` defaults | Duplication; derive the defaults from one place |
-| `tests/`, `experiments/` | 138 and ~830 `codecheck` findings (mostly one-letter names in formula code, long script functions) | Experiments are frozen records of runs (hashes in READMEs); tests were not part of this cleanup |
+| `api/downsample.py` | One NaN in a bucket gave NaN for min, max and mean of the whole bucket | NaN and infinite samples are skipped; only a bucket with no finite sample is a gap |
+| `sim/pid.py` | In MAN `_d` was updated but `_prev_pv` not: a phantom derivative released as a jump (+33 output units in the test) on the second AUTO step | The measurement is remembered in both modes. All 12 simulator scenarios keep their dataset hashes, so recorded data is unaffected |
+| `fuzzy/backtest.py` | A jump directly followed by a jump the other way was summed to one move of delta ~0 | Runs are split at sign changes |
+| `sim/faults.py` | A second freeze of the same tag reused the first frozen value | Freeze memory is keyed by the fault |
+| `opcua/server.py` | Unreachable Int64 branch in `_write` | Removed |
+| `fuzzy/library.py`, `versions.py` | `$` accepted a trailing newline in system ids (file names) and version ids | `fullmatch` |
+| `loops/monitor.py` | Oscillation sentence was built for every loop; ACF method without a period would raise TypeError for any class | Sentences are built lazily |
+| `mill_circuit._init_paths` | Misleading names `gain_initial`, `variance` | `base_gain`, `hardness_slope` |
+| `api/fuzzy_routes.BacktestRequest` | Repeated the `BacktestSettings` defaults | Defaults read from `BacktestSettings` |
+| `csv_import`, `sim/run.py` | Broad `except Exception`; missing git executable not handled | Narrowed, with tests |
 
-Fixed in the same review: `csv_import._parse_iso8601` catches `ValueError`/`OverflowError` instead of `Exception`;
-`sim.run._current_git_commit` also handles a missing git executable.
+Not touched on purpose: `experiments/` (about 830 `codecheck` findings; frozen records of runs, hashes in the READMEs).
+Tests were cleaned too (0 findings, no test or assertion removed, vacuous tests strengthened).
