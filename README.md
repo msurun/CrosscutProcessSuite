@@ -93,4 +93,6 @@ All data in this repository is synthetic.
 
 ## License
 
-GNU Affero General Public License v3.0 (AGPL-3.0-only), see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 (AGPL-3.0-only), see [LICENSE](LICENSE). A commercial licence is available
+for users who cannot work under the AGPL; see [LICENSING.md](LICENSING.md). Your own configuration, rules and
+models are data and stay yours ([ADR 009](docs/adr/009-configuration-versus-code.md)).
