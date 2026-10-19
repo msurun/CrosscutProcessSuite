@@ -26,3 +26,16 @@ The original rule base is run on the same seeds as a reference (no target).
 ## What this does not show
 Same simulated operator as exp09 (written by us); the terms were fitted to this simulator's spread. This shows
 the retune generalises across seeds, not that it fits a real plant or a real operator.
+
+## Result (first and only run, 2026-10-19; table in results/results.md)
+| id | v2 | original (same seeds) | target | met |
+|----|----|----|----|----|
+| C1 | 0.724 | 0.772 | >= 0.65 | yes |
+| C2 | 0.632 | 0.617 | >= 0.30 | yes |
+| C3 | -0.028 | -0.078 | <= 0.10 | yes |
+| C4 | 0.202 | 0.229 | >= 0.10 | yes |
+| C5 | 0.085 | 0.382 | <= 0.30 | yes |
+
+Reading: the retune removes the silent moves (38 % -> 8.5 %) at a cost of about 5 points of sign agreement;
+correlation is unchanged. All targets met on seeds not used for tuning. Limit: same simulated operator, terms
+fitted to this simulator's spread (see "What this does not show"). Next evidence needed: a real record with SP/OUT.

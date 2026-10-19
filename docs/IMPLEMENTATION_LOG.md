@@ -648,3 +648,10 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   `... analyze record.csv --op-start 50 --dwell-s 60` (columns t_s, op, pv).
 - CI: one lint failure (my unchecked commit), fixed in 5e43ff1. Full gates green afterwards.
 - **Level loops, exp26:** history tuning on simulated integrating loops: H1 PASS (12/12 high/medium recommendations safe); 98.5 % of runs end low/none (bump test). Low-confidence results no longer carry a tuning report (some implied Ti 20-50x too short). A read-only review of the new modules (different model) found segmentation, NaN, CSV and worklist edge cases; fixed in 073cd34 with tests, exp25 rechecked on new seeds (V1-V3 still 100 %).
+
+## exp11: fuzzy retune of the mill feed supervisor (2026-10-19)
+- Closes the exp09 B5 miss. Diagnosis on the tuning half: silent moves sat at the centre of `normal`/`on_target`
+  (power 3000 +- 27 kW, P80 150 +- 2 um) while the operator moved the feed 4.8 t/h on average; terms were too wide.
+- `fuzzy/examples/mill_feed_supervisor_v2.json` (narrower terms, one rule added); 4 candidates scored on the tuning
+  half of seeds 1-10 only, targets frozen (938b382), then run once on fresh seeds 11-20: C1-C5 all met, silent share
+  38 % -> 8.5 %, sign agreement 0.77 -> 0.72. The original example file stays. Still a simulated operator.
