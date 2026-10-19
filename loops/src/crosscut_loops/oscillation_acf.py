@@ -15,6 +15,21 @@ MIN_ZERO_CROSSINGS = 7  # 5 period estimates; with 5, AR(1) phi=0.99 drift passe
 MIN_SAMPLES = 64
 NOISE_BAND_Z = 1.96  # 95 % band of a white-noise ACF is +-1.96 / sqrt(n) (Box and Jenkins)
 FLAT_RELATIVE_STD = 1e-12  # detrended std below this share of the signal scale is rounding only
+BAND_BARTLETT = "bartlett"
+BAND_WHITE = "white"
+
+
+@dataclass(frozen=True)
+class AcfConfig:
+    """Detector variant; the defaults are the shipped detector (exp20 compares variants)."""
+
+    band: str = BAND_BARTLETT  # BAND_BARTLETT (MA(q) band) or BAND_WHITE (1.96 / sqrt(n))
+    min_crossings: int = MIN_ZERO_CROSSINGS
+    max_lag_fraction: float = 0.5  # ACF lags used, as a share of the record length
+    unbiased: bool = False  # divide the lag-k sum by n - k instead of n
+
+
+SHIPPED = AcfConfig()
 
 
 @dataclass(frozen=True)
@@ -34,12 +49,13 @@ class AcfOscillation:
     reason: str
 
 
-def acf_regularity(error: np.ndarray, dt_s: float) -> AcfOscillation:
+def acf_regularity(error: np.ndarray, dt_s: float, config: AcfConfig = SHIPPED) -> AcfOscillation:
     """Detect regular oscillation in a detrended control-loop error signal.
 
     Args:
         error: 1-D array of error samples, equally spaced in time.
         dt_s: Sampling interval in seconds.
+        config: Detector variant; the default is the shipped one.
 
     Returns:
         AcfOscillation with regularity, period and status.
@@ -54,10 +70,10 @@ def acf_regularity(error: np.ndarray, dt_s: float) -> AcfOscillation:
     if _is_flat(samples, error):
         return AcfOscillation(False, None, None, "flat signal")
 
-    acf = _autocorrelation(samples)
-    zero_crossings = _zero_crossings(acf, _noise_band(acf, samples.size))
+    acf = _autocorrelation(samples, config)
+    zero_crossings = _zero_crossings(acf, _noise_band(acf, samples.size, config))
 
-    if len(zero_crossings) < MIN_ZERO_CROSSINGS:
+    if len(zero_crossings) < config.min_crossings:
         return AcfOscillation(False, None, None, "too few ACF zero crossings")
 
     regularity, period_samples = _regularity(zero_crossings)
@@ -90,28 +106,32 @@ def _is_flat(samples: np.ndarray, error: np.ndarray) -> bool:
     return float(np.std(samples)) <= FLAT_RELATIVE_STD * scale
 
 
-def _autocorrelation(samples: np.ndarray) -> np.ndarray:
-    """Compute biased autocorrelation via FFT with zero padding.
+def _autocorrelation(samples: np.ndarray, config: AcfConfig) -> np.ndarray:
+    """Autocorrelation via FFT with zero padding, up to lag max_lag_fraction * n.
 
-    The padding length avoids circular wrap-around. Only lags up to n//2
-    are returned because the second half is unreliable.
+    The padding length avoids circular wrap-around. Late lags rest on few sample pairs, so
+    they are cut off (shipped: n // 2). The unbiased variant divides lag k by n - k.
     """
     n = samples.size
     nfft = 1 << (n - 1).bit_length()
     nfft = max(nfft, 2 * n)
     spectrum = np.fft.rfft(samples, n=nfft)
     acf_full = np.fft.irfft(spectrum * np.conjugate(spectrum), n=nfft)
-    acf = acf_full[: n // 2 + 1]
+    acf = acf_full[: int(config.max_lag_fraction * n) + 1]
+    if config.unbiased:
+        acf = acf * n / (n - np.arange(acf.size))
     return np.asarray(acf / acf[0], dtype=float)
 
 
-def _noise_band(acf: np.ndarray, n_samples: int) -> float:
+def _noise_band(acf: np.ndarray, n_samples: int, config: AcfConfig) -> float:
     """Half-width of the 95 % band of ACF estimation noise beyond the first zero crossing.
 
     Bartlett's formula for an MA(q) process, var(r_k) = (1 + 2 * sum r_j^2) / n, with q the lag
     before the first zero crossing (Box and Jenkins). A white-noise band (q = 0) was too narrow
     for correlated disturbances: AR(1) with phi = 0.9 passed as regular in 23 of 100 runs.
     """
+    if config.band == BAND_WHITE:
+        return float(NOISE_BAND_Z / np.sqrt(n_samples))
     nonpositive = np.flatnonzero(acf <= 0.0)
     q = int(nonpositive[0]) if len(nonpositive) else len(acf)
     variance = (1.0 + 2.0 * float(np.sum(acf[1:q] ** 2))) / n_samples
