@@ -59,11 +59,11 @@ def build_report_for_open_loop(
     )
 
 
-def test_a_simulated_process_recovers_its_gain_and_blocking_is_none() -> None:
-    """The report model must carry the true process gain within 5 percent, so the PI settings
-    built from it are meaningful."""
+def test_a_simulated_process_recovers_its_gain_and_is_not_blocked() -> None:
+    """The report model carries the true process gain within 5 percent and is not blocked."""
     report = build_report_for_open_loop()
 
+    assert report.blocked_reason is None
     assert report.model is not None
     assert abs(report.model.gain - GAIN) / GAIN <= IDENTIFIED_GAIN_TOLERANCE
 
@@ -147,7 +147,6 @@ def test_markdown_of_a_healthy_report_names_the_loop_and_is_unblocked() -> None:
     markdown = render_markdown(report)
 
     assert "# Tuning report: FIC101" in markdown
-    assert "FIC101" in markdown
     assert "Blocked" not in markdown
 
 

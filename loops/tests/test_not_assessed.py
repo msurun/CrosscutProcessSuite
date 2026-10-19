@@ -23,7 +23,7 @@ from crosscut_sim.core import AUTO
 
 DT = 10.0
 SAMPLE_COUNT = 2160
-RNG = np.random.default_rng(seed=1234)
+NOISE_SEED = 1234  # each signal builder starts its own generator: no dependence on test order
 
 SATURATION_FRACTION = 0.5
 SINE_PERIOD_S = 600.0
@@ -56,16 +56,19 @@ def saturated_errors() -> np.ndarray:
 
 def sluggish_errors() -> np.ndarray:
     """Return an AR(1) error sequence typical of a sluggish loop."""
+    noise = np.random.default_rng(NOISE_SEED)
     errors = np.zeros(SAMPLE_COUNT)
     for k in range(1, SAMPLE_COUNT):
-        errors[k] = AR1_COEFFICIENT * errors[k - 1] + RNG.normal(scale=SINE_NOISE)
+        errors[k] = AR1_COEFFICIENT * errors[k - 1] + noise.normal(scale=SINE_NOISE)
     return errors
 
 
 def sine_errors() -> np.ndarray:
     """Return a periodic error plus noise, typical of an oscillating loop."""
     t_s = np.arange(SAMPLE_COUNT) * DT
-    return np.sin(2 * np.pi * t_s / SINE_PERIOD_S) + RNG.normal(scale=SINE_NOISE, size=SAMPLE_COUNT)
+    noise = np.random.default_rng(NOISE_SEED)
+    sine = np.sin(2 * np.pi * t_s / SINE_PERIOD_S)
+    return sine + noise.normal(scale=SINE_NOISE, size=SAMPLE_COUNT)
 
 
 def analyze_saturated(settings: LoopSettings) -> LoopReport:
@@ -168,7 +171,8 @@ def test_without_out_range_the_quantisation_ratio_is_still_computed():
     """The quantisation ratio needs no range, so it is still computed."""
     errors = np.full(SAMPLE_COUNT, 0.5)
     t_s, pv, sp, _, mode = signals(errors)
-    quantised = np.round(50 + RNG.normal(scale=0.3, size=SAMPLE_COUNT) / 1.0) * 1.0
+    noise = np.random.default_rng(NOISE_SEED)
+    quantised = np.round(50 + noise.normal(scale=0.3, size=SAMPLE_COUNT) / 1.0) * 1.0
     report = analyze_loop(t_s, pv, sp, quantised, mode, settings=no_range_settings())
     assert report.out_quantisation_ratio is not None
 
@@ -206,10 +210,12 @@ def test_without_oscillation_limits_a_regular_cycle_is_oscillating():
 
 
 def test_without_oscillation_limits_sluggish_noise_is_not_oscillating():
-    """Correlated noise without any knowledge is not mistaken for an oscillation."""
-    report = analyze_sluggish(base_settings(known=frozenset()))
-    assert report.oscillation_period_s is None
-    assert report.classification != "oscillating"
+    """Correlated noise is not mistaken for an oscillation, with only the limits unknown
+    and with no per-loop knowledge at all."""
+    for settings in (no_oscillation_settings(), empty_known_settings()):
+        report = analyze_sluggish(settings)
+        assert report.oscillation_period_s is None
+        assert report.classification != "oscillating"
 
 
 def test_without_oscillation_limits_the_amplitude_is_not_assessed():

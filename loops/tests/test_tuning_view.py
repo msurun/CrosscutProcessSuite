@@ -69,7 +69,8 @@ def test_a_model_that_reproduces_the_data_is_called_good():
         0.0, 0.05, size=len(process_value)
     )
     check, simulated = fit_check(MODEL, controller_output, process_value, DT_S)
-    assert (check.verdict, check.r_squared > 0.95) == ("good", True)
+    assert check.verdict == "good"
+    assert check.r_squared > 0.95
     assert len(simulated) == len(process_value)
 
 

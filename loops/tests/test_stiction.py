@@ -11,7 +11,7 @@ DT = 1.0
 SAMPLE_COUNT = 6000
 # The shape method needs at least 6 limit cycles; a stiction cycle here lasts 650-2000 samples.
 LONG_RECORD = 20000
-RNG = np.random.default_rng(3)
+WHITE_NOISE_SEED = 3  # the white-noise test starts its own generator: no dependence on test order
 
 
 # PI controller and valve constants of the simulated loop.
@@ -94,8 +94,9 @@ def test_healthy_oscillating_loop_is_not_detected() -> None:
 
 def test_white_noise_is_inconclusive() -> None:
     """Uncorrelated noise has no limit cycle, so no verdict is given."""
-    pv = RNG.normal(size=4000)
-    out = RNG.normal(size=4000)
+    rng = np.random.default_rng(WHITE_NOISE_SEED)
+    pv = rng.normal(size=4000)
+    out = rng.normal(size=4000)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "inconclusive"
 
@@ -165,10 +166,10 @@ def test_random_wander_is_never_reported_as_stiction(seed: int) -> None:
 
 
 def test_most_simulated_stiction_loops_are_found() -> None:
-    """At least 14 of 20 simulated sticking loops are found and none is called healthy."""
+    """At least 18 of 20 simulated sticking loops are found and none is called healthy."""
     verdicts = [
         detect_stiction(*simulate_loop(random_seed, True, sample_count=LONG_RECORD), DT).verdict
         for random_seed in range(1, 21)
     ]
-    assert verdicts.count("stiction") >= 14  # measured 29 of 40; the rest never limit-cycle
+    assert verdicts.count("stiction") >= 18  # measured 20 of 20 (seeds 1-20); margin for platforms
     assert "no_stiction" not in verdicts

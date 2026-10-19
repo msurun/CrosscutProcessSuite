@@ -90,7 +90,7 @@ def test_clean_data_includes_report_with_simc_settings():
     sp, op, pv = simulate(seed=1, dist=0.0)
     result = tune_from_history("loop_clean", sp, op, pv, dt_s=1.0)
     assert result.report is not None
-    assert hasattr(result.report, "simc") or "simc" in str(result.report).lower()
+    assert result.report.simc is not None
 
 
 def test_constant_setpoint_has_no_excitation():
@@ -148,20 +148,24 @@ def test_low_confidence_has_no_max_change_factor():
     """When confidence is 'low', max_change_factor is None."""
     sp, op, pv = simulate(seed=1, dist=0.0, sample_count=1500)
     result = tune_from_history("loop_short", sp, op, pv, dt_s=1.0)
-    if result.confidence == "low":
-        assert result.max_change_factor is None
+    assert result.confidence == "low"  # pinned input: one short record never grades higher
+    assert result.max_change_factor is None
+    assert result.report is None  # low confidence carries no settings (exp26)
+    assert result.recommendation == "bump_test"
 
 
 def test_medium_confidence_has_max_change_factor_of_one_point_five():
     """When confidence is 'medium', max_change_factor equals 1.5."""
-    sp, op, pv = simulate(seed=1, dist=0.3)
+    sp, op, pv = simulate(seed=1, dist=0.02)  # light disturbance: windows agree only loosely
     result = tune_from_history("loop_noisy", sp, op, pv, dt_s=1.0)
-    if result.confidence == "medium":
-        assert result.max_change_factor == pytest.approx(1.5)
+    assert result.confidence == "medium"
+    assert result.max_change_factor == pytest.approx(1.5)
+    assert result.recommendation == "retune_cautiously"
+    assert result.report is not None  # medium still carries settings, to be applied in small steps
 
 
-def test_mismatched_array_lengths_raises_or_gives_non_ok_status():
-    """Mismatched sp, op, pv lengths either raise ValueError or return non-'ok'."""
+def test_mismatched_array_lengths_raise_value_error():
+    """Mismatched sp, op, pv lengths raise ValueError instead of a silent wrong answer."""
     sp, op, pv = simulate(seed=1, dist=0.0)
     with pytest.raises(ValueError):
         tune_from_history("loop_bad", sp, op, pv[:-10], dt_s=1.0)

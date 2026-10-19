@@ -250,7 +250,9 @@ def test_the_report_is_json_serialisable():
 
     results = analyze_dataset(time_vector, columns, [tags])
 
-    assert json.dumps(results) is not None
+    # allow_nan=False also rejects NaN and infinity: missing values must already be None.
+    encoded = json.dumps(results, allow_nan=False)
+    assert json.loads(encoded)[0]["name"] == "loop 1"
 
 
 def test_the_health_percent_is_none_when_the_loop_is_unused():
