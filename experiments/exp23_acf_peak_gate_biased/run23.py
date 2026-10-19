@@ -1,7 +1,8 @@
 """exp23: biased-ACF detector with a peak gate, protocol frozen 2026-10-19.
 
 Candidates A (baseline, shipped), I, J, M; the selection applies the L tolerance against A.
-Dev phase evaluates them on synthetic short records and picks a winner by the frozen targets; test phase confirms one candidate against A once.
+Dev phase evaluates them on synthetic short records and picks a winner by the frozen
+targets; test phase confirms one candidate against A once.
 Signals are synthetic (exp23 README), not ISDB. Writes results23_dev.md / results23_test.md and
 refuses to overwrite them.
 """

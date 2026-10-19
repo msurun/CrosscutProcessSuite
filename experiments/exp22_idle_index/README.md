@@ -54,3 +54,32 @@ the smallest theta whose false-flag share (Ii > theta among "good" and "aggressi
   a number only, without a "sluggish" finding. Constants are not edited after the development run.
 - If it passes: monitor adds `idle_index` to LoopReport and a "sluggish suspected" finding when Ii > theta and
   the loop is not oscillating (an oscillating loop has its own finding).
+
+## Amendment 1 (2026-10-19, before any development or test seed was used)
+
+A smoke run on seed 999 (12 cases) showed the gain-sign estimate of step 4 flipped on slow noisy plants: the
+proportional part of the output increment, Kc (e[k+1] - e[k]) times e[k], sums to -Kc/2 sum (de)^2, which
+outweighs the integral part when the noise is large and Ti is long. Step 4 now uses the midpoint error
+(e[k] + e[k+1]) / 2, which makes the proportional part telescope. After that the sign was right in all smoke cases.
+
+## STOPPED before the development run (2026-10-19)
+
+The same smoke run showed sluggish loops with Ii around -0.85 and well-tuned ones up to +0.73. Design exploration
+on seeds 900..905 (all 324 cells, scratch script, not committed; dev and test seeds untouched) measured the spec and
+four variants that count only increments taken while |e| exceeds a share of its 99th percentile:
+
+| variant | good: median / share > 0.2 | aggressive | sluggish | mild |
+| --- | --- | --- | --- | --- |
+| spec (no error gate) | -0.86 / 7 % | -0.99 / 0 % | -0.60 / 26 % | -0.72 / 23 % |
+| error gate 10 % | -0.78 / 3 % | -0.99 / 0 % | -0.47 / 28 % | -0.56 / 24 % |
+| error gate 25 % | -0.66 / 1 % | -0.98 / 0 % | -0.21 / 37 % | -0.20 / 32 % |
+| error gate 25 %, stride 1 | -1.00 / 0 % | -1.00 / 0 % | -1.00 / 11 % | -1.00 / 11 % |
+| error gate 40 % | -0.57 / 2 % | -0.95 / 0 % | -0.02 / 46 % | +0.00 / 39 % |
+
+No variant comes near S1 >= 80 % at a usable false-flag share; sluggish and good overlap widely. Reading: with
+repeated load changes and a weak controller, the long "moving away" phase (output and measurement moving in opposite
+directions) is as long as the slow recovery, so the sign balance stays near zero or negative. Moving the threshold
+below zero after seeing this would be fitting the grid to the exploration, so the experiment is stopped and the idle
+index is **not shipped**. The draft detector stays here (`idle_index_draft.py`), with the generator `g22_loops.py`
+(written by a different model than the detector) and the harness `run22.py`, for a later attempt (Hagglund's
+load-episode detection, or Visioli's area index on setpoint steps). The package has no sluggish-loop finding.
