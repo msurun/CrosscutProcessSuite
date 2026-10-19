@@ -148,6 +148,7 @@ def _expected_report_keys():
         "harris_index",
         "oscillation_period_s",
         "oscillation_method",
+        "same_period_as",
         "stiction_verdict",
         "stiction_suspicion",
         "stiction_advice",
@@ -405,3 +406,104 @@ def test_a_series_with_a_partial_last_block_keeps_its_tail_samples():
 
     assert len(sparkline) == SPARKLINE_LENGTH
     assert sparkline[-1] == pytest.approx(25.0)
+
+
+# --- Shared oscillation period ("same_period_as") ----------------------------
+
+PERIOD_SAMPLE_S = 10.0
+PERIOD_SAMPLE_COUNT = 2160
+PERIOD_NOISE_SCALE = 0.05
+SLOW_PERIOD_S = 600.0
+OTHER_PERIOD_S = 1500.0
+
+
+def _make_period_time_vector() -> np.ndarray:
+    """Return a time vector of PERIOD_SAMPLE_COUNT samples, PERIOD_SAMPLE_S seconds apart."""
+    return np.arange(PERIOD_SAMPLE_COUNT, dtype=float) * PERIOD_SAMPLE_S
+
+
+def _make_sine_loop_columns(period_s: float, seed: int) -> dict[str, np.ndarray]:
+    """Return AUTO-mode columns for a loop whose error is a unit sine of the given period."""
+    t_s = _make_period_time_vector()
+    noise = np.random.default_rng(seed)
+    return {
+        "pv": SP_BASE
+        + np.sin(2.0 * np.pi * t_s / period_s)
+        + PERIOD_NOISE_SCALE * noise.standard_normal(PERIOD_SAMPLE_COUNT),
+        "sp": np.full(PERIOD_SAMPLE_COUNT, SP_BASE),
+        "out": OUT_BASE + PERIOD_NOISE_SCALE * noise.standard_normal(PERIOD_SAMPLE_COUNT),
+    }
+
+
+def _make_white_noise_loop_columns(seed: int) -> dict[str, np.ndarray]:
+    """Return AUTO-mode columns for a loop whose PV is unit white noise: no regular cycle."""
+    noise = np.random.default_rng(seed)
+    return {
+        "pv": SP_BASE + noise.standard_normal(PERIOD_SAMPLE_COUNT),
+        "sp": np.full(PERIOD_SAMPLE_COUNT, SP_BASE),
+        "out": OUT_BASE + PERIOD_NOISE_SCALE * noise.standard_normal(PERIOD_SAMPLE_COUNT),
+    }
+
+
+def _make_period_recording(
+    loop_columns: dict[str, dict[str, np.ndarray]],
+) -> tuple[dict[str, np.ndarray], list[LoopTags]]:
+    """Return the shared columns and the LoopTags for several loops, one tag set per loop.
+
+    No oscillation limits are configured, so the period comes from the parameter-free detector.
+    """
+    columns: dict[str, np.ndarray] = {}
+    tags: list[LoopTags] = []
+    for index, (name, loop) in enumerate(loop_columns.items(), start=1):
+        columns[f"PV{index}"] = loop["pv"]
+        columns[f"SP{index}"] = loop["sp"]
+        columns[f"OUT{index}"] = loop["out"]
+        columns[f"MODE{index}"] = np.full(PERIOD_SAMPLE_COUNT, MODE_AUTO)
+        tags.append(
+            LoopTags(
+                name=name,
+                pv=f"PV{index}",
+                sp=f"SP{index}",
+                out=f"OUT{index}",
+                mode=f"MODE{index}",
+                unit="degC",
+                eng_min=0.0,
+                eng_max=100.0,
+            )
+        )
+    return columns, tags
+
+
+def test_loops_cycling_at_the_same_period_list_each_other():
+    loops = {
+        "slow A": _make_sine_loop_columns(SLOW_PERIOD_S, seed=1),
+        "slow B": _make_sine_loop_columns(SLOW_PERIOD_S, seed=2),
+        "quiet": _make_white_noise_loop_columns(seed=3),
+    }
+    columns, tags = _make_period_recording(loops)
+
+    rows = analyze_dataset(_make_period_time_vector(), columns, tags)
+
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["slow A"]["oscillation_period_s"] is not None
+    assert by_name["slow A"]["same_period_as"] == ["slow B"]
+    assert by_name["slow B"]["same_period_as"] == ["slow A"]
+    assert by_name["quiet"]["same_period_as"] == []
+    assert all(isinstance(row["same_period_as"], list) for row in rows)
+
+
+def test_loops_cycling_at_clearly_different_periods_list_no_peers():
+    loops = {
+        "slow": _make_sine_loop_columns(SLOW_PERIOD_S, seed=1),
+        "other": _make_sine_loop_columns(OTHER_PERIOD_S, seed=2),
+    }
+    columns, tags = _make_period_recording(loops)
+
+    rows = analyze_dataset(_make_period_time_vector(), columns, tags)
+
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["slow"]["oscillation_period_s"] is not None
+    assert by_name["other"]["oscillation_period_s"] is not None
+    assert by_name["slow"]["same_period_as"] == []
+    assert by_name["other"]["same_period_as"] == []
+    assert all(isinstance(row["same_period_as"], list) for row in rows)

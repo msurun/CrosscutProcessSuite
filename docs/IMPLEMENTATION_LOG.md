@@ -597,3 +597,6 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   amplitude is not assessed, and `not_assessed` lists "oscillation_amplitude" (was "oscillation").
 - Delegated: module draft (DeepSeek; four spec bugs fixed by hand, among them second differences instead of
   z[i+2]-z[i]) and tests (DeepSeek + Haiku). Not validated on real loops yet: that is exp19.
+- Overview: `analyze_dataset` adds the row key `same_period_as` (other loops whose period is within 10 %,
+  `health_kpis.group_by_period`), a hint at a shared disturbance source. Tests delegated (Haiku).
+  `kendall_trend` is still not shown: it needs KPI history over several recordings, which the overview has not.

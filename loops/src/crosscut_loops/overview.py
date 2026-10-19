@@ -20,6 +20,7 @@ import numpy as np
 
 from crosscut_loops.example_windows import example_window
 from crosscut_loops.finding_windows import finding_window
+from crosscut_loops.health_kpis import group_by_period
 from crosscut_loops.monitor import (
     DELAY,
     OSCILLATION_LIMITS,
@@ -633,7 +634,25 @@ def analyze_dataset(
         bad loop raises and no rows are returned. The row order follows ``loops``, which
         is what downstream consumers (tables, charts) rely on to line up columns.
     """
-    return [_analyse_one_loop(t_s, columns, loop) for loop in loops]
+    rows = [_analyse_one_loop(t_s, columns, loop) for loop in loops]
+    _add_shared_periods(rows)
+    return rows
+
+
+def _add_shared_periods(rows: list[dict[str, Any]]) -> None:
+    """Give each row "same_period_as": the other loops cycling at the same period (+-10 %).
+
+    Loops that oscillate together often share one disturbance source, so the list points at
+    where to look first; it is a hint, not a proof of a common cause.
+    """
+    periods = {
+        row["name"]: row["oscillation_period_s"]
+        for row in rows
+        if row["oscillation_period_s"] is not None
+    }
+    peers = {name: cluster for cluster in group_by_period(periods) for name in cluster}
+    for row in rows:
+        row["same_period_as"] = [n for n in peers.get(row["name"], []) if n != row["name"]]
 
 
 def _analyse_one_loop(
