@@ -212,3 +212,42 @@ def test_analyze_raises_when_op_and_pv_lengths_differ():
     t_s, op, pv = _record(plan, lambda cmd: _backlash(cmd, 0.0))
     with pytest.raises(ValueError):
         analyze_stroke_test(t_s, op, pv[:-1], plan)
+
+
+def _ramped(op: np.ndarray, samples: int) -> np.ndarray:
+    """Replace every OP step by a linear ramp over `samples` samples (a rate-limited DCS)."""
+    out = op.copy()
+    for k in np.flatnonzero(np.diff(op) != 0.0) + 1:
+        start, stop = float(op[k - 1]), float(op[k])
+        span = min(samples, len(op) - k)
+        out[k : k + span] = start + (stop - start) * np.arange(1, span + 1) / samples
+    return out
+
+
+def test_ramped_steps_still_bracket_the_deadband():
+    """Steps executed as 6-sample ramps (review finding 1) still give the 0.8 % bracket."""
+    plan = _default_plan()
+    t_s, op, _ = _record(plan, lambda o: _backlash(o, 0.8))
+    op = _ramped(op, 6)
+    pv = 50.0 + GAIN * (_backlash(op, 0.8) - plan.op_start)
+    result = analyze_stroke_test(t_s, op, pv, plan)
+    assert result.deadband is not None and abs(result.deadband - 0.8) <= 0.25
+
+
+def test_op_noise_does_not_invent_reversals():
+    """OP noise of std 0.05 % (review finding 2) leaves the healthy-valve estimate small."""
+    plan = _default_plan()
+    t_s, op, _ = _record(plan, lambda o: o)
+    op = op + np.random.default_rng(3).normal(0.0, 0.05, size=len(op))
+    pv = 50.0 + GAIN * (op - plan.op_start)
+    result = analyze_stroke_test(t_s, op, pv, plan)
+    assert result.deadband is not None and result.deadband <= 0.25
+
+
+def test_nan_in_record_is_rejected():
+    """A NaN sample raises ValueError instead of giving a silent wrong answer (finding 4)."""
+    plan = _default_plan()
+    t_s, op, pv = _record(plan, lambda o: o)
+    pv[100] = np.nan
+    with pytest.raises(ValueError):
+        analyze_stroke_test(t_s, op, pv, plan)

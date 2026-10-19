@@ -63,19 +63,27 @@ def _print_plan(plan: StrokePlan) -> None:
 
 def _read_column(rows: list[dict[str, str]], column: str) -> np.ndarray:
     """Return one CSV column as float64; raise ValueError if the column is missing."""
+    if rows and column not in rows[0]:
+        raise ValueError(f"missing column {column!r} in CSV header")
     try:
         return np.array([float(row[column]) for row in rows], dtype=float)
-    except KeyError as exc:
-        raise ValueError(f"missing column {column!r} in CSV header") from exc
+    except (TypeError, ValueError) as exc:  # short row (None) or text in a number cell
+        raise ValueError(f"column {column!r} has an empty or non-numeric cell") from exc
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
-    """Read a comma-separated CSV with a header row into a list of row dicts."""
+    """Read a CSV with a header row; comma, semicolon or tab separated, UTF-8 with or without BOM.
+
+    Spreadsheet exports often carry a byte-order mark and, in many locales, semicolons.
+    """
     try:
-        with path.open(newline="") as handle:
-            return list(csv.DictReader(handle))
-    except OSError as exc:
+        with path.open(newline="", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
         raise ValueError(f"cannot read CSV file {path}: {exc}") from exc
+    header = text.splitlines()[0] if text else ""
+    delimiter = max(",;\t", key=header.count)
+    return list(csv.DictReader(text.splitlines(), delimiter=delimiter))
 
 
 def _load_record(

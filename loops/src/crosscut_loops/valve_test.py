@@ -20,6 +20,8 @@ MOVE_STEP_FRACTION = 0.5       # fraction of |K| * smallest step used in the mov
 RESOLUTION_SHARE = 0.75        # share of steps that must move to certify resolution
 STEADY_FRACTION = 1 / 3        # last third of each segment used for steady values
 MAD_TO_STD = 1.4826            # MAD to standard deviation for Gaussian noise
+MIN_GAP_DWELL_FRACTION = 0.25  # changes closer than this share of a dwell are one operator move
+MIN_GAP_SAMPLES = 3            # floor of that gap, in samples
 
 
 @dataclass(frozen=True)
@@ -253,11 +255,39 @@ def procedure_text(plan: StrokePlan) -> list[str]:
     return [f"{number}. {text}" for number, text in enumerate(texts, start=1)]
 
 
-def _find_change_points(op: np.ndarray, min_step: float) -> np.ndarray:
-    """Return indices where the OP changes by more than CHANGE_FRACTION * min_step."""
-    diff = np.abs(np.diff(op))
-    change_indices = np.where(diff > CHANGE_FRACTION * min_step)[0] + 1
-    return change_indices
+def _find_change_points(op: np.ndarray, min_step: float, min_gap: int) -> np.ndarray:
+    """Indices where the operator moved the OP to a new level (review fix 2026-10-19).
+
+    Three passes, so that ramps and OP noise do not shatter the record:
+    1. level crossings: a point wherever the OP leaves the last level by more than
+       CHANGE_FRACTION * min_step (catches fast steps and slow ramps alike);
+    2. points closer than ``min_gap`` samples to the previous kept one are merged into it
+       (a ramp or a noisy edge becomes one change at its start);
+    3. boundaries whose steady OP did not really change are dropped (noise blips).
+    """
+    threshold = CHANGE_FRACTION * min_step
+    crossings, level = [], float(op[0])
+    for k in range(1, len(op)):
+        if abs(op[k] - level) > threshold:
+            crossings.append(k)
+            level = float(op[k])
+    kept: list[int] = []
+    for k in crossings:
+        if not kept or k - kept[-1] >= min_gap:
+            kept.append(k)
+    return _drop_flat_boundaries(op, kept, threshold)
+
+
+def _drop_flat_boundaries(op: np.ndarray, points: list[int], threshold: float) -> np.ndarray:
+    """Remove boundaries across which the steady OP changes by no more than ``threshold``."""
+    changed = True
+    while changed and points:
+        steady = _segment_steady_pv(op, np.asarray(points, dtype=int))
+        flat = [j for j in range(1, len(steady)) if abs(steady[j] - steady[j - 1]) <= threshold]
+        changed = bool(flat)
+        if changed:
+            del points[flat[0] - 1]  # boundary j - 1 separates segments j - 1 and j
+    return np.asarray(points, dtype=int)
 
 
 def _steady_value(segment: np.ndarray, fraction: float = STEADY_FRACTION) -> float:
@@ -389,7 +419,8 @@ def _estimate_resolution(
         prev_direction = 0
         for move in moves:
             if move.after_reversal or prev_direction == 0:
-                leg_moved = False
+                # A leg starts; a valve that broke free on this very step already moved.
+                leg_moved = move.moved
                 prev_direction = 1 if move.op_change > 0 else -1
                 continue
             if move.size != size:
@@ -427,8 +458,12 @@ def analyze_stroke_test(
         raise ValueError("plan has no steps")
     if len(t_s) != len(op) or len(t_s) != len(pv):
         raise ValueError("t_s, op, and pv must have the same length")
+    if not (np.all(np.isfinite(op)) and np.all(np.isfinite(pv)) and np.all(np.isfinite(t_s))):
+        raise ValueError("t_s, op and pv must be finite (no NaN or gaps in the record)")
     min_step = min(plan.step_sizes)
-    change_points = _find_change_points(op, min_step)
+    dt_s = float(np.median(np.diff(t_s))) if len(t_s) > 1 else 1.0
+    min_gap = max(MIN_GAP_SAMPLES, int(plan.dwell_s * MIN_GAP_DWELL_FRACTION / dt_s))
+    change_points = _find_change_points(op, min_step, min_gap)
     if len(change_points) == 0:
         raise ValueError("no OP changes detected in the record")
 

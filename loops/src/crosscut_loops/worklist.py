@@ -7,6 +7,7 @@ only says what to look at next, and in which order.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -64,7 +65,8 @@ def _action(code: str, params: dict[str, Any]) -> dict[str, Any]:
 
 def _finding_codes(row: Row) -> set[str]:
     """The codes of all findings of one row; an empty set when it has none."""
-    return {str(finding.get("code")) for finding in (row.get("findings") or [])}
+    findings = row.get("findings") or []
+    return {str(f.get("code")) if isinstance(f, dict) else str(f) for f in findings}
 
 
 def _is_manual(row: Row) -> bool:
@@ -95,12 +97,25 @@ def _stiction_doubted(row: Row) -> bool:
 
 def _shared_period_loops(row: Row) -> list[str]:
     """The other loops cycling at the same period as this one, sorted by name."""
-    return sorted(str(name) for name in (row.get("same_period_as") or []))
+    peers = row.get("same_period_as") or []
+    return sorted([peers] if isinstance(peers, str) else [str(name) for name in peers])
 
 
 def _build_manual(row: Row) -> dict[str, Any]:
-    """The share of time the loop ran outside automatic control, as a whole percent."""
-    return _action(ASK_WHY_MANUAL, {PERCENT_PARAM: 100 - int(row.get("service_percent") or 0)})
+    """The share of time the loop ran outside automatic control, as a whole percent.
+
+    An unknown service factor gives None, not "100 % manual" (review finding 7).
+    """
+    service = _number_or_none(row.get("service_percent"))
+    percent = None if service is None else 100 - round(service)
+    return _action(ASK_WHY_MANUAL, {PERCENT_PARAM: percent})
+
+
+def _number_or_none(value: Any) -> float | None:
+    """The value as a float, or None when it is missing, not a number or NaN."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or math.isnan(value):
+        return None
+    return float(value)
 
 
 def _build_measurement(row: Row) -> dict[str, Any]:
@@ -217,7 +232,7 @@ def _urgency(row: Row) -> int:
 
 def _health(row: Row) -> int:
     """Health score used as tie-breaker, or UNKNOWN_HEALTH when it is missing."""
-    health = row.get("health_percent")
+    health = _number_or_none(row.get("health_percent"))
     return UNKNOWN_HEALTH if health is None else int(health)
 
 
