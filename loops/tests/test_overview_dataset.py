@@ -158,6 +158,8 @@ def _expected_report_keys():
         "valve_sizing_hint",
         "not_assessed",
         "sparkline",
+        "next_action",
+        "priority_rank",
     }
 
 

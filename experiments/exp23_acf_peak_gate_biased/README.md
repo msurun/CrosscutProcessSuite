@@ -31,3 +31,10 @@ seeds candidate I below had F pass, S 79.2 %, L 84.7 % against A's 50.6 % / 86.2
 - **Ship rule on test seeds (once, winner and A):** F met, S >= A's S + 10 points, L >= A's L - 2 points.
 - If it ships: the winner's constants become the `AcfConfig` defaults; the loop report says "inconclusive: too few
   cycles in the record" when the reason is "too few ACF zero crossings". Not a claim about real loops.
+
+## RESULT (2026-10-19; dev `results23_dev.md`, test `results23_test.md`)
+
+Development: I, J and M all met F and the L tolerance; J (gate 2.5 sigma) had the highest S and was chosen, with its
+worst negative cell exactly at the 5 % limit. Test, once, J vs A: F **MISS** (AR(0.5) n=1000: 6 %, pooled 0.8 %),
+S 81.9 % vs 50.4 %, L 84.1 % vs 85.5 %. **Ship: no.** A stays. On the same test seeds A itself has 8-9 % in two
+negative cells, so the shipped detector would fail F as well.

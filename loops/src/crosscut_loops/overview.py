@@ -29,6 +29,7 @@ from crosscut_loops.monitor import (
     LoopSettings,
     analyze_loop,
 )
+from crosscut_loops.worklist import add_worklist
 
 logger = logging.getLogger(__name__)
 
@@ -636,6 +637,8 @@ def analyze_dataset(
     """
     rows = [_analyse_one_loop(t_s, columns, loop) for loop in loops]
     _add_shared_periods(rows)
+    # Needs same_period_as, so it runs last: next_action and priority_rank per row.
+    add_worklist(rows)
     return rows
 
 
