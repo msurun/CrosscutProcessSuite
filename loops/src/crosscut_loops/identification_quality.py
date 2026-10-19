@@ -16,10 +16,10 @@ from numpy.typing import ArrayLike
 
 from crosscut_loops.tuning_rules import FopdtModel
 
-MIN_EXCITATION_EVENTS = 2
-MIN_FREE_RUN_R2 = 0.6
-MOVE_NOISE_FACTOR = 5.0
-MOVE_RANGE_FRACTION = 0.02
+MIN_EXCITATION_EVENTS = 2  # fewer distinct input moves leave the gain unidentifiable
+MIN_FREE_RUN_R2 = 0.6  # free-run R2 below this means the model does not reproduce the record
+MOVE_NOISE_FACTOR = 5.0  # a move must exceed this many noise standard deviations of dU
+MOVE_RANGE_FRACTION = 0.02  # ... and this fraction of the input range
 
 # Consistency factor of the median absolute deviation for a normal distribution:
 # sigma = 1.4826 * median(|x - median(x)|). It is robust to the few large dU that
@@ -38,21 +38,23 @@ class FitAssessment:
     reasons: tuple[str, ...]
 
 
-def free_run_r2(model: FopdtModel, u: ArrayLike, y: ArrayLike, dt_s: float) -> float:
+def free_run_r2(
+    model: FopdtModel, controller_output: ArrayLike, process_value: ArrayLike, dt_s: float
+) -> float:
     """Coefficient of determination of an open-loop simulation of `model`.
 
     The simulation feeds back only the simulated output, never the measured y, so a
     wrong gain shows up as a large error instead of being hidden by feedback.
     Args:
         model: fitted first-order-plus-dead-time model.
-        u: input samples (same units as the model gain input).
-        y: measured output samples, one per u sample.
+        controller_output: input samples u, in the units the model gain refers to.
+        process_value: measured output samples y, one per input sample.
         dt_s: sampling period in seconds.
     Returns:
         1 - SSE/SST, or 0.0 when y is constant (SST is zero, so R2 is undefined).
     """
-    u_values = np.asarray(u, dtype=float)
-    y_values = np.asarray(y, dtype=float)
+    u_values = np.asarray(controller_output, dtype=float)
+    y_values = np.asarray(process_value, dtype=float)
 
     y_sim = _simulate_open_loop(model, u_values, y_values, dt_s)
 
@@ -69,9 +71,9 @@ def _simulate_open_loop(
 ) -> np.ndarray:
     """Return y_sim, the model output driven only by u (no correction from y).
 
-    Discretised at the sample rate: a = exp(-dt_s/tau) is the fraction kept after one
-    step, delay_d = round(delay_s/dt_s) is the dead time in samples, u0 = u[0] is the
-    steady state the response is measured from, and y[0] anchors the absolute level.
+    Discretised at the sample rate: decay = exp(-dt_s/tau) is the fraction kept after one
+    step, delay_samples = round(delay_s/dt_s) is the dead time in samples, u[0] is the
+    input the response is measured from, and y[0] anchors the absolute level.
     """
     decay = exp(-dt_s / model.time_constant_s)
     delay_samples = round(model.delay_s / dt_s)
@@ -86,14 +88,14 @@ def _simulate_open_loop(
     return np.asarray(y_sim + y_values[0], dtype=float)
 
 
-def count_excitation_events(u: ArrayLike) -> int:
+def count_excitation_events(controller_output: ArrayLike) -> int:
     """Number of distinct input moves large enough to identify a gain.
 
     A move sample is a |dU| above both a noise floor and a fraction of the input range.
     Adjacent move samples are one event (a ramp counts once, not once per sample).
     Returns 0 both when the signal is flat and when no sample clears the threshold.
     """
-    u_values = np.asarray(u, dtype=float)
+    u_values = np.asarray(controller_output, dtype=float)
     increments = np.diff(u_values)
 
     threshold = _move_threshold(u_values, increments)
@@ -121,7 +123,9 @@ def _move_threshold(u_values: np.ndarray, increments: np.ndarray) -> float:
     return max(MOVE_NOISE_FACTOR * float(noise_sd), float(range_floor))
 
 
-def assess_fit(model: FopdtModel, u: ArrayLike, y: ArrayLike, dt_s: float) -> FitAssessment:
+def assess_fit(
+    model: FopdtModel, controller_output: ArrayLike, process_value: ArrayLike, dt_s: float
+) -> FitAssessment:
     """Decide whether a FOPDT fit is trustworthy and explain every failure.
 
     Fails on too few input moves (the gain is then unidentifiable) or on a free-run R2
@@ -129,8 +133,8 @@ def assess_fit(model: FopdtModel, u: ArrayLike, y: ArrayLike, dt_s: float) -> Fi
     Returns:
         A FitAssessment; `reasons` is empty when the fit passes both criteria.
     """
-    r2 = free_run_r2(model, u, y, dt_s)
-    events = count_excitation_events(u)
+    r2 = free_run_r2(model, controller_output, process_value, dt_s)
+    events = count_excitation_events(controller_output)
 
     reasons: list[str] = []
     if events < MIN_EXCITATION_EVENTS:
@@ -146,14 +150,14 @@ def assess_fit(model: FopdtModel, u: ArrayLike, y: ArrayLike, dt_s: float) -> Fi
     )
 
 
-def pv_noise_sd(y: ArrayLike) -> float:
-    """Estimate the standard deviation of white measurement noise on ``y``.
+def pv_noise_sd(process_value: ArrayLike) -> float:
+    """Estimate the standard deviation of white measurement noise on ``process_value``.
 
     Differencing removes the slow process movement, so what is left is mostly noise; for
     white noise var(dy) = 2 var(noise), hence the division by sqrt(2). The MAD ignores
     the few large differences at real process moves.
     """
-    increments = np.diff(np.asarray(y, dtype=float))
+    increments = np.diff(np.asarray(process_value, dtype=float))
     if increments.size == 0:
         return 0.0
     spread = MAD_TO_SIGMA * np.median(np.abs(increments - np.median(increments)))

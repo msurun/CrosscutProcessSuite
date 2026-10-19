@@ -40,11 +40,11 @@ DEFAULT_SETTLE_FRACTION = 0.05
 # deviation estimate for normally distributed data.
 MAD_TO_STD_FACTOR = 1.4826
 
-# A moving average of two adjacent differences has variance 2 * sigma^2; the
-# square root converts its standard deviation back to the per-sample sigma.
+# For white noise with standard deviation sigma, the difference of two adjacent samples
+# has variance 2 * sigma^2; dividing its spread by sqrt(2) recovers sigma.
 DIFF_VARIANCE_FACTOR = np.sqrt(2.0)
 
-# Setpoint moves closer than this many samples belong to the same step event.
+# Setpoint moves at most this many samples apart belong to the same step event.
 MERGE_DISTANCE_SAMPLES = 5
 
 # Maximum fraction of NaN samples in the inputs that we are willing to
@@ -105,7 +105,7 @@ class WindowSettings:
 
 @dataclass(frozen=True)
 class _StepEvent:
-    """An internal setpoint step: where it starts and how big it is."""
+    """An internal setpoint step: first sample after the move, and its total signed size."""
 
     index: int
     step_size: float
@@ -225,10 +225,8 @@ def _build_window(
     """Build the candidate window for one setpoint step event."""
     start = max(0, event.index - settings.pre_samples)
     new_setpoint = float(sp[event.index])
-    settled_at = _first_settled_index(
-        pv, event.index, new_setpoint, event.step_size, settings.settle_fraction
-    )
-    stop = _window_stop(event.index, start, settled_at, pv.size, settings)
+    settled_at = _first_settled_index(pv, event, new_setpoint, settings.settle_fraction)
+    stop = _window_stop(event, settled_at, (start, pv.size), settings)
     return ExcitationWindow(
         start=int(start),
         stop=int(stop),
@@ -245,16 +243,17 @@ def _settle_band(step_size: float, settle_fraction: float) -> float:
 
 def _first_settled_index(
     pv: np.ndarray,
-    step_index: int,
+    event: _StepEvent,
     new_setpoint: float,
-    step_size: float,
     settle_fraction: float,
 ) -> int | None:
-    """Return the first index where PV enters the settle band and stays.
+    """Return the first index where PV enters the settle band and stays there.
 
-    Returns ``None`` if the PV never settles after ``step_index``.
+    "Stays" means SETTLE_CONSECUTIVE_SAMPLES consecutive samples inside the band around
+    ``new_setpoint``. Returns ``None`` if the PV never settles after ``event.index``.
     """
-    band = _settle_band(step_size, settle_fraction)
+    step_index = event.index
+    band = _settle_band(event.step_size, settle_fraction)
     inside = np.abs(pv[step_index:] - new_setpoint) <= band
     run_ends = _run_lengths(inside) >= SETTLE_CONSECUTIVE_SAMPLES
     first_run_end = np.argmax(run_ends)
@@ -274,16 +273,16 @@ def _run_lengths(mask: np.ndarray) -> np.ndarray:
 
 
 def _window_stop(
-    step_index: int,
-    start: int,
+    event: _StepEvent,
     settled_at: int | None,
-    record_end: int,
+    start_and_record_end: tuple[int, int],
     settings: WindowSettings,
 ) -> int:
     """Earliest of: settled+padded, start+max, or record end."""
+    start, record_end = start_and_record_end
     candidates = [start + settings.max_samples, record_end]
     if settled_at is not None:
-        elapsed = settled_at - step_index
+        elapsed = settled_at - event.index
         tail = int(round(SETTLE_TAIL_FRACTION * elapsed))
         candidates.append(settled_at + tail)
     return min(candidates)

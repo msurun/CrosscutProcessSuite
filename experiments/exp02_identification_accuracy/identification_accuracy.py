@@ -170,8 +170,8 @@ def _fit_trace(trace: SimulationTrace) -> tuple[str, FopdtModel | None]:
     mask, _ = extracted
     try:
         model = identify_fopdt(
-            u=trace.out[mask],
-            y=trace.pv[mask],
+            controller_output=trace.out[mask],
+            process_value=trace.pv[mask],
             dt_s=trace.dt_s,
             max_delay_s=MAX_DELAY_S,
         )
@@ -223,8 +223,8 @@ def compute_reference(loop: str) -> ReferenceMetrics:
         raise RuntimeError(f"Noise-free reference run for loop {loop} produced no step window")
     mask, _ = extracted
     model = identify_fopdt(
-        u=trace.out[mask],
-        y=trace.pv[mask],
+        controller_output=trace.out[mask],
+        process_value=trace.pv[mask],
         dt_s=trace.dt_s,
         max_delay_s=MAX_DELAY_S,
     )

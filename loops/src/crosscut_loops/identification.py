@@ -38,13 +38,14 @@ MIN_SAMPLES = 50
 # Columns of the regression matrix y[k+1] ~ a*y[k] + b*u[k-d] + c.
 _REGRESSION_COLUMNS = 3
 
-# A delay is only considered free of correlation between input and output when
-# the input explains a decent share of the output. On pure white noise the best
-# delay usually shows a higher correlation, so this floor rejects such fits.
+# Minimum one-step-ahead R^2, 1 - MSE/var(y): the share of the output variance
+# that a fitted delay must explain. Fits below it are mostly noise and are rejected.
 MIN_FIT_QUALITY = 0.3
 
 
-def identify_fopdt(u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float) -> FopdtModel:
+def identify_fopdt(
+    controller_output: np.ndarray, process_value: np.ndarray, dt_s: float, max_delay_s: float
+) -> FopdtModel:
     """Identify a FOPDT model from input/output data by least squares.
 
     The model is "First Order Plus Dead Time": the output reacts to the input
@@ -60,8 +61,8 @@ def identify_fopdt(u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float
     candidate with the best fit wins.
 
     Args:
-        u: Input samples, one per sampling instant.
-        y: Output samples, the same length as ``u``.
+        controller_output: Input samples (u), one per sampling instant.
+        process_value: Output samples (y), the same length as ``controller_output``.
         dt_s: Sampling period in seconds, positive.
         max_delay_s: Largest dead time to scan, in seconds, positive.
 
@@ -72,12 +73,12 @@ def identify_fopdt(u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float
         ValueError: If the signals are malformed, the sampling arguments are
             invalid, or no candidate delay yields a physically meaningful model.
     """
-    _validate_inputs(u, y, dt_s, max_delay_s)
+    _validate_inputs(controller_output, process_value, dt_s, max_delay_s)
     # Delays are only tested at whole sampling instants, so convert the bound
     # from seconds to a sample count. Example: 1.0 s bound at dt_s = 0.1 s
     # gives 10 samples, i.e. candidates 0..10.
     max_delay_samples = int(round(max_delay_s / dt_s))
-    best = _fit_best_delay(u, y, dt_s, max_delay_samples)
+    best = _fit_best_delay(controller_output, process_value, dt_s, max_delay_samples)
     return best[0]
 
 
@@ -100,7 +101,7 @@ def _validate_inputs(
         Measured plant output, shape (n_samples,), aligned sample-by-sample with
         ``controller_output``.
     dt_s:
-        Sampling period in seconds (SIMULATION/REAL time, not index units).
+        Sampling period in seconds (physical time, not a sample index).
     max_delay_s:
         Largest transport delay to search for, in seconds; may be 0.
 
@@ -117,10 +118,10 @@ def _validate_inputs(
 def _check_signals(controller_output: np.ndarray, process_value: np.ndarray) -> None:
     """Raise ValueError if the input and output arrays cannot be fitted.
 
-    "u" is the controller output signal, "y" is the measured process value.
-    Both are samples of a single-input, single-output (SISO) system, taken at
-    the same instants: sample i of u drove the process when sample i of y was
-    recorded, so the two arrays must line up index by index.
+    ``controller_output`` (u) and ``process_value`` (y) are samples of a
+    single-input, single-output (SISO) system, taken at the same instants:
+    sample i of u drove the process when sample i of y was recorded, so the
+    two arrays must line up index by index.
 
     A model is fitted to this pair, so anything that would make the fit
     meaningless (different lengths, a multi-loop shape, too few samples,
@@ -174,7 +175,7 @@ def _fit_best_delay(
     dt_s: float,
     max_delay_samples: int,
 ) -> tuple[FopdtModel, float]:
-    """Return the best-fitting model and its normalised error over all delays.
+    """Return the best-fitting model and its mean squared residual over all delays.
 
     A FOPDT (First-Order Plus Dead Time) model describes a process that reacts with
     a first-order lag and a pure transport delay. Its parameters are fitted for
@@ -188,7 +189,8 @@ def _fit_best_delay(
         max_delay_samples: Largest dead time to try, in NUMBER OF SAMPLES (0 .. this value).
 
     Returns:
-        The best model and the normalised error of that fit; lower error is better.
+        The best model and the mean squared one-step residual of that fit (PV units
+        squared); lower is better.
 
     Raises:
         ValueError: If y never changes (nothing to identify), or if no delay
@@ -214,7 +216,7 @@ def _model_for_delay(
     dt_s: float,
     delay_samples: int,
 ) -> tuple[FopdtModel, float] | None:
-    """Return (model, normalised_error) for one delay, or None if it is rejected.
+    """Return (model, mean_squared_error) for one delay, or None if it is rejected.
 
     This is the candidate-scoring step of a system identification search: for a
     single assumed transport delay, fit a discrete model and reject it when the
@@ -228,15 +230,14 @@ def _model_for_delay(
 
     Returns:
         (model, per_sample_error) when the fit passes the quality gate, else None.
-        per_sample_error is the residual sum-of-squares, in PV units squared.
+        per_sample_error is the mean squared one-step residual, in PV units squared.
     """
     fitted = _fit_one_delay(controller_output, process_value, delay_samples)
     if fitted is None:
         return None
 
-    # The discrete ARX model y[k+1] = a*y[k] + b*u[k-d] + c is fitted
-    # with three coefficients, but only a and b matter here; the constant
-    # c absorbs any offset between u and y.
+    # The discrete ARX model y[k+1] = a*y[k] + b*u[k-d] + c is fitted with three
+    # coefficients; only a and b are kept, the constant c absorbs the operating-point offset.
     discrete_a, discrete_b, per_sample_error = fitted
 
     # R^2 = 1 - MSE/VAR: how much of the PV's variance the model explains.
@@ -249,8 +250,8 @@ def _model_for_delay(
     if 1.0 - per_sample_error / output_variance < MIN_FIT_QUALITY:
         return None
 
-    # Convert the dimensionless discrete a, b into the physical gain, time
-    # constant and dead time of the FOPDT model, using the sampling interval.
+    # Convert the discrete a (dimensionless) and b (output units per input unit) into the
+    # gain, time constant and dead time of the FOPDT model, using the sampling interval.
     model = _to_fopdt(discrete_a, discrete_b, dt_s, delay_samples)
 
     # _to_fopdt returns None when the discrete coefficients are not physically
@@ -266,17 +267,16 @@ def _fit_one_delay(
     process_value: np.ndarray,
     delay_samples: int,
 ) -> tuple[float, float, float] | None:
-    """Return (a, b, normalised_error) for one delay, or None if rows are too few.
+    """Return (a, b, mean_squared_error) for one delay, or None if rows are too few.
 
-    Fits a first-order model of the process at the given transport delay:
-    the process value is predicted as a linear combination of two regressors.
-    Least squares minimises the mean squared residual (the normalised error).
+    Fits the first-order ARX model at the given transport delay: the next process
+    value is predicted from the present one, the delayed input and a constant.
+    Least squares minimises the mean squared one-step residual.
     """
     # Build the design matrix (each row a sample, columns the regressors) and the
     # target vector (the value to predict). The regressors depend on delay_samples.
     regression, target = _build_regression(controller_output, process_value, delay_samples)
-    # Need at least one row per arithmetic operator and column; fewer observations
-    # than parameters makes the fit under-determined, so refuse to guess a result.
+    # Fewer rows than the three coefficients (a, b, c) leave the fit under-determined.
     if regression.shape[0] < _REGRESSION_COLUMNS:
         return None
     # Solve the ordinary least-squares problem: find coefficients minimising
@@ -333,7 +333,7 @@ def _build_regression(
     delayed_input = controller_output[indices - delay_samples]
     # Ones column: the constant term c of the affine model (intercept).
     ones = np.ones_like(current_output)
-    # Stack columns in [y[k], u[k-delay], 1] order as required by the solver.
+    # Column order matches the parameter vector [a, b, c].
     regression = np.column_stack((current_output, delayed_input, ones))
     # One-step-ahead target y[k+1], shifted forward one sample.
     target = process_value[indices + 1]
@@ -382,6 +382,5 @@ def _to_fopdt(
     # so the FOPDT model has a strictly positive delay_s.
     delay_s = max(delay_samples, 1) * dt_s
 
-    # Return plain Python floats because FopdtModel expects them; numpy
-    # scalars would be valid but less predictable for the caller.
+    # np.log returns a numpy scalar; FopdtModel stores plain floats.
     return FopdtModel(gain=gain, time_constant_s=float(time_constant_s), delay_s=float(delay_s))

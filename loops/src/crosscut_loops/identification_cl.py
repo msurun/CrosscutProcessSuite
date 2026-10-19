@@ -13,8 +13,9 @@ Method
 Two-stage least squares, also called instrumental variables. The setpoint y_sp
 is exogenous: the operator sets it by hand, so it is independent of the
 disturbance. We therefore use past setpoint samples y_sp[k-j] as instruments Z
-for the regressors X = [y[k], u[k-d]]. The first stage projects X on Z
-(X_hat = Z @ lstsq(Z, X)); the second stage regresses y[k+1] on [X_hat, 1].
+for the regressors X = [y[k], u[k-d]] (Z also holds a constant column). The first
+stage projects X and the target t = y[k+1] on Z (X_hat = Z @ lstsq(Z, X), same for
+t_hat); the second stage regresses t_hat on [X_hat, 1].
 The projection keeps only the part of u that the setpoint explains, which
 removes the disturbance correlation and the bias.
 
@@ -52,15 +53,12 @@ from crosscut_loops.tuning_rules import FopdtModel
 # setpoint change, so the recent history carries the useful information.
 INSTRUMENT_LAGS = 40
 
-# Columns of the second-stage regression matrix y[k+1] ~ a*y[k] + b*u[k-d] + c.
-_REGRESSION_COLUMNS = 3
-
 # A setpoint is considered excited when its spread is at least this fraction of
 # the output spread. Below it the instrument set carries no usable signal.
 MIN_SETPOINT_STD_FRACTION = 1e-3
 
-# Each first-stage row needs one observation per instrument. Requiring three
-# times as many rows as instruments keeps the projection well conditioned.
+# The first stage fits INSTRUMENT_LAGS + 1 coefficients per column. Requiring three
+# times as many rows as coefficients keeps the projection well conditioned.
 MIN_ROWS_PER_INSTRUMENT = 3
 
 _NO_MODEL_MESSAGE = "no physically meaningful closed-loop model found"
@@ -71,8 +69,8 @@ _FLAT_SETPOINT_MESSAGE = (
 
 # codecheck: allow too-many-parameters (public signature used by callers and tests)
 def identify_fopdt_closed_loop(
-    u: np.ndarray,
-    y: np.ndarray,
+    controller_output: np.ndarray,
+    process_value: np.ndarray,
     sp: np.ndarray,
     dt_s: float,
     max_delay_s: float,
@@ -88,12 +86,13 @@ def identify_fopdt_closed_loop(
     The dead time is scanned over whole sampling periods. For each candidate the
     coefficients are found by two-stage least squares, using past setpoint
     samples as instruments, because in AUTO the input is correlated with the
-    disturbance. The candidate with the smallest residual variance wins.
+    disturbance. The candidate with the smallest mean squared residual of the projected
+    regression wins.
 
     Args:
-        u: Controller output samples (the input to the plant), one per instant.
-        y: Measured process value samples, the same length as ``u``.
-        sp: Setpoint samples, the same length as ``u``; must have moved.
+        controller_output: Controller output samples (plant input u), one per instant.
+        process_value: Measured process value samples (y), same length as ``controller_output``.
+        sp: Setpoint samples, the same length as ``controller_output``; must have moved.
         dt_s: Sampling period in seconds, positive.
         max_delay_s: Largest dead time to scan, in seconds, positive.
 
@@ -104,14 +103,17 @@ def identify_fopdt_closed_loop(
         ValueError: If the signals are malformed, the setpoint is flat, or no
             candidate delay yields a physically meaningful model.
     """
-    u, y, sp = (np.asarray(signal, dtype=float) for signal in (u, y, sp))
-    _validate_inputs(u, y, dt_s, max_delay_s)
-    _validate_setpoint(sp, u, y)
+    controller_output, process_value, sp = (
+        np.asarray(signal, dtype=float) for signal in (controller_output, process_value, sp)
+    )
+    _validate_inputs(controller_output, process_value, dt_s, max_delay_s)
+    _validate_setpoint(sp, controller_output, process_value)
     # Delays are only tested at whole sampling instants, so convert the bound
     # from seconds to a sample count: 1.0 s at dt_s = 0.1 s gives 10 samples.
     max_delay_samples = int(round(max_delay_s / dt_s))
-    _require_long_enough(len(y), max_delay_samples)
-    return _fit_best_delay_closed_loop((u, y, sp), dt_s, max_delay_samples)
+    _require_long_enough(len(process_value), max_delay_samples)
+    signals = (controller_output, process_value, sp)
+    return _fit_best_delay_closed_loop(signals, dt_s, max_delay_samples)
 
 
 def _require_long_enough(n_samples: int, max_delay_samples: int) -> None:
@@ -120,9 +122,7 @@ def _require_long_enough(n_samples: int, max_delay_samples: int) -> None:
     All delays share the rows that exist for the largest one, and the first stage needs several
     rows per instrument; a shorter record would end in the misleading 'no model found'.
     """
-    needed = (
-        max_delay_samples + INSTRUMENT_LAGS + MIN_ROWS_PER_INSTRUMENT * (INSTRUMENT_LAGS + 1)
-    )
+    needed = max_delay_samples + INSTRUMENT_LAGS + MIN_ROWS_PER_INSTRUMENT * (INSTRUMENT_LAGS + 1)
     if n_samples < needed:
         raise ValueError(
             f"the record has {n_samples} samples but {needed} are needed for max_delay_s and "
@@ -130,33 +130,35 @@ def _require_long_enough(n_samples: int, max_delay_samples: int) -> None:
         )
 
 
-def _validate_setpoint(sp: np.ndarray, u: np.ndarray, y: np.ndarray) -> None:
+def _validate_setpoint(
+    sp: np.ndarray, controller_output: np.ndarray, process_value: np.ndarray
+) -> None:
     """Raise ValueError if the setpoint is unusable as an instrument source.
 
     Two failure modes are checked: a setpoint that does not line up with the
     other signals (wrong length or non-finite values) and a setpoint that never
-    moved. A flat setpoint is independent of nothing, so the instruments would
-    be constant and the projected regressors would collapse.
+    moved. A flat setpoint gives constant instruments, so the projected regressors
+    would collapse onto the constant column.
 
     Raises:
         ValueError: If the setpoint length or values are bad, or it never moved.
     """
     setpoint = np.asarray(sp, dtype=float)
-    if setpoint.shape != u.shape:
+    if setpoint.shape != controller_output.shape:
         raise ValueError(f"sp must have the same shape as u and y, got {setpoint.shape}")
     if not np.all(np.isfinite(setpoint)):
         raise ValueError("sp must contain only finite values (no NaN or inf)")
-    _check_setpoint_moved(setpoint, y)
+    _check_setpoint_moved(setpoint, process_value)
 
 
-def _check_setpoint_moved(setpoint: np.ndarray, y: np.ndarray) -> None:
+def _check_setpoint_moved(setpoint: np.ndarray, process_value: np.ndarray) -> None:
     """Raise ValueError if the setpoint carries no excitation to use as instrument.
 
     A setpoint that never moves gives constant instruments; a very small
     movement relative to the output spread is indistinguishable from noise in
     the data, so it is rejected too.
     """
-    output_spread = float(np.std(np.asarray(y, dtype=float)))
+    output_spread = float(np.std(np.asarray(process_value, dtype=float)))
     setpoint_spread = float(np.std(setpoint))
     if np.ptp(setpoint) == 0 or setpoint_spread < MIN_SETPOINT_STD_FRACTION * output_spread:
         raise ValueError(_FLAT_SETPOINT_MESSAGE)
@@ -174,7 +176,7 @@ def _fit_best_delay_closed_loop(
     scores could not be compared.
 
     Args:
-        signals: The arrays (u, y, sp): controller output, process value, setpoint, equal length.
+        signals: The arrays (controller_output, process_value, sp), equal length.
         dt_s: Sampling period in seconds.
         max_delay_samples: Largest dead time to try, in number of samples.
 
@@ -184,27 +186,36 @@ def _fit_best_delay_closed_loop(
     Raises:
         ValueError: If no delay produced a physically meaningful model.
     """
-    u, y, sp = signals
     first_row = max_delay_samples + INSTRUMENT_LAGS - 1
     best_model: FopdtModel | None = None
     best_score = np.inf
     for delay_samples in range(max_delay_samples + 1):
-        candidate = _fit_one_delay_iv(u, y, sp, (delay_samples, first_row))
-        if candidate is None:
-            continue
-        coefficients, score = candidate
-        model = _to_fopdt(coefficients[0], coefficients[1], dt_s, delay_samples)
-        if model is not None and score < best_score:
-            best_score = score
-            best_model = model
+        scored = _scored_model(signals, dt_s, (delay_samples, first_row))
+        if scored is not None and scored[1] < best_score:
+            best_model, best_score = scored
     if best_model is None:
         raise ValueError(_NO_MODEL_MESSAGE)
     return best_model
 
 
+def _scored_model(
+    signals: tuple[np.ndarray, np.ndarray, np.ndarray],
+    dt_s: float,
+    delay_and_first_row: tuple[int, int],
+) -> tuple[FopdtModel, float] | None:
+    """Return (model, score) for one delay, or None if the fit or the conversion fails."""
+    controller_output, process_value, sp = signals
+    candidate = _fit_one_delay_iv(controller_output, process_value, sp, delay_and_first_row)
+    if candidate is None:
+        return None
+    coefficients, score = candidate
+    model = _to_fopdt(coefficients[0], coefficients[1], dt_s, delay_and_first_row[0])
+    return None if model is None else (model, score)
+
+
 def _fit_one_delay_iv(
-    u: np.ndarray,
-    y: np.ndarray,
+    controller_output: np.ndarray,
+    process_value: np.ndarray,
     sp: np.ndarray,
     delay_and_first_row: tuple[int, int],
 ) -> tuple[np.ndarray, float] | None:
@@ -218,7 +229,7 @@ def _fit_one_delay_iv(
         None if the delay leaves too few rows.
     """
     delay_samples, first_row = delay_and_first_row
-    rows = _build_rows_iv(u, y, sp, (delay_samples, first_row))
+    rows = _build_rows_iv(controller_output, process_value, sp, (delay_samples, first_row))
     if rows is None:
         return None
     regressors, target, instruments = rows
@@ -226,16 +237,17 @@ def _fit_one_delay_iv(
 
 
 def _build_rows_iv(
-    u: np.ndarray,
-    y: np.ndarray,
+    controller_output: np.ndarray,
+    process_value: np.ndarray,
     sp: np.ndarray,
     delay_and_first_row: tuple[int, int],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Build (regressors, target, instruments) for the rows ``first_row`` .. n-2.
 
-    ``first_row`` must be at least ``delay + INSTRUMENT_LAGS - 1`` so that every past setpoint
-    sample sp[k-j] for j in 0..INSTRUMENT_LAGS-1 and every u[k-delay] still exists; the last row is
-    n-2 because the target y[k+1] must exist.
+    ``first_row`` must be at least ``delay + INSTRUMENT_LAGS - 1``, otherwise None is returned.
+    Callers pass the value for the largest delay so all delays use the same rows; it also
+    guarantees that every sp[k-j] for j in 0..INSTRUMENT_LAGS-1 and every u[k-delay] exists.
+    The last row is n-2 because the target y[k+1] must exist.
 
     Returns:
         regressors: shape (n_rows, 2), each row [y[k], u[k-delay]].
@@ -245,28 +257,28 @@ def _build_rows_iv(
         None when fewer than the required number of rows can be formed.
     """
     delay_samples, first_row = delay_and_first_row
-    if first_row > len(y) - 2 or first_row < delay_samples + INSTRUMENT_LAGS - 1:
+    if first_row > len(process_value) - 2 or first_row < delay_samples + INSTRUMENT_LAGS - 1:
         return None
-    indices = np.arange(first_row, len(y) - 1)
-    # Each row consumes INSTRUMENT_LAGS + 1 unknowns in the first stage, so
-    # demand several rows per unknown to keep the projection conditioned.
+    indices = np.arange(first_row, len(process_value) - 1)
+    # The first stage fits INSTRUMENT_LAGS + 1 coefficients per column; demand several
+    # rows per coefficient to keep the projection conditioned.
     if indices.size < MIN_ROWS_PER_INSTRUMENT * (INSTRUMENT_LAGS + 1):
         return None
     return (
-        _build_regressors(u, y, indices, delay_samples),
-        y[indices + 1],
+        _build_regressors(controller_output, process_value, indices, delay_samples),
+        process_value[indices + 1],
         _build_instruments(sp, indices),
     )
 
 
 def _build_regressors(
-    u: np.ndarray,
-    y: np.ndarray,
+    controller_output: np.ndarray,
+    process_value: np.ndarray,
     indices: np.ndarray,
     delay_samples: int,
 ) -> np.ndarray:
     """Stack the two regressors [y[k], u[k-delay]] into a (n_rows, 2) matrix."""
-    return np.column_stack((y[indices], u[indices - delay_samples]))
+    return np.column_stack((process_value[indices], controller_output[indices - delay_samples]))
 
 
 def _build_instruments(sp: np.ndarray, indices: np.ndarray) -> np.ndarray:
@@ -291,7 +303,7 @@ def _two_stage_fit(
 
     The score is the mean squared residual of THAT regression (the setpoint-explained part of
     the output against the setpoint-explained part of the model). Scoring on the raw output
-    instead let long delays win (delay error of about 14 samples in exp07, seeds 1-20): the
+    instead let long delays win (median delay error +14 samples in exp07, seeds 1-20): the
     disturbance dominates the raw residual and hides the delay, while the projected residual
     does not contain it.
     """
