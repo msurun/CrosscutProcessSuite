@@ -616,3 +616,30 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - The shipped detector itself misses F: 11 % false alarms on AR(1) phi 0.5 noise (n = 3000), and detects 51 % of
   positive cells with >= 5 cycles. Its "oscillating" finding is not reliable on fast noise. Details and the table
   in `experiments/exp20_acf_short_records/README.md`.
+## Night session 2026-10-19: ACF line closed, worklist, valve stroke test, idle index stopped
+
+- **ACF oscillation detector, exp21/exp23/exp24 (all frozen before running):** a peak gate (the first ACF lobe after
+  lag 0 must exceed 3 sigma of the estimation noise) removes most fast-noise false alarms and adds about 30 points of
+  sensitivity on 5-10-cycle records. Three rounds, none shipped: G (unbiased ACF) lost 4.3 points on long records;
+  J (2.5 sigma) missed F by one cell (6/100); the confirmation of I (exp24, 400 negative seeds per cell, rule from an
+  Opus advisor) passed F, S and per-cell checks and missed L by 2 runs of 3600. As announced, the ACF-variant line is
+  closed; the shipped detector A stays. A fails its own F target on every seed set (up to 36/400 on AR(0.5)
+  n=3000); the ACF "oscillating" finding now says so and asks to confirm the cycle on the trend. `AcfConfig` keeps
+  the variants (`BAND_BARTLETT_LAG`, `peak_z`) for later work; defaults unchanged.
+- **Idle index (exp22): stopped before the dev run.** Hagglund's sign statistic did not separate sluggish from
+  well-tuned simulated PI loops in design exploration (best variant 46 % sensitivity). A spec bug (gain-sign estimate
+  biased by noise through the proportional term) was found on a smoke seed and fixed with a midpoint error. Draft,
+  generator (Sonnet) and harness stay in `experiments/exp22_idle_index`; nothing in the package.
+- **Worklist** (`worklist.py`, wired into `analyze_dataset`): each overview row gets `next_action` (code + params:
+  ask_why_manual, check_measurement, check_output_limit, valve_test, find_common_source, test_cycle_cause,
+  check_output_resolution, bump_test_and_retune, review_valve_sizing, configure_knowledge, none) and `priority_rank`
+  (problem, warning, other action, configure, none; then lower health first). An ordering rule, NOT validated: the
+  blind review by a control engineer (HANDOFF step 3) is what would validate it. Frontend not updated (no Node).
+- **Guided valve stroke test** (`valve_test.py`, `valve_test_cli.py`, exp25): plan (1 % then 0.25 % steps, up-down-up
+  legs, dwell >= 4 (tau + theta)), operator procedure text (abort rule first, back to AUTO at the end), analysis of a
+  recorded test: deadband as a bracket (T - s, T] of output travel after a reversal until PV visibly moves,
+  resolution as an upper bound, abort flag. exp25 on a simulator written by Sonnet from the definitions: V1 deadband
+  within 0.25 % in 100 %, V2 healthy valve 100 %, V3 abort 100 %; with load steps or high noise 88-91 %. No real test
+  record yet. CLI: `python -m crosscut_loops.valve_test_cli plan --op-start 50 --dwell-s 60` and
+  `... analyze record.csv --op-start 50 --dwell-s 60` (columns t_s, op, pv).
+- CI: one lint failure (my unchecked commit), fixed in 5e43ff1. Full gates green afterwards.
