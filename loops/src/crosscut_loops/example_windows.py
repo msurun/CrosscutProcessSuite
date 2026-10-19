@@ -58,8 +58,8 @@ def _window_error_sums(errors: np.ndarray, length: int) -> np.ndarray:
     """Return the sum of `errors` over every window of `length` samples.
 
     A cumulative sum lets us get all window sums in one pass instead of
-    re-adding each window: window starting at `i` sums to cs[i+length] - cs[i],
-    with cs padded by a leading zero so the first window works too.
+    re-adding each window: the window starting at `i` sums to cumulative[i+length] - cumulative[i],
+    with `cumulative` padded by a leading zero so the first window works too.
     """
     cumulative = np.concatenate(([0.0], np.cumsum(errors)))
     return cumulative[length:] - cumulative[:-length]

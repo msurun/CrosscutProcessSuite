@@ -41,19 +41,20 @@ class StepPreview:
     out: np.ndarray
 
 
-def simulate_fopdt(model: FopdtModel, u: np.ndarray, dt_s: float, y0: float) -> np.ndarray:
-    """PV that the model predicts for the input ``u``, starting at rest at ``y0``.
+def simulate_fopdt(model: FopdtModel, out: np.ndarray, dt_s: float, y0: float) -> np.ndarray:
+    """PV that the model predicts for the input ``out``, starting at rest at ``y0``.
 
-    Deviation form: the input before the window is taken as ``u[0]``, so the model only has to
+    Deviation form: the input before the window is taken as ``out[0]``, so the model only has to
     explain the movement inside the window (the identification fits a constant offset as well).
 
     The model is a FOPDT (first-order plus dead time): one capacity that reacts to the input
     through a pure transport delay. Its three parameters are the gain (output change per unit of
     input change at steady state), the time constant (how fast the output moves, in seconds) and
     the delay (dead time, in seconds). The recursion below is the exact discrete solution of
-    ``tau * dy/dt + y = K * u(t - theta)`` sampled at ``dt_s``, not an approximation.
+    ``tau * dy/dt + y = K * out(t - theta)`` (y is the PV) sampled at ``dt_s``, not an
+    approximation.
 
-    Returns one predicted value per sample of ``u`` (same length).
+    Returns one predicted value per sample of ``out`` (same length).
     """
     # Per-sample retention factor: the fraction of the previous deviation still visible after one
     # step. Exact for a first-order lag: exp(-dt_s / tau), dimensionless, in (0, 1).
@@ -63,17 +64,17 @@ def simulate_fopdt(model: FopdtModel, u: np.ndarray, dt_s: float, y0: float) -> 
     # than floor() because a delay between two samples is best represented by the nearest one.
     delay = int(round(model.delay_s / dt_s))
 
-    # Deviation (y - y0) over time, filled in place. deviation[k] and u[k] refer to the same
-    # instant: both series are aligned sample by sample.
-    deviation = np.zeros(len(u))
-    for k in range(len(u) - 1):
+    # Deviation (y - y0, y being the PV) over time, filled in place. deviation[k] and out[k]
+    # refer to the same instant: both series are aligned sample by sample.
+    deviation = np.zeros(len(out))
+    for k in range(len(out) - 1):
         # Input seen by the plant at step k, i.e. the value delay samples ago. Before the window
-        # starts there is no history, so the pre-window input is assumed constant at u[0].
-        delayed = u[k - delay] if k >= delay else u[0]
+        # starts there is no history, so the pre-window input is assumed constant at out[0].
+        delayed = out[k - delay] if k >= delay else out[0]
 
         # Forcing term over one step, from integrating the ODE with a constant input:
         # K * (1 - decay) * (u_delayed - u0). Unit: output units (gain times input units).
-        drive = model.gain * (1.0 - decay) * (delayed - u[0])
+        drive = model.gain * (1.0 - decay) * (delayed - out[0])
 
         # Exponential-euler update: the previous deviation decays by `decay` while the input adds
         # `drive`. Equivalent to the standard filtered-form FOPDT recursion.
@@ -84,7 +85,7 @@ def simulate_fopdt(model: FopdtModel, u: np.ndarray, dt_s: float, y0: float) -> 
 
 
 def fit_check(
-    model: FopdtModel, u: np.ndarray, y: np.ndarray, dt_s: float
+    model: FopdtModel, out: np.ndarray, pv: np.ndarray, dt_s: float
 ) -> tuple[FitCheck, np.ndarray]:
     """Compare the model with the measurement: R-squared, a verdict and the simulated PV.
 
@@ -94,26 +95,26 @@ def fit_check(
 
     Args:
         model: The fitted FOPDT model parameters.
-        u: MV sequence (e.g. valve position in %), one sample per index.
-        y: Measured PV sequence, same length and time base as u.
+        out: MV sequence (e.g. valve position in %), one sample per index.
+        pv: Measured PV sequence, same length and time base as out.
         dt_s: Sampling interval in seconds.
 
     Returns:
         A ``(FitCheck, simulated)`` pair: the verdict and R-squared score, plus
-        the simulated PV sequence on the same time base as y.
+        the simulated PV sequence on the same time base as pv.
     """
     # Simulate the model from the initial condition taken from the first sample
     # of the measurement, so both series start at the same point.
-    simulated = simulate_fopdt(model, u, dt_s, float(y[0]))
+    simulated = simulate_fopdt(model, out, dt_s, float(pv[0]))
     # "Total sum of squares": how much the measured PV varies around its own
     # mean. It is the yardstick every R-squared score is measured against.
-    spread = float(np.sum((y - np.mean(y)) ** 2))
+    spread = float(np.sum((pv - np.mean(pv)) ** 2))
     # R-squared = 1 - SSE/SST: the fraction of the measurement's variation the
     # model explains. Note `simulated` holds the noise-free model output, so
     # this denominator's SSE compares model residual to measurement spread.
     # When the measurement is constant (spread == 0) R-squared is undefined,
     # so we fall back to 0.0 rather than dividing by zero.
-    r_squared = 1.0 - float(np.sum((y - simulated) ** 2)) / spread if spread > 0.0 else 0.0
+    r_squared = 1.0 - float(np.sum((pv - simulated) ** 2)) / spread if spread > 0.0 else 0.0
     return FitCheck(_verdict(r_squared), r_squared), simulated
 
 
@@ -146,7 +147,7 @@ def closed_loop_step(model: FopdtModel, settings: PiSettings) -> StepPreview:
     # Number of integration steps, rounded up so the loop reaches at least the horizon.
     n_steps = int(np.ceil(horizon_s / dt_s))
 
-    # Full-resolution simulation over n_steps instants, one u-y pair per step.
+    # Full-resolution simulation over n_steps instants, one PV/OUT pair per step.
     pv, out = _run_pi_loop(model, settings, dt_s, n_steps)
 
     # keep holds the indices of the samples we display. linspace spans the full range
@@ -186,7 +187,7 @@ def _run_pi_loop(
     delay = max(1, int(round(model.delay_s / dt_s)))
     pv = np.zeros(n_steps)
     out = np.zeros(n_steps)
-    # Integral of the error, accumulated in error-units times seconds (unit: s).
+    # Integral of the error, accumulated in error units times seconds.
     integral = 0.0
     # One-step lookahead: each iteration writes pv[k+1], so we stop one step early
     # and back-fill the final OUT sample afterwards.
@@ -220,9 +221,9 @@ def suggest_windows(
     t_s : np.ndarray
         Sample times, in seconds (s), one per sample, assumed increasing.
     mode : np.ndarray
-        Controller mode per sample; the value MANUAL_MODE (an integer code) means the loop is open.
+        Controller mode per sample; the numeric code MANUAL_MODE means the loop is open.
     out : np.ndarray
-        Measured process output per sample (engineering unit of the process, not converted here).
+        Controller output (OUT) per sample, in percent; its moves are what excites the process.
     min_length_s : float
         Shortest accepted stretch, in seconds (s); shorter ones are discarded.
 
@@ -247,8 +248,8 @@ def suggest_windows(
         # _trim_to_moves drops idle lead-in/tail around the actual OUT moves and returns the
         # trimmed (start_s, end_s), or None when the stretch holds no usable movement.
         window = _trim_to_moves(t_s[first:stop], out[first:stop])
-        # Keep only stretches long enough to identify a model: the open-loop response needs
-        # several samples to be informative, hence the minimum duration in seconds.
+        # Keep only stretches long enough to identify a model: the response to the OUT move
+        # needs time to develop, hence the minimum duration in seconds.
         if window is not None and window[1] - window[0] >= min_length_s:
             # np.ptp = max - min, i.e. the peak-to-peak amplitude of OUT over the stretch.
             found.append((*window, float(np.ptp(out[first:stop]))))
@@ -261,16 +262,15 @@ def suggest_windows(
 
 def _trim_to_moves(t_s: np.ndarray, out: np.ndarray) -> tuple[float, float] | None:
     """Span of one MAN stretch from LEAD_S before its first OUT move to TAIL_S after its last."""
-    # A "MAN" is the manufacturer's own reported signal for a drive cycle. The controller records
-    # both the manufacturer's channel (`out`, in percent) and the test bench time base (`t_s`,
-    # in seconds). This function keeps only the window where the manufacturer actually asked the
-    # plant to move, so the surrounding idle time does not dilute any later comparison.
-    # `np.ptp` is "peak to peak", i.e. max minus min: the total spread of the trace, in percent.
+    # `out` is the controller output in percent and `t_s` its time in seconds over one manual
+    # stretch. Only the span around real OUT moves is kept, so idle time before and after does
+    # not dilute the identification.
+    # `np.ptp` is "peak to peak", i.e. max minus min: the total spread of OUT, in percent.
     # A trace that barely wiggles carries no usable move information, so it is rejected.
     if float(np.ptp(out)) < MIN_OUT_MOVE_PCT:
         return None
     # `np.diff(out)` is the step between consecutive samples, in percent.
-    # A step is counted as a real move when its size exceeds the sensor noise band MOVE_STEP_PCT.
+    # A step counts as a deliberate move when its size exceeds MOVE_STEP_PCT.
     # `np.flatnonzero` turns the boolean mask into the indices of those moves.
     moved = np.flatnonzero(np.abs(np.diff(out)) > MOVE_STEP_PCT)
     if len(moved) == 0:
@@ -280,5 +280,5 @@ def _trim_to_moves(t_s: np.ndarray, out: np.ndarray) -> tuple[float, float] | No
     # then clamped to the recorded time base so the span never leaves the data.
     start = max(float(t_s[0]), float(t_s[moved[0]]) - LEAD_S)
     end = min(float(t_s[-1]), float(t_s[moved[-1] + 1]) + TAIL_S)
-    # The returned pair is a half-open interval in seconds: (first instant, last instant).
+    # The returned pair is (first instant, last instant) of the window, in seconds.
     return start, end

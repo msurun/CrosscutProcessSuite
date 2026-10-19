@@ -122,8 +122,8 @@ class TuningReport:
 # codecheck: allow too-many-parameters (public signature used by callers and tests)
 def build_tuning_report(
     loop_name: str,
-    u: np.ndarray,
-    y: np.ndarray,
+    controller_output: np.ndarray,
+    process_value: np.ndarray,
     dt_s: float = DEFAULT_SAMPLE_TIME_S,
     *,
     robustness: float = DEFAULT_ROBUSTNESS,
@@ -134,8 +134,8 @@ def build_tuning_report(
     """Identify a loop and compute its PI settings, DCS forms and notes.
 
     A "loop" is one control loop of a plant, e.g. the temperature of a reactor:
-    ``u`` is the controller output recorded over time (the manipulated
-    variable, e.g. valve opening in %), ``y`` is the measurement it drives
+    ``controller_output`` is the controller output recorded over time (the manipulated
+    variable, e.g. valve opening in %), ``process_value`` is the measurement it drives
     (e.g. reactor temperature in °C), and ``dt_s`` is the time between two
     consecutive samples in seconds.
 
@@ -147,13 +147,30 @@ def build_tuning_report(
     # It arrives from a caller (config file, GUI slider) and could be any
     # number, so clamp it to [0, 1]: 0 = aggressive/tight, 1 = conservative.
     robustness = _clamp_robustness(robustness)
-    model, failure_reason = _identify_or_reason(u, y, dt_s)
+    model, failure_reason = _identify_or_reason(controller_output, process_value, dt_s)
     if model is None:
         return _unidentified_report(loop_name, failure_reason, robustness, stiction_verdict)
     report = _identified_report(loop_name, model, robustness, stiction_verdict)
-    report = _check_derivative_noise(report, y, out_span)
-    report = _guard_poor_fit(report, fit_check(model, u, y, dt_s)[0].r_squared)
-    report = _flag_low_confidence(report, assess_fit(model, u, y, dt_s))
+    report = _check_derivative_noise(report, process_value, out_span)
+    report = _apply_fit_checks(report, model, (controller_output, process_value), dt_s)
+    return _attach_vendor_forms(report, pv_span, out_span)
+
+
+def _apply_fit_checks(
+    report: TuningReport, model: FopdtModel, signals: tuple[np.ndarray, np.ndarray], dt_s: float
+) -> TuningReport:
+    """Block the report on a poor fit and flag low confidence; ``signals`` = (output, PV)."""
+    controller_output, process_value = signals
+    fit = fit_check(model, controller_output, process_value, dt_s)[0]
+    report = _guard_poor_fit(report, fit.r_squared)
+    quality = assess_fit(model, controller_output, process_value, dt_s)
+    return _flag_low_confidence(report, quality)
+
+
+def _attach_vendor_forms(
+    report: TuningReport, pv_span: float | None, out_span: float
+) -> TuningReport:
+    """Fill the vendor summaries (PI, and PID when the derivative advice is on)."""
     if report.simc is not None:
         report.vendor_forms = vendor_summaries(report.simc, pv_span, out_span)
         if report.pid is not None and report.pid_advice and report.pid_advice[0]:
@@ -161,9 +178,11 @@ def build_tuning_report(
     return report
 
 
-def identify_model(u: np.ndarray, y: np.ndarray, dt_s: float) -> FopdtModel | None:
+def identify_model(
+    controller_output: np.ndarray, process_value: np.ndarray, dt_s: float
+) -> FopdtModel | None:
     """FOPDT model of one record (ARX fit, output-error refit when better); None on failure."""
-    return _identify_or_reason(u, y, dt_s)[0]
+    return _identify_or_reason(controller_output, process_value, dt_s)[0]
 
 
 def report_from_model(
@@ -176,11 +195,13 @@ def report_from_model(
     return _identified_report(loop_name, model, _clamp_robustness(robustness), stiction_verdict)
 
 
-def _check_derivative_noise(report: TuningReport, y: np.ndarray, out_span: float) -> TuningReport:
+def _check_derivative_noise(
+    report: TuningReport, process_value: np.ndarray, out_span: float
+) -> TuningReport:
     """Turn the derivative advice off when the PV noise would be amplified into the output."""
     if report.pid is not None and report.pid_advice is not None:
         report.pid_advice = noise_checked_advice(
-            report.pid_advice, report.pid, pv_noise_sd(y), out_span
+            report.pid_advice, report.pid, pv_noise_sd(process_value), out_span
         )
     return report
 
@@ -188,10 +209,11 @@ def _check_derivative_noise(report: TuningReport, y: np.ndarray, out_span: float
 def _flag_low_confidence(report: TuningReport, assessment: FitAssessment) -> TuningReport:
     """Add a warning note when the record cannot support the identified gain.
 
-    The one-step R squared used by the poor-fit block is high on slow loops whatever the
-    gain, so a record with a single input step can pass it with a wrong gain (0.55 instead
-    of 2 in a test).  The note does not block the settings; it tells the engineer to
-    confirm the model with a second step before applying them.
+    The poor-fit block only asks how well the model reproduces the PV; on a slow loop with a
+    single input step that can look acceptable although the gain is wrong (the same
+    one-step-ahead argument as in ``identification_quality``).  The note does not block the
+    settings; it tells the engineer to confirm the model with a second step before applying
+    them.
     """
     if assessment.low_confidence:
         report.notes.append(LOW_CONFIDENCE_PREFIX + "; ".join(assessment.reasons))
@@ -224,7 +246,7 @@ def _unidentified_report(
 ) -> TuningReport:
     """Return the report for a loop whose model could not be identified.
 
-    This is the failure path of tuning: no FOPDT/SOPDT model was fitted, so there
+    This is the failure path of tuning: no FOPDT model was fitted, so there
     is nothing to derive controller parameters from. The report still travels
     through the pipeline (and into the tuning report file) so the operator can see
     which loop failed and why, instead of the loop silently disappearing.
@@ -236,12 +258,10 @@ def _unidentified_report(
             e.g. too few samples or a flat signal. Passed straight through as the
             report's ``blocked_reason``; ``None`` means the caller identified no
             specific cause and only knows the fit did not succeed.
-        robustness: Stability margin of the loop as computed from the process data,
-            a dimensionless ratio (typically the gain margin, where 1.0 is the
-            stability limit and larger values are more robust). Reported even when
-            no model exists, because it is measured, not derived from the model.
-        stiction_verdict: Which stiction test, if any, flagged valve stiction; the
-            verdict label, not a boolean. ``None`` when no test flagged anything.
+        robustness: Robustness slider value in [0, 1] that was requested (already clamped);
+            kept in the report so the screen can show it although no settings exist.
+        stiction_verdict: The stiction verdict label of the loop (``"stiction"`` blocks the
+            retune and adds a note), or ``None`` when no verdict is available.
 
     Returns:
         A :class:`TuningReport` for the loop, with ``model``, ``simc`` and
@@ -281,17 +301,16 @@ def _identified_report(
     Returns the :class:`TuningReport` assembled from both tuning rules.
     """
     # Each tuning rule is a pure calculation on the model plus the robustness factor.
-    # SIMC and AMIGO are two well-known published PI/PID tuning methods; they usually
-    # disagree slightly, so the report carries both and lets the engineer choose.
+    # SIMC and AMIGO are two published tuning rules for FOPDT models that give different
+    # settings, so the report carries both and lets the engineer choose.
     simc, amigo = _tune(model, robustness)
     return TuningReport(
         loop_name=loop_name,
         model=model,
         simc=simc,
         amigo=amigo,
-        # _dcs_forms restates the tuning in the parameter set the plant's distributed
-        # control system (DCS) actually accepts: gain, integral time, derivative time
-        # in the vendor's own units, rather than the abstract tuning-rule notation.
+        # _dcs_forms restates the SIMC PI settings in the parameter forms DCS vendors use
+        # (gain or proportional band, integral time in seconds or minutes, repeats per minute).
         dcs_forms=_dcs_forms(simc),
         pid=amigo_pid(model),
         pid_advice=derivative_advice(model),
@@ -360,19 +379,21 @@ def _identify_or_reason(
         arx = identify_fopdt(controller_output, process_value, dt_s, max_delay_s)
     except ValueError as error:
         return None, f"{MODEL_FAILURE_PREFIX}: {error}"
-    return _better_of(arx, controller_output, process_value, dt_s, max_delay_s), None
+    return _better_of(arx, controller_output, process_value, dt_s), None
 
 
 def _better_of(
-    arx: FopdtModel, u: np.ndarray, y: np.ndarray, dt_s: float, max_delay_s: float
+    arx: FopdtModel, controller_output: np.ndarray, process_value: np.ndarray, dt_s: float
 ) -> FopdtModel:
-    """Return the output-error refit when it reproduces y better in free run than the ARX fit.
+    """Return the output-error refit when it reproduces the PV better in free run than ARX.
 
-    The ARX fit is biased by noise in y (it shrinks gain and time constant); the refit
-    matches the simulated output to y instead, so the free-run R squared decides.
+    The ARX fit is biased by noise in the PV (it shrinks gain and time constant); the refit
+    matches the simulated output to the PV instead, so the free-run R squared decides.
     """
-    refit = refine_output_error(arx, u, y, dt_s, max_delay_s)
-    if free_run_r2(refit, u, y, dt_s) > free_run_r2(arx, u, y, dt_s):
+    max_delay_s = _max_delay_s(len(controller_output), dt_s)
+    refit = refine_output_error(arx, controller_output, process_value, dt_s, max_delay_s)
+    refit_r2 = free_run_r2(refit, controller_output, process_value, dt_s)
+    if refit_r2 > free_run_r2(arx, controller_output, process_value, dt_s):
         return refit
     return arx
 
@@ -411,10 +432,9 @@ def _format_number(value: float, decimals: int = REPORT_DECIMALS) -> str:
 def _render_header(report: TuningReport) -> str:
     """Return the Markdown heading and the blocked line, if any.
 
-    A tuning report is the human-readable summary of one tuning loop run
-    (loop_name identifies which loop). If the loop could not run to
-    completion, blocked_reason says why, and the header warns the reader
-    before they read any numbers that came out of a stopped run.
+    The heading names the loop. When ``blocked_reason`` is set (the loop must not be
+    retuned as it is, e.g. stiction or a poor model fit), a "Blocked" line follows so
+    the reader sees it before any numbers.
     """
     # Markdown lines in order; "" entries are blank separator lines that
     # keep the rendered heading apart from the following sections.
@@ -464,7 +484,7 @@ def _settings_section_lines(simc: PiSettings, amigo: PiSettings) -> list[str]:
     """Return the Markdown lines of the tuning settings table.
 
     Both controllers are PI controllers, described by the same two parameters:
-    ``kc`` is the proportional gain (dimensionless) and ``ti_s`` is the integral
+    ``kc`` is the proportional gain (output units per PV unit) and ``ti_s`` is the integral
     time (seconds). Each row of the table is one tuning rule applied to the
     same process. Values are rendered with ``_format_number`` so the table
     stays readable and columns line up. Returns the list of Markdown lines,
@@ -492,8 +512,9 @@ def _render_dcs_section(report: TuningReport) -> str:
     settings in its own form (gain or proportional band, seconds or minutes, repeats per
     minute); this function renders one Markdown table per form.
 
-    Returns the Markdown text, ending with a newline. Forms that were not
-    estimated in the report are skipped silently.
+    Returns the Markdown text. Every form in DCS_FORM_NAMES must be present in
+    ``report.dcs_forms`` (a missing form raises KeyError); with no forms at all a
+    placeholder section is returned.
     """
     # `dcs_forms` maps a form name to its estimated parameters. When the report
     # has no entries at all (nothing was computed), emit a placeholder section

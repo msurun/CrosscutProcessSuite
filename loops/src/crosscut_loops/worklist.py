@@ -66,7 +66,10 @@ def _action(code: str, params: dict[str, Any]) -> dict[str, Any]:
 def _finding_codes(row: Row) -> set[str]:
     """The codes of all findings of one row; an empty set when it has none."""
     findings = row.get("findings") or []
-    return {str(f.get("code")) if isinstance(f, dict) else str(f) for f in findings}
+    return {
+        str(finding.get("code")) if isinstance(finding, dict) else str(finding)
+        for finding in findings
+    }
 
 
 def _is_manual(row: Row) -> bool:
@@ -101,14 +104,14 @@ def _shared_period_loops(row: Row) -> list[str]:
     return sorted([peers] if isinstance(peers, str) else [str(name) for name in peers])
 
 
-def _build_manual(row: Row) -> dict[str, Any]:
+def _manual_params(row: Row) -> dict[str, Any]:
     """The share of time the loop ran outside automatic control, as a whole percent.
 
-    An unknown service factor gives None, not "100 % manual" (review finding 7).
+    An unknown service factor gives None, not "100 % manual".
     """
     service = _number_or_none(row.get("service_percent"))
     percent = None if service is None else 100 - round(service)
-    return _action(ASK_WHY_MANUAL, {PERCENT_PARAM: percent})
+    return {PERCENT_PARAM: percent}
 
 
 def _number_or_none(value: Any) -> float | None:
@@ -118,49 +121,24 @@ def _number_or_none(value: Any) -> float | None:
     return float(value)
 
 
-def _build_measurement(row: Row) -> dict[str, Any]:
-    """A frozen reading is checked first; the row itself carries no further numbers."""
-    return _action(CHECK_MEASUREMENT, {})
+def _common_source_params(row: Row) -> dict[str, Any]:
+    """The loops cycling together, which point at one disturbance to find before any retuning."""
+    return {LOOPS_PARAM: _shared_period_loops(row)}
 
 
-def _build_output_limit(row: Row) -> dict[str, Any]:
-    """A saturated output is checked at the valve and the controller limits."""
-    return _action(CHECK_OUTPUT_LIMIT, {})
-
-
-def _build_valve_test(row: Row) -> dict[str, Any]:
-    """A sticking valve looks like a cycle but is fixed by maintenance, not by tuning."""
-    return _action(VALVE_TEST, {})
-
-
-def _build_common_source(row: Row) -> dict[str, Any]:
-    """Loops cycling together point at one disturbance, to be found before retuning any of them."""
-    return _action(FIND_COMMON_SOURCE, {LOOPS_PARAM: _shared_period_loops(row)})
-
-
-def _build_cycle_cause(row: Row) -> dict[str, Any]:
-    """A lone cycle: bump the loop and see whether the period changes (inside) or not (outside)."""
-    return _action(TEST_CYCLE_CAUSE, {})
-
-
-def _build_resolution(row: Row) -> dict[str, Any]:
+def _resolution_params(row: Row) -> dict[str, Any]:
     """A coarse output steps in visible jumps, so the cycle may be resolution, not tuning."""
-    return _action(CHECK_OUTPUT_RESOLUTION, {RATIO_PARAM: round(row["out_quantisation_ratio"], 1)})
+    return {RATIO_PARAM: round(row["out_quantisation_ratio"], 1)}
 
 
-def _build_retune(row: Row) -> dict[str, Any]:
-    """Poor performance without another explanation calls for a bump test and new tuning."""
-    return _action(BUMP_TEST_AND_RETUNE, {})
-
-
-def _build_sizing(row: Row) -> dict[str, Any]:
+def _sizing_params(row: Row) -> dict[str, Any]:
     """An oversized or undersized valve limits control whatever the tuning says."""
-    return _action(REVIEW_VALVE_SIZING, {HINT_PARAM: row["valve_sizing_hint"]})
+    return {HINT_PARAM: row["valve_sizing_hint"]}
 
 
-def _build_configure(row: Row) -> dict[str, Any]:
+def _configure_params(row: Row) -> dict[str, Any]:
     """Conclusions withheld for missing per-loop knowledge cannot be checked until it is given."""
-    return _action(CONFIGURE_KNOWLEDGE, {MISSING_PARAM: list(row.get("not_assessed") or [])})
+    return {MISSING_PARAM: list(row.get("not_assessed") or [])}
 
 
 def _has_sizing_hint(row: Row) -> bool:
@@ -179,31 +157,41 @@ def _needs_knowledge(row: Row) -> bool:
     return bool(row.get("not_assessed"))
 
 
+# One rule: (applies?, action code, builder of the action parameters or None for no parameters).
+Rule = tuple[Callable[[Row], bool], str, Callable[[Row], dict[str, Any]] | None]
+
 # Rules in the order they are tried; the first match wins. The order is the only place that
 # decides which advice outranks which, so each rule's comment says why it sits where it does.
-RULES: tuple[tuple[Callable[[Row], bool], Callable[[Row], dict[str, Any]]], ...] = (
+RULES: tuple[Rule, ...] = (
     # A manual loop is not controlled at all: nothing else can be judged until someone says why.
-    (_is_manual, _build_manual),
+    (_is_manual, ASK_WHY_MANUAL, _manual_params),
     # A frozen reading makes every other finding untrustworthy, so it is checked before them.
-    (_is_flatlined, _build_measurement),
+    (_is_flatlined, CHECK_MEASUREMENT, None),
     # The output pinned at a limit may be the real cause of a flatline or a cycle elsewhere.
-    (_is_saturated, _build_output_limit),
+    (_is_saturated, CHECK_OUTPUT_LIMIT, None),
     # A sticking valve must be fixed before any retuning, and before blaming a shared source.
-    (lambda row: _is_oscillating(row) and _stiction_doubted(row), _build_valve_test),
+    (lambda row: _is_oscillating(row) and _stiction_doubted(row), VALVE_TEST, None),
     # One disturbance driving several loops is found before retuning any single one of them.
-    (lambda row: _is_oscillating(row) and bool(_shared_period_loops(row)), _build_common_source),
-    # A cycle nobody else sees is caused by the loop or by its process: a bump test tells which.
-    (_is_oscillating, _build_cycle_cause),
+    (
+        lambda row: _is_oscillating(row) and bool(_shared_period_loops(row)),
+        FIND_COMMON_SOURCE,
+        _common_source_params,
+    ),
+    # A cycle nobody else sees is caused by the loop or by its process: bump the loop and see
+    # whether the period changes (inside cause) or not (outside cause).
+    (_is_oscillating, TEST_CYCLE_CAUSE, None),
     # Coarse output steps explain a small cycle, so they are checked before calling it poor tuning.
-    (_has_coarse_output, _build_resolution),
+    (_has_coarse_output, CHECK_OUTPUT_RESOLUTION, _resolution_params),
     # Poor performance is the retuning case; every mechanical cause above is already excluded.
-    (lambda row: row.get("classification") == POOR_PERFORMANCE_CLASSIFICATION, _build_retune),
+    (
+        lambda row: row.get("classification") == POOR_PERFORMANCE_CLASSIFICATION,
+        BUMP_TEST_AND_RETUNE,
+        None,
+    ),
     # A valve that is too big or too small limits control whatever the tuning: review it first.
-    (_has_sizing_hint, _build_sizing),
+    (_has_sizing_hint, REVIEW_VALVE_SIZING, _sizing_params),
     # Only when nothing is wrong: give the missing knowledge so the checks can run at all.
-    (_needs_knowledge, _build_configure),
-    # Nothing matched: the loop needs no action today.
-    (lambda row: True, lambda row: _action(NO_ACTION, {})),
+    (_needs_knowledge, CONFIGURE_KNOWLEDGE, _configure_params),
 )
 
 
@@ -214,12 +202,12 @@ def next_action(row: Row) -> dict[str, Any]:
     get an answer.
 
     Returns:
-        One action dict; the fallback is NO_ACTION with no parameters.
+        One action dict; the fallback, when no rule applies, is NO_ACTION with no parameters.
     """
-    for applies, build in RULES:
+    for applies, code, build_params in RULES:
         if applies(row):
-            return build(row)
-    return _action(NO_ACTION, {})  # unreachable: the last rule always matches
+            return _action(code, build_params(row) if build_params is not None else {})
+    return _action(NO_ACTION, {})
 
 
 def _urgency(row: Row) -> int:

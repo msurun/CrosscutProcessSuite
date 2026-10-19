@@ -21,6 +21,7 @@ from crosscut_loops.tuning_report import (
     build_tuning_report,
     render_markdown,
 )
+from crosscut_loops.tuning_rules import FopdtModel
 from crosscut_loops.tuning_view import closed_loop_step, fit_check, suggest_windows
 
 MIN_WINDOW_S = 600.0  # shortest stretch worth proposing as a test window
@@ -41,11 +42,11 @@ class TuningRequest:
 
 @dataclass(frozen=True)
 class WindowData:
-    """One data window of a loop: time stamps, output u, process value y, sample time."""
+    """One data window of a loop: time stamps, controller output, process value, sample time."""
 
     t_s: np.ndarray
-    u: np.ndarray
-    y: np.ndarray
+    controller_output: np.ndarray
+    process_value: np.ndarray
     dt_s: float
 
 
@@ -68,21 +69,22 @@ def tuning_payload(
         A dict with the loop name, the window metadata, the robustness verdict, the blocked-code
         explanation, the markdown notes, and the fitted model description.
     """
-    # Search candidate windows on the controller output (the excitation signal) and the process
-    # variable (the response); MIN_WINDOW_S is the shortest window worth fitting, in seconds.
+    # Candidate test windows are found from the controller mode and output columns;
+    # MIN_WINDOW_S is the shortest window worth proposing, in seconds.
     windows = suggest_windows(t_s, columns[loop.mode], columns[loop.out], MIN_WINDOW_S)
     # Pick the one window to show, either the caller's explicit start/end or the best suggestion.
     start_s, end_s = _chosen_window(t_s, windows, request)
     # Boolean mask selecting the samples inside [start_s, end_s]; kept as a mask so all columns
     # stay aligned sample by sample.
     keep = (t_s >= start_s) & (t_s <= end_s)
-    # u = controller output (manipulated variable), y = process variable (measured response).
-    u, y = columns[loop.out][keep], columns[loop.pv][keep]
+    # Controller output (the manipulated variable) and process variable (the measured response)
+    # inside the window.
+    controller_output, process_value = columns[loop.out][keep], columns[loop.pv][keep]
     # Sampling period in seconds, taken as the median of the time differences so a single
     # irregular timestamp (a gap or a duplicate) does not distort it.
     dt_s = float(np.median(np.diff(t_s[keep])))
     # Bundle the aligned window for the fitting and reporting routines.
-    window = WindowData(t_s=t_s[keep], u=u, y=y, dt_s=dt_s)
+    window = WindowData(t_s[keep], controller_output, process_value, dt_s)
     report = _report_for(loop, window, request)
     # Fraction of samples in the window where the controller was in manual mode, in [0, 1]:
     # a high share means the operator drove the loop, so the data may not reflect the tuning.
@@ -118,18 +120,18 @@ def _report_for(loop: LoopTags, window: WindowData, request: TuningRequest) -> T
     fakes oscillation) is passed on as evidence the downstream rules use to avoid
     tuning for what is really a hardware problem.
 
-    Returns the veto-free report; raises whatever build_tuning_report raises on
-    too-few samples or non-excitable data.
+    Returns the report, which may be blocked (``blocked_reason``) or have no model when the
+    identification failed (that failure does not raise).
     """
     # "None" means stiction was not suspected, "stiction" means it was; the report
     # builder switches on the string, so we never invent a value, we pass a verdict or nothing.
     stiction = "stiction" if request.stiction_suspected else None
-    # u: control output (0-100 %), y: measured process variable (engineering units),
-    # dt_s: sample interval (s). build_tuning_report needs them plus the two user settings.
+    # Controller output (0-100 %), process variable (engineering units) and sample interval (s)
+    # of the window, plus the two user settings: robustness and the stiction verdict.
     return build_tuning_report(
         loop.name,
-        window.u,
-        window.y,
+        window.controller_output,
+        window.process_value,
         window.dt_s,
         robustness=request.robustness,
         stiction_verdict=stiction,
@@ -146,8 +148,8 @@ def _chosen_window(
     in seconds, ordered from best to worst by the caller (so index 0 is the top
     suggestion); it may be empty when no candidate was found.
 
-    Returns `(start_s, end_s)` in seconds. Never raises: a missing user request and an
-    empty candidate list simply fall back to the whole record.
+    Returns `(start_s, end_s)` in seconds. A missing user request and an empty candidate list
+    fall back to the whole record (which needs at least one timestamp).
     """
     # The user is the boss: when they gave both bounds we take them verbatim and ignore
     # every suggestion, even a better-looking one.
@@ -169,35 +171,52 @@ def _blocked_code(report: TuningReport) -> str | None:
 
 
 def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:
-    """Model, fit check, settings and step preview; all None when no model was identified.
+    """Model, fit check, settings and step preview; None (dcs_forms: {}) without a full model.
 
-    `WindowData` holds one experiment: `t_s` (seconds), `u` (input), `y` (measured output)
-    and `dt_s` (sample time in seconds). These arrays are what the identification was
-    fitted on and what the fit check replays the model over.
+    `WindowData` holds one experiment: `t_s` (seconds), `controller_output` (input),
+    `process_value` (measured output) and `dt_s` (sample time in seconds). These arrays are
+    what the identification was fitted on and what the fit check replays the model over.
     Returning a dict with fixed keys keeps the caller simple: it can render the payload
     even for a failed run, instead of branching on missing attributes.
     """
     if report.model is None or report.simc is None or report.amigo is None:
         return {"model": None, "fit": None, "check": None, "settings": None, "dcs_forms": {}}
 
-    # `fit_check` simulates the identified model on the same input `u` and sampling
-    # interval `dt_s` used for identification and compares it with the measured `y`.
-    # `check` holds the scalar quality metrics; `simulated` is the model's response
-    # over the same time base, so it can be drawn next to the real measurement.
-    check, simulated = fit_check(report.model, window.u, window.y, window.dt_s)
-
     # A step response of the closed loop (controller `simc` + model) is the operator's
     # preview of how the loop would react; `step` carries three aligned arrays.
     step = closed_loop_step(report.model, report.simc)
+    return {
+        **_fit_parts(report.model, window),
+        **_settings_parts(report),
+        # Numpy arrays are not JSON types; `tolist()` gives plain Python lists.
+        # `t_s` is in seconds, `pv` is the process variable and `out` the controller output.
+        "step": {"t_s": step.t_s.tolist(), "pv": step.pv.tolist(), "out": step.out.tolist()},
+    }
 
+
+def _fit_parts(model: FopdtModel, window: WindowData) -> dict[str, object]:
+    """The model, its R-squared verdict and the measured-versus-simulated comparison."""
+    # `fit_check` simulates the identified model on the same input and sampling
+    # interval `dt_s` used for identification and compares it with the measured PV.
+    # `check` holds the scalar quality metrics; `simulated` is the model's response
+    # over the same time base, so it can be drawn next to the real measurement.
+    check, simulated = fit_check(
+        model, window.controller_output, window.process_value, window.dt_s
+    )
     return {
         # `_plain` converts model objects (with numpy/array internals) to plain,
         # JSON-serialisable values for the front end.
-        "model": _plain(report.model),
+        "model": _plain(model),
         # `r_squared` is the coefficient of determination, dimensionless, 1.0 = perfect.
         # Rounded to 3 decimals because more digits carry no meaning for the operator.
         "fit": {"verdict": check.verdict, "r_squared": round(check.r_squared, 3)},
-        "check": _comparison(window.t_s, window.y, simulated),
+        "check": _comparison(window.t_s, window.process_value, simulated),
+    }
+
+
+def _settings_parts(report: TuningReport) -> dict[str, object]:
+    """Tuning settings of the report: PI rules, vendor forms and the PID advice."""
+    return {
         # The two controller settings that were tried, also reduced to plain values.
         "settings": {"simc": _plain(report.simc), "amigo": _plain(report.amigo)},
         # Alternative discrete controller forms considered, keyed by form name.
@@ -210,9 +229,6 @@ def _model_parts(report: TuningReport, window: WindowData) -> dict[str, object]:
         "pid_advice": None
         if report.pid_advice is None
         else {"use_derivative": report.pid_advice[0], "reason": report.pid_advice[1]},
-        # Numpy arrays are not JSON types; `tolist()` gives plain Python lists.
-        # `t_s` is in seconds, `pv` is the process variable and `out` the controller output.
-        "step": {"t_s": step.t_s.tolist(), "pv": step.pv.tolist(), "out": step.out.tolist()},
     }
 
 
@@ -226,13 +242,13 @@ def _comparison(
 ) -> dict[str, JsonSeries]:
     """Measured and model PV on a common, thinned time axis.
 
-    PV means photovoltaic: `measured` is what the plant really produced and
+    PV is the process variable: `measured` is what the plant really produced and
     `simulated` is what the model predicts, both sampled at the same instants.
-    Building a plant-size report would embed every sample, so the curves are
-    downsampled here to at most MAX_CHECK_POINTS points each.
+    A long record would make the payload sent to the browser large, so the curves are
+    thinned here to at most MAX_CHECK_POINTS points each.
 
-    Returns a JSON-serialisable mapping, not arrays: the caller writes it to a
-    report file, where numpy scalars would not survive the encoder.
+    Returns a JSON-serialisable mapping, not arrays: numpy scalars would not survive the
+    JSON encoder.
     """
     # Indices of the samples to keep. np.linspace walks the whole array from
     # the first index (0) to the last (len(t_s) - 1) in equal steps, so the
@@ -241,8 +257,8 @@ def _comparison(
     # MAX_CHECK_POINTS nothing is dropped and every index is returned.
     keep = np.linspace(0, len(t_s) - 1, min(MAX_CHECK_POINTS, len(t_s))).astype(int)
     return {
-        # Same `keep` positions for all three series, so row i of `measured`
-        # and row i of `simulated` refer to the same instant t_s[i].
+        # Same `keep` positions for all three series, so entry i of each list refers to the
+        # same instant.
         "t_s": t_s[keep].tolist(),
         "measured": _json_list(measured[keep]),
         "simulated": _json_list(simulated[keep]),
@@ -251,4 +267,4 @@ def _comparison(
 
 def _json_list(values: np.ndarray) -> list[float | None]:
     """Values as a JSON-safe list: NaN has no JSON form, so it becomes None."""
-    return [None if np.isnan(x) else float(x) for x in values]
+    return [None if np.isnan(value) else float(value) for value in values]

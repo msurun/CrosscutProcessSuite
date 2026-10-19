@@ -57,7 +57,6 @@ OSCILLATION_FACTOR = 0.7  # multiplier for a sustained oscillation
 STICTION_FACTOR = 0.6  # multiplier when stiction is suspected
 HARRIS_NEUTRAL = 0.5  # an uncomputable (NaN) Harris index counts as this fraction
 HARRIS_FULL_SCORE = 1.0  # a Harris index at or above this keeps the full Harris share
-POOR_HARRIS_THRESHOLD = 0.3  # below this the loop is "poor_performance" (mirrors LoopSettings)
 
 # --- Finding codes and parameter names --------------------------------------
 
@@ -174,51 +173,33 @@ def discover_loops(tags: Sequence[Mapping[str, Any]]) -> list[LoopTags]:
         The discovered loops, one per complete PV tag.
     """
     # Index the rows by tag id so the sibling lookups below are O(1) instead of a scan per tag.
-    # Tag ids are stringified because the raw rows may carry them as ints or UUIDs, and the
-    # lookups built further down compare against text ids.
+    # Ids are stringified because the sibling ids are built by appending text suffixes.
     tag_rows = {str(row["id"]): row for row in tags}
     # Only PV rows can start a loop; their order comes from ``tag_rows``, i.e. the input order.
     pv_ids = [tag_id for tag_id, row in tag_rows.items() if _role_of(row) == PV_ROLE]
-    # ``_has_sibling_tags`` is the completeness test described in the docstring: a PV whose
-    # ``_sp``, ``_out`` or ``_mode`` companion is missing is left out rather than half-built.
     return [_build_loop(tag_rows, pv_id) for pv_id in pv_ids if _has_sibling_tags(tag_rows, pv_id)]
 
 
 def _classify_finding(report: LoopReport) -> Finding | None:
     """The finding that names the report's classification, or None for a healthy loop.
 
-    A control loop is monitored, then given exactly one label (its `classification`):
-    healthy (no finding), manually controlled, saturated, oscillating, or poorly
-    performing. Each label is translated into a Finding, which carries a code the
-    UI can look up plus the numbers that code needs. This function is the single
-    place where that translation happens, so the rest of the code only compares
-    strings and stays free of UI details.
-
-    Returns None when the loop is healthy, i.e. when no label matched.
+    The classification is one label per loop (manual, saturated, oscillating, poor performance
+    or healthy). Each label becomes a Finding: a code the UI looks up plus the numbers that code
+    needs. Percentages are whole numbers, the oscillation period is in minutes.
     """
     if report.classification == MANUAL_CLASSIFICATION:
-        # A loop left in manual mode is "as good" as its service factor: the
-        # service_factor is the fraction of time, in [0.0, 1.0], during which
-        # the loop was actually under automatic control. So 1.0 - service_factor
-        # is the fraction of time it was NOT controlled, reported as a percentage.
+        # Share of the time the loop was not in service (the complement of service_factor).
         return Finding(MANUAL_CODE, {PERCENT_PARAM: _percent(1.0 - report.service_factor)})
     if report.classification == "saturated":
-        # Saturation = the output sits at its limit (0 % or 100 % valve opening),
-        # which means the controller asks for something the actuator cannot do.
-        # saturation_fraction is the share of the records, in [0.0, 1.0], spent
-        # there; the UI shows it as a percentage.
+        # Share of the active samples with OUT at one of its limits.
         return Finding(SATURATED_CODE, {PERCENT_PARAM: _percent(report.saturation_fraction)})
     if report.classification == OSCILLATING_CODE:
-        # Oscillation = the loop cycles around its setpoint instead of settling.
-        # The UI reads cycles better in minutes; the report stores seconds.
+        # The report stores seconds, the UI reads cycles better in minutes. A report classified
+        # as oscillating may still lack a period; 0.0 then avoids a division by None.
         minutes = (report.oscillation_period_s or 0.0) / SECONDS_PER_MINUTE
-        # `or 0.0` above guards against a None period: a report classified as
-        # oscillating may still have no measured period, in which case we fall
-        # back to 0.0 minutes rather than crashing on a division by None.
         return Finding(OSCILLATING_CODE, {MINUTES_PARAM: minutes})
     if report.classification == "poor_performance":
-        # Poor performance has no single number to display, so the Finding
-        # carries an empty parameter mapping.
+        # No single number to display, so the parameters stay empty.
         return Finding(POOR_PERFORMANCE_CODE, {})
     return None
 
@@ -240,14 +221,14 @@ def findings_of(report: LoopReport, settings: LoopSettings) -> list[Finding]:
     Returns:
         Zero or more findings; an empty list means the loop looks healthy.
     """
-    # Each helper is asked unconditionally, but a helper that sees nothing wrong returns None
-    # (the "no finding" case); the tuple keeps the intended urgency order before filtering.
+    # Every helper is asked; one that sees nothing wrong returns None. The tuple order is the
+    # urgency order.
     candidates = (
-        _flatline_finding(report, settings),  # controller output frozen: often the root cause
-        _classify_finding(report),  # oscillation detected, but not necessarily a fault
+        _flatline_finding(report, settings),  # PV frozen: often the root cause
+        _classify_finding(report),  # manual, saturated, oscillating or poor performance
         _stiction_finding(report),  # valve sticking: fixed by maintenance, not by tuning
     )
-    # Drop the None entries ("no problem seen") and keep the tuple order, most urgent first.
+    # Drop the None entries and keep the tuple order, most urgent first.
     return [finding for finding in candidates if finding is not None]
 
 
@@ -317,7 +298,8 @@ def _harris_share(harris_value: float) -> float:
     # A non-positive index (only possible from estimation noise) earns nothing.
     if harris_value <= 0.0:
         return 0.0
-    # Linear ramp between 0 and HARRIS_FULL_SCORE: the score is used directly as the share.
+    # In between, the index itself is the share (HARRIS_FULL_SCORE is 1.0, so the ramp from 0
+    # to full score has slope 1).
     return float(harris_value)
 
 
@@ -354,9 +336,8 @@ def health_percent(report: LoopReport) -> int | None:
     # score down, while a perfect loop lands on exactly 1.0.
     share = _time_share(report) * _harris_factor(report) * _behaviour_factor(report)
 
-    # Clamp to 0..1 before scaling in case the sub-scores are slightly out of range, scale to a
-    # 0..100 score and round to a whole point. int(round(...)) rather than round() alone so that a
-    # whole-number float such as 72.0 comes back as 72, not as 72.0.
+    # Clamp to 0..1 in case a sub-score is slightly out of range, scale to 0..100 and round to
+    # a whole point.
     return int(round(100.0 * min(1.0, max(0.0, share))))
 
 
@@ -378,24 +359,22 @@ def _harris_factor(report: LoopReport) -> float:
 def _behaviour_factor(report: LoopReport) -> float:
     """Multiplier below 1 for a sustained oscillation and for a suspected sticky valve.
 
-    A control loop that oscillates or whose valve is sticking is less trustworthy, so the
-    metrics derived from it are scaled down. The two penalties are independent and multiply,
-    giving three possible outcomes: 1.0 (healthy), one factor alone, or both combined.
+    A loop that oscillates or whose valve is suspected to stick is less healthy, so its score
+    is scaled down. The two penalties are independent and multiply, giving four outcomes: 1.0,
+    the oscillation factor alone, the stiction factor alone, or both combined.
 
     Returns:
-        The product of the applicable penalties, in the range [0, 1]. It is a dimensionless
-        multiplier (no unit), applied later to a score rather than to a time or a percentage.
+        The product of the applicable penalties, a dimensionless multiplier in (0, 1].
     """
     # Start from no penalty: 1.0 is the neutral value, so multiplying by it changes nothing
     # and a healthy loop leaves the downstream metric untouched.
     factor = 1.0
-    # A sustained oscillation means the loop is not holding its setpoint. OSCILLATION_FACTOR
-    # is a hard-coded constant below 1 (e.g. 0.5 means "half as trustworthy"); compounding it
-    # with the sticky-valve penalty below punishes a loop that suffers from both at once.
+    # A sustained oscillation means the loop is not holding its setpoint: the score is
+    # multiplied by OSCILLATION_FACTOR (a named constant below 1, assumption C5).
     if report.classification == OSCILLATING_CODE:
         factor *= OSCILLATION_FACTOR
-    # Stiction is a mechanical fault, not a control-tuning one, so it is detected separately
-    # by inspecting the loop's behaviour rather than by its classification code.
+    # Stiction is a valve fault, not a tuning one; it comes from the stiction verdict, not from
+    # the classification, so it can apply on top of an oscillating loop.
     if _stiction_suspected(report):
         factor *= STICTION_FACTOR
     return factor
@@ -526,16 +505,27 @@ def _report_row(
 ) -> dict[str, Any]:
     """One JSON-ready row describing a loop, its report and its sparkline.
 
-    A control loop is a feedback controller (usually PID) that drives a process
-    variable (PV) towards a setpoint (SP). `report` holds the diagnostics computed
-    for that loop, `settings` the thresholds those diagnostics are judged against.
+    `report` holds the diagnostics computed for that loop, `settings` the thresholds those
+    diagnostics are judged against.
 
     Returns a flat mapping whose keys become columns in the exported table.
     Numerical values are JSON-ready: no numpy scalars, no NaN, no infinities.
     """
-    # Build the row from identifying columns first, then diagnostics; later keys win on collision.
+    # Identifying columns first, then diagnostics, then the withheld conclusions and sparkline.
     return {
         **_loop_identity(loop),
+        **_health_columns(report, settings),
+        **_valve_columns(report),
+        # Conclusions withheld because their per-loop knowledge is not configured.
+        "not_assessed": list(report.not_assessed),
+        # Downsampled PV values for the inline sparkline chart.
+        "sparkline": _sparkline(pv_values),
+    }
+
+
+def _health_columns(report: LoopReport, settings: LoopSettings) -> dict[str, Any]:
+    """Status, health, classification, findings and oscillation columns of one row."""
+    return {
         # Severity level of the loop: one of "unused", "problem", "warning", "ok".
         "status": status_level(report, settings),
         # Overall health percentage (0-100); 100 means no degradation detected.
@@ -548,14 +538,19 @@ def _report_row(
         "service_percent": _rounded_percent(report.service_factor),
         # Percentage of time OUT sits at a limit, rounded; None when the OUT range is unknown.
         "saturation_percent": _optional_percent(report.saturation_fraction),
-        # Harris index: achieved variance vs minimum-variance benchmark; 1.0 is best, lower worse.
+        # Harris index: minimum-variance benchmark over achieved variance; 1.0 is best, lower worse.
         "harris_index": _optional_float(report.harris_index),
         # Dominant oscillation period in seconds; None if no oscillation was detected.
         "oscillation_period_s": _optional_period(report.oscillation_period_s),
         # "hagglund" (configured limits), "acf" (parameter-free regularity) or None.
         "oscillation_method": report.oscillation_method,
-        # Verdict on valve stiction; may be None if the loop is not saturated or no oscillation was
-        # found.
+    }
+
+
+def _valve_columns(report: LoopReport) -> dict[str, Any]:
+    """Stiction verdict, valve travel and sizing columns of one row."""
+    return {
+        # Stiction verdict label of the monitor; "not_checked" when no stretch could be judged.
         "stiction_verdict": report.stiction_verdict,
         # Ranked stiction suspicion (0..1 or None) and the advice derived from it.
         "stiction_suspicion": report.stiction_suspicion,
@@ -564,19 +559,14 @@ def _report_row(
         "valve_reversals_per_h": report.valve_reversals_per_h,
         "out_quantisation_ratio": report.out_quantisation_ratio,
         "valve_sizing_hint": report.valve_sizing_hint,
-        # Conclusions withheld because their per-loop knowledge is not configured.
-        "not_assessed": list(report.not_assessed),
-        # Downsampled PV values for the inline sparkline chart.
-        "sparkline": _sparkline(pv_values),
     }
 
 
 def _loop_identity(loop: LoopTags) -> dict[str, str]:
     """The identifying tags and unit of one loop, as they appear at the start of its CSV row.
 
-    A "loop" is one control loop of a plant (a controller driving a measured variable to a
-    setpoint). Its tags are the column names in the data file, so this mapping is the key
-    that lets the rest of the module find a loop's signals in the export.
+    The tags are the column names in the data file, so this mapping lets the rest of the
+    module find a loop's signals.
 
     Returns a dict with these keys, all values being raw column-name strings:
         name: loop identifier, e.g. "FIC-101"
@@ -616,8 +606,9 @@ def analyze_dataset(
 ) -> list[dict[str, Any]]:
     """Analyse every loop of one recording and return one JSON-ready row per loop.
 
-    Paper name: "loop analysis" – the recording is cut into test loops and each loop is
-    reduced to a small set of scalar metrics (yield, efficiency, ...) meant for export.
+    Each row holds the loop tags, status, health score, findings (with a trend window where one
+    exists), the monitor KPIs, a sparkline, the loops that cycle at the same period and the
+    next action of the worklist.
 
     Args:
         t_s: sample time stamps in seconds, shared by all columns.
@@ -631,9 +622,7 @@ def analyze_dataset(
         KeyError: if a tag named by a loop is missing from ``columns``.
 
     Notes:
-        This function is only a map: it owns no state and isolates no failure, so one
-        bad loop raises and no rows are returned. The row order follows ``loops``, which
-        is what downstream consumers (tables, charts) rely on to line up columns.
+        One bad loop raises and no rows are returned: failures are not isolated per loop.
     """
     rows = [_analyse_one_loop(t_s, columns, loop) for loop in loops]
     _add_shared_periods(rows)
@@ -643,7 +632,10 @@ def analyze_dataset(
 
 
 def _add_shared_periods(rows: list[dict[str, Any]]) -> None:
-    """Give each row "same_period_as": the other loops cycling at the same period (+-10 %).
+    """Give each row "same_period_as": the other loops cycling at about the same period.
+
+    "About the same" is `group_by_period`'s default: within 10 % above the shortest period of
+    the cluster.
 
     Loops that oscillate together often share one disturbance source, so the list points at
     where to look first; it is a hint, not a proof of a common cause.
@@ -655,31 +647,21 @@ def _add_shared_periods(rows: list[dict[str, Any]]) -> None:
     }
     peers = {name: cluster for cluster in group_by_period(periods) for name in cluster}
     for row in rows:
-        row["same_period_as"] = [n for n in peers.get(row["name"], []) if n != row["name"]]
+        row["same_period_as"] = [peer for peer in peers.get(row["name"], []) if peer != row["name"]]
 
 
 def _analyse_one_loop(
     t_s: np.ndarray, columns: Mapping[str, np.ndarray], loop: LoopTags
 ) -> dict[str, Any]:
-    """Run the loop analysis on its own tags and return its JSON-ready row.
-
-    A "loop" here is one control loop of a plant: a controlled variable (pv,
-    measured process value), a setpoint (sp, the target pv should track), a
-    controller output (out, the signal the controller sends to the valve) and
-    a mode signal (mode, telling whether the loop is under automatic control
-    or is held by the operator). This function wires those four signals of a
-    single loop into the core analysis and packages the result for the report.
+    """Run the loop analysis on the PV, SP, OUT and MODE tags of one loop; return its row.
 
     Parameters:
-        t_s: shared timestamps of every signal, in SECONDS from the start of
-            the log. All columns are aligned with this array, index by index.
-        columns: mapping from tag name to that tag's signal array, all of the
-            same length as t_s.
+        t_s: shared timestamps of every signal, in seconds; all columns are aligned with it.
+        columns: mapping from tag name to that tag's signal array (same length as t_s).
         loop: the tag names identifying the four signals belonging to this loop.
 
     Returns:
-        One report row (a plain dict) for this loop, ready to be serialised to
-        JSON.
+        One report row (a plain dict) for this loop, ready to be serialised to JSON.
     """
     # Settings may vary per loop, so they are derived from the loop's configuration.
     settings = default_settings(loop)
@@ -715,25 +697,14 @@ def _add_finding_windows(
         window = _cause_window(finding["code"], t_s, columns, loop)
         kind = WINDOW_KIND_CAUSE
         if window is None:
-            window = _example_window_of(finding["code"], row, t_s, columns, loop)
+            period_s = row["oscillation_period_s"]
+            window = example_window(
+                finding["code"], t_s, columns[loop.pv], columns[loop.sp], period_s
+            )
             kind = WINDOW_KIND_EXAMPLE
         if window is not None:
             finding["window_s"] = [window[0], window[1]]
             finding["window_kind"] = kind
-
-
-# codecheck: allow too-many-parameters (thin wrapper, arguments mirror example_window)
-def _example_window_of(
-    code: str,
-    row: dict[str, Any],
-    t_s: np.ndarray,
-    columns: Mapping[str, np.ndarray],
-    loop: LoopTags,
-) -> tuple[float, float] | None:
-    """A representative stretch for a whole-record finding, or None for other codes."""
-    return example_window(
-        code, t_s, columns[loop.pv], columns[loop.sp], row["oscillation_period_s"]
-    )
 
 
 def _cause_window(

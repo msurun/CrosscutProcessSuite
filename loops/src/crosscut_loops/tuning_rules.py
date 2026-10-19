@@ -23,7 +23,8 @@ class FopdtModel:
     """A first-order-plus-dead-time (FOPDT) process model.
 
     Attributes:
-        gain: Process gain (dimensionless).
+        gain: Process gain K in PV units per unit of controller output (steady-state change
+            of the PV divided by the change of the output).
         time_constant_s: First-order time constant in seconds.
         delay_s: Dead time in seconds.
     """
@@ -47,7 +48,7 @@ class PiSettings:
     """PI controller settings.
 
     Attributes:
-        kc: Controller gain (dimensionless).
+        kc: Controller gain in output units per PV unit (error) unit.
         ti_s: Integral time in seconds.
     """
 
@@ -62,8 +63,8 @@ class PiSettings:
             raise ValueError("Integral time must be positive")
 
 
-# The SIMC rule caps the integral time at four times the total lag
-# (dead time plus tuning constant) to avoid sluggish response.
+# The SIMC rule caps the integral time at four times (tau_c + dead time), so a lag-dominant
+# process (large time constant) does not get an integral action that is far too slow.
 _SIMC_INTEGRAL_CAP_FACTOR = 4.0
 
 # The robustness slider maps [0, 1] to a tau_c range of [L, 5L].
@@ -88,20 +89,20 @@ def _validate_robustness(robustness: float) -> None:
 def simc_pi(model: FopdtModel, tau_c_s: float) -> PiSettings:
     """Compute PI settings using the SIMC rule.
 
-    SIMC = "Skogestad Internal Model Control". The rule gives a controller gain `kc`
-    and integral time `ti_s` that make the closed loop behave like a first-order lag
-    with the chosen time constant `tau_c_s`. A smaller `tau_c_s` means a faster, more
-    aggressive controller.
+    SIMC = "Simple (Skogestad) Internal Model Control". The rule gives a controller gain `kc`
+    and integral time `ti_s` that make the closed loop follow the setpoint like a first-order
+    lag with the chosen time constant `tau_c_s`, after the process dead time that no controller
+    can remove. A smaller `tau_c_s` means a faster, more aggressive controller.
 
     Args:
         model: FOPDT process model. FOPDT = "First-Order Plus Dead Time": the process
             reacts like a first-order lag of `time_constant_s` followed by a pure
             transport delay of `delay_s`.
-        tau_c_s: Desired closed-loop time constant in seconds. This is the tuning knob:
-            the closed loop should reach its setpoint about `tau_c_s` seconds after a step.
+        tau_c_s: Desired closed-loop time constant in seconds. This is the tuning knob: after
+            the dead time, the closed loop covers about 63 % of a setpoint step in `tau_c_s`.
 
     Returns:
-        PiSettings with controller gain `kc` (dimensionless, output units per error unit)
+        PiSettings with controller gain `kc` (output units per error unit)
         and integral time `ti_s` in seconds.
 
     Raises:
@@ -135,13 +136,14 @@ def simc_pi_with_lag(model: FopdtModel, lag_s: float, tau_c_s: float) -> PiSetti
     total_lag_s = tau_c_s + model.delay_s
 
     # SIMC gain rule for a FOPDT model: kc = lag / (K * (tau_c + theta)), where K = process
-    # gain and theta = dead time (s). This is the standard IMC design for a first-order model,
-    # with the derivative term dropped.
+    # gain and theta = dead time (s). It follows from an IMC design in which the dead time is
+    # approximated by a first-order term (Skogestad 2003); `lag_s` is the process time constant.
     kc = lag_s / (model.gain * total_lag_s)
 
     # SIMC integral-time rule: ti = min(lag, 4 * (tau_c + theta)). The cap at
-    # `_SIMC_INTEGRAL_CAP_FACTOR` times the total lag keeps the integral action from being
-    # so slow on a lag-heavy process that it never removes steady-state offset.
+    # `_SIMC_INTEGRAL_CAP_FACTOR` times the total lag only acts on lag-dominant processes
+    # (lag much larger than tau_c + theta): there it speeds the integral action up so that
+    # load disturbances are removed in reasonable time.
     ti_s = min(lag_s, _SIMC_INTEGRAL_CAP_FACTOR * total_lag_s)
 
     return PiSettings(kc=kc, ti_s=ti_s)
@@ -150,7 +152,7 @@ def simc_pi_with_lag(model: FopdtModel, lag_s: float, tau_c_s: float) -> PiSetti
 def lambda_from_robustness(model: FopdtModel, robustness: float) -> float:
     """Map a robustness level [0, 1] to a SIMC tuning constant tau_c.
 
-    SIMC (Skogestad Internal Model Control) tunes a PID by picking a closed-loop
+    SIMC (Simple/Skogestad Internal Model Control) tunes a controller by picking a closed-loop
     speed parameter tau_c: a smaller tau_c gives a faster but less robust loop.
     Here tau_c is expressed as a multiple of the process delay.
 
@@ -168,8 +170,8 @@ def lambda_from_robustness(model: FopdtModel, robustness: float) -> float:
         ValueError: If robustness is outside [0, 1].
     """
     _validate_robustness(robustness)
-    # Dead time of the process, in seconds. tau_c is scaled from this because
-    # SIMC's own rule of thumb picks tau_c proportional to the delay.
+    # Dead time of the process, in seconds. tau_c is scaled from it: the SIMC default
+    # tau_c = delay is the fast end (robustness 0) of this slider.
     delay_s = model.delay_s
     # Interpolate between the two endpoints of the mapping: robustness 0 gives
     # tau_c = delay (1.0 * delay) and robustness 1 gives tau_c = 5 * delay.
@@ -195,7 +197,7 @@ def amigo_pi(model: FopdtModel) -> PiSettings:
         PiSettings with controller gain and integral time.
     """
     # First-order plus dead time (FOPDT) model: the process is described by three numbers.
-    # `gain` is the steady-state gain (output units per input unit, dimensionless ratio),
+    # `gain` is the steady-state gain (PV units per unit of controller output),
     # `time_constant_s` is how slowly the output reacts (seconds), and `delay_s` is the
     # dead time before the output starts moving (seconds). AMIGO uses them to pick a PI
     # controller that stays stable without being sluggish.
@@ -203,23 +205,16 @@ def amigo_pi(model: FopdtModel) -> PiSettings:
     time_constant_s = model.time_constant_s
     delay_s = model.delay_s
 
-    # Constants from Astrom and Hagglund (2006), Table 7.2.
-    # `kc` is the proportional gain (input units per output unit, so it is 1/gain scaled
-    # by the tuning rule). The rule has two parts: `0.15 / gain` is a fixed floor that
-    # keeps the loop stable when the process is hard to control, and the second term
-    # adds correction based on how the dead time compares to the time constant. The
-    # fraction `delay_s * time_constant_s / (delay_s + time_constant_s)**2` is a
-    # dimensionless shape factor: it peaks at 0.25 when delay equals time constant and
-    # shrinks toward zero when either dominates, so the correction is largest for a
-    # balanced process. `time_constant_s / (gain * delay_s)` converts that shape factor
-    # back into gain units. Multiplying by the shape factor makes `kc` smaller (control
-    # less aggressive) for processes with an unfavorable delay-to-time-constant ratio.
+    # AMIGO PI rule, Astrom and Hagglund (2006), chapter 7 (coefficients still to verify against
+    # the book, see docs/PROVENANCE.md). With K = gain, T = time constant, L = dead time:
+    #     Kc = (0.15 + 0.35 * T / L - T**2 / (L + T)**2) / K
+    # written below as 0.15 / K + (0.35 - L * T / (L + T)**2) * T / (K * L), which is the same
+    # expression. `kc` is in controller-output units per PV unit (1 / K scaled by a number).
     kc = 0.15 / gain + (0.35 - delay_s * time_constant_s / (delay_s + time_constant_s) ** 2) * (
         time_constant_s / (gain * delay_s)
     )
-    # `ti_s` is the integral (reset) time in seconds: how long the controller takes to
-    # repeat the proportional action. The AMIGO formula for it is kept in a helper so the
-    # logic and the caller stay readable.
+    # `ti_s` is the integral (reset) time in seconds: the time in which the integral action
+    # repeats the proportional action for a constant error. Its formula is in a helper.
     ti_s = _amigo_integral_time_s(time_constant_s, delay_s)
     return PiSettings(kc=kc, ti_s=ti_s)
 
@@ -266,11 +261,10 @@ _CONVERTERS: dict[ConversionForm, Callable[[PiSettings], dict[str, float]]] = {
 def convert_pi(settings: PiSettings, form: ConversionForm) -> dict[str, float]:
     """Convert PI settings into a vendor-specific parameter form.
 
-    A PI controller is described by a proportional gain and an integral time
-    (both in the controller's own engineering units); every PLC vendor instead
-    expects the integral part as a gain with a different unit (usually a reset
-    time in seconds or a gain per second). This function picks the converter
-    that translates the vendor-neutral PI settings into the chosen form.
+    The same PI controller is written differently by different vendors: the gain `kc` or
+    the proportional band 100 / kc (in %, which assumes `kc` is on a percent-of-span basis), and
+    the integral time in seconds or minutes, or as repeats per minute (60 / ti_s). This
+    function picks the converter that turns the settings into the chosen form.
 
     Args:
         settings: PI settings to convert.

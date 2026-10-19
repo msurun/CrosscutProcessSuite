@@ -43,9 +43,9 @@ def loops_from_project(
 ) -> list[LoopTags]:
     """Build one LoopTags per analysable loop entry of the project.
 
-    A "loop" is a control loop (PID): it reads a process variable (pv), compares it with a
-    setpoint (sp), and drives an output (out) between manual and automatic (mode).  A "tag" is
-    the plant's definition of one signal: its id, unit of measure and engineering range.
+    A loop entry names four tags: the process variable (pv), its setpoint (sp), the controller
+    output (out) and the mode signal (mode, manual or automatic).  A "tag" row is the plant's
+    definition of one signal: its id, unit and engineering range.
 
     Entries whose ``pv``, ``sp``, ``out`` or ``mode`` is absent, or names a tag that ``tags`` does
     not define, are skipped; the order of the project file is preserved.
@@ -57,12 +57,10 @@ def loops_from_project(
     Returns:
         The loops that can be analysed, in project order.
     """
-    # Resolve every tag id once, up front, so the per-entry work below is a dict lookup instead
-    # of a scan over the whole tag list.  tag_rows maps tag id (str) -> tag row (mapping).
+    # Index the tag rows by id once, so the per-entry work below is a dict lookup instead of a
+    # scan over the whole tag list.  tag_rows maps tag id (str) -> tag row (mapping).
     tag_rows = _index_tags_by_id(tags)
-    # _analysable_entries yields the loop entries that pass the checks (in project order) and
-    # _build_loop turns each entry plus the tag index into a LoopTags.  Splitting the two steps
-    # keeps the filtering decision free of the construction side effect.
+    # First filter the entries (in project order), then build a LoopTags from each survivor.
     return [_build_loop(entry, tag_rows) for entry in _analysable_entries(project, tag_rows)]
 
 
@@ -71,12 +69,11 @@ def _analysable_entries(
 ) -> list[Mapping[str, Any]]:
     """The project's loop entries whose four tags all exist, in project order.
 
-    A "loop" is one control loop of the plant (a level loop, a flow loop, ...).
-    Each entry in `project[LOOPS_KEY]` is a mapping of tag roles to tag names, so the
-    builder downstream needs every tag of the entry to be resolvable.
+    Each entry in `project[LOOPS_KEY]` is a mapping of tag roles (pv, sp, out, mode) to tag
+    ids, so the builder downstream needs every tag of the entry to be resolvable.
 
-    `tag_rows` maps a tag name to that tag's row from the tag list; it acts as the
-    lookup table of the tags that exist.
+    `tag_rows` maps a tag id to that tag's row from the tag list; it is the lookup table of
+    the tags that exist.
 
     An entry that names an unknown tag is dropped here, so the loop builder can trust
     its input. Entries keep their original order, and `project` is not modified.
@@ -84,9 +81,7 @@ def _analysable_entries(
     Returns a list of the surviving entries (shallow references to the originals),
     empty if the project has no `LOOPS_KEY` key at all.
     """
-    # A list comprehension, not a loop with append: order is preserved by definition, and
-    # `_is_analysable` holds the whole decision (pure predicate), so this function stays
-    # free of any side effect.
+    # `_is_analysable` holds the whole decision; the order of the project file is kept.
     return [entry for entry in project.get(LOOPS_KEY, []) if _is_analysable(entry, tag_rows)]
 
 
@@ -109,17 +104,16 @@ def _text_or_none(value: Any) -> str | None:
 def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, Any]]) -> LoopTags:
     """Build the LoopTags of one entry; the caller has already checked its tags exist.
 
-    A "loop" is a control loop of the plant: one measured value (the PV, process variable)
-    is compared to its setpoint (SP) by the controller, whose output (OUT) drives the field
-    device. `tag_rows` maps a tag name to that tag's own entry, and is used to look up the
-    engineering range of the PV tag. Returns the immutable LoopTags record used downstream.
+    `tag_rows` maps a tag id to that tag's own row; it supplies the unit and engineering range
+    of the PV tag and the engineering range of the OUT tag. Returns the immutable LoopTags
+    record used downstream.
     """
-    # A loop is identified by four tag names plus the PV tag's engineering details
-    # (measurement unit and the raw-to-engineering conversion range).
+    # A loop is identified by four tag ids plus the PV tag's unit and engineering range.
     unit, eng_min, eng_max = _pv_engineering_details(entry, tag_rows)
     out_low, out_high = _out_engineering_range(entry, tag_rows)
-    # Optional keys (delay, period, amplitude limit) are absent when the loop is not a
-    # cycling/oscillating one, so they are read with .get() and stay None in that case.
+    # The per-loop knowledge (delay, ultimate period, amplitude limit) is optional: a key the
+    # project file does not give stays None, and `overview.default_settings` then uses a
+    # placeholder and withholds the conclusions that would depend on it.
     return LoopTags(
         name=_loop_name(entry),
         pv=str(entry[PV_KEY]),
@@ -159,13 +153,11 @@ def _pv_engineering_details(
     A PV tag recorded without unit or range leaves the loop without scaling information; the
     analysis then falls back to its own defaults (``overview.default_settings``).
 
-    In control-engineering terms a "PV" (process variable) is the tag whose measured value the
-    controller reads and compares to its setpoint. ``tag_rows`` is the tag dictionary keyed by
-    tag name; every row is a mapping of tag attributes. The unit is returned as text (``""``
-    when the row carries none), and the engineering range as two floats or ``None`` each:
-    ``ENG_MIN_KEY``/``ENG_MAX_KEY`` are the low and high ends of the sensor's calibrated span,
-    in the tag's own engineering unit (e.g. 0.0 and 100.0 for a 0-100 degC transmitter), and
-    are what the loop uses to turn a raw percentage into a physical value.
+    ``tag_rows`` is the tag dictionary keyed by tag id; every row is a mapping of tag
+    attributes. The unit is returned as text (``""`` when the row carries none), and the
+    engineering range as two floats or ``None`` each: ``ENG_MIN_KEY``/``ENG_MAX_KEY`` are the
+    low and high ends of the transmitter span in the tag's own unit (e.g. 0.0 and 100.0 for a
+    0-100 degC transmitter); the analysis derives its default amplitude limit from that span.
 
     Returns:
         A 3-tuple ``(unit, engineering_minimum, engineering_maximum)``; the two bounds are
@@ -175,15 +167,15 @@ def _pv_engineering_details(
         KeyError: if ``entry[PV_KEY]`` names a PV tag that is absent from ``tag_rows``; that
             means the entry and the tag dictionary disagree and the caller must fix its input.
     """
-    # Look the PV up by name. This raises KeyError rather than returning None on purpose:
+    # Look the PV up by id. This raises KeyError rather than returning None on purpose:
     # a missing tag is a broken input, not a tag that merely lacks a range.
     pv_row = tag_rows[str(entry[PV_KEY])]
     return (
         # Unit as plain text; _text_or_empty maps a missing/None attribute to "" so callers
         # can treat "no unit" and "empty unit" alike.
         _text_or_empty(pv_row.get(UNIT_KEY)),
-        # Both bounds are passed through as-is: None means "not configured", which the
-        # caller distinguishes from a legitimate 0.0 bound.
+        # Both bounds are passed through as they are: None means "not configured", which is
+        # different from a legitimate 0.0 bound.
         pv_row.get(ENG_MIN_KEY),
         pv_row.get(ENG_MAX_KEY),
     )

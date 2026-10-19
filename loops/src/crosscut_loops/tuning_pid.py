@@ -13,8 +13,8 @@ from math import sqrt
 
 from crosscut_loops.tuning_rules import FopdtModel, PiSettings, simc_pi_with_lag
 
-# Default derivative filter ratio N (Tf = Td / N) used by Skogestad and Grimholt
-# in the SIMC chapter; typical range 8-20.
+# Default derivative filter ratio N (Tf = Td / N); N = 10 as used by Skogestad and Grimholt
+# in the SIMC chapter.
 _DEFAULT_FILTER_RATIO_N = 10.0
 
 # AMIGO PID constants from Astrom and Hagglund (2006), eq. 7.7.
@@ -48,12 +48,12 @@ _IMPROVED_SIMC_DELAY_SHARE = 3.0
 class PidSettings:
     """PID controller settings in ideal (ISA) form.
 
-    Ideal form: u = Kc (e + (1/Ti) integral e dt + Td d(pv)/dt / (Tf s + 1)).
+    Ideal form: u = Kc (e + (1/Ti) integral e dt - Td s / (Tf s + 1) pv), with e = sp - pv.
     The derivative acts on the MEASUREMENT (pv), not the setpoint (sp), so a
     setpoint step does not produce a derivative kick on the valve.
 
     Attributes:
-        kc: Controller gain (dimensionless, output units per error unit).
+        kc: Controller gain (output units per error unit).
         ti_s: Integral time in seconds.
         td_s: Derivative time in seconds; 0 disables the derivative term.
         filter_ratio_n: Derivative filter ratio N (dimensionless); the filter
@@ -99,20 +99,20 @@ def amigo_pid(model: FopdtModel) -> PidSettings:
     time_constant_s = model.time_constant_s
     delay_s = model.delay_s
 
-    # Kc = (1/K) (0.2 + 0.45 T/L): the 1/K makes the loop gain independent of the
-    # process unit scale, while T/L penalizes processes that are fast to delay.
+    # Kc = (1/K) (0.2 + 0.45 T/L): the 1/K makes the loop gain Kc*K independent of the
+    # process gain, and the T/L term allows a higher Kc*K when the lag dominates the delay.
     kc = (_AMIGO_PID_KC_CONSTANT + _AMIGO_PID_KC_RATIO * time_constant_s / delay_s) / gain
 
-    # Ti = L (0.4 L + 0.8 T) / (L + 0.1 T): a reset time that follows the delay
-    # for delay-dominated processes and grows with T for lag-dominated ones.
+    # Ti = L (0.4 L + 0.8 T) / (L + 0.1 T): about 0.4 L when the delay dominates (T << L) and
+    # approaching 8 L when the lag dominates (T >> L); always a multiple of the delay.
     ti_s = (
         delay_s
         * (_AMIGO_PID_TI_LINEAR * delay_s + _AMIGO_PID_TI_LAG * time_constant_s)
         / (delay_s + _AMIGO_PID_TI_DELAY * time_constant_s)
     )
 
-    # Td = 0.5 L T / (0.3 L + T): derivative time, capped by the delay so the
-    # derivative does not outrun the information the sensor can deliver.
+    # Td = 0.5 L T / (0.3 L + T): derivative time; it stays below 0.5 L whatever T is and
+    # tends to 0.5 L when the lag dominates (T >> L).
     td_s = (
         _AMIGO_PID_TD_NUMERATOR * delay_s * time_constant_s
         / (_AMIGO_PID_TD_DELAY * delay_s + time_constant_s)
@@ -125,8 +125,8 @@ def simc_pi_improved(model: FopdtModel, tau_c_s: float) -> PiSettings:
     """Compute PI settings using the improved SIMC rule (Skogestad and Grimholt, 2012).
 
     The improved rule (eqs. 38-39) replaces the time constant T of the original SIMC rule by
-    T + L/3. For a pure delay process (T = 0) the original rule is a pure I controller; the
-    optimal PI has an integral time of about L/3, which is what the extra L/3 produces.
+    T + L/3. For a pure delay process (T = 0) the original rule degenerates to a pure I controller
+    (Kc and Ti both tend to 0); with the extra L/3 the integral time is L/3 instead.
 
     Args:
         model: FOPDT process model (K = gain, T = time_constant_s, L = delay_s).
@@ -201,7 +201,7 @@ def series_to_ideal(kc: float, ti_s: float, td_s: float) -> PidSettings:
     SIMC chapter relates the two by the factor f = 1 + Td/Ti.
 
     Args:
-        kc: Series controller gain (dimensionless).
+        kc: Series controller gain (output units per error unit).
         ti_s: Series integral time in seconds.
         td_s: Series derivative time in seconds; 0 makes this the identity.
 
@@ -265,7 +265,7 @@ def high_frequency_gain(settings: PidSettings) -> float:
         settings: PID settings in ideal form.
 
     Returns:
-        The high-frequency gain (dimensionless).
+        The high-frequency gain, in output units per PV unit (same unit as Kc).
     """
     return settings.kc * (1.0 + settings.filter_ratio_n)
 

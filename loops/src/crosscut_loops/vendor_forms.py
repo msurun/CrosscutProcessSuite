@@ -98,7 +98,9 @@ VENDOR_FORMS: dict[str, VendorForm] = {
 
 
 def normalise_gain(kc: float, pv_span: float, out_span: float = DEFAULT_OUT_SPAN) -> float:
-    """Return the dimensionless gain G = kc * PvRange / OutRange.
+    """Return the normalised, dimensionless gain Gain = kc * PvRange / OutRange.
+
+    Equivalently kc = Gain * OutRange / PvRange, the form ABB gives for its engineering gain.
 
     `kc` comes from identification on raw data, so it is in output units per PV unit
     (e.g. % valve per degC). ABB PidCC wants the normalised form (output fraction per PV
@@ -196,14 +198,21 @@ def vendor_summaries(
         if tags is None:
             tags = {}
             caveats.insert(0, MISSING_RANGE_CAVEAT)
-        result[key] = {
-            "block": spec.block,
-            "evidence": spec.evidence,
-            "source": spec.source,
-            "tags": tags,
-            "caveats": caveats,
-        }
+        result[key] = _summary_of(spec, tags, caveats)
     return result
+
+
+def _summary_of(
+    spec: VendorForm, tags: dict[str, float | bool], caveats: list[str]
+) -> VendorSummary:
+    """Assemble the report entry of one vendor block."""
+    return {
+        "block": spec.block,
+        "evidence": spec.evidence,
+        "source": spec.source,
+        "tags": tags,
+        "caveats": caveats,
+    }
 
 
 def _tags_for(

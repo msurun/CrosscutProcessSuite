@@ -8,7 +8,7 @@ and ISA-TR75.25.02 as recalled (the standards were not read).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -79,7 +79,8 @@ class SegmentMove:
         start_index: sample index where the OP change starts.
         op_change: steady OP change in % of span (segment j minus segment j-1).
         pv_change: steady PV change in PV units (segment j minus segment j-1).
-        moved: True if the valve visibly moved (see spec step 4).
+        moved: True if the PV change exceeds the noise gate and a share of the expected
+            response (see `_compute_moved`).
         size: plan step size in % of span nearest to |op_change|.
         after_reversal: True if this step immediately follows a direction change.
     """
@@ -123,69 +124,80 @@ class StrokeResult:
     reason: str = ""
 
 
-def _validate_plan_inputs(
-    op_start: float,
-    step_sizes: Sequence[float],
-    steps_per_leg: Sequence[int],
-    dwell_s: int,
-    op_low: float,
-    op_high: float,
-) -> None:
+@dataclass(frozen=True)
+class _PlanInputs:
+    """Validated-together inputs of `plan_stroke_test` (private parameter group)."""
+
+    op_start: float
+    step_sizes: tuple[float, ...]
+    steps_per_leg: tuple[int, ...]
+    dwell_s: int
+    op_low: float
+    op_high: float
+
+    def to_plan(self, pv_band: float | None, steps: tuple[TestStep, ...]) -> StrokePlan:
+        """Return the StrokePlan made of these inputs, the abort band and the built steps."""
+        return StrokePlan(
+            op_start=self.op_start,
+            step_sizes=self.step_sizes,
+            steps_per_leg=self.steps_per_leg,
+            dwell_s=self.dwell_s,
+            op_low=self.op_low,
+            op_high=self.op_high,
+            pv_band=pv_band,
+            steps=steps,
+        )
+
+
+def _validate_plan_inputs(inputs: _PlanInputs) -> None:
     """Raise ValueError if plan inputs are inconsistent or out of range."""
-    if len(step_sizes) != len(steps_per_leg):
+    if len(inputs.step_sizes) != len(inputs.steps_per_leg):
         raise ValueError("step_sizes and steps_per_leg must have the same length")
-    if dwell_s <= 0:
+    if inputs.dwell_s <= 0:
         raise ValueError("dwell_s must be positive")
-    if op_low >= op_high:
+    if inputs.op_low >= inputs.op_high:
         raise ValueError("op_low must be strictly less than op_high")
-    if not op_low <= op_start <= op_high:
+    if not inputs.op_low <= inputs.op_start <= inputs.op_high:
         raise ValueError("op_start must be within [op_low, op_high]")
-    for size in step_sizes:
+    for size in inputs.step_sizes:
         if size <= 0:
             raise ValueError(f"step size must be positive, got {size}")
 
 
-def _build_steps(
-    op_start: float,
-    step_sizes: Sequence[float],
-    steps_per_leg: Sequence[int],
-    dwell_s: int,
-    op_low: float,
-    op_high: float,
-) -> tuple[tuple[TestStep, ...], float]:
-    """Build all TestStep objects and return them with the final OP.
+def _step_specs(inputs: _PlanInputs) -> Iterator[tuple[float, int, bool]]:
+    """Yield (size, direction, after_reversal) for every step of the plan, in order."""
+    # Three legs per size: up, down, up (two reversals).
+    leg_directions = (1, -1, 1)
+    for size, leg_length in zip(inputs.step_sizes, inputs.steps_per_leg, strict=True):
+        for leg_number, direction in enumerate(leg_directions):
+            for _ in range(leg_length):
+                yield size, direction, leg_number > 0
+
+
+def _build_steps(inputs: _PlanInputs) -> tuple[TestStep, ...]:
+    """Build all TestStep objects of the plan.
 
     Raises ValueError if any target leaves [op_low, op_high].
     """
     steps: list[TestStep] = []
-    current_op = op_start
-    index = 0
-    for size, leg_length in zip(step_sizes, steps_per_leg, strict=True):
-        # Three legs per size: up, down, up (two reversals).
-        directions = (1, -1, 1)
-        for leg_num, direction in enumerate(directions):
-            for _ in range(leg_length):
-                target = current_op + direction * size
-                if not op_low <= target <= op_high:
-                    raise ValueError(
-                        f"step {index} target {target:.2f} outside [{op_low}, {op_high}]"
-                    )
-                after_reversal = leg_num > 0
-                steps.append(
-                    TestStep(
-                        index=index,
-                        op_target=target,
-                        direction=direction,
-                        size=size,
-                        dwell_s=dwell_s,
-                        after_reversal=after_reversal,
-                    )
-                )
-                current_op = target
-                index += 1
-    return tuple(steps), current_op
+    current_op = inputs.op_start
+    for size, direction, after_reversal in _step_specs(inputs):
+        target = current_op + direction * size
+        _check_target(target, len(steps), inputs)
+        steps.append(TestStep(len(steps), target, direction, size, inputs.dwell_s, after_reversal))
+        current_op = target
+    return tuple(steps)
 
 
+def _check_target(target: float, index: int, inputs: _PlanInputs) -> None:
+    """Raise ValueError if the OP target of step `index` leaves the output limits."""
+    if not inputs.op_low <= target <= inputs.op_high:
+        raise ValueError(
+            f"step {index} target {target:.2f} outside [{inputs.op_low}, {inputs.op_high}]"
+        )
+
+
+# codecheck: allow too-many-parameters (public signature used by valve_test_cli, run25, tests)
 def plan_stroke_test(
     op_start: float,
     dwell_s: int,
@@ -197,7 +209,7 @@ def plan_stroke_test(
 ) -> StrokePlan:
     """Create a stroke test plan.
 
-    For each step size s with leg length m, the legs are up m steps, down m steps, up m
+    For each step size with leg length m, the legs are up m steps, down m steps, up m
     steps (two reversals per size), starting from the OP reached by the previous size.
 
     Args:
@@ -215,20 +227,11 @@ def plan_stroke_test(
     Raises:
         ValueError: if inputs are inconsistent or any target leaves [op_low, op_high].
     """
-    sizes = tuple(float(s) for s in step_sizes)
-    lengths = tuple(int(m) for m in steps_per_leg)
-    _validate_plan_inputs(op_start, sizes, lengths, dwell_s, op_low, op_high)
-    steps, _ = _build_steps(op_start, sizes, lengths, dwell_s, op_low, op_high)
-    return StrokePlan(
-        op_start=op_start,
-        step_sizes=sizes,
-        steps_per_leg=lengths,
-        dwell_s=dwell_s,
-        op_low=op_low,
-        op_high=op_high,
-        pv_band=pv_band,
-        steps=steps,
-    )
+    sizes = tuple(float(size) for size in step_sizes)
+    lengths = tuple(int(length) for length in steps_per_leg)
+    inputs = _PlanInputs(op_start, sizes, lengths, dwell_s, op_low, op_high)
+    _validate_plan_inputs(inputs)
+    return inputs.to_plan(pv_band, _build_steps(inputs))
 
 
 def procedure_text(plan: StrokePlan) -> list[str]:
@@ -256,7 +259,7 @@ def procedure_text(plan: StrokePlan) -> list[str]:
 
 
 def _find_change_points(op: np.ndarray, min_step: float, min_gap: int) -> np.ndarray:
-    """Indices where the operator moved the OP to a new level (review fix 2026-10-19).
+    """Indices where the operator moved the OP to a new level.
 
     Three passes, so that ramps and OP noise do not shatter the record:
     1. level crossings: a point wherever the OP leaves the last level by more than
@@ -292,8 +295,8 @@ def _drop_flat_boundaries(op: np.ndarray, points: list[int], threshold: float) -
 
 def _steady_value(segment: np.ndarray, fraction: float = STEADY_FRACTION) -> float:
     """Return the median of the last `fraction` of a segment."""
-    n = len(segment)
-    start = n - max(1, int(n * fraction))
+    length = len(segment)
+    start = length - max(1, int(length * fraction))
     return float(np.median(segment[start:]))
 
 
@@ -307,15 +310,18 @@ def _segment_steady_pv(pv: np.ndarray, change_points: np.ndarray) -> list[float]
 
 
 def _estimate_sigma_pv(pv: np.ndarray, change_points: np.ndarray) -> float:
-    """Estimate PV noise std via MAD of segment residuals, scaled by MAD_TO_STD."""
+    """Estimate PV noise std via MAD of segment residuals, scaled by MAD_TO_STD.
+
+    The residuals are the steady part (last STEADY_FRACTION) of every segment minus its own
+    median, so steps and slow drift between segments do not count as noise. For Gaussian
+    noise std = 1.4826 * MAD, with MAD the median of the absolute residuals.
+    """
     boundaries = [0] + list(change_points) + [len(pv)]
     residuals: list[float] = []
     for start, end in zip(boundaries[:-1], boundaries[1:], strict=True):
         segment = pv[start:end]
-        n = len(segment)
-        seg_start = n - max(1, int(n * STEADY_FRACTION))
-        steady = np.median(segment[seg_start:])
-        residuals.extend(segment[seg_start:] - steady)
+        steady_part = segment[len(segment) - max(1, int(len(segment) * STEADY_FRACTION)):]
+        residuals.extend(steady_part - np.median(steady_part))
     mad = float(np.median(np.abs(np.array(residuals))))
     return MAD_TO_STD * mad
 
@@ -324,7 +330,7 @@ def _classify_step(
     d_op: float, plan_sizes: tuple[float, ...], prev_direction: int
 ) -> tuple[float, int, bool]:
     """Return (size, direction, after_reversal) for a step given its OP change."""
-    size = min(plan_sizes, key=lambda s: abs(s - abs(d_op)))
+    size = min(plan_sizes, key=lambda plan_size: abs(plan_size - abs(d_op)))
     direction = 1 if d_op > 0 else -1
     after_reversal = prev_direction != 0 and direction != prev_direction
     return size, direction, after_reversal
@@ -333,7 +339,12 @@ def _classify_step(
 def _compute_gain(
     moves: Sequence[SegmentMove], sigma_pv: float, largest_size: float
 ) -> float | None:
-    """Return median dPV/dOP over qualifying steps, or None if fewer than 2."""
+    """Return the median dPV/dOP over qualifying steps, or None if fewer than 2.
+
+    Qualifying: a step of the largest size, not right after a reversal (the valve may still sit
+    in its deadband there), whose PV change beats NOISE_SIGMAS * sqrt(2) * sigma_pv (the
+    difference of two noisy values, see `_compute_moved`). Unit: PV units per % of span.
+    """
     ratios: list[float] = []
     for move in moves:
         if move.size != largest_size or move.after_reversal:
@@ -348,9 +359,16 @@ def _compute_gain(
 def _compute_moved(
     moves: Sequence[SegmentMove], gain: float, sigma_pv: float, min_step: float
 ) -> list[bool]:
-    """Return list of moved flags per move, with the spec's threshold."""
+    """Return the moved flag of every step.
+
+    A step moved the valve when its PV change beats both the noise gate and a share of the
+    response a free valve would give. A PV change is the difference of two noisy steady values,
+    so single-sample noise would give it std sqrt(2) * sigma_pv (a conservative gate: the steady
+    values are medians of several samples). Gain K times an OP step is the expected PV change
+    (PV units).
+    """
     threshold = max(NOISE_SIGMAS * np.sqrt(2) * sigma_pv, MOVE_STEP_FRACTION * abs(gain) * min_step)
-    return [abs(m.pv_change) > threshold for m in moves]
+    return [abs(move.pv_change) > threshold for move in moves]
 
 
 def _reversal_legs(moves: Sequence[SegmentMove]) -> list[list[SegmentMove]]:
@@ -405,7 +423,7 @@ def _median_bracket(brackets: list[tuple[float, float]]) -> tuple[float, tuple[f
     """Median of the bracket midpoints (the estimate) and the bracket closest to it."""
     midpoints = [(low + high) / 2.0 for low, high in brackets]
     estimate = float(np.median(midpoints))
-    closest = min(brackets, key=lambda b: abs((b[0] + b[1]) / 2.0 - estimate))
+    closest = min(brackets, key=lambda bracket: abs((bracket[0] + bracket[1]) / 2.0 - estimate))
     return estimate, closest
 
 
@@ -414,24 +432,60 @@ def _estimate_resolution(
 ) -> float | None:
     """Return smallest size with >= RESOLUTION_SHARE of non-reversal post-move steps moving."""
     for size in sorted(size_order):  # smallest first: the finest size that passes wins
-        qualifying: list[bool] = []
-        leg_moved = False
-        prev_direction = 0
-        for move in moves:
-            if move.after_reversal or prev_direction == 0:
-                # A leg starts; a valve that broke free on this very step already moved.
-                leg_moved = move.moved
-                prev_direction = 1 if move.op_change > 0 else -1
-                continue
-            if move.size != size:
-                continue
-            if leg_moved:
-                qualifying.append(move.moved)
-            if move.moved:
-                leg_moved = True
+        qualifying = _post_move_flags(moves, size)
         if qualifying and sum(qualifying) / len(qualifying) >= RESOLUTION_SHARE:
             return size
     return None
+
+
+def _post_move_flags(moves: Sequence[SegmentMove], size: float) -> list[bool]:
+    """Moved flags of the steps of `size` that follow a move within the same leg."""
+    qualifying: list[bool] = []
+    leg_moved = False
+    prev_direction = 0
+    for move in moves:
+        if move.after_reversal or prev_direction == 0:
+            # A leg starts; a valve that broke free on this very step already moved.
+            leg_moved = move.moved
+            prev_direction = 1 if move.op_change > 0 else -1
+            continue
+        if move.size != size:
+            continue
+        if leg_moved:
+            qualifying.append(move.moved)
+        if move.moved:
+            leg_moved = True
+    return qualifying
+
+
+def _check_record(t_s: np.ndarray, op: np.ndarray, pv: np.ndarray, plan: StrokePlan) -> None:
+    """Raise ValueError if the plan or the record arrays are unusable."""
+    if not plan.steps:
+        raise ValueError("plan has no steps")
+    if len(t_s) != len(op) or len(t_s) != len(pv):
+        raise ValueError("t_s, op, and pv must have the same length")
+    if not (np.all(np.isfinite(op)) and np.all(np.isfinite(pv)) and np.all(np.isfinite(t_s))):
+        raise ValueError("t_s, op and pv must be finite (no NaN or gaps in the record)")
+
+
+def _build_moves(
+    change_points: np.ndarray,
+    steady_op: list[float],
+    steady_pv: list[float],
+    plan_sizes: tuple[float, ...],
+) -> list[SegmentMove]:
+    """Build one SegmentMove (moved=False for now) per boundary between steady segments."""
+    moves: list[SegmentMove] = []
+    prev_direction = 0
+    for j in range(1, len(steady_op)):
+        op_change = steady_op[j] - steady_op[j - 1]
+        size, direction, after_reversal = _classify_step(op_change, plan_sizes, prev_direction)
+        pv_change = steady_pv[j] - steady_pv[j - 1]
+        # moved=False is filled in later, once the gain is known
+        start = change_points[j - 1]
+        moves.append(SegmentMove(start, op_change, pv_change, False, size, after_reversal))
+        prev_direction = direction
+    return moves
 
 
 def analyze_stroke_test(
@@ -443,7 +497,7 @@ def analyze_stroke_test(
     """Analyze a stroke test record.
 
     Args:
-        t_s: time in seconds (unused except for length checks).
+        t_s: time in seconds (sets the sample interval; length is checked against op and pv).
         op: output in % of span.
         pv: process variable in PV units.
         plan: the stroke test plan.
@@ -454,79 +508,36 @@ def analyze_stroke_test(
     Raises:
         ValueError: if the plan has no steps or if array lengths differ.
     """
-    if not plan.steps:
-        raise ValueError("plan has no steps")
-    if len(t_s) != len(op) or len(t_s) != len(pv):
-        raise ValueError("t_s, op, and pv must have the same length")
-    if not (np.all(np.isfinite(op)) and np.all(np.isfinite(pv)) and np.all(np.isfinite(t_s))):
-        raise ValueError("t_s, op and pv must be finite (no NaN or gaps in the record)")
-    min_step = min(plan.step_sizes)
+    _check_record(t_s, op, pv, plan)
     dt_s = float(np.median(np.diff(t_s))) if len(t_s) > 1 else 1.0
     min_gap = max(MIN_GAP_SAMPLES, int(plan.dwell_s * MIN_GAP_DWELL_FRACTION / dt_s))
-    change_points = _find_change_points(op, min_step, min_gap)
+    change_points = _find_change_points(op, min(plan.step_sizes), min_gap)
     if len(change_points) == 0:
         raise ValueError("no OP changes detected in the record")
-
     sigma_pv = _estimate_sigma_pv(pv, change_points)
-    steady_pv = _segment_steady_pv(pv, change_points)
-    steady_op = _segment_steady_pv(op, change_points)
-
-    # Build SegmentMove list.
-    moves: list[SegmentMove] = []
-    prev_direction = 0
-    for j in range(1, len(steady_op)):
-        d_op = steady_op[j] - steady_op[j - 1]
-        d_pv = steady_pv[j] - steady_pv[j - 1]
-        size, direction, after_reversal = _classify_step(d_op, plan.step_sizes, prev_direction)
-        moves.append(
-            SegmentMove(
-                start_index=change_points[j - 1],
-                op_change=d_op,
-                pv_change=d_pv,
-                moved=False,  # filled in later
-                size=size,
-                after_reversal=after_reversal,
-            )
-        )
-        prev_direction = direction
-
-    # Compute gain.
-    largest_size = max(plan.step_sizes)
-    gain = _compute_gain(moves, sigma_pv, largest_size)
-    if gain is None:
-        return StrokeResult(
-            deadband=None,
-            deadband_bracket=None,
-            deadband_lower_bound=None,
-            resolution_le=None,
-            gain=None,
-            sigma_pv=sigma_pv,
-            moves=moves,
-            pv_left_band=_pv_left_band(pv, plan.pv_band),
-            reason="no gain: valve did not move",
-        )
-
-    # Compute moved flags.
-    moved_flags = _compute_moved(moves, gain, sigma_pv, min_step)
-    moves = [replace(move, moved=flag) for move, flag in zip(moves, moved_flags, strict=True)]
-
-    # Deadband.
-    deadband, bracket, lower_bound, reason = _estimate_deadband(moves, plan.step_sizes)
-
-    # Resolution.
-    resolution = _estimate_resolution(moves, plan.step_sizes)
-
-    return StrokeResult(
-        deadband=deadband,
-        deadband_bracket=bracket,
-        deadband_lower_bound=lower_bound,
-        resolution_le=resolution,
-        gain=gain,
-        sigma_pv=sigma_pv,
-        moves=moves,
-        pv_left_band=_pv_left_band(pv, plan.pv_band),
-        reason=reason,
+    moves = _build_moves(
+        change_points,
+        _segment_steady_pv(op, change_points),
+        _segment_steady_pv(pv, change_points),
+        plan.step_sizes,
     )
+    return _result_from_moves(moves, plan, sigma_pv, _pv_left_band(pv, plan.pv_band))
+
+
+def _result_from_moves(
+    moves: list[SegmentMove], plan: StrokePlan, sigma_pv: float, pv_left_band: bool
+) -> StrokeResult:
+    """Estimate gain, moved flags, deadband and resolution from the unflagged moves."""
+    gain = _compute_gain(moves, sigma_pv, max(plan.step_sizes))
+    if gain is None:
+        return StrokeResult(None, None, None, None, None, sigma_pv, moves, pv_left_band,
+                            "no gain: valve did not move")
+    flags = _compute_moved(moves, gain, sigma_pv, min(plan.step_sizes))
+    moves = [replace(move, moved=flag) for move, flag in zip(moves, flags, strict=True)]
+    deadband, bracket, lower_bound, reason = _estimate_deadband(moves, plan.step_sizes)
+    resolution = _estimate_resolution(moves, plan.step_sizes)
+    return StrokeResult(deadband, bracket, lower_bound, resolution, gain, sigma_pv, moves,
+                        pv_left_band, reason)
 
 
 def _pv_left_band(pv: np.ndarray, pv_band: float | None) -> bool:

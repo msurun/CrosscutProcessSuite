@@ -94,8 +94,8 @@ def _mill_feed_settings(
     mask = (data.t_s >= start_s) & (data.t_s <= end_s)
     report = build_tuning_report(
         loop_name=LOOP,
-        u=data.out[mask],
-        y=data.pv[mask],
+        controller_output=data.out[mask],
+        process_value=data.pv[mask],
         dt_s=data.dt_s,
         robustness=robustness,
     )
