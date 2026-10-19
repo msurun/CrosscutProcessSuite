@@ -38,9 +38,9 @@ def make_open_loop_data() -> tuple[np.ndarray, np.ndarray]:
 def make_white_noise_data() -> tuple[np.ndarray, np.ndarray]:
     """Return (u, y) of pure white noise, which no FOPDT model can explain."""
     rng = np.random.default_rng(NOISE_SEED)
-    u = rng.normal(size=NOISE_SAMPLE_COUNT)
-    y = rng.normal(size=NOISE_SAMPLE_COUNT)
-    return u, y
+    controller_output = rng.normal(size=NOISE_SAMPLE_COUNT)
+    process_value = rng.normal(size=NOISE_SAMPLE_COUNT)
+    return controller_output, process_value
 
 
 def build_report_for_open_loop(
@@ -48,13 +48,20 @@ def build_report_for_open_loop(
     stiction_verdict: str | None = None,
 ) -> TuningReport:
     """Build a report from the standard simulated process, with optional overrides."""
-    u, y = make_open_loop_data()
+    controller_output, process_value = make_open_loop_data()
     return build_tuning_report(
-        "FIC101", u, y, 1.0, robustness=robustness, stiction_verdict=stiction_verdict
+        "FIC101",
+        controller_output,
+        process_value,
+        1.0,
+        robustness=robustness,
+        stiction_verdict=stiction_verdict,
     )
 
 
 def test_a_simulated_process_recovers_its_gain_and_blocking_is_none() -> None:
+    """The report model must carry the true process gain within 5 percent, so the PI settings
+    built from it are meaningful."""
     report = build_report_for_open_loop()
 
     assert report.model is not None
@@ -62,6 +69,7 @@ def test_a_simulated_process_recovers_its_gain_and_blocking_is_none() -> None:
 
 
 def test_a_simulated_process_yields_positive_pi_settings() -> None:
+    """Both SIMC and AMIGO must return usable positive PI settings for a healthy process."""
     report = build_report_for_open_loop()
 
     assert report.simc is not None
@@ -71,18 +79,23 @@ def test_a_simulated_process_yields_positive_pi_settings() -> None:
 
 
 def test_a_healthy_loop_is_not_blocked() -> None:
+    """A healthy loop must not carry a blocked reason, otherwise good results are hidden from
+    the user."""
     report = build_report_for_open_loop()
 
     assert report.blocked_reason is None
 
 
 def test_all_dcs_form_names_are_present_in_the_report() -> None:
+    """Every DCS parameter convention must be present, since users enter settings in their own
+    vendor form."""
     report = build_report_for_open_loop()
 
     assert set(report.dcs_forms.keys()) == set(DCS_FORM_NAMES)
 
 
 def test_a_higher_robustness_gives_a_lower_simc_gain() -> None:
+    """Raising robustness must make SIMC more conservative (lower Kc), the main tuning knob."""
     aggressive = build_report_for_open_loop(robustness=0.0)
     conservative = build_report_for_open_loop(robustness=1.0)
 
@@ -92,36 +105,43 @@ def test_a_higher_robustness_gives_a_lower_simc_gain() -> None:
 
 
 def test_suspected_stiction_blocks_the_report_with_the_repair_message() -> None:
+    """A stiction verdict must block retuning with the repair message, because tuning cannot
+    fix a sticking valve."""
     report = build_report_for_open_loop(stiction_verdict="stiction")
 
     assert report.blocked_reason == STICTION_REASON
 
 
 def test_suspected_stiction_still_returns_pi_settings() -> None:
+    """Even when blocked, the settings stay available so an expert can still inspect them."""
     report = build_report_for_open_loop(stiction_verdict="stiction")
 
     assert report.simc is not None
 
 
 def test_white_noise_data_cannot_be_identified() -> None:
-    u, y = make_white_noise_data()
+    """Data with no dynamics must give no model and no settings instead of invented ones."""
+    controller_output, process_value = make_white_noise_data()
 
-    report = build_tuning_report("FIC101", u, y, 1.0)
+    report = build_tuning_report("FIC101", controller_output, process_value, 1.0)
 
     assert report.model is None
     assert report.simc is None
 
 
 def test_white_noise_data_reports_an_identification_failure() -> None:
-    u, y = make_white_noise_data()
+    """A failed identification must be explained through a blocked reason with the failure
+    prefix."""
+    controller_output, process_value = make_white_noise_data()
 
-    report = build_tuning_report("FIC101", u, y, 1.0)
+    report = build_tuning_report("FIC101", controller_output, process_value, 1.0)
 
     assert report.blocked_reason is not None
     assert report.blocked_reason.startswith(MODEL_FAILURE_PREFIX)
 
 
 def test_markdown_of_a_healthy_report_names_the_loop_and_is_unblocked() -> None:
+    """The Markdown of a healthy report must name the loop and show no Blocked marker."""
     report = build_report_for_open_loop()
 
     markdown = render_markdown(report)
@@ -132,6 +152,7 @@ def test_markdown_of_a_healthy_report_names_the_loop_and_is_unblocked() -> None:
 
 
 def test_markdown_of_a_stiction_report_shows_the_blocked_reason() -> None:
+    """The Markdown of a blocked report must show the blocked reason to the reader."""
     report = build_report_for_open_loop(stiction_verdict="stiction")
 
     markdown = render_markdown(report)
@@ -141,8 +162,9 @@ def test_markdown_of_a_stiction_report_shows_the_blocked_reason() -> None:
 
 
 def test_markdown_of_a_failed_identification_is_blocked() -> None:
-    u, y = make_white_noise_data()
-    report = build_tuning_report("FIC101", u, y, 1.0)
+    """A report whose identification failed must also render as blocked in Markdown."""
+    controller_output, process_value = make_white_noise_data()
+    report = build_tuning_report("FIC101", controller_output, process_value, 1.0)
 
     markdown = render_markdown(report)
 

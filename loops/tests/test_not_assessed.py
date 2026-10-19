@@ -108,41 +108,49 @@ def empty_known_settings() -> LoopSettings:
 
 
 def test_known_all_classifies_saturated_case():
+    """With full knowledge, half the record at output 100 gives a saturation fraction of 0.5."""
     report = analyze_saturated(base_settings())
     assert report.saturation_fraction == pytest.approx(SATURATION_FRACTION)
 
 
 def test_known_all_classifies_saturated_case_label():
+    """With full knowledge, the saturated case is classified "saturated"."""
     report = analyze_saturated(base_settings())
     assert report.classification == "saturated"
 
 
 def test_known_all_classifies_oscillating_case():
+    """With full knowledge, a regular sine error is classified "oscillating"."""
     report = analyze_sine(base_settings())
     assert report.classification == "oscillating"
 
 
 def test_known_all_classifies_poor_performance_case():
+    """With full knowledge, a sluggish AR(1) error is poor performance."""
     report = analyze_sluggish(base_settings())
     assert report.classification == "poor_performance"
 
 
 def test_known_all_reports_nothing_as_not_assessed():
+    """When every piece of knowledge is configured, nothing is listed as not assessed."""
     report = analyze_sine(base_settings())
     assert report.not_assessed == ()
 
 
 def test_without_out_range_the_loop_is_not_saturated():
+    """Without the output range, saturation cannot be judged, so it is not claimed."""
     report = analyze_saturated(no_range_settings())
     assert report.classification != "saturated"
 
 
 def test_without_out_range_the_saturation_fraction_is_nan():
+    """An unknown saturation is NaN rather than a made-up 0 that would look like a healthy valve."""
     report = analyze_saturated(no_range_settings())
     assert np.isnan(report.saturation_fraction)
 
 
 def test_without_out_range_valve_kpis_are_none():
+    """Valve travel, reversals and sizing hint need the output range and are None without it."""
     report = analyze_saturated(no_range_settings())
     assert report.valve_travel_per_h is None
     assert report.valve_reversals_per_h is None
@@ -150,12 +158,14 @@ def test_without_out_range_valve_kpis_are_none():
 
 
 def test_without_out_range_saturation_and_valve_kpis_are_not_assessed():
+    """The skipped saturation and valve checks are named in not_assessed so the gap is visible."""
     report = analyze_saturated(no_range_settings())
     assert "saturation" in report.not_assessed
     assert "valve_kpis" in report.not_assessed
 
 
 def test_without_out_range_the_quantisation_ratio_is_still_computed():
+    """The quantisation ratio needs no range, so it is still computed."""
     errors = np.full(SAMPLE_COUNT, 0.5)
     t_s, pv, sp, _, mode = signals(errors)
     quantised = np.round(50 + RNG.normal(scale=0.3, size=SAMPLE_COUNT) / 1.0) * 1.0
@@ -164,50 +174,59 @@ def test_without_out_range_the_quantisation_ratio_is_still_computed():
 
 
 def test_without_delay_the_harris_index_is_nan():
+    """Without the dead time the Harris index cannot be computed and is NaN."""
     report = analyze_sluggish(no_delay_settings())
     assert np.isnan(report.harris_index)
 
 
 def test_without_delay_the_loop_is_not_poor_performance():
+    """Without a Harris index the loop must not be classified as poor performance."""
     report = analyze_sluggish(no_delay_settings())
     assert report.classification != "poor_performance"
 
 
 def test_without_delay_harris_is_not_assessed():
+    """The skipped Harris check is named in not_assessed."""
     report = analyze_sluggish(no_delay_settings())
     assert "harris" in report.not_assessed
 
 
 def test_without_oscillation_limits_the_acf_method_finds_the_cycle():
+    """Without limits the parameter-free ACF method still finds the 600 s cycle."""
     report = analyze_sine(no_oscillation_settings())
     assert report.oscillation_method == "acf"
     assert report.oscillation_period_s == pytest.approx(SINE_PERIOD_S, rel=0.05)
 
 
 def test_without_oscillation_limits_a_regular_cycle_is_oscillating():
+    """A regular cycle is flagged oscillating even when its amplitude cannot be judged."""
     report = analyze_sine(no_oscillation_settings())
     assert report.classification == "oscillating"
-    assert any("amplitude is tolerable is not assessed" in f for f in report.findings)
+    assert any("amplitude is tolerable is not assessed" in finding for finding in report.findings)
 
 
 def test_without_oscillation_limits_sluggish_noise_is_not_oscillating():
+    """Correlated noise without any knowledge is not mistaken for an oscillation."""
     report = analyze_sluggish(base_settings(known=frozenset()))
     assert report.oscillation_period_s is None
     assert report.classification != "oscillating"
 
 
 def test_without_oscillation_limits_the_amplitude_is_not_assessed():
+    """Whether the amplitude is tolerable is listed as not assessed without limits."""
     report = analyze_sine(no_oscillation_settings())
     assert "oscillation_amplitude" in report.not_assessed
 
 
 def test_with_limits_the_hagglund_method_is_used():
+    """With limits configured, the Hagglund method is used instead of ACF."""
     report = analyze_sine(base_settings())
     assert report.oscillation_method == "hagglund"
     assert report.oscillation_regularity is None
 
 
 def test_with_no_knowledge_not_assessed_lists_gaps_in_fixed_order():
+    """The not_assessed list has a fixed order so reports and the UI stay stable."""
     report = analyze_sine(empty_known_settings())
     expected = ("saturation", "valve_kpis", "harris", "oscillation_amplitude")
     assert report.not_assessed == expected
@@ -239,6 +258,7 @@ def tags(**given: float) -> LoopTags:
 def test_default_settings_knows_only_what_the_tags_provide(
     given: dict[str, float], expected: frozenset[str]
 ) -> None:
+    """A kind of knowledge counts as known only if all the tag fields it needs are set."""
     settings = default_settings(tags(**given))
     assert settings.known == expected
 
@@ -261,6 +281,7 @@ def build_ok_report(saturation_fraction: float) -> LoopReport:
 
 
 def test_unknown_saturation_is_not_penalised_in_health_percent():
+    """An unknown saturation costs no health points, the same as zero saturation."""
     unknown_saturation = build_ok_report(np.nan)
     zero_saturation = build_ok_report(0.0)
     assert health_percent(unknown_saturation) == health_percent(zero_saturation)

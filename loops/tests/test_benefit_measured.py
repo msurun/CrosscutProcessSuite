@@ -41,36 +41,43 @@ def _make_time() -> np.ndarray:
 
 
 def test_measured_reduction_halves_between_two_and_one():
+    """Spread falling from 2 to 1 is a 50 % cut: the formula is 1 - after/before."""
     request = BenefitRequest(std_before=2.0, std_after=1.0)
     assert measured_reduction(request) == pytest.approx(0.5)
 
 
 def test_measured_reduction_is_none_without_a_before_spread():
+    """Without the before-spread nothing was measured, so the assumed cut must apply."""
     request = BenefitRequest(std_before=None, std_after=1.0)
     assert measured_reduction(request) is None
 
 
 def test_measured_reduction_is_none_without_an_after_spread():
+    """Without the after-spread nothing was measured, so the assumed cut must apply."""
     request = BenefitRequest(std_before=2.0, std_after=None)
     assert measured_reduction(request) is None
 
 
 def test_measured_reduction_is_none_when_the_before_spread_is_zero():
+    """A zero before-spread would divide by zero and is no baseline, so it gives none."""
     request = BenefitRequest(std_before=0.0, std_after=1.0)
     assert measured_reduction(request) is None
 
 
 def test_a_retune_that_worsened_the_spread_counts_as_no_reduction():
+    """A retune that widened the spread reports zero benefit, never a negative one."""
     request = BenefitRequest(std_before=1.0, std_after=2.0)
     assert measured_reduction(request) == 0.0
 
 
 def test_a_fully_removed_spread_is_capped_before_it_reaches_one():
+    """A cut of 100 % is not credible, so it is capped at MAX_MEASURED_REDUCTION."""
     request = BenefitRequest(std_before=2.0, std_after=0.0)
     assert measured_reduction(request) == MAX_MEASURED_REDUCTION
 
 
 def test_a_payload_without_a_measurement_reports_the_assumed_reduction():
+    """With no measurement the payload states the slider value and marks it as assumed."""
     request = BenefitRequest(value_per_unit_h=1.0, std_reduction=0.5)
     payload = benefit_payload(_make_loop(), _make_time(), _make_columns(), request)
     assumptions = payload["assumptions"]
@@ -80,6 +87,7 @@ def test_a_payload_without_a_measurement_reports_the_assumed_reduction():
 
 
 def test_a_payload_with_a_measurement_reports_the_retune_numbers():
+    """A measurement overrides the slider and the payload reports the retune numbers as source."""
     request = BenefitRequest(
         value_per_unit_h=1.0, std_reduction=0.1, std_before=2.0, std_after=1.0
     )
@@ -92,6 +100,7 @@ def test_a_payload_with_a_measurement_reports_the_retune_numbers():
 
 
 def test_the_measured_cut_narrows_the_target_spread_by_half():
+    """The estimate uses the measured 50 % cut, not the 10 % slider, to set the target spread."""
     request = BenefitRequest(
         value_per_unit_h=1.0, std_reduction=0.1, std_before=2.0, std_after=1.0
     )
@@ -113,6 +122,7 @@ def test_a_note_without_a_name_is_reported_with_its_own_text(monkeypatch):
     real_estimate = benefit_payload_module.estimate_benefit
 
     def estimate_with_new_note(pv, assumptions):
+        """Stand-in estimator: the real estimate plus one note the payload has no name for."""
         return replace(real_estimate(pv, assumptions), notes=("a brand new warning",))
 
     monkeypatch.setattr(benefit_payload_module, "estimate_benefit", estimate_with_new_note)

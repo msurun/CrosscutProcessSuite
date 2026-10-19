@@ -52,7 +52,7 @@ def write_synthetic_csv(csv_path, include_pv: bool = True) -> None:
     plan = plan_stroke_test(START_OP_PCT, DWELL_S)
     op = build_staircase_op(plan)
     position = simulate_backlash(op)
-    pv = [START_OP_PCT + PV_GAIN * (p - START_OP_PCT) for p in position]
+    pv = [START_OP_PCT + PV_GAIN * (valve_position - START_OP_PCT) for valve_position in position]
     header = CSV_HEADER if include_pv else ["t_s", "op"]
 
     with csv_path.open("w", newline="") as csv_file:

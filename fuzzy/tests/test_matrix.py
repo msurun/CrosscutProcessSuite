@@ -37,31 +37,44 @@ def _make_output(variable_id: str = "o") -> dict[str, Any]:
     }
 
 
+# Defaults for the keyword options of _make_rule: variable ids, clause order and rule flags.
+_RULE_DEFAULTS: dict[str, Any] = {
+    "row_var": "a",
+    "col_var": "b",
+    "out_var": "o",
+    "reversed_order": False,
+    "operator": "and",
+    "weight": 1.0,
+    "enabled": True,
+}
+
+
+def _rule_settings(options: dict[str, Any]) -> dict[str, Any]:
+    """Merge `options` over _RULE_DEFAULTS, refusing a misspelled option name."""
+    unknown = set(options) - set(_RULE_DEFAULTS)
+    if unknown:
+        raise TypeError(f"unknown rule options: {sorted(unknown)}")
+    return {**_RULE_DEFAULTS, **options}
+
+
 def _make_rule(
-    rule_id: str,
-    row_term: str,
-    col_term: str,
-    output_term: str = "up",
-    *,
-    row_var: str = "a",
-    col_var: str = "b",
-    out_var: str = "o",
-    reversed_order: bool = False,
-    operator: str = "and",
-    weight: float = 1.0,
-    enabled: bool = True,
+    rule_id: str, row_term: str, col_term: str, output_term: str = "up", **options: Any
 ) -> dict[str, Any]:
-    """Return a two-clause rule for the given input variables and terms."""
-    clauses = [{"variable": row_var, "is": row_term}, {"variable": col_var, "is": col_term}]
-    if reversed_order:
+    """Return a two-clause rule; `options` override the entries of _RULE_DEFAULTS."""
+    settings = _rule_settings(options)
+    clauses = [
+        {"variable": settings["row_var"], "is": row_term},
+        {"variable": settings["col_var"], "is": col_term},
+    ]
+    if settings["reversed_order"]:
         clauses.reverse()
     return {
         "id": rule_id,
         "if": clauses,
-        "then": {"variable": out_var, "is": output_term},
-        "operator": operator,
-        "weight": weight,
-        "enabled": enabled,
+        "then": {"variable": settings["out_var"], "is": output_term},
+        "operator": settings["operator"],
+        "weight": settings["weight"],
+        "enabled": settings["enabled"],
     }
 
 
@@ -79,6 +92,11 @@ def _build_system(
         "rules": rules,
     }
     return system_from_dict(document)
+
+
+def _expected_entry(rule_id: str, output_term: str) -> dict[str, Any]:
+    """Return the matrix cell entry of an enabled rule with weight 1.0."""
+    return {"rule_id": rule_id, "output_term": output_term, "weight": 1.0, "enabled": True}
 
 
 def test_a_two_by_two_matrix_with_four_and_rules_fills_every_cell():
@@ -99,18 +117,10 @@ def test_a_two_by_two_matrix_with_four_and_rules_fills_every_cell():
     assert matrix["rows"] == ["low", "high"]
     assert matrix["columns"] == ["low", "high"]
     assert matrix["unplaced"] == []
-    assert matrix["cells"][0][0] == [
-        {"rule_id": "r1", "output_term": "down", "weight": 1.0, "enabled": True}
-    ]
-    assert matrix["cells"][0][1] == [
-        {"rule_id": "r2", "output_term": "up", "weight": 1.0, "enabled": True}
-    ]
-    assert matrix["cells"][1][0] == [
-        {"rule_id": "r3", "output_term": "up", "weight": 1.0, "enabled": True}
-    ]
-    assert matrix["cells"][1][1] == [
-        {"rule_id": "r4", "output_term": "down", "weight": 1.0, "enabled": True}
-    ]
+    assert matrix["cells"][0][0] == [_expected_entry("r1", "down")]
+    assert matrix["cells"][0][1] == [_expected_entry("r2", "up")]
+    assert matrix["cells"][1][0] == [_expected_entry("r3", "up")]
+    assert matrix["cells"][1][1] == [_expected_entry("r4", "down")]
 
 
 def test_swapping_row_and_column_swaps_the_cells_positions():

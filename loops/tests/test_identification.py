@@ -63,14 +63,16 @@ def simulate_fopdt(
     """
     settings = settings or SimulationSettings()
     rng = np.random.default_rng(settings.seed)
-    u = _random_holds(rng, settings.sample_count)
+    controller_output = _random_holds(rng, settings.sample_count)
     delay_samples = round(delay_s / settings.dt_s)
     decay = np.exp(-settings.dt_s / time_constant_s)
     # Delaying u by padding zeros in front keeps the recurrence free of index tests.
-    delayed_u = np.concatenate([np.zeros(delay_samples), u])[: len(u)]
-    noise_samples = settings.noise * rng.standard_normal(len(u) - 1)
-    y = _simulate_response(delayed_u, decay, gain * (1.0 - decay), noise_samples)
-    return u, y + OUTPUT_OFFSET
+    delayed_u = np.concatenate([np.zeros(delay_samples), controller_output])[
+        : len(controller_output)
+    ]
+    noise_samples = settings.noise * rng.standard_normal(len(controller_output) - 1)
+    process_value = _simulate_response(delayed_u, decay, gain * (1.0 - decay), noise_samples)
+    return controller_output, process_value + OUTPUT_OFFSET
 
 
 def _random_holds(rng: np.random.Generator, sample_count: int) -> np.ndarray:
@@ -83,18 +85,20 @@ def _simulate_response(
     delayed_u: np.ndarray, decay: float, input_weight: float, noise_samples: np.ndarray
 ) -> np.ndarray:
     """Apply the discretised FOPDT recurrence to the delayed input, before the offset."""
-    y = np.zeros_like(delayed_u)
+    process_value = np.zeros_like(delayed_u)
     for k in range(len(delayed_u) - 1):
-        y[k + 1] = decay * y[k] + input_weight * delayed_u[k] + noise_samples[k]
-    return y
+        process_value[k + 1] = (
+            decay * process_value[k] + input_weight * delayed_u[k] + noise_samples[k]
+        )
+    return process_value
 
 
 def test_a_first_order_plant_is_recovered_within_tolerance() -> None:
-    u, y = simulate_fopdt(
+    controller_output, process_value = simulate_fopdt(
         gain=2.0, time_constant_s=30.0, delay_s=8.0, settings=SimulationSettings(seed=1)
     )
 
-    model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+    model = identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
     assert model.gain == pytest.approx(2.0, rel=0.05)
     assert model.time_constant_s == pytest.approx(30.0, rel=0.10)
@@ -102,14 +106,14 @@ def test_a_first_order_plant_is_recovered_within_tolerance() -> None:
 
 
 def test_a_slower_plant_with_a_longer_delay_is_recovered() -> None:
-    u, y = simulate_fopdt(
+    controller_output, process_value = simulate_fopdt(
         gain=0.5,
         time_constant_s=100.0,
         delay_s=15.0,
         settings=SimulationSettings(seed=2, sample_count=6000),
     )
 
-    model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+    model = identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
     assert model.gain == pytest.approx(0.5, rel=0.05)
     assert model.time_constant_s == pytest.approx(100.0, rel=0.10)
@@ -118,17 +122,17 @@ def test_a_slower_plant_with_a_longer_delay_is_recovered() -> None:
 
 @pytest.mark.parametrize("seed", [3, 4, 5])
 def test_gain_recovery_is_stable_over_seeds(seed: int) -> None:
-    u, y = simulate_fopdt(
+    controller_output, process_value = simulate_fopdt(
         gain=2.0, time_constant_s=30.0, delay_s=8.0, settings=SimulationSettings(seed=seed)
     )
 
-    model = identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+    model = identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
     assert model.gain == pytest.approx(2.0, rel=0.10)
 
 
 def test_a_negative_gain_plant_is_rejected() -> None:
-    u, y = simulate_fopdt(
+    controller_output, process_value = simulate_fopdt(
         gain=-1.0,
         time_constant_s=30.0,
         delay_s=8.0,
@@ -136,16 +140,16 @@ def test_a_negative_gain_plant_is_rejected() -> None:
     )
 
     with pytest.raises(ValueError):
-        identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+        identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
 
 def test_pure_white_noise_cannot_be_identified() -> None:
     rng = np.random.default_rng(7)
-    u = rng.standard_normal(3000)
-    y = rng.standard_normal(3000)
+    controller_output = rng.standard_normal(3000)
+    process_value = rng.standard_normal(3000)
 
     with pytest.raises(ValueError):
-        identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+        identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
 
 def _valid_signals() -> tuple[np.ndarray, np.ndarray]:
@@ -156,19 +160,19 @@ def _valid_signals() -> tuple[np.ndarray, np.ndarray]:
 
 
 def test_signals_of_different_lengths_are_rejected() -> None:
-    u, y = _valid_signals()
+    controller_output, process_value = _valid_signals()
 
     with pytest.raises(ValueError):
-        identify_fopdt(u, y[:-1], dt_s=1.0, max_delay_s=20.0)
+        identify_fopdt(controller_output, process_value[:-1], dt_s=1.0, max_delay_s=20.0)
 
 
 def test_signals_containing_nan_are_rejected() -> None:
-    u, y = _valid_signals()
-    y = y.copy()
-    y[0] = np.nan
+    controller_output, process_value = _valid_signals()
+    process_value = process_value.copy()
+    process_value[0] = np.nan
 
     with pytest.raises(ValueError):
-        identify_fopdt(u, y, dt_s=1.0, max_delay_s=20.0)
+        identify_fopdt(controller_output, process_value, dt_s=1.0, max_delay_s=20.0)
 
 
 @pytest.mark.parametrize(
@@ -181,7 +185,12 @@ def test_signals_containing_nan_are_rejected() -> None:
     ],
 )
 def test_invalid_arguments_are_rejected(dt_s: float, max_delay_s: float, sample_count: int) -> None:
-    u, y = _valid_signals()
+    controller_output, process_value = _valid_signals()
 
     with pytest.raises(ValueError):
-        identify_fopdt(u[:sample_count], y[:sample_count], dt_s=dt_s, max_delay_s=max_delay_s)
+        identify_fopdt(
+            controller_output[:sample_count],
+            process_value[:sample_count],
+            dt_s=dt_s,
+            max_delay_s=max_delay_s,
+        )

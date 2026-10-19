@@ -23,12 +23,32 @@ OUTAGE_AFTER_S = 1.0  # let some samples through before the server goes away
 OUTAGE_S = 1.0  # the server stays down this long
 
 
+async def _import_across_a_restart(
+    port: int, nodes: dict[str, str], plan: PollPlan, dataset_dir: Path
+) -> None:
+    """Run an import while the server stops after OUTAGE_AFTER_S and returns after OUTAGE_S."""
+    first = make_server(port)
+    await first.start()
+    job = asyncio.to_thread(
+        import_opcua, first.endpoint, nodes, ImportTarget(dataset_dir, "r"), plan
+    )
+    task = asyncio.ensure_future(job)
+    await asyncio.sleep(OUTAGE_AFTER_S)
+    await first.stop()
+    await asyncio.sleep(OUTAGE_S)
+    second = make_server(port)
+    await second.start()
+    await asyncio.wait_for(task, timeout=60.0)
+    await second.stop()
+
+
 def test_a_node_named_by_namespace_uri_is_read(tmp_path: Path) -> None:
     """``nsu=<uri>;s=Tag`` gives the same good samples as ``ns=2;s=Tag``."""
     nodes = {"y1": f"nsu={NAMESPACE_URI};s={TAG_Y1}"}
     server = make_server(free_port())
 
     def call(endpoint: str):
+        """Import the node from the running server at `endpoint` (4 samples, 50 ms apart)."""
         return import_opcua(
             endpoint, nodes, ImportTarget(tmp_path / "ds", "nsu"), PollPlan(0.05, 4)
         )
@@ -45,6 +65,7 @@ def test_an_unknown_namespace_uri_is_a_clear_error(tmp_path: Path) -> None:
     server = make_server(free_port())
 
     def call(endpoint: str):
+        """Try to import the unknown-URI node from the server at `endpoint`."""
         return import_opcua(endpoint, nodes, ImportTarget(tmp_path / "ds", "x"), PollPlan(0.05, 2))
 
     with pytest.raises(ValueError, match="urn:not-there"):
@@ -53,26 +74,10 @@ def test_an_unknown_namespace_uri_is_a_clear_error(tmp_path: Path) -> None:
 
 def test_the_import_survives_a_server_restart(tmp_path: Path) -> None:
     """Samples during the outage are BAD, samples after the restart are good again."""
-    port = free_port()
     nodes = {"y1": f"nsu={NAMESPACE_URI};s={TAG_Y1}"}
     plan = PollPlan(PERIOD_S, N_SAMPLES)
 
-    async def scenario() -> None:
-        first = make_server(port)
-        await first.start()
-        job = asyncio.to_thread(
-            import_opcua, first.endpoint, nodes, ImportTarget(tmp_path / "ds", "r"), plan
-        )
-        task = asyncio.ensure_future(job)
-        await asyncio.sleep(OUTAGE_AFTER_S)
-        await first.stop()
-        await asyncio.sleep(OUTAGE_S)
-        second = make_server(port)
-        await second.start()
-        await asyncio.wait_for(task, timeout=60.0)
-        await second.stop()
-
-    asyncio.run(scenario())
+    asyncio.run(_import_across_a_restart(free_port(), nodes, plan, tmp_path / "ds"))
     _, values, quality = read_column(tmp_path / "ds", "y1")
     assert np.isnan(values).any()
     assert np.isfinite(values[:3]).all()

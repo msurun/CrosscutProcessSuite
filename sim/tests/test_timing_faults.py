@@ -19,9 +19,9 @@ INVALID_MODE = 7  # not one of MAN, AUTO, CAS
 GRID_START_NS = 1_700_000_000 * NS_PER_S
 
 
-def sample_grid(n: int, spacing_s: float = 1.0) -> np.ndarray:
-    """Return ``n`` int64 timestamps, spaced by ``spacing_s`` seconds and strictly increasing."""
-    offsets_ns = np.arange(n, dtype=np.int64) * round(spacing_s * NS_PER_S)
+def sample_grid(count: int, spacing_s: float = 1.0) -> np.ndarray:
+    """Return ``count`` strictly increasing int64 timestamps, ``spacing_s`` seconds apart."""
+    offsets_ns = np.arange(count, dtype=np.int64) * round(spacing_s * NS_PER_S)
     return (GRID_START_NS + offsets_ns).astype(np.int64)
 
 

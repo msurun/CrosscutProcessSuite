@@ -144,13 +144,13 @@ def test_the_result_is_a_frozen_dataclass() -> None:
         result.regular = False
 
 
-def _ar1(phi: float, n: int, rng: np.random.Generator) -> np.ndarray:
-    """Return an AR(1) process x[k] = phi * x[k-1] + e[k] with unit noise."""
-    noise = rng.normal(0.0, 1.0, size=n)
-    x = np.zeros(n)
-    for k in range(1, n):
-        x[k] = phi * x[k - 1] + noise[k]
-    return x
+def _ar1(phi: float, sample_count: int, rng: np.random.Generator) -> np.ndarray:
+    """Return an AR(1) process s[k] = phi * s[k-1] + e[k] with unit noise e."""
+    noise = rng.normal(0.0, 1.0, size=sample_count)
+    samples = np.zeros(sample_count)
+    for k in range(1, sample_count):
+        samples[k] = phi * samples[k - 1] + noise[k]
+    return samples
 
 
 def test_correlated_noise_is_not_an_oscillation() -> None:

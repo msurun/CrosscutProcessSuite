@@ -59,25 +59,29 @@ def _simulate_closed_loop(seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray
     setpoint = _square_setpoint(SAMPLE_COUNT, SAMPLE_PERIOD_S)
     disturbance = _ar1_disturbance(rng, SAMPLE_COUNT)
     plant = Fopdt(PLANT_GAIN, PLANT_TIME_CONSTANT_S, PLANT_DELAY_S, SAMPLE_PERIOD_S)
-    u = np.zeros(SAMPLE_COUNT)
-    y = np.zeros(SAMPLE_COUNT)
+    controller_output = np.zeros(SAMPLE_COUNT)
+    process_value = np.zeros(SAMPLE_COUNT)
     integral = 0.0
     for k in range(SAMPLE_COUNT):
         error = setpoint[k] - plant.value
         integral += error * SAMPLE_PERIOD_S
-        u[k] = CONTROLLER_GAIN * (error + integral / CONTROLLER_INTEGRAL_S)
-        plant.update(u[k] + disturbance[k])
-        y[k] = plant.value + MEASUREMENT_NOISE_SD * rng.standard_normal()
-    return u, y, setpoint
+        controller_output[k] = CONTROLLER_GAIN * (error + integral / CONTROLLER_INTEGRAL_S)
+        plant.update(controller_output[k] + disturbance[k])
+        process_value[k] = plant.value + MEASUREMENT_NOISE_SD * rng.standard_normal()
+    return controller_output, process_value, setpoint
 
 
 def _fit(seed: int) -> FopdtModel:
     """Simulate one run and return its identified FOPDT model."""
-    u, y, sp = _simulate_closed_loop(seed)
-    return identify_fopdt_closed_loop(u, y, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S)
+    controller_output, process_value, sp = _simulate_closed_loop(seed)
+    return identify_fopdt_closed_loop(
+        controller_output, process_value, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+    )
 
 
 def test_the_iv_estimate_recovers_the_true_plant_parameters() -> None:
+    """The instrumental-variable fit must recover the closed-loop plant despite the coloured
+    disturbance, where plain least squares is biased."""
     gains = [_fit(seed).gain for seed in (1, 2, 3)]
     time_constants = [_fit(seed).time_constant_s for seed in (1, 2, 3)]
     delays = [_fit(seed).delay_s for seed in (1, 2, 3)]
@@ -88,37 +92,50 @@ def test_the_iv_estimate_recovers_the_true_plant_parameters() -> None:
 
 
 def test_a_constant_setpoint_raises_value_error() -> None:
-    u, y, _ = _simulate_closed_loop(seed=1)
-    sp = np.full_like(y, SETPOINT_AMPLITUDE)
+    """Without a setpoint move there is no instrument, so the fit must refuse instead of
+    returning a biased model."""
+    controller_output, process_value, _ = _simulate_closed_loop(seed=1)
+    sp = np.full_like(process_value, SETPOINT_AMPLITUDE)
 
     with pytest.raises(ValueError, match="did not move"):
-        identify_fopdt_closed_loop(u, y, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S)
+        identify_fopdt_closed_loop(
+            controller_output, process_value, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+        )
 
 
 def test_a_setpoint_of_the_wrong_length_raises_value_error() -> None:
-    u, y, sp = _simulate_closed_loop(seed=1)
+    """A setpoint that does not match the data length is a caller bug and must raise ValueError."""
+    controller_output, process_value, sp = _simulate_closed_loop(seed=1)
 
     with pytest.raises(ValueError):
-        identify_fopdt_closed_loop(u, y, sp[:-1], SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S)
+        identify_fopdt_closed_loop(
+            controller_output, process_value, sp[:-1], SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+        )
 
 
 def test_a_setpoint_with_nan_raises_value_error() -> None:
-    u, y, sp = _simulate_closed_loop(seed=1)
+    """NaN in the setpoint would corrupt the instrument and must be rejected."""
+    controller_output, process_value, sp = _simulate_closed_loop(seed=1)
     sp = sp.copy()
     sp[0] = np.nan
 
     with pytest.raises(ValueError):
-        identify_fopdt_closed_loop(u, y, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S)
+        identify_fopdt_closed_loop(
+            controller_output, process_value, sp, SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+        )
 
 
 def test_a_non_positive_sampling_period_raises_value_error() -> None:
-    u, y, sp = _simulate_closed_loop(seed=1)
+    """A zero sampling period cannot be converted to samples and must raise ValueError."""
+    controller_output, process_value, sp = _simulate_closed_loop(seed=1)
 
     with pytest.raises(ValueError):
-        identify_fopdt_closed_loop(u, y, sp, 0.0, MAX_DELAY_FOR_FIT_S)
+        identify_fopdt_closed_loop(controller_output, process_value, sp, 0.0, MAX_DELAY_FOR_FIT_S)
 
 
 def test_the_result_is_a_model_with_positive_fields() -> None:
+    """The fitted model must be physically meaningful (positive gain, time constant and delay)
+    for the tuning rules."""
     model = _fit(seed=1)
 
     assert isinstance(model, FopdtModel)
@@ -128,14 +145,21 @@ def test_the_result_is_a_model_with_positive_fields() -> None:
 
 
 def test_a_record_too_short_for_the_delay_scan_says_so_instead_of_blaming_the_data() -> None:
+    """A too-short record must give a message about the record, so the user fixes the length
+    instead of the data."""
     samples = np.arange(100, dtype=float)
     with pytest.raises(ValueError, match="record"):
         identify_fopdt_closed_loop(samples, samples, np.sin(samples), 1.0, 30.0)
 
 
 def test_plain_python_lists_are_accepted_like_arrays() -> None:
-    u, y, sp = _simulate_closed_loop(1)
+    """API callers pass JSON lists, so lists must work like arrays."""
+    controller_output, process_value, sp = _simulate_closed_loop(1)
     model = identify_fopdt_closed_loop(
-        u.tolist(), y.tolist(), sp.tolist(), SAMPLE_PERIOD_S, MAX_DELAY_FOR_FIT_S
+        controller_output.tolist(),
+        process_value.tolist(),
+        sp.tolist(),
+        SAMPLE_PERIOD_S,
+        MAX_DELAY_FOR_FIT_S,
     )
     assert model.gain > 0.0

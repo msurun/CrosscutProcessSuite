@@ -1,7 +1,8 @@
-# loops/tests/test_example_windows.py
-# Behaviour tests for crosscut_loops.example_windows.example_window.
-# They pin down which slice of the record is returned for a given control loop code,
-# and how the window length is chosen when the oscillation period is known or unknown.
+"""Behaviour tests for crosscut_loops.example_windows.example_window.
+
+They pin down which slice of the record is returned for a given control loop code,
+and how the window length is chosen when the oscillation period is known or unknown.
+"""
 
 import numpy as np
 import pytest

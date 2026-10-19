@@ -1,4 +1,5 @@
 """Tests for the noise-checked derivative-advice function."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -10,15 +11,15 @@ from numpy import random
 def test_pv_noise_sd_of_white_noise_is_estimated_correctly() -> None:
     """The pv_noise_sd of white noise N(0, 0.3) is within 10% of 0.3."""
     rng = random.default_rng(1)
-    y = rng.normal(0.0, 0.3, 5000)
-    assert abs(pv_noise_sd(y) - 0.3) <= 0.03
+    noisy_pv = rng.normal(0.0, 0.3, 5000)
+    assert abs(pv_noise_sd(noisy_pv) - 0.3) <= 0.03
 
 
 def test_pv_noise_sd_of_white_noise_plus_ramp_is_estimated_correctly() -> None:
     """The pv_noise_sd of white noise N(0, 0.3) plus a ramp stays within 15% of 0.3."""
     rng = random.default_rng(1)
-    y = rng.normal(0.0, 0.3, 5000) + np.linspace(0.0, 50.0, 5000)
-    assert abs(pv_noise_sd(y) - 0.3) <= 0.045
+    noisy_pv = rng.normal(0.0, 0.3, 5000) + np.linspace(0.0, 50.0, 5000)
+    assert abs(pv_noise_sd(noisy_pv) - 0.3) <= 0.045
 
 
 def test_pv_noise_sd_of_fewer_than_two_samples_is_zero() -> None:

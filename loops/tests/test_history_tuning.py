@@ -9,8 +9,34 @@ import numpy as np
 import pytest
 from crosscut_loops.history_tuning import HistoryTuning, cautious_step, tune_from_history
 
+# Plant: first-order plus dead time, K = 2 (PV units per % OP), tau = 60 s, theta = 8 samples
+# (dt = 1 s). With these the dead time is short against tau, a typical self-regulating loop.
+PLANT_GAIN = 2.0
+PLANT_TAU_S = 60.0
+PLANT_DELAY_SAMPLES = 8
+# PI controller: Kc = 0.4 and Ti = 60 s (integral time equal to tau), output clipped to 0-100 %.
+CONTROLLER_GAIN = 0.4
+CONTROLLER_TI_S = 60.0
+OUTPUT_BIAS = 25.0  # operating point of OP; the plant sits at PV = 50 for this OP
+STEP_VALUES = (55, 48, 53, 47, 52)  # setpoint steps, one every 1000 samples from sample 800
 
-def simulate(seed, dist=0.0, steps=True, n=6000):
+
+def _setpoint_profile(sample_count, steps):
+    """Return the setpoint: constant 50, plus the STEP_VALUES staircase when steps is set."""
+    setpoint = np.full(sample_count, 50.0)
+    if steps:
+        for k, step_value in enumerate(STEP_VALUES):
+            setpoint[800 + k * 1000 :] = step_value
+    return setpoint
+
+
+def _plant_update(plant_state, delayed_output, disturbance_input):
+    """Advance the plant one sample (Euler step of the first-order lag) and return the new PV."""
+    steady_pv = PLANT_GAIN * (delayed_output - OUTPUT_BIAS) + 50
+    return plant_state + ((steady_pv - plant_state) / PLANT_TAU_S + disturbance_input)
+
+
+def simulate(seed, dist=0.0, steps=True, sample_count=6000):
     """Simulate a closed loop with a known plant and return (sp, op, pv).
 
     Plant: first-order plus dead time with K=2, tau=60 s, theta=8 s.
@@ -18,29 +44,24 @@ def simulate(seed, dist=0.0, steps=True, n=6000):
     dist scales independent Gaussian disturbance injected into the plant.
     """
     rng = np.random.default_rng(seed)
-    K, tau, theta, kc, ti = 2.0, 60.0, 8, 0.4, 60.0
-    sp = np.full(n, 50.0)
-    if steps:
-        for k, a in enumerate((55, 48, 53, 47, 52)):
-            sp[800 + k * 1000 :] = a
-    op = np.zeros(n)
-    pv = np.zeros(n)
-    y = 50.0
-    u0 = 25.0
-    integ = 0.0
-    buf = [u0] * theta
-    d = 0.0
-    for i in range(n):
-        d = 0.99 * d + rng.normal(0, 0.05)
-        e = sp[i] - y
-        integ += e
-        u = float(np.clip(u0 + kc * (e + integ / ti), 0, 100))
-        op[i] = u
-        buf.append(u)
-        uu = buf.pop(0)
-        y += (K * (uu - u0) + 50 - y) / tau + d * dist
-        pv[i] = y + rng.normal(0, 0.05)
-    return sp, op, pv
+    setpoint = _setpoint_profile(sample_count, steps)
+    controller_output = np.zeros(sample_count)
+    process_value = np.zeros(sample_count)
+    plant_state = 50.0
+    integral = 0.0
+    delay_line = [OUTPUT_BIAS] * PLANT_DELAY_SAMPLES
+    disturbance = 0.0
+    for i in range(sample_count):
+        disturbance = 0.99 * disturbance + rng.normal(0, 0.05)
+        error = setpoint[i] - plant_state
+        integral += error
+        proportional_integral = CONTROLLER_GAIN * (error + integral / CONTROLLER_TI_S)
+        output = float(np.clip(OUTPUT_BIAS + proportional_integral, 0, 100))
+        controller_output[i] = output
+        delay_line.append(output)
+        plant_state = _plant_update(plant_state, delay_line.pop(0), disturbance * dist)
+        process_value[i] = plant_state + rng.normal(0, 0.05)
+    return setpoint, controller_output, process_value
 
 
 @pytest.mark.parametrize("seed", [1, 2, 3])
@@ -92,7 +113,7 @@ def test_strongly_disturbed_data_never_returns_high_confidence():
 
 def test_single_short_record_yields_low_confidence_bump_test():
     """One short step only gives a low-confidence result that asks for a bump test."""
-    sp, op, pv = simulate(seed=1, dist=0.0, n=1500)
+    sp, op, pv = simulate(seed=1, dist=0.0, sample_count=1500)
     result = tune_from_history("loop_short", sp, op, pv, dt_s=1.0)
     assert result.confidence == "low"
     assert result.recommendation == "bump_test"
@@ -125,7 +146,7 @@ def test_cautious_step_returns_proposed_when_proposed_not_positive():
 
 def test_low_confidence_has_no_max_change_factor():
     """When confidence is 'low', max_change_factor is None."""
-    sp, op, pv = simulate(seed=1, dist=0.0, n=1500)
+    sp, op, pv = simulate(seed=1, dist=0.0, sample_count=1500)
     result = tune_from_history("loop_short", sp, op, pv, dt_s=1.0)
     if result.confidence == "low":
         assert result.max_change_factor is None

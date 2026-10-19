@@ -27,14 +27,17 @@ crosscut_core = pytest.importorskip("crosscut_core")
     [(2.5, 30.0, 0.0, 1.0), (-19.4, 14.4 * 60, 3.0 * 60, 1.0), (6.6, 654.0, 420.0, 10.0)],
 )
 def test_cpp_fopdt_matches_python(gain: float, tau_s: float, delay_s: float, dt_s: float) -> None:
+    """The C++ FOPDT matches the Python reference to 1e-12 on 3000 random inputs."""
     py = PyFopdt(gain, tau_s, delay_s, dt_s)
     cpp = crosscut_core.Fopdt(gain, tau_s, delay_s, dt_s)
     rng = np.random.default_rng(0)
-    for u in rng.normal(size=3000):
-        assert cpp.update(float(u)) == pytest.approx(py.update(float(u)), abs=1e-12, rel=1e-12)
+    for controller_output in rng.normal(size=3000):
+        step_input = float(controller_output)
+        assert cpp.update(step_input) == pytest.approx(py.update(step_input), abs=1e-12, rel=1e-12)
     assert cpp.value == pytest.approx(py.value, abs=1e-12)
 
 
 def test_cpp_rejects_bad_parameters() -> None:
+    """The C++ model rejects invalid parameters with ValueError, like the Python one."""
     with pytest.raises(ValueError):
         crosscut_core.Fopdt(1.0, 0.0, 1.0, 1.0)

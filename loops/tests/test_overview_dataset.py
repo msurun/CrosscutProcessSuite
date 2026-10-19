@@ -86,6 +86,16 @@ def _make_loop_tags(name: str, pv_tag: str, out_tag: str) -> LoopTags:
     )
 
 
+def _make_dataset_columns(loop_columns: dict[str, np.ndarray], mode_value: int) -> dict:
+    """Return the PV/SP/OUT/MODE dataset for one loop, with a constant SP and mode."""
+    return {
+        "PV": loop_columns["pv"],
+        "SP": np.full(SAMPLE_COUNT, SP_BASE),
+        "OUT": loop_columns["out"],
+        "MODE": _make_mode(mode_value),
+    }
+
+
 def _make_mode(mode_value: int) -> np.ndarray:
     """Return a constant controller mode column."""
     return np.full(SAMPLE_COUNT, mode_value)
@@ -95,13 +105,9 @@ def _make_mode(mode_value: int) -> np.ndarray:
 
 
 def test_the_result_has_one_entry_per_loop():
+    """One tag set in gives one report row out, so rows map one-to-one to configured loops."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     results = analyze_dataset(time_vector, columns, [tags])
@@ -110,67 +116,59 @@ def test_the_result_has_one_entry_per_loop():
 
 
 def test_the_report_carries_all_expected_keys():
+    """The report schema is a contract with the UI and exporters; no key may appear or vanish
+    unnoticed."""
     time_vector = _make_time_vector()
     columns = _make_report_input_columns()
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
 
-    assert set(result) == _expected_report_keys()
+    assert set(result) == EXPECTED_REPORT_KEYS
 
 
 def _make_report_input_columns():
     """Build the sample columns fed to the analyzer in this test."""
-    auto_loop_columns = _make_auto_loop_columns()
-    return {
-        "PV": auto_loop_columns["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": auto_loop_columns["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    return _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
 
 
-def _expected_report_keys():
-    """Return the set of keys every analysis report must expose."""
-    return {
-        "name",
-        "pv",
-        "sp",
-        "out",
-        "mode",
-        "unit",
-        "status",
-        "health_percent",
-        "classification",
-        "findings",
-        "service_percent",
-        "saturation_percent",
-        "harris_index",
-        "oscillation_period_s",
-        "oscillation_method",
-        "same_period_as",
-        "stiction_verdict",
-        "stiction_suspicion",
-        "stiction_advice",
-        "valve_travel_per_h",
-        "valve_reversals_per_h",
-        "out_quantisation_ratio",
-        "valve_sizing_hint",
-        "not_assessed",
-        "sparkline",
-        "next_action",
-        "priority_rank",
-    }
+# Keys every analysis report must expose.
+EXPECTED_REPORT_KEYS = {
+    "name",
+    "pv",
+    "sp",
+    "out",
+    "mode",
+    "unit",
+    "status",
+    "health_percent",
+    "classification",
+    "findings",
+    "service_percent",
+    "saturation_percent",
+    "harris_index",
+    "oscillation_period_s",
+    "oscillation_method",
+    "same_period_as",
+    "stiction_verdict",
+    "stiction_suspicion",
+    "stiction_advice",
+    "valve_travel_per_h",
+    "valve_reversals_per_h",
+    "out_quantisation_ratio",
+    "valve_sizing_hint",
+    "not_assessed",
+    "sparkline",
+    "next_action",
+    "priority_rank",
+}
 
 
 def test_the_reported_ids_are_copied_from_the_loop_tags():
+    """Name and tag ids in the report come straight from LoopTags, so the user can find the loop
+    again."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="reactor outlet", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -185,13 +183,9 @@ def test_the_reported_ids_are_copied_from_the_loop_tags():
 
 
 def test_the_unit_is_reported_from_the_loop_tags():
+    """The engineering unit shown next to values is the one configured in LoopTags."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -200,13 +194,9 @@ def test_the_unit_is_reported_from_the_loop_tags():
 
 
 def test_the_status_is_one_of_the_known_levels():
+    """The status of a loop in use must be one of the levels the front end can colour."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -215,13 +205,9 @@ def test_the_status_is_one_of_the_known_levels():
 
 
 def test_the_sparkline_holds_exactly_48_points():
+    """A long recording is condensed to a fixed-width sparkline so all rows render alike."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -230,13 +216,9 @@ def test_the_sparkline_holds_exactly_48_points():
 
 
 def test_the_sparkline_carries_a_float_per_chunk():
+    """Sparkline values must be plain floats so the report serialises and plots as is."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -245,6 +227,7 @@ def test_the_sparkline_carries_a_float_per_chunk():
 
 
 def test_a_short_recording_yields_one_sparkline_point_per_sample():
+    """A recording shorter than the sparkline width is not padded or resampled."""
     time_vector = np.arange(10, dtype=float) * SAMPLE_INTERVAL_S
     columns = {
         "PV": np.linspace(PV_BASE, PV_BASE + 1.0, 10),
@@ -260,13 +243,9 @@ def test_a_short_recording_yields_one_sparkline_point_per_sample():
 
 
 def test_the_report_is_json_serialisable():
+    """The report is sent as JSON, so no numpy scalars or arrays may leak into it."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     results = analyze_dataset(time_vector, columns, [tags])
@@ -275,13 +254,9 @@ def test_the_report_is_json_serialisable():
 
 
 def test_the_health_percent_is_none_when_the_loop_is_unused():
+    """A loop nobody uses has no meaningful health score, so none is reported."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_unused_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_unused_loop_columns()["out"],
-        "MODE": _make_mode(MODE_UNUSED),
-    }
+    columns = _make_dataset_columns(_make_unused_loop_columns(), MODE_UNUSED)
     tags = _make_loop_tags(name="spare loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -290,13 +265,9 @@ def test_the_health_percent_is_none_when_the_loop_is_unused():
 
 
 def test_the_status_is_unused_when_the_mode_is_always_unused():
+    """A loop whose mode is always UNUSED is labelled unused instead of ok or problem."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_unused_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_unused_loop_columns()["out"],
-        "MODE": _make_mode(MODE_UNUSED),
-    }
+    columns = _make_dataset_columns(_make_unused_loop_columns(), MODE_UNUSED)
     tags = _make_loop_tags(name="spare loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -305,13 +276,10 @@ def test_the_status_is_unused_when_the_mode_is_always_unused():
 
 
 def test_a_loop_pinned_at_full_output_is_flagged_as_saturated():
+    """An output stuck at its upper limit must raise the saturated finding, the main sign of a stuck
+    valve or a bad tune."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_saturated_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_saturated_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_saturated_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -322,13 +290,10 @@ def test_a_loop_pinned_at_full_output_is_flagged_as_saturated():
 
 @pytest.mark.parametrize("expected_key", ["code", "params"])
 def test_each_finding_has_a_code_and_params(expected_key):
+    """Every finding carries a machine code and parameters so the UI can translate and fill in its
+    text."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_saturated_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_saturated_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_saturated_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -337,13 +302,9 @@ def test_each_finding_has_a_code_and_params(expected_key):
 
 
 def test_the_service_percent_is_a_rounded_integer():
+    """The service percentage is reported as a whole number for display."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="loop 1", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
@@ -352,13 +313,9 @@ def test_the_service_percent_is_a_rounded_integer():
 
 
 def test_two_loops_are_reported_in_input_order():
+    """Rows keep the order of the tag list so the user can match them to their own configuration."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_auto_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_auto_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_auto_loop_columns(), MODE_AUTO)
     first = _make_loop_tags(name="first", pv_tag="PV", out_tag="OUT")
     second = _make_loop_tags(name="second", pv_tag="PV", out_tag="OUT")
 
@@ -368,34 +325,32 @@ def test_two_loops_are_reported_in_input_order():
 
 
 def test_the_saturated_finding_carries_the_window_of_the_saturated_stretch():
+    """A saturated finding points at the stretch where the output was clamped, here the whole
+    record."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_saturated_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_saturated_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_saturated_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
 
-    saturated = next(f for f in result["findings"] if f["code"] == SATURATION_FINDING_CODE)
+    saturated = next(
+        finding for finding in result["findings"] if finding["code"] == SATURATION_FINDING_CODE
+    )
     assert saturated["window_s"] == [0.0, time_vector[-1]]
 
 
 def test_a_finding_about_the_whole_record_has_no_window():
+    """Oscillation and stiction findings describe the whole record, so they must not carry a
+    window_s."""
     time_vector = _make_time_vector()
-    columns = {
-        "PV": _make_saturated_loop_columns()["pv"],
-        "SP": np.full(SAMPLE_COUNT, SP_BASE),
-        "OUT": _make_saturated_loop_columns()["out"],
-        "MODE": _make_mode(MODE_AUTO),
-    }
+    columns = _make_dataset_columns(_make_saturated_loop_columns(), MODE_AUTO)
     tags = _make_loop_tags(name="stuck loop", pv_tag="PV", out_tag="OUT")
 
     [result] = analyze_dataset(time_vector, columns, [tags])
 
-    unwindowed = [f for f in result["findings"] if f["code"] in ("oscillating", "stiction")]
+    unwindowed = [
+        finding for finding in result["findings"] if finding["code"] in ("oscillating", "stiction")
+    ]
     assert all("window_s" not in finding for finding in unwindowed)
 
 
@@ -447,6 +402,20 @@ def _make_white_noise_loop_columns(seed: int) -> dict[str, np.ndarray]:
     }
 
 
+def _make_period_tags(name: str, index: int) -> LoopTags:
+    """Return the LoopTags for loop number `index`, whose columns are PV<index> .. MODE<index>."""
+    return LoopTags(
+        name=name,
+        pv=f"PV{index}",
+        sp=f"SP{index}",
+        out=f"OUT{index}",
+        mode=f"MODE{index}",
+        unit="degC",
+        eng_min=0.0,
+        eng_max=100.0,
+    )
+
+
 def _make_period_recording(
     loop_columns: dict[str, dict[str, np.ndarray]],
 ) -> tuple[dict[str, np.ndarray], list[LoopTags]]:
@@ -461,22 +430,13 @@ def _make_period_recording(
         columns[f"SP{index}"] = loop["sp"]
         columns[f"OUT{index}"] = loop["out"]
         columns[f"MODE{index}"] = np.full(PERIOD_SAMPLE_COUNT, MODE_AUTO)
-        tags.append(
-            LoopTags(
-                name=name,
-                pv=f"PV{index}",
-                sp=f"SP{index}",
-                out=f"OUT{index}",
-                mode=f"MODE{index}",
-                unit="degC",
-                eng_min=0.0,
-                eng_max=100.0,
-            )
-        )
+        tags.append(_make_period_tags(name, index))
     return columns, tags
 
 
 def test_loops_cycling_at_the_same_period_list_each_other():
+    """Loops that oscillate with the same period are linked, which hints at a common cause; a quiet
+    loop is not."""
     loops = {
         "slow A": _make_sine_loop_columns(SLOW_PERIOD_S, seed=1),
         "slow B": _make_sine_loop_columns(SLOW_PERIOD_S, seed=2),
@@ -495,6 +455,8 @@ def test_loops_cycling_at_the_same_period_list_each_other():
 
 
 def test_loops_cycling_at_clearly_different_periods_list_no_peers():
+    """Loops with clearly different periods are not linked, so unrelated oscillations are not blamed
+    on one cause."""
     loops = {
         "slow": _make_sine_loop_columns(SLOW_PERIOD_S, seed=1),
         "other": _make_sine_loop_columns(OTHER_PERIOD_S, seed=2),

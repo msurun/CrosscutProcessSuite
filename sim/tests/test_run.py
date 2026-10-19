@@ -89,6 +89,7 @@ def test_missing_git_executable_gives_no_code_block(monkeypatch: pytest.MonkeyPa
     """Without a git executable the revision is simply unknown (None), not a crash."""
 
     def no_git(*args: object, **kwargs: object) -> None:
+        """Stand-in for subprocess.run on a machine where the git executable does not exist."""
         raise FileNotFoundError("git")
 
     monkeypatch.setattr(subprocess, "run", no_git)

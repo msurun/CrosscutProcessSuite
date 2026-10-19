@@ -20,11 +20,11 @@ def test_fopdt_matches_analytic_step_response(delay_s: float, delay_steps: int) 
     model = Fopdt(gain, tau, delay_s, dt)
     pole = math.exp(-dt / tau)
     for step_index in range(1, 400):
-        y = model.update(1.0)
+        process_value = model.update(1.0)
         expected = (
             0.0 if step_index <= delay_steps else gain * (1.0 - pole ** (step_index - delay_steps))
         )
-        assert y == pytest.approx(expected, abs=1e-12)
+        assert process_value == pytest.approx(expected, abs=1e-12)
         # continuous-time reference at elapsed_time = step_index * dt
         elapsed_time = step_index * dt
         continuous = (
@@ -32,7 +32,7 @@ def test_fopdt_matches_analytic_step_response(delay_s: float, delay_steps: int) 
             if elapsed_time <= delay_s
             else gain * (1.0 - math.exp(-(elapsed_time - delay_s) / tau))
         )
-        assert y == pytest.approx(continuous, abs=1e-9)
+        assert process_value == pytest.approx(continuous, abs=1e-9)
 
 
 def test_fopdt_steady_state_gain_and_zero_input() -> None:
@@ -50,11 +50,13 @@ def test_fopdt_steady_state_gain_and_zero_input() -> None:
     ("tau", "delay", "dt"), [(0.0, 1.0, 1.0), (-1.0, 1.0, 1.0), (1.0, -1.0, 1.0), (1.0, 1.0, 0.0)]
 )
 def test_fopdt_rejects_bad_parameters(tau: float, delay: float, dt: float) -> None:
+    """A non-positive time constant or sampling time, or a negative delay, is refused up front."""
     with pytest.raises(ValueError):
         Fopdt(1.0, tau, delay, dt)
 
 
 def test_catalog_rejects_duplicates_and_exports_valid_document() -> None:
+    """The catalog keeps its order, exports a schema-valid document, refuses duplicates."""
     specs = [
         TagSpec("a.pv", "wt%", "PV", eng_min=0.0, eng_max=100.0),
         TagSpec("a.sp", "wt%", "SP", writable=True),
@@ -72,6 +74,7 @@ def test_catalog_rejects_duplicates_and_exports_valid_document() -> None:
 
 
 def test_scenario_params_lookup() -> None:
+    """Scenario parameters are found by name, the first match wins, a default covers gaps."""
     scenario = Scenario(params=(("operator", 0.0), ("operator", 1.0), ("gain", 2.5)))
     assert scenario.param("operator", 1.0) == 0.0  # first match wins
     assert scenario.param("gain", 1.0) == 2.5
@@ -81,6 +84,7 @@ def test_scenario_params_lookup() -> None:
 
 
 def test_scenario_validation() -> None:
+    """A scenario with a non-positive step, a negative duration or negative noise is refused."""
     assert Scenario().dt_s == 1.0
     with pytest.raises(ValueError):
         Scenario(dt_s=0.0)

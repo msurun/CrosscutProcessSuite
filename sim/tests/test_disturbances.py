@@ -13,6 +13,7 @@ def run(ornstein_uhlenbeck: OrnsteinUhlenbeck, sample_count: int) -> np.ndarray:
 
 
 def test_starts_at_mean_and_zero_sigma_is_constant() -> None:
+    """The process starts at its mean and with zero sigma it never moves."""
     temperature = OrnsteinUhlenbeck(
         OuShape(mean=2.45, sigma=0.0, tau_s=600.0), dt_s=1.0, rng=np.random.default_rng(1)
     )
@@ -21,18 +22,21 @@ def test_starts_at_mean_and_zero_sigma_is_constant() -> None:
 
 
 def test_stationary_statistics() -> None:
+    """After warm-up the process has the set mean, sigma and lag-1 correlation exp(-dt/tau)."""
     mean, sigma, tau = 2.45, 0.1, 60.0
     ou = OrnsteinUhlenbeck(
         OuShape(mean=mean, sigma=sigma, tau_s=tau), dt_s=1.0, rng=np.random.default_rng(7)
     )
-    x = run(ou, 300_000)[1000:]
-    assert x.mean() == pytest.approx(mean, abs=0.01)
-    assert x.std() == pytest.approx(sigma, rel=0.06)
-    lag1 = np.corrcoef(x[:-1], x[1:])[0, 1]
+    samples = run(ou, 300_000)[1000:]
+    assert samples.mean() == pytest.approx(mean, abs=0.01)
+    assert samples.std() == pytest.approx(sigma, rel=0.06)
+    lag1 = np.corrcoef(samples[:-1], samples[1:])[0, 1]
     assert lag1 == pytest.approx(np.exp(-1.0 / tau), abs=0.01)
 
 
 def test_determinism_and_seed_sensitivity() -> None:
+    """The same seed repeats the path and another seed changes it, so runs are reproducible."""
+
     def make(seed: int) -> OrnsteinUhlenbeck:
         """Build an Ornstein-Uhlenbeck process with fixed parameters and a seeded RNG."""
         return OrnsteinUhlenbeck(
@@ -49,6 +53,7 @@ def test_determinism_and_seed_sensitivity() -> None:
 
 
 def test_invalid_parameters() -> None:
+    """A negative sigma, a non-positive tau or a non-positive step is refused."""
     rng = np.random.default_rng(0)
     with pytest.raises(ValueError):
         OrnsteinUhlenbeck(OuShape(0.0, -1.0, 10.0), dt_s=1.0, rng=rng)

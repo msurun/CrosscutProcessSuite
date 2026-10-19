@@ -25,19 +25,19 @@ GAIN = 2.0
 def _backlash(op: np.ndarray, deadband: float) -> np.ndarray:
     """Return the valve position for an OP command, following a backlash model.
 
-    The position p stays put inside a band of total width `deadband` around the
-    command c: p only moves when the command leaves the band, and then lands on
+    The held position stays put inside a band of total width `deadband` around the
+    command: it only moves when the command leaves the band, and then lands on
     its edge. This yields a reversal deadband equal to `deadband`.
     """
     position = np.empty_like(op)
-    p = float(op[0])
+    held = float(op[0])
     half = deadband / 2.0
-    for i, c in enumerate(op):
-        if c > p + half:
-            p = c - half
-        elif c < p - half:
-            p = c + half
-        position[i] = p
+    for i, command in enumerate(op):
+        if command > held + half:
+            held = command - half
+        elif command < held - half:
+            held = command + half
+        position[i] = held
     return position
 
 
@@ -45,8 +45,7 @@ def _record(
     plan: StrokePlan,
     valve_positions_fn,
     gain: float = GAIN,
-    noise: float = 0.0,
-    seed: int = 0,
+    noise_and_seed: tuple[float, int] = (0.0, 0),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build (t_s, op, pv) for a plan: staircase OP, valve model, instant process.
 
@@ -60,6 +59,7 @@ def _record(
     op = np.array(op_values, dtype=float)
     t_s = np.arange(len(op), dtype=float)
     valve = valve_positions_fn(op)
+    noise, seed = noise_and_seed
     rng = np.random.default_rng(seed)
     pv = 50.0 + gain * (valve - plan.op_start) + rng.normal(0.0, noise, size=len(op))
     return t_s, op, pv
@@ -173,7 +173,7 @@ def test_backlash_estimate_survives_noise_and_negative_gain():
     """A 2.0 % backlash with gain -1.5 and noise 0.02 is estimated within 0.25 %."""
     plan = _default_plan()
     t_s, op, pv = _record(
-        plan, lambda cmd: _backlash(cmd, 2.0), gain=-1.5, noise=0.02, seed=1
+        plan, lambda cmd: _backlash(cmd, 2.0), gain=-1.5, noise_and_seed=(0.02, 1)
     )
     result = analyze_stroke_test(t_s, op, pv, plan)
     assert abs(result.deadband - 2.0) <= 0.25
@@ -227,7 +227,7 @@ def _ramped(op: np.ndarray, samples: int) -> np.ndarray:
 def test_ramped_steps_still_bracket_the_deadband():
     """Steps executed as 6-sample ramps (review finding 1) still give the 0.8 % bracket."""
     plan = _default_plan()
-    t_s, op, _ = _record(plan, lambda o: _backlash(o, 0.8))
+    t_s, op, _ = _record(plan, lambda cmd: _backlash(cmd, 0.8))
     op = _ramped(op, 6)
     pv = 50.0 + GAIN * (_backlash(op, 0.8) - plan.op_start)
     result = analyze_stroke_test(t_s, op, pv, plan)
@@ -237,7 +237,7 @@ def test_ramped_steps_still_bracket_the_deadband():
 def test_op_noise_does_not_invent_reversals():
     """OP noise of std 0.05 % (review finding 2) leaves the healthy-valve estimate small."""
     plan = _default_plan()
-    t_s, op, _ = _record(plan, lambda o: o)
+    t_s, op, _ = _record(plan, lambda cmd: cmd)
     op = op + np.random.default_rng(3).normal(0.0, 0.05, size=len(op))
     pv = 50.0 + GAIN * (op - plan.op_start)
     result = analyze_stroke_test(t_s, op, pv, plan)
@@ -247,7 +247,7 @@ def test_op_noise_does_not_invent_reversals():
 def test_nan_in_record_is_rejected():
     """A NaN sample raises ValueError instead of giving a silent wrong answer (finding 4)."""
     plan = _default_plan()
-    t_s, op, pv = _record(plan, lambda o: o)
+    t_s, op, pv = _record(plan, lambda cmd: cmd)
     pv[100] = np.nan
     with pytest.raises(ValueError):
         analyze_stroke_test(t_s, op, pv, plan)

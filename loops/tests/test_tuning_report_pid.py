@@ -9,44 +9,21 @@ import dataclasses
 import sys
 from pathlib import Path
 
-import numpy as np
-
 # The helpers live next to this package's tests, so we make that directory importable first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from crosscut_loops.tuning_pid import PidSettings, amigo_pid
-from crosscut_loops.tuning_report import TuningReport, build_tuning_report, render_markdown
+from crosscut_loops.tuning_report import TuningReport, render_markdown
 from crosscut_loops.tuning_rules import PiSettings
 from crosscut_loops.vendor_forms import abb_pidcc_pid, siemens_pid_compact_pid, vendor_summaries
-from test_identification import SimulationSettings, simulate_fopdt
+from test_tuning_report_vendor import build_report_for_flat_data, build_report_for_open_loop
 
-GAIN = 2.0
-TIME_CONSTANT_S = 30.0
-DELAY_S = 8.0
-SAMPLE_TIME_S = 1.0
 PV_SPAN = 200.0
 OUT_SPAN = 100.0
-FLAT_SAMPLE_COUNT = 50
 KC = 2.0
 TI_S = 30.0
 TD_S = 5.0
 FILTER_RATIO_N = 10.0
-
-
-def build_report_for_open_loop(
-    pv_span: float | None = None,
-    out_span: float = OUT_SPAN,
-) -> TuningReport:
-    """Build a report from the standard simulated process, with optional overrides."""
-    u, y = simulate_fopdt(GAIN, TIME_CONSTANT_S, DELAY_S, SimulationSettings(seed=1))
-    return build_tuning_report("FIC101", u, y, SAMPLE_TIME_S, pv_span=pv_span, out_span=out_span)
-
-
-def build_report_for_flat_data() -> TuningReport:
-    """Return a report for constant signals, which no model can explain."""
-    u = np.zeros(FLAT_SAMPLE_COUNT)
-    y = np.zeros(FLAT_SAMPLE_COUNT)
-    return build_tuning_report("FIC101", u, y, SAMPLE_TIME_S)
 
 
 def build_report_with_pid_advice() -> TuningReport:
@@ -57,6 +34,8 @@ def build_report_with_pid_advice() -> TuningReport:
 
 
 def test_a_healthy_report_carries_a_pid_setting_and_an_advice_pair() -> None:
+    """A healthy report must include a PID setting plus a (recommended, reason) pair so the UI
+    can show the derivative advice."""
     report = build_report_for_open_loop()
 
     assert report.pid is not None
@@ -65,12 +44,16 @@ def test_a_healthy_report_carries_a_pid_setting_and_an_advice_pair() -> None:
 
 
 def test_the_pid_setting_equals_the_amigo_pid_of_the_identified_model() -> None:
+    """The report PID must be exactly the AMIGO PID of its own model, so the report and the
+    rule never drift apart."""
     report = build_report_for_open_loop()
 
     assert report.pid == amigo_pid(report.model)
 
 
 def test_the_markdown_has_a_derivative_section_with_the_high_frequency_gain() -> None:
+    """The Markdown must show the derivative section with Kc(1+N), the high-frequency gain that
+    amplifies noise."""
     markdown = render_markdown(build_report_with_pid_advice())
 
     assert "## PID (derivative action)" in markdown
@@ -78,6 +61,8 @@ def test_the_markdown_has_a_derivative_section_with_the_high_frequency_gain() ->
 
 
 def test_the_siemens_pid_tags_carry_the_derivative_time_and_its_filter() -> None:
+    """The Siemens PID_Compact tags must hold Td, its filter ratio and the gain, as entered on
+    the controller."""
     tags = siemens_pid_compact_pid(PidSettings(KC, TI_S, TD_S, FILTER_RATIO_N))
 
     assert tags["Retain.CtrlParams.Td"] == TD_S
@@ -87,6 +72,8 @@ def test_the_siemens_pid_tags_carry_the_derivative_time_and_its_filter() -> None
 
 
 def test_the_abb_pid_tags_normalise_the_gain_and_filter_the_derivative() -> None:
+    """The ABB PIDCC gain must be normalised by the PV and output spans and TF must be Td
+    divided by N."""
     tags = abb_pidcc_pid(PidSettings(KC, TI_S, TD_S, FILTER_RATIO_N), pv_span=PV_SPAN)
 
     assert tags["Gain"] == KC * PV_SPAN / OUT_SPAN
@@ -95,14 +82,15 @@ def test_the_abb_pid_tags_normalise_the_gain_and_filter_the_derivative() -> None
 
 
 def test_vendor_summaries_with_a_pid_setting_report_a_derivative_time() -> None:
-    summaries = vendor_summaries(
-        PiSettings(KC, TI_S), PV_SPAN, pid=PidSettings(KC, TI_S, TD_S)
-    )
+    """The vendor summaries must pass the derivative time through when a PID setting is
+    supplied."""
+    summaries = vendor_summaries(PiSettings(KC, TI_S), PV_SPAN, pid=PidSettings(KC, TI_S, TD_S))
 
     assert summaries["siemens_pid_compact"]["tags"]["Retain.CtrlParams.Td"] == TD_S
 
 
 def test_a_failed_identification_has_no_pid_and_no_derivative_section() -> None:
+    """Without a model there is no PID and the Markdown must not show a derivative section."""
     report = build_report_for_flat_data()
 
     assert report.pid is None

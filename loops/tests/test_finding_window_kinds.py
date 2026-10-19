@@ -156,7 +156,7 @@ def test_the_example_window_is_an_ordered_interval_inside_the_record():
     "column_factory",
     [
         _make_saturated_columns,
-        lambda t: _make_oscillating_columns(t, amplitude=10.0, period_s=300.0),
+        lambda time_vector: _make_oscillating_columns(time_vector, amplitude=10.0, period_s=300.0),
     ],
 )
 def test_every_windowed_finding_declares_a_known_window_kind(column_factory):
@@ -167,9 +167,9 @@ def test_every_windowed_finding_declares_a_known_window_kind(column_factory):
 
     [result] = analyze_dataset(time_vector, columns, [tags])
 
-    windowed_findings = [f for f in result["findings"] if "window_s" in f]
+    windowed_findings = [finding for finding in result["findings"] if "window_s" in finding]
     assert windowed_findings
-    assert all(f["window_kind"] in VALID_WINDOW_KINDS for f in windowed_findings)
+    assert all(finding["window_kind"] in VALID_WINDOW_KINDS for finding in windowed_findings)
 
 
 def test_a_healthy_loop_reports_no_windowed_finding():

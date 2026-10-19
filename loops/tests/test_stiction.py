@@ -79,18 +79,21 @@ def _move_valve_with_stiction(
 
 
 def test_stiction_loop_is_detected() -> None:
+    """A PI loop with a sticking valve is classified as stiction."""
     pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "stiction"
 
 
 def test_healthy_oscillating_loop_is_not_detected() -> None:
+    """A loop oscillating from an external disturbance must not be blamed on the valve."""
     pv, out = simulate_loop(seed=1, stiction=False, disturbance_amp=0.3)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "no_stiction"
 
 
 def test_white_noise_is_inconclusive() -> None:
+    """Uncorrelated noise has no limit cycle, so no verdict is given."""
     pv = RNG.normal(size=4000)
     out = RNG.normal(size=4000)
     result = detect_stiction(pv, out, DT)
@@ -99,12 +102,14 @@ def test_white_noise_is_inconclusive() -> None:
 
 @pytest.mark.parametrize("seed", [1, 2, 4])
 def test_stiction_verdict_is_consistent(seed: int) -> None:
+    """The stiction verdict does not depend on the noise seed of the simulation."""
     pv, out = simulate_loop(seed=seed, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.verdict == "stiction"
 
 
 def test_stiction_loop_has_period_and_cycles() -> None:
+    """A stiction verdict comes with the cycle period and at least 6 cycles as evidence."""
     pv, out = simulate_loop(seed=1, stiction=True, sample_count=LONG_RECORD)
     result = detect_stiction(pv, out, DT)
     assert result.period_s is not None
@@ -112,12 +117,14 @@ def test_stiction_loop_has_period_and_cycles() -> None:
 
 
 def test_healthy_oscillating_loop_has_correct_period() -> None:
+    """The reported period matches the 150-sample disturbance driving the loop."""
     pv, out = simulate_loop(seed=1, stiction=False, disturbance_amp=0.3)
     result = detect_stiction(pv, out, DT)
     assert result.period_s == pytest.approx(150.0, rel=0.15)
 
 
 def test_invalid_input_raises_value_error() -> None:
+    """Mismatched lengths, NaN and a non-positive sampling time are rejected with ValueError."""
     pv = np.zeros(1000)
     out = np.zeros(1001)
     with pytest.raises(ValueError):
@@ -136,6 +143,7 @@ def test_invalid_input_raises_value_error() -> None:
 
 
 def test_empty_signal_raises_value_error_instead_of_index_error() -> None:
+    """An empty record gives a clear ValueError, not an IndexError from inside the code."""
     with pytest.raises(ValueError, match="at least"):
         detect_stiction(np.zeros(0), np.zeros(0), DT)
 
@@ -151,11 +159,13 @@ def random_wander(seed: int, sample_count: int = 5000) -> NDArray[np.float64]:
 
 @pytest.mark.parametrize("seed", range(1, 21))
 def test_random_wander_is_never_reported_as_stiction(seed: int) -> None:
-    x = random_wander(seed)
-    assert detect_stiction(x, x, DT).verdict != "stiction"
+    """Slow random wander of a healthy loop must never produce a stiction verdict."""
+    wander = random_wander(seed)
+    assert detect_stiction(wander, wander, DT).verdict != "stiction"
 
 
 def test_most_simulated_stiction_loops_are_found() -> None:
+    """At least 14 of 20 simulated sticking loops are found and none is called healthy."""
     verdicts = [
         detect_stiction(*simulate_loop(random_seed, True, sample_count=LONG_RECORD), DT).verdict
         for random_seed in range(1, 21)
