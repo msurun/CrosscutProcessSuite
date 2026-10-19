@@ -609,3 +609,10 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Cause of the misses: the Bartlett noise band and the 7-crossing rule (both my additions) need about 10 cycles
   in the record; ISDB records are short. The synthetic suite never had short records. Detector unchanged; next is a
   frozen short-record synthetic suite before any change. Details in `experiments/exp19_triage_no_knowledge/README.md`.
+## exp20: ACF detector on short records (2026-10-18)
+
+- Protocol, generator spec, generator (deepseek-flash, one reviewer fix), harness (one reviewer fix: candidate
+  lookup) committed before the run. Development run only: no candidate met the false-alarm target, nothing ships.
+- The shipped detector itself misses F: 11 % false alarms on AR(1) phi 0.5 noise (n = 3000), and detects 51 % of
+  positive cells with >= 5 cycles. Its "oscillating" finding is not reliable on fast noise. Details and the table
+  in `experiments/exp20_acf_short_records/README.md`.

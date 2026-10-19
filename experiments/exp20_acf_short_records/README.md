@@ -46,3 +46,31 @@ All share the Thornhill regularity r = mean(Tp) / (3 std(Tp)) > 1 and the hyster
   shipped detector stays and the miss is reported. Constants are not edited after the development run.
 - Reported, no target: per-cell detection and false-alarm shares; reason counts ("too few ACF zero crossings",
   "irregular") per candidate, which inform a later "inconclusive: too few cycles" note in the loop report.
+
+## RESULT, development run (2026-10-18, commit 3cf094e, dev seeds 0..99; `results20_dev.md`)
+
+| Candidate | F (every cell <= 5 %, pool <= 2 %) | worst negative cell | pooled false alarms | S pool | L | c 3-4 | SNR 0.5 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A (shipped) | no | AR(1) 0.5, n=3000: 11 % | 0.9 % | 50.9 % | 86.2 % | 0.0 % | 18.1 % |
+| B | no | AR(1) 0.9, n=1000: 30 % | 9.7 % | 95.6 % | 92.9 % | 0.3 % | 46.5 % |
+| C | no | AR(1) 0.5, n=1000: 14 % | 2.2 % | 83.4 % | 86.2 % | 1.5 % | 35.3 % |
+| D | no | AR(1) 0.9, n=1000: 22 % | 6.0 % | 91.1 % | 86.0 % | 52.9 % | 52.6 % |
+| E | no | AR(1) 0.5, n=1000: 14 % | 2.3 % | 81.8 % | 87.9 % | 0.0 % | 32.6 % |
+
+**No candidate meets F, so per the protocol nothing ships and the test phase is not run.** The shipped detector stays.
+
+Findings that change what may be claimed about the SHIPPED detector (A):
+- It raises false alarms on fast-decorrelating noise: AR(1) phi 0.5 at 11 % (n = 3000) and 4 % (n = 1000), white
+  noise 3 % at n = 1000. The earlier synthetic checks (2026-10-18) did not include AR(1) 0.5. An "oscillating"
+  finding from the ACF method is therefore not reliable on its own when the error is fast noise.
+- It detects 51 % of the positive cells with >= 5 cycles and SNR >= 1, and 0 % with 3-4 cycles; even with 20
+  cycles only 86 % (the 5 % period jitter and AR noise were absent from the earlier checks).
+- Every candidate that gains sensitivity (B, D) does so by more false alarms; C and E sit between.
+
+Diagnostic read (not a new candidate), checked after the run on dev seeds: the shipped detector's false alarms have
+LONG periods (67-337 samples on AR(0.5) and white noise, n = 1000-3000), not a few samples. For fast noise the
+Bartlett band shrinks to about 1.96/sqrt(n), while the ACF estimation error at distant lags is correlated from lag
+to lag and forms slow waves that leave that band. A minimum period would not remove them; a band that grows with
+the lag (Bartlett summed up to each lag k) or a significance test of the whole ACF shape would be the candidates to
+try. A next round needs its own frozen protocol, new seeds (0..99 are spent for selection) and candidates defined
+before its run.
