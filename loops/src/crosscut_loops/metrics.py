@@ -12,44 +12,44 @@ from dataclasses import dataclass
 import numpy as np
 
 AR_SAMPLES_PER_COEFFICIENT = 10  # shortest series accepted, in samples per AR coefficient
-DEFAULT_AR_ORDER = 20
+DEFAULT_AR_ORDER = 20  # number of AR coefficients fitted to the error
 SATURATION_MARGIN_FRACTION = 0.005  # of the output range
-DEFAULT_MIN_EXCEEDANCES = 10
-DEFAULT_WINDOW_HALF_CYCLES = 20
-DEFAULT_MIN_FLAT_RUN = 10
+DEFAULT_MIN_EXCEEDANCES = 10  # large half cycles needed inside one window
+DEFAULT_WINDOW_HALF_CYCLES = 20  # window length, in half cycles
+DEFAULT_MIN_FLAT_RUN = 10  # identical consecutive samples that make a run "flat"
 
 FULL_CIRCLE_RAD = 2.0 * np.pi  # radians in one full oscillation cycle
 
 
-def _fit_ar(x: np.ndarray, order: int) -> tuple[np.ndarray, float]:
+def _fit_ar(series: np.ndarray, order: int) -> tuple[np.ndarray, float]:
     """Least-squares AR fit of a mean-free series: (coefficients a_1..a_p, residual variance).
 
     An autoregressive model of order p predicts each sample from the previous p samples:
-    x[t] = a_1 * x[t-1] + a_2 * x[t-2] + ... + a_p * x[t-p] + e[t], where e[t] is the residual
-    (the part the model cannot explain). The coefficients a_i are found by ordinary least
-    squares, which minimises the sum of squared residuals.
+    series[t] = a_1 * series[t-1] + a_2 * series[t-2] + ... + a_p * series[t-p] + e[t],
+    where e[t] is the residual (the part the model cannot explain). The coefficients a_i are
+    found by ordinary least squares, which minimises the sum of squared residuals.
 
     Args:
-        x: the observed series (1-D array), assumed to already be mean-free (mean 0).
+        series: the observed series (1-D array), assumed to already be mean-free (mean 0).
         order: the model order p, i.e. how many past samples are used as predictors.
 
     Returns:
-        coefficients: array of shape (p,), holding a_1..a_p (same units as x divided by x).
-        residual variance: the variance of the residuals e[t] (units: x squared).
+        coefficients: array of shape (p,), holding a_1..a_p (dimensionless: units of series/series).
+        residual variance: the variance of the residuals e[t] (units: series squared).
     """
-    # Build the lag matrix: one column per lag. Column j (0-based) holds x shifted
-    # by j+1 samples forward, so row t contains the p values that predict x[order + t].
-    # Each column has len(x) - order rows, matching target; the slices stop at len(x) - j
+    # Build the lag matrix: one column per lag. Column j (0-based) holds series shifted
+    # by j+1 samples forward, so row t contains the p values that predict series[order + t].
+    # Each column has len(series) - order rows, matching target; the slices stop at len(series) - j
     # only to make that column align with the predictor values, not to set a shared length.
-    lagged = np.column_stack([x[order - j : len(x) - j] for j in range(1, order + 1)])
+    lagged = np.column_stack([series[order - j : len(series) - j] for j in range(1, order + 1)])
     # The values being predicted: everything from index `order` onwards.
-    target = x[order:]
-    # Solve the normal equations in the least-squares sense; lstsq returns extra diagnostics we
-    # ignore via the *_ unpacking (rank, singular values, ...).
+    target = series[order:]
+    # Solve min ||lagged @ coefficients - target||^2; lstsq also returns diagnostics (residual
+    # sum, rank, singular values) that are dropped through the *_ unpacking.
     coefficients, *_ = np.linalg.lstsq(lagged, target, rcond=None)
     # Residuals e[t] = observed - predicted, where `@` is the matrix product lagged @ coefficients.
     residual = target - lagged @ coefficients
-    # Bias-corrected? No: np.var uses the population variance (divides by N, not N-1).
+    # Population variance of the residuals (np.var divides by N, not N - 1).
     return coefficients, float(np.var(residual))
 
 
@@ -92,7 +92,7 @@ def harris_index(error: np.ndarray, delay_samples: int, ar_order: int = DEFAULT_
     ar_coefficients, noise_variance = _fit_ar(centered_error, ar_order)
     # Impulse-response coefficients psi_i of the AR filter, truncated at delay_samples.
     # The first `delay_samples` of them (i < delay) cover the dead time, where no controller can
-    # act; their squared sum is the fraction of the variance that is irreducible.
+    # act; sigma_a^2 times their squared sum is the irreducible (minimum) variance.
     impulse_response = _impulse_response(ar_coefficients, delay_samples)
     # Harris index = minimum achievable variance / actual variance, clipped into [0, 1];
     # returns NaN when the error is constant (variance zero).
@@ -108,7 +108,8 @@ def _center_and_validate(error: np.ndarray, delay_samples: int, ar_order: int) -
 
     Args:
         error: the raw error signal, one sample per time step.
-        delay_samples: how far back the AR model looks, in SAMPLES (integer >= 1).
+        delay_samples: process dead time in SAMPLES (integer >= 1); the Harris benchmark
+            keeps this many impulse-response coefficients.
         ar_order: number of AR coefficients to fit.
 
     Returns:
@@ -120,8 +121,8 @@ def _center_and_validate(error: np.ndarray, delay_samples: int, ar_order: int) -
     if delay_samples < 1:
         raise ValueError("delay_samples must be at least 1")
 
-    # Copy into float64 so the mean subtraction below never truncates to integer,
-    # and so the caller's array is never modified in place.
+    # Convert to float64 (no copy if it already is) so the mean subtraction below never
+    # truncates to integer; the subtraction returns a new array, the caller's stays unchanged.
     error_series = np.asarray(error, dtype=float)
 
     # An AR fit of `ar_order` coefficients needs roughly AR_SAMPLES_PER_COEFFICIENT
@@ -137,8 +138,8 @@ def _variance_of(centered_error: np.ndarray) -> float:
     """Return the variance of the centered error, or NaN when the error is constant.
 
     The "centered error" is the error signal with its mean subtracted, so its variance is the
-    average of the squared deviations. This spread is the denominator of the normalization step
-    that scores a model: a model whose error has no spread at all cannot be scored, so it gets NaN.
+    average of the squared deviations. It is the denominator of the Harris index: a constant
+    error has no spread to compare the minimum variance with, so the index is undefined (NaN).
 
     Args:
         centered_error: 1-D array of error values, already centered (mean removed).
@@ -176,9 +177,8 @@ def _half_cycles(error: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray
 
     A "half cycle" is the stretch of signal between two consecutive crossings of the
     mean of `error`: the curve goes from zero up to a peak and back to zero, or from
-    zero down to a trough and back to zero. Controller tuning metrics (as in the
-    Åström–Hägglund relay experiment) are per half cycle rather than per full period,
-    because the sign of the oscillation flips at every crossing.
+    zero down to a trough and back to zero. Hagglund's detector (1995) integrates the
+    absolute error over each such stretch, so the sign flip at a crossing separates them.
 
     A half cycle is cut short — and therefore dropped from both returned arrays —
     when the signal starts or ends away from the mean, since that fraction is
@@ -189,8 +189,8 @@ def _half_cycles(error: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray
         dt_s: sampling period in SECONDS per sample; converts sample counts to time.
 
     Returns:
-        `iae`: integral of the absolute error of each truncated half cycle, in
-        engineering-units * seconds. `duration`: length of each half cycle in samples.
+        `iae`: integral of the absolute deviation from the mean over each complete half cycle,
+        in engineering-units * seconds. `duration`: length of each half cycle in samples.
     """
     # `np.signbit` returns True for values below zero. A sample exactly at the
     # mean is not below zero, so it is classified as non-negative.
@@ -213,18 +213,17 @@ def _half_cycles(error: np.ndarray, dt_s: float) -> tuple[np.ndarray, np.ndarray
     # sample-wise sum into an integral in seconds.
     iae = np.add.reduceat(absolute, edges)[:-1] * dt_s
 
-    # Distance between consecutive edges in samples, i.e. the half cycle length in samples.
-    # `.astype(float)` keeps the division in `_oscillation_period_s` from using integer division.
+    # Distance between consecutive edges in samples, i.e. the half cycle length in samples;
+    # returned as float because it is later multiplied by dt_s in seconds per sample.
     return iae, np.diff(edges).astype(float)
 
 
 def _has_dense_exceedances(exceeds: np.ndarray, minimum: int, window: int) -> bool:
     """True when some window of ``window`` consecutive half cycles holds >= ``minimum`` hits.
 
-    A "half cycle" is one half of a mains voltage period (10 ms at 50 Hz, 8.33 ms at 60 Hz);
-    a device that fails to meet a grid-code limit must exceed it on several neighbouring
-    half cycles, not just once, for the breach to count. This helper answers that
-    "is there a dense enough run?" question.
+    One large half cycle can be chance; a sustained oscillation shows many large half
+    cycles close together. This helper answers "is there a dense enough stretch?" by sliding
+    a window along the half cycles and counting hits in it.
 
     ``exceeds`` is a boolean array, one entry per half cycle, True when that half cycle
     exceeded the limit. ``minimum`` is the hit count required inside a window (unit:
@@ -250,8 +249,8 @@ def _acceptable_iae(amplitude_limit: float, ultimate_period_s: float) -> float:
     one half cycle of the loop's oscillation, so a caller can compare a measured or
     simulated half cycle against it.
 
-    A cycle of the loop's natural frequency with the acceptable amplitude has IAE
-    2 * amplitude_limit / omega_u, where omega_u is the ultimate angular frequency.
+    A half cycle of a sine with the acceptable amplitude a and the ultimate angular
+    frequency omega_u has IAE = a * (T_u / pi) = 2 * a / omega_u, with omega_u = 2 pi / T_u.
 
     Parameters:
         amplitude_limit: peak deviation of the controlled variable from setpoint, in
@@ -283,13 +282,12 @@ def hagglund_oscillation(
 ) -> OscillationResult:
     """Detect a sustained oscillation by the IAE of the half cycles between zero crossings.
 
-    Domain: this is a control-loop monitor (Hagglund 1995). An oscillating loop swings
-    around its setpoint; each swing is a "half cycle" between two zero crossings of the
-    error signal. Instead of looking at peak amplitude, we integrate the absolute error
-    over each half cycle (the IAE) and call a half cycle "large" when its IAE exceeds
-    2 * amplitude_limit / omega_u, i.e. when a cycle of the loop's natural frequency has
-    more than the acceptable amplitude. Many large half cycles in a short stretch mean a
-    sustained oscillation.
+    Method of Hagglund 1995. An oscillating loop swings around its setpoint; each swing
+    is a "half cycle" between two crossings of the error's mean. Instead of looking at
+    peak amplitude, we integrate the absolute error over each half cycle (the IAE) and call
+    it "large" when the IAE exceeds 2 * amplitude_limit / omega_u, i.e. when a sine half
+    cycle at the loop's ultimate frequency would exceed the acceptable amplitude.
+    Many large half cycles in a short stretch mean a sustained oscillation.
 
     Args:
         error: Error signal samples, error[k] = setpoint - measurement at time k * dt_s.
@@ -303,10 +301,10 @@ def hagglund_oscillation(
         OscillationResult with detected=True and the measured period in seconds, or
         detected=False and period_s=None when no sustained oscillation was found.
     """
-    x = np.asarray(error, dtype=float)
+    error_array = np.asarray(error, dtype=float)
     # iae[k] is the integral of |error| over the k-th half cycle, in (units * seconds);
     # lengths[k] is that half cycle's duration, in samples.
-    iae, lengths = _half_cycles(x, dt_s)
+    iae, lengths = _half_cycles(error_array, dt_s)
     large = iae > _acceptable_iae(amplitude_limit, ultimate_period_s)
     if not _has_dense_exceedances(large, min_exceedances, window_half_cycles):
         return OscillationResult(detected=False, period_s=None)
@@ -335,7 +333,7 @@ def saturation_fraction(
     units, so the same threshold works for any actuator regardless of how
     wide its range is.
     """
-    # Work on a private float copy so the caller's array is never modified.
+    # Float values with NaN dropped; boolean indexing makes a new array, the caller's stays intact.
     values = np.asarray(out, dtype=float)
     values = values[~np.isnan(values)]
     if len(values) == 0:
@@ -346,7 +344,7 @@ def saturation_fraction(
     return float(np.mean((values <= low + margin) | (values >= high - margin)))
 
 
-def flatline_fraction(x: np.ndarray, min_run: int = DEFAULT_MIN_FLAT_RUN) -> float:
+def flatline_fraction(signal: np.ndarray, min_run: int = DEFAULT_MIN_FLAT_RUN) -> float:
     """Fraction of samples inside runs of at least ``min_run`` identical values (stuck signal).
 
     A signal that is stuck (a sensor that stopped updating, a wire that came loose) repeats
@@ -360,7 +358,7 @@ def flatline_fraction(x: np.ndarray, min_run: int = DEFAULT_MIN_FLAT_RUN) -> flo
     Returns a number in [0.0, 1.0]: the share of all samples that sit in such long runs.
     Returns 0.0 for an empty input, since there is no sample to be stuck.
     """
-    values = np.asarray(x, dtype=float)
+    values = np.asarray(signal, dtype=float)
     if len(values) == 0:
         return 0.0
     # A run starts where the value changes from the previous sample. Prepending True marks the very

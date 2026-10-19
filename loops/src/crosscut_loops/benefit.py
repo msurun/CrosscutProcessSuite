@@ -128,7 +128,7 @@ def _estimate_from_samples(samples: np.ndarray, assumptions: BenefitAssumptions)
         # currency per hour.
         value_per_h=shift * assumptions.value_per_unit_h,
         n_samples_used=int(samples.size),
-        notes=_build_notes(mean, current_gap, std_now, assumptions),
+        notes=_build_notes(current_gap, std_now, assumptions),
     )
 
 
@@ -136,8 +136,8 @@ def render_benefit_markdown(estimate: BenefitEstimate, assumptions: BenefitAssum
     """Render a short markdown report of an estimate; every note is included.
 
     Pure formatting: takes an already computed `BenefitEstimate` (the statistics) and the
-    `BenefitAssumptions` it was computed under (the specification limits and the side of the
-    distribution we care about) and turns them into a markdown string ending in a newline.
+    `BenefitAssumptions` it was computed under (the limit and the side on which it sits)
+    and turns them into a markdown string ending in a newline.
     It raises nothing and reads no global state; the two inputs carry everything it needs.
     """
     # Markdown document assembled line by line, then joined at the end. Building a list and
@@ -148,9 +148,9 @@ def render_benefit_markdown(estimate: BenefitEstimate, assumptions: BenefitAssum
         "This number is an **estimate** based on the variability seen in the data.",
         "",
         # `n_samples_used` is a count (unit: samples), so it gets no decimal formatting.
-        # `mean`, `std_now`, `std_target`, `limit`, `shift` and `value_per_h` are all in the
-        # same physical unit as the measured quantity; `value_per_h` is that unit per hour
-        # (unit: value/hour). All of them use .2f, i.e. two decimals, for a stable column width.
+        # `mean`, `std_now`, `std_target`, `limit` and `shift` are in the unit of the measured
+        # signal; `value_per_h` is currency per hour. These use .2f (two decimals) for a
+        # stable column width.
         f"- Samples used: {estimate.n_samples_used}",
         f"- Mean: {estimate.mean:.2f}",
         f"- Standard deviation now: {estimate.std_now:.2f}",
@@ -159,7 +159,7 @@ def render_benefit_markdown(estimate: BenefitEstimate, assumptions: BenefitAssum
         f"- Room to shift the mean: {estimate.shift:.2f}",
         f"- Value per hour: {estimate.value_per_h:.2f}",
     ]
-    # `notes` is a sequence of free-text warnings produced during the estimate. Rendering them
+    # `notes` is a sequence of short warning phrases produced during the estimate. Rendering them
     # as markdown blockquotes (a "> " prefix per line) sets them apart from the bullet list.
     # The guard keeps the report free of a trailing empty line when there are no notes.
     if estimate.notes:
@@ -171,16 +171,16 @@ def render_benefit_markdown(estimate: BenefitEstimate, assumptions: BenefitAssum
 def _validate_assumptions(assumptions: BenefitAssumptions) -> None:
     """Check the assumptions once, so the maths below can trust them.
 
-    This is a guard clause: it only raises. Downstream code applies a normal
-    distribution and a multiplicative reduction, and both would silently return
-    nonsense (a negative sigma, a division by zero) instead of failing, so every
-    domain rule is asserted here.
+    This is a guard clause: it only raises. Downstream code scales the standard
+    deviation by a factor and multiplies a margin with it; out-of-range inputs would
+    silently give nonsense (a negative std_target, a margin of the wrong sign), so
+    every domain rule is asserted here.
 
     Raises:
         ValueError: if any field of ``assumptions`` is outside its valid range.
     """
-    # "side" decides which tail of the distribution counts as a benefit and is
-    # therefore restricted to a fixed vocabulary of known labels.
+    # "side" decides whether the limit is a ceiling or a floor and is therefore
+    # restricted to a fixed vocabulary of known labels.
     if assumptions.side not in VALID_SIDES:
         raise ValueError(f"side must be one of {VALID_SIDES}, got {assumptions.side!r}")
     # Relative reduction of the standard deviation, unitless. An exclusive upper
@@ -188,12 +188,12 @@ def _validate_assumptions(assumptions: BenefitAssumptions) -> None:
     # bound of 0.0 forbids a growth of the spread (which the model does not model).
     if not 0.0 <= assumptions.std_reduction < 1.0:
         raise ValueError(f"std_reduction must be in [0, 1), got {assumptions.std_reduction}")
-    # Safety margin expressed in units of the (remaining) standard deviation,
+    # Safety margin expressed in standard deviations of the current signal,
     # unitless. It multiplies sigma, so a zero or negative value would collapse or
     # flip the margin.
     if assumptions.margin_sigmas <= 0.0:
         raise ValueError(f"margin_sigmas must be positive, got {assumptions.margin_sigmas}")
-    # Monetary worth of one unit of benefit per hour, in currency per unit-hour.
+    # Monetary worth of one signal unit of shift held for one hour, in currency per unit-hour.
     # Zero is allowed (a benefit worth nothing), a negative price is not.
     if assumptions.value_per_unit_h < 0.0:
         raise ValueError(
@@ -240,19 +240,13 @@ def _shift_towards_limit(
 ) -> float:
     """Return how far the mean could move towards the limit without breaking the margin.
 
-    Model: the limit is a regulatory or business ceiling on a metric, and the
-    margin is the safety buffer kept between the mean and that limit. The buffer
-    is expressed in standard deviations of the metric (``margin_sigmas``), so the
-    mean is allowed to sit that many sigmas away from the limit.
-
-    Shrinking the spread (multiplying the standard deviation by
-    ``std_reduction``) removes spread that used to consume part of the margin,
-    which frees the same number of sigmas worth of distance for the mean to use.
-
-    In plain words: with the shrunk spread, the mean may sit ``margin_sigmas``
-    target standard deviations away from the limit. The room gained by shrinking
-    the spread is the margin in sigmas times the standard deviation that was
-    removed; it is capped at the room available today and never negative.
+    Model: the margin is the safety buffer kept between the mean and the limit,
+    ``margin_sigmas`` standard deviations wide. Today that buffer is
+    ``margin_sigmas * std_now`` in signal units. After the spread shrinks to
+    ``std_now * (1 - std_reduction)`` the same safety needs only
+    ``margin_sigmas * std_target``, so the mean may move closer by the difference:
+    ``margin_sigmas * std_now * std_reduction``. The result is capped at the room
+    available today (``current_gap``) and never negative.
 
     Parameters
     ----------
@@ -280,27 +274,20 @@ def _shift_towards_limit(
 
 
 def _build_notes(
-    mean: float,
     current_gap: float,
     std_now: float,
     assumptions: BenefitAssumptions,
 ) -> tuple[str, ...]:
     """Collect the warnings that apply to this estimate.
 
-    These notes are short machine-readable codes the UI turns into sentences,
-    so the caller can explain a low or uncertain benefit to the user.
-
-    The estimate is a normal distribution of benefit value: ``mean`` is its
-    expected value (the point estimate) in the benefit currency, and
-    ``std_now`` is the uncertainty (standard deviation) of that estimate.
+    The notes are short fixed phrases (the NOTE_* constants), so the caller can
+    explain a low or uncertain benefit to the user.
 
     Args:
-        mean: Expected benefit of acting now, in the benefit currency. Used by
-            the caller for display; no note depends on it here.
-        current_gap: Distance from the operating limit, in the same unit as
-            ``mean``. Zero or negative means the limit has been crossed.
-        std_now: Standard deviation of the benefit estimate, in the same unit.
-            Used as the yardstick for "how close is close".
+        current_gap: Distance from the operating limit, in the unit of ``pv``. Zero or
+            negative means the limit has been crossed.
+        std_now: Standard deviation of ``pv`` now, in the same unit. Used as
+            the yardstick for "how close is close".
         assumptions: Tunables of the benefit model. ``margin_sigmas`` is a count
             of standard deviations; ``value_per_unit_h`` is currency per hour.
 

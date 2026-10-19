@@ -1,8 +1,8 @@
 """Parameter-free oscillation detection for control-loop error signals.
 
 Implements the method of Thornhill, Huang & Zhang (2003), "Detection of multiple
-oscillations in control loops", J. Process Control 13:91-100.  The threshold
-r > 1 is the published default, not tuned on our data.
+oscillations in control loops", J. Process Control 13. The threshold r > 1 is the
+published default, not tuned on our data; the noise-band hysteresis is our addition.
 """
 
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ REGULARITY_THRESHOLD = 1.0  # r > 1: regular oscillation (Thornhill et al. 2003)
 MAX_ZERO_CROSSINGS = 11  # use at most the first 11 ACF zero crossings (10 intervals)
 MIN_ZERO_CROSSINGS = 7  # 5 period estimates; with 5, AR(1) phi=0.99 drift passed 21 % of runs
 MIN_SAMPLES = 64
-NOISE_BAND_Z = 1.96  # 95 % band of a white-noise ACF is +-1.96 / sqrt(n) (Box and Jenkins)
+NOISE_BAND_Z = 1.96  # 95 % band of a white-noise ACF is +-1.96 / sqrt(n)
 FLAT_RELATIVE_STD = 1e-12  # detrended std below this share of the signal scale is rounding only
 BAND_BARTLETT = "bartlett"
 BAND_WHITE = "white"
@@ -105,14 +105,17 @@ def _validate_inputs(error: np.ndarray, dt_s: float) -> None:
 def _detrend(error: np.ndarray) -> np.ndarray:
     """Remove mean and least-squares linear trend from the signal."""
     samples = np.asarray(error, dtype=float)
-    n = samples.size
-    t = np.arange(n, dtype=float)
-    coefficients = np.polyfit(t, samples, 1)
-    return samples - np.polyval(coefficients, t)
+    sample_count = samples.size
+    sample_index = np.arange(sample_count, dtype=float)
+    coefficients = np.polyfit(sample_index, samples, 1)
+    return samples - np.polyval(coefficients, sample_index)
 
 
 def _is_flat(samples: np.ndarray, error: np.ndarray) -> bool:
-    """True when the detrended residual is only rounding noise of the original signal."""
+    """True when the detrended residual is only rounding noise of the original signal.
+
+    The scale is the largest |error|, but at least 1, so a tiny signal is not called noisy.
+    """
     scale = max(float(np.max(np.abs(error))), 1.0)
     return float(np.std(samples)) <= FLAT_RELATIVE_STD * scale
 
@@ -123,31 +126,33 @@ def _autocorrelation(samples: np.ndarray, config: AcfConfig) -> np.ndarray:
     The padding length avoids circular wrap-around. Late lags rest on few sample pairs, so
     they are cut off (shipped: n // 2). The unbiased variant divides lag k by n - k.
     """
-    n = samples.size
-    nfft = 1 << (n - 1).bit_length()
-    nfft = max(nfft, 2 * n)
+    sample_count = samples.size
+    nfft = 1 << (sample_count - 1).bit_length()
+    nfft = max(nfft, 2 * sample_count)
     spectrum = np.fft.rfft(samples, n=nfft)
     acf_full = np.fft.irfft(spectrum * np.conjugate(spectrum), n=nfft)
-    acf = acf_full[: int(config.max_lag_fraction * n) + 1]
+    acf = acf_full[: int(config.max_lag_fraction * sample_count) + 1]
     if config.unbiased:
-        acf = acf * n / (n - np.arange(acf.size))
+        acf = acf * sample_count / (sample_count - np.arange(acf.size))
     return np.asarray(acf / acf[0], dtype=float)
 
 
 def _noise_sigma(acf: np.ndarray, n_samples: int, config: AcfConfig) -> np.ndarray:
     """Standard deviation of the ACF estimation noise at every lag (one value per lag).
 
-    Bartlett's formula for an MA(q) process, var(r_k) = (1 + 2 * sum r_j^2) / n, with q the lag
-    before the first zero crossing (Box and Jenkins). A white-noise band (q = 0) was too narrow
-    for correlated disturbances: AR(1) with phi = 0.9 passed as regular in 23 of 100 runs.
+    Bartlett's formula for an MA(q) process (Box and Jenkins, see docs/PROVENANCE.md),
+    var(r_k) = (1 + 2 * sum r_j^2) / n, with q the lag before the first zero crossing. A
+    white-noise band (q = 0) was too narrow for correlated disturbances: AR(1) with phi = 0.9
+    passed as regular in 23 of 100 runs.
     BAND_BARTLETT_LAG divides by the n - k sample pairs at lag k instead of n, the variance of
     the unbiased estimator; it widens the band where few pairs remain.
     """
     if config.band == BAND_WHITE:
         return np.full(acf.size, 1.0 / np.sqrt(n_samples))
     nonpositive = np.flatnonzero(acf <= 0.0)
-    q = int(nonpositive[0]) if len(nonpositive) else len(acf)
-    bartlett_sum = 1.0 + 2.0 * float(np.sum(acf[1:q] ** 2))
+    # First lag with r <= 0; the Bartlett sum below runs over lags 1..q with q = ma_order - 1.
+    ma_order = int(nonpositive[0]) if len(nonpositive) else len(acf)
+    bartlett_sum = 1.0 + 2.0 * float(np.sum(acf[1:ma_order] ** 2))
     pairs = np.full(acf.size, float(n_samples))
     if config.band == BAND_BARTLETT_LAG:
         pairs = n_samples - np.arange(acf.size, dtype=float)
@@ -180,7 +185,10 @@ def _zero_crossings(acf: np.ndarray, band: np.ndarray) -> np.ndarray:
     outside = np.flatnonzero(np.abs(acf) > band)  # band: half-width per lag
     side = acf[outside] > 0
     passages = np.flatnonzero(side[1:] != side[:-1])
-    crossings = [_passage_lag(acf, int(outside[p]), int(outside[p + 1])) for p in passages.tolist()]
+    crossings = [
+        _passage_lag(acf, int(outside[passage]), int(outside[passage + 1]))
+        for passage in passages.tolist()
+    ]
     return np.asarray(crossings[:MAX_ZERO_CROSSINGS], dtype=float)
 
 

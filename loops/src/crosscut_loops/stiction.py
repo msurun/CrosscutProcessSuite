@@ -1,16 +1,14 @@
-"""Detect stiction in a control loop.
+"""Detect stiction in a control loop: curve fit on OUT (``detect_stiction``) or THD of PV.
 
-The algorithm detects stiction by looking at the harmonic content of the PV signal.
-Stiction makes the PV oscillation non-sinusoidal, while a healthy loop oscillating because of a
-disturbance gives a pure sinusoid. The total harmonic distortion (THD) of the PV signal is used
-to distinguish between the two cases.
+``detect_stiction`` fits the half-cycles of OUT with a sine and a triangle (see
+stiction_curvefit.py). ``detect_stiction_from_pv`` is the first method, kept for comparison:
+stiction makes the PV oscillation non-sinusoidal, so the total harmonic distortion (THD) of PV
+is used to tell it from a disturbance-driven sinusoid. It follows the ideas of Thornhill and
+Choudhury et al. on non-linearity detection, was tested only on self-regulating processes, and
+strong measurement noise or other non-linearities (saturation, non-linear process gain) also
+raise THD. There the OP signal is validated but not used in the verdict.
 
-The algorithm is based on the ideas of Thornhill and Choudhury et al. on non-linearity detection.
-It has been tested only on self-regulating processes. Integrating processes may behave
-differently. Strong measurement noise or other non-linearities (e.g. saturation, non-linear
-process gain) also raise THD. The OP signal is currently validated but not used in the verdict.
-
-The algorithm works as follows:
+The PV method works as follows:
 1. Subtract the mean from the PV signal.
 2. Count the number of cycles in the PV signal using zero crossings with hysteresis.
 3. Calculate the period of the PV signal.
@@ -34,13 +32,15 @@ from crosscut_loops.stiction_curvefit import CurveFitResult, curve_fit_index
 SI_STICTION_MIN = 0.6
 SI_NO_STICTION_MAX = 0.4
 
-# Minimum number of zero-crossing cycles required to consider the signal periodic.
+# Minimum number of zero-crossing cycles required to consider the PV signal periodic.
 MIN_CYCLES = 5
 
 # Minimum height of the first autocorrelation repeat peak to consider the signal periodic
 # (measured: simulated stiction 0.25-0.35, noise-driven wander and random noise below 0.06).
 AUTOCORR_MIN = 0.15
 
+# THD of PV (harmonic amplitude / fundamental amplitude, dimensionless) above which the
+# PV method says "stiction".
 THD_STICTION_MIN = 0.2
 
 # Largest accepted ratio of zero-crossing cycles to the cycles implied by the autocorrelation peak.
@@ -49,7 +49,7 @@ MAX_CYCLE_RATIO = 3.5
 # Hysteresis multiplier applied to the signal standard deviation for zero crossing detection.
 HYSTERESIS = 0.1
 
-# Minimum number of samples required for zero-crossing detection and period estimation.
+# Minimum number of samples a record needs to pass input validation.
 MIN_SAMPLES = 2
 
 
@@ -121,7 +121,7 @@ def _inconclusive_result(n_cycles: int, period_s: float | None) -> StictionResul
     """Build the verdict for a signal that is not periodic.
 
     Called when the stiction detector cannot find a repeating oscillation, so it
-    has no basis for a friction verdict. Returning a "inconclusive" result
+    has no basis for a friction verdict. Returning an "inconclusive" result
     instead of a numeric score makes the abstention explicit to the caller.
 
     Args:
@@ -146,8 +146,8 @@ def _inconclusive_result(n_cycles: int, period_s: float | None) -> StictionResul
 def _verdict_from_thd(thd: float, n_cycles: int, period_s: float | None) -> StictionResult:
     """Classify the loop as stiction or no stiction by its THD.
 
-    THD is the total harmonic distortion of the error signal: the ratio of the
-    energy in the harmonics (2nd, 3rd, ...) to the energy in the fundamental.
+    THD is the total harmonic distortion of the PV signal: the root of the summed power in
+    the 2nd to 5th harmonic peaks divided by the amplitude of the fundamental peak.
     A large THD means the loop oscillates on a non-sinusoidal limit cycle,
     which is the signature of valve stiction; a clean loop has a low THD.
 
@@ -239,9 +239,8 @@ def _find_zero_crossings(centered_pv: NDArray[np.float64], std_pv: float) -> lis
     """Find the zero crossings in the signal using hysteresis.
 
     A zero crossing is a place where the signal switches from positive to negative or vice
-    versa. Counting them gives the frequency of a periodic signal (e.g. a household power
-    waveform frozen by the two frozen PV values looked at here, so this is the same idea as
-    counting peaks).
+    versa. Counting them over a record of known length gives the frequency of a periodic
+    signal, the same idea as counting peaks.
 
     A plain "did the sign change?" test is fragile: noise near zero makes the signal flicker
     across the axis many times at a single real crossing, inflating the count. Hysteresis
@@ -249,9 +248,8 @@ def _find_zero_crossings(centered_pv: NDArray[np.float64], std_pv: float) -> lis
     the crossing is accepted.
 
     Args:
-        centered_pv: The mean-free PV signal to analyze. Values are in the same unit as the
-            original PV signal (values are sampled at some fixed sampling rate; this function
-            only cares about sign and distance from zero, not the unit name).
+        centered_pv: The mean-free PV signal to analyze, in the unit of the original PV.
+            Only the sign and the distance from zero matter here.
         std_pv: The standard deviation of the signal, in the same unit as ``centered_pv``.
             It sets the size of the dead band so the threshold adapts to how noisy the signal
             is.
@@ -395,8 +393,8 @@ def _harmonic_power(spectrum: NDArray[np.float64], fundamental: int) -> float:
 
     A harmonic is a frequency that is an integer multiple of the fundamental
     frequency: the 2nd harmonic sits at 2 * fundamental, the 3rd at 3 * fundamental,
-    and so on. A perfectly periodic signal puts energy at those multiples, so a high
-    total here means the signal is periodic at the fundamental frequency.
+    and so on. A non-sinusoidal periodic wave (triangle, stick-slip) puts energy at those
+    multiples, a pure sine does not, so a high total means a distorted wave.
 
     :param spectrum: magnitude spectrum in bins, one value per frequency bin
         (unit: amplitude, arbitrary scale).

@@ -7,9 +7,9 @@ loop absorbs the fast disturbances, so the outer loop sees a much friendlier pro
 
 Tune the loops in order. First close and tune the inner (slave) loop alone. Then
 identify the outer process from the inner SETPOINT to y1 with the inner loop already
-closed, and tune the outer loop on that identified model. The inner loop then looks,
-from the outside, like T2 = exp(-theta2 s)/(tau_c2 s + 1): a first-order lag of its own
-closed-loop time constant tau_c2 plus its own effective delay theta2 + tau_c2.
+closed, and tune the outer loop on that identified model. With SIMC tuning the inner loop
+then looks, from the outside, like T2 = exp(-theta2 s)/(tau_c2 s + 1): a first-order lag of
+its closed-loop time constant tau_c2 plus its dead time theta2.
 
 Separate the two time scales: sigma = tau_c1 / tau_c2 should be 4 to 10. Below 4 the
 loops fight each other (the inner loop has only converged 98 % after 4 tau_c2); 10 is
@@ -23,12 +23,13 @@ from dataclasses import dataclass, field
 
 from crosscut_loops.tuning_rules import FopdtModel, PiSettings, simc_pi
 
-# Lowest acceptable ratio tau_c_outer / tau_c_inner, after Shinskey (1981, p. 12).
+# Lowest acceptable ratio tau_c_outer / tau_c_inner, after Shinskey (1981, p. 12), see
+# docs/PROVENANCE.md.
 # A first-order inner loop has reached 98 % of its setpoint after 4 tau_c2, so an
 # outer loop faster than that would chase a setpoint the inner loop cannot follow.
 MIN_SEPARATION = 4.0
 
-# Recommended ratio tau_c_outer / tau_c_inner (Shinskey 1981, p. 12; Skogestad APC6).
+# Recommended ratio tau_c_outer / tau_c_inner (Skogestad, lecture APC6).
 RECOMMENDED_SEPARATION = 10.0
 
 # Separation above this multiple of the recommended value means the outer loop has
@@ -130,14 +131,13 @@ def plan_cascade(
     if separation <= 0.0:
         raise ValueError("Separation must be positive")
 
-    # SIMC's default tuning constant for a noisy or distributed process is its own
-    # effective delay: tau_c = theta. The inner loop is the fast one, so it gets the
-    # tightest setting the rule allows.
+    # SIMC's tight-control choice is tau_c = theta (the loop's own delay). The inner
+    # loop is the fast one, so it gets this tightest recommended setting.
     tau_c_inner_s = inner.delay_s
     inner_settings = simc_pi(inner, tau_c_inner_s)
 
     # The outer loop must stay at least `separation` times slower than the inner loop,
-    # but never slower than what tight control of the outer process alone would ask for
+    # and never faster than tight control of the outer process alone would allow
     # (tau_c = the outer delay). The max() keeps both constraints.
     tau_c_outer_s = max(separation * tau_c_inner_s, outer.delay_s)
     outer_settings = simc_pi(outer, tau_c_outer_s)

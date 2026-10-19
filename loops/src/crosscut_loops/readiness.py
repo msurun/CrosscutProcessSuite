@@ -15,7 +15,7 @@ import numpy as np
 from crosscut_loops.metrics import flatline_fraction
 from crosscut_loops.overview import LoopTags
 
-# --- Thresholds (each pair: warn above / fail above) -------------------------
+# --- Thresholds (warn / fail pairs; the duration limits are minima, the others maxima) ---
 
 MIN_DURATION_H = 6.0  # a shorter record is a fail, in hours
 WARN_DURATION_H = 24.0  # a shorter record is a warning, in hours
@@ -28,7 +28,7 @@ FAIL_NAN_SHARE = 0.30  # share of missing values that fails the tag, in [0, 1]
 WARN_FLAT_SHARE = 0.50  # share of samples in flat runs that triggers a warning, in [0, 1]
 FAIL_FLAT_SHARE = 0.90  # share of samples in flat runs that fails the tag, in [0, 1]
 FLAT_RUN_MINUTES = 10.0  # a stuck signal repeats its value this long, in minutes
-MIN_FLAT_RUN_SAMPLES = 3  # never fewer samples than this, so noise-free signals are not "flat"
+MIN_FLAT_RUN_SAMPLES = 3  # a flat run is at least this many identical samples, however coarse
 SECONDS_PER_HOUR = 3600.0
 
 REQUIRED_ROLES = ("pv", "sp")  # a missing tag of these roles fails the loop
@@ -183,7 +183,7 @@ def _check_tag(t_s: np.ndarray, values: np.ndarray, tag: str, can_be_stuck: bool
 
 
 def _flat_share(t_s: np.ndarray, values: np.ndarray) -> float:
-    """Share of samples in runs of identical values lasting at least 10 minutes."""
+    """Share of samples in runs of identical values lasting at least 10 minutes (3 samples)."""
     period_s = float(np.median(np.diff(t_s)))
     run = max(MIN_FLAT_RUN_SAMPLES, int(FLAT_RUN_MINUTES * 60.0 / period_s))
     return float(flatline_fraction(values, run))

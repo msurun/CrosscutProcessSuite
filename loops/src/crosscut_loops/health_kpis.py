@@ -42,7 +42,7 @@ class ValveExtremes:
 class TrendResult:
     """Kendall trend strength and direction for a KPI series."""
 
-    n: int
+    point_count: int
     tau: float
     slope_per_step: float
     direction: str
@@ -116,13 +116,13 @@ def _count_reversals(signal: np.ndarray, min_move: float) -> int:
     return reversal_count
 
 
-def quantisation_step(x: ArrayLike) -> float:
-    """Return the resolution of a signal: 5th percentile of nonzero |diff(x)|.
+def quantisation_step(values: ArrayLike) -> float:
+    """Return the resolution of a signal: 5th percentile of nonzero |diff(values)|.
 
     The step is rounded to 6 significant digits. Returns NaN when there are
     fewer than 20 nonzero increments, i.e. when the signal is too smooth to tell.
     """
-    signal = _as_valid_signal(x)
+    signal = _as_valid_signal(values)
     increments = np.abs(np.diff(signal))
     nonzero = increments[increments > 0.0]
     if nonzero.size < MIN_NONZERO_INCREMENTS:
@@ -132,14 +132,14 @@ def quantisation_step(x: ArrayLike) -> float:
     return float(f"{raw_step:.{SIGNIFICANT_DIGITS_STEP}g}")
 
 
-def quantisation_ratio(x: ArrayLike) -> float:
-    """Return quantisation_step(x) over the noise sigma from MAD(diff(x)).
+def quantisation_ratio(values: ArrayLike) -> float:
+    """Return quantisation_step(values) over the noise sigma from MAD(diff(values)).
 
     sigma = 1.4826 * MAD(diff) / sqrt(2). A ratio >= QUANTISATION_LIMITING means
     quantisation, not the process noise, limits how finely OP is moved.
     Returns inf when sigma is 0 with a finite step, NaN when the step is NaN.
     """
-    signal = _as_valid_signal(x)
+    signal = _as_valid_signal(values)
     step = quantisation_step(signal)
     if np.isnan(step):
         return float("nan")
@@ -186,8 +186,9 @@ def group_by_period(periods: dict[str, float], tolerance: float = 0.1) -> list[l
     """Cluster loop names whose oscillation periods are close.
 
     Loops sharing a period likely share one disturbance source. Periods are in
-    seconds; None, NaN and non-positive values are ignored. Returns clusters of at
-    least two loops, each sorted by name, ordered by their median period.
+    seconds; None, NaN and non-positive values are ignored. A cluster starts at the
+    shortest unassigned period and takes every period up to (1 + tolerance) times it.
+    Returns clusters of at least two loops, each sorted by name, ordered by median period.
     """
     valid_periods = _valid_periods(periods)
     ordered = sorted(valid_periods.items(), key=lambda item: item[1])
@@ -209,7 +210,7 @@ def _valid_periods(periods: dict[str, float]) -> dict[str, float]:
 
 
 def _build_clusters(ordered: list[tuple[str, float]], tolerance: float) -> list[list[str]]:
-    """Group ordered (name, period) pairs into clusters wider than tolerance."""
+    """Group (name, period) pairs, sorted by period, into clusters of relative width tolerance."""
     clusters: list[list[str]] = []
     current: list[str] = []
     first_period = 0.0
@@ -248,16 +249,16 @@ def kendall_trend(
     if min_points < MIN_TREND_POINTS:
         raise ValueError(f"min_points must be >= {MIN_TREND_POINTS}, got {min_points}")
     signal = _as_valid_signal(values)
-    n = signal.size
-    if n < 2:
-        return TrendResult(n, 0.0, 0.0, "flat")
+    point_count = signal.size
+    if point_count < 2:
+        return TrendResult(point_count, 0.0, 0.0, "flat")
 
-    row_indices, col_indices = np.triu_indices(n, k=1)
+    row_indices, col_indices = np.triu_indices(point_count, k=1)
     deltas = signal[col_indices] - signal[row_indices]
     slope_per_step = float(np.median(deltas / (col_indices - row_indices)))
     tau = _kendall_tau_a(np.sign(deltas))
-    direction = _trend_direction(tau, higher_is_worse, n, min_points)
-    return TrendResult(n, tau, slope_per_step, direction)
+    direction = _trend_direction(tau, higher_is_worse, point_count, min_points)
+    return TrendResult(point_count, tau, slope_per_step, direction)
 
 
 def _kendall_tau_a(signs: np.ndarray) -> float:
@@ -267,9 +268,9 @@ def _kendall_tau_a(signs: np.ndarray) -> float:
     return float((np.count_nonzero(signs > 0) - np.count_nonzero(signs < 0)) / signs.size)
 
 
-def _trend_direction(tau: float, higher_is_worse: bool, n: int, min_points: int) -> str:
+def _trend_direction(tau: float, higher_is_worse: bool, point_count: int, min_points: int) -> str:
     """Return "worsening", "improving" or "flat" from tau and sample size."""
-    if n < min_points or abs(tau) < TREND_TAU_THRESHOLD:
+    if point_count < min_points or abs(tau) < TREND_TAU_THRESHOLD:
         return "flat"
     rising = tau > 0
     is_worsening = rising == higher_is_worse

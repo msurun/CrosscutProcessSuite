@@ -1,9 +1,9 @@
 """Stiction index from the shape of the controller output (curve-fitting method).
 
-A PI controller facing a sticking valve ends up in a limit cycle. The valve position is then
-a square-like wave, and the controller output (OUT, the integral of the error) is its
-integral: a triangle. Oscillations from aggressive tuning or a sinusoidal disturbance leave a
-sine in OUT instead. The method cuts OUT into half-cycles, fits each with a half-sine and a
+A PI controller facing a sticking valve ends up in a limit cycle: while the valve sticks,
+the integral action makes OUT ramp; when the valve breaks away it jumps. OUT therefore becomes
+triangle-like. Oscillations from aggressive tuning or a sinusoidal disturbance leave a sine
+in OUT instead. The method cuts OUT into half-cycles, fits each with a half-sine and a
 triangle, and asks which fits better (He, Wang, Pottmann, Qin 2007; see docs/PROVENANCE.md).
 OUT is already low-pass filtered by the integral action, which is why this works where
 zero-crossing counts and distortion of the noisy PV do not.
@@ -69,7 +69,7 @@ def _validate(out: NDArray[np.float64], dt_s: float) -> None:
 def _detrend(out: NDArray[np.float64]) -> NDArray[np.float64]:
     """Remove the mean and a straight-line drift, which would shift the zero crossings."""
     sample_index = np.arange(out.size, dtype=np.float64)
-    slope, offset = (float(c) for c in np.polyfit(sample_index, out, 1))
+    slope, offset = (float(coefficient) for coefficient in np.polyfit(sample_index, out, 1))
     return np.asarray(out - (slope * sample_index + offset), dtype=np.float64)
 
 
@@ -77,7 +77,7 @@ def _zero_crossings(signal: NDArray[np.float64]) -> list[int]:
     """Sample indices where the signal changes sign, ignoring wiggles inside the hysteresis band.
 
     A sign change counts only after the signal has moved beyond ``HYSTERESIS_FRACTION * std`` on
-    the other side; the crossing itself is placed at the last sample of the old sign.
+    the other side; the crossing itself is placed at the first sample of the new sign.
     """
     band = HYSTERESIS_FRACTION * float(np.std(signal))
     side = 0
@@ -114,20 +114,20 @@ def _irregularity(crossings: list[int], n_cycles: int) -> str:
 
 def _shape_index(half_cycle: NDArray[np.float64]) -> float:
     """SI of one half-cycle: 1 when a triangle fits much better than a half-sine."""
-    x = np.linspace(0.0, 1.0, half_cycle.size)
-    mse_sine = _fit_error(half_cycle, np.sin(np.pi * x))
-    mse_triangle = min(_fit_error(half_cycle, _triangle(x, peak)) for peak in PEAK_POSITIONS)
+    phase = np.linspace(0.0, 1.0, half_cycle.size)  # half-cycle mapped onto 0..1
+    mse_sine = _fit_error(half_cycle, np.sin(np.pi * phase))
+    mse_triangle = min(_fit_error(half_cycle, _triangle(phase, peak)) for peak in PEAK_POSITIONS)
     total = mse_sine + mse_triangle
     return 0.5 if total == 0.0 else float(mse_sine / total)
 
 
-def _triangle(x: NDArray[np.float64], peak: float) -> NDArray[np.float64]:
-    """Unit triangle on [0, 1]: rises from 0 to 1 at ``peak``, then falls back to 0."""
-    return np.where(x < peak, x / peak, (1.0 - x) / (1.0 - peak))
+def _triangle(phase: NDArray[np.float64], peak: float) -> NDArray[np.float64]:
+    """Unit triangle on phase [0, 1]: rises from 0 to 1 at ``peak``, then falls back to 0."""
+    return np.where(phase < peak, phase / peak, (1.0 - phase) / (1.0 - peak))
 
 
-def _fit_error(y: NDArray[np.float64], shape: NDArray[np.float64]) -> float:
-    """Mean squared residual of y ~ amplitude * shape + offset (both free, least squares)."""
+def _fit_error(data: NDArray[np.float64], shape: NDArray[np.float64]) -> float:
+    """Mean squared residual of data ~ amplitude * shape + offset (both free, least squares)."""
     design = np.column_stack([shape, np.ones_like(shape)])
-    coefficients, *_ = np.linalg.lstsq(design, y, rcond=None)
-    return float(np.mean((y - design @ coefficients) ** 2))
+    coefficients, *_ = np.linalg.lstsq(design, data, rcond=None)
+    return float(np.mean((data - design @ coefficients) ** 2))

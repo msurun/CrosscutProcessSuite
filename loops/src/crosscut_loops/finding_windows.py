@@ -14,8 +14,8 @@ from crosscut_loops.metrics import DEFAULT_MIN_FLAT_RUN, SATURATION_MARGIN_FRACT
 
 FindingWindow = tuple[float, float]  # (start_s, end_s) seconds since the first sample
 
-MANUAL_MODE = 0.0
-OUT_LOW = 0.0
+MANUAL_MODE = 0.0  # value of the mode signal that marks manual operation
+OUT_LOW = 0.0  # default actuator range: a 0-100 % output
 OUT_HIGH = 100.0
 
 
@@ -58,7 +58,7 @@ def finding_window(
     if code == "saturated":
         mask = _saturated_mask(out, out_low, out_high)
     else:
-        mask = _finding_mask(code, pv, out, mode)
+        mask = _finding_mask(code, pv, mode)
     return _window_of_mask(t_s, mask)
 
 
@@ -93,9 +93,7 @@ def _as_checked_arrays(
     return t_s, pv, out, mode
 
 
-def _finding_mask(
-    code: str, pv: np.ndarray, out: np.ndarray, mode: np.ndarray
-) -> np.ndarray | None:
+def _finding_mask(code: str, pv: np.ndarray, mode: np.ndarray) -> np.ndarray | None:
     """Boolean mask of samples belonging to ``code``, or None when the code has no window.
 
     NaN never belongs to a run: every comparison against NaN is False, so the
@@ -124,12 +122,12 @@ def _flatline_mask(pv: np.ndarray) -> np.ndarray:
     The sample where the repeated value first appears counts as part of the run.
     """
     # A run starts where the value changes from the previous sample. Prepending True
-    # marks the first sample as a start (it has no predecessor) and gives every run a
-    # leading boundary, so the diff below yields one length per run.
+    # marks the first sample as a start (it has no predecessor). Appending len(pv) below
+    # supplies the end of the last run, so the diff yields one length per run.
     run_starts = np.flatnonzero(np.append(True, pv[1:] != pv[:-1]))
     run_lengths = np.diff(np.append(run_starts, len(pv)))
     long_runs = run_lengths >= DEFAULT_MIN_FLAT_RUN
-    # The mask is built by walking the long runs back to their start index.
+    # Mark every sample of each long run: indices start .. start + length - 1.
     mask = np.zeros(len(pv), dtype=bool)
     for start, length in zip(run_starts[long_runs], run_lengths[long_runs], strict=True):
         mask[start : start + length] = True
