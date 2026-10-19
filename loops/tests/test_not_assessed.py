@@ -178,24 +178,39 @@ def test_without_delay_harris_is_not_assessed():
     assert "harris" in report.not_assessed
 
 
-def test_without_oscillation_limits_the_period_is_none():
+def test_without_oscillation_limits_the_acf_method_finds_the_cycle():
     report = analyze_sine(no_oscillation_settings())
+    assert report.oscillation_method == "acf"
+    assert report.oscillation_period_s == pytest.approx(SINE_PERIOD_S, rel=0.05)
+
+
+def test_without_oscillation_limits_a_regular_cycle_is_oscillating():
+    report = analyze_sine(no_oscillation_settings())
+    assert report.classification == "oscillating"
+    assert any("amplitude is tolerable is not assessed" in f for f in report.findings)
+
+
+def test_without_oscillation_limits_sluggish_noise_is_not_oscillating():
+    report = analyze_sluggish(base_settings(known=frozenset()))
     assert report.oscillation_period_s is None
-
-
-def test_without_oscillation_limits_the_loop_is_not_oscillating():
-    report = analyze_sine(no_oscillation_settings())
     assert report.classification != "oscillating"
 
 
-def test_without_oscillation_limits_oscillation_is_not_assessed():
+def test_without_oscillation_limits_the_amplitude_is_not_assessed():
     report = analyze_sine(no_oscillation_settings())
-    assert "oscillation" in report.not_assessed
+    assert "oscillation_amplitude" in report.not_assessed
+
+
+def test_with_limits_the_hagglund_method_is_used():
+    report = analyze_sine(base_settings())
+    assert report.oscillation_method == "hagglund"
+    assert report.oscillation_regularity is None
 
 
 def test_with_no_knowledge_not_assessed_lists_gaps_in_fixed_order():
     report = analyze_sine(empty_known_settings())
-    assert report.not_assessed == ("saturation", "valve_kpis", "harris", "oscillation")
+    expected = ("saturation", "valve_kpis", "harris", "oscillation_amplitude")
+    assert report.not_assessed == expected
 
 
 def tags(**given: float) -> LoopTags:

@@ -147,6 +147,7 @@ def _expected_report_keys():
         "saturation_percent",
         "harris_index",
         "oscillation_period_s",
+        "oscillation_method",
         "stiction_verdict",
         "stiction_suspicion",
         "stiction_advice",

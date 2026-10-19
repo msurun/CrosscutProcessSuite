@@ -20,6 +20,7 @@ from crosscut_loops.metrics import (
     harris_index,
     saturation_fraction,
 )
+from crosscut_loops.oscillation_acf import acf_regularity
 from crosscut_loops.stiction import detect_stiction
 from crosscut_loops.stiction_suspicion import SuspicionResult, stiction_suspicion
 
@@ -39,8 +40,10 @@ WITHHELD_BY = (
     ("saturation", OUT_RANGE),
     ("valve_kpis", OUT_RANGE),
     ("harris", DELAY),
-    ("oscillation", OSCILLATION_LIMITS),
+    ("oscillation_amplitude", OSCILLATION_LIMITS),  # cycles are still found by ACF regularity
 )
+OSC_HAGGLUND = "hagglund"
+OSC_ACF = "acf"
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,17 @@ class LoopReport:
     out_quantisation_ratio: float | None = None  # output step / noise; >= 1 limits control
     valve_sizing_hint: str | None = None  # "oversized" / "undersized" from the median output
     not_assessed: tuple[str, ...] = ()  # conclusions withheld for missing knowledge (WITHHELD_BY)
+    oscillation_method: str | None = None  # OSC_HAGGLUND or OSC_ACF when a cycle was found
+    oscillation_regularity: float | None = None  # Thornhill r of the ACF method, else None
+
+
+@dataclass(frozen=True)
+class Oscillation:
+    """Detected cycle of one stretch: period in seconds, method, ACF regularity (None if none)."""
+
+    period_s: float | None = None
+    method: str | None = None
+    regularity: float | None = None
 
 
 @dataclass(frozen=True)
@@ -145,7 +159,7 @@ class LoopArrays:
     error: np.ndarray
     n_samples: int
     harris: float
-    period_s: float | None
+    oscillation: Oscillation
     stiction: str
     suspicion: SuspicionResult
     valve: ValveKpis
@@ -191,8 +205,8 @@ def _longest_run(mask: np.ndarray) -> slice:
 
 def _segment_metrics(
     error: np.ndarray, dt_s: float, settings: LoopSettings
-) -> tuple[float, float | None]:
-    """Harris index and oscillation period (None if none) of one uninterrupted AUTO stretch.
+) -> tuple[float, Oscillation]:
+    """Harris index and detected oscillation of one uninterrupted AUTO stretch.
 
     The stretch is the error signal recorded while the controller stayed in AUTO without
     interruption; its quality is summarised by two numbers:
@@ -200,10 +214,11 @@ def _segment_metrics(
     * the Harris index from :func:`harris_index`, a unitless ratio that compares the
       achieved control performance with the best performance a minimum-variance
       controller could reach on the same signal (1.0 means "nothing left to improve");
-    * the oscillation period in seconds from :func:`hagglund_oscillation`, or ``None``
-      when the stretch does not oscillate persistently (Hagglund's method must fail).
+    * the oscillation: from :func:`hagglund_oscillation` when the loop's limits are configured,
+      otherwise from the parameter-free ACF regularity test (:func:`acf_regularity`); its
+      period is ``None`` when the stretch does not oscillate persistently.
 
-    Returns a ``(harris, period_s)`` pair, with ``harris`` set to ``nan`` when the
+    Returns a ``(harris, oscillation)`` pair, with ``harris`` set to ``nan`` when the
     stretch is too short or perfectly flat to say anything about it.
 
     Parameters
@@ -220,8 +235,8 @@ def _segment_metrics(
     # Too few samples give no statistics, and a constant signal has no variance to
     # divide by: both cases make the Harris index undefined, so report nothing.
     if len(error) < settings.min_segment_samples or np.var(error) == 0.0:
-        return float("nan"), None
-    return _harris_if_known(error, dt_s, settings), _hagglund_if_known(error, dt_s, settings)
+        return float("nan"), Oscillation()
+    return _harris_if_known(error, dt_s, settings), _oscillation(error, dt_s, settings)
 
 
 def _harris_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> float:
@@ -235,16 +250,21 @@ def _harris_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> 
     return harris_index(error, delay_samples)
 
 
-def _hagglund_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> float | None:
-    """Hagglund oscillation period in seconds, or None (no cycle, or limits not configured)."""
+def _oscillation(error: np.ndarray, dt_s: float, settings: LoopSettings) -> Oscillation:
+    """Detected cycle: Hagglund with configured limits, else ACF regularity (Thornhill 2003)."""
     if OSCILLATION_LIMITS not in settings.known:
-        return None
+        found = acf_regularity(error, dt_s)
+        return (
+            Oscillation(found.period_s, OSC_ACF, found.regularity)
+            if found.regular
+            else Oscillation()
+        )
     # Hagglund's method detects a sustained oscillation (limit cycle) and returns it
     # with its period; a stretch that does not oscillate yields period None.
-    oscillation = hagglund_oscillation(
+    hagglund = hagglund_oscillation(
         error, dt_s, settings.amplitude_limit, settings.ultimate_period_s
     )
-    return oscillation.period_s
+    return Oscillation(hagglund.period_s, OSC_HAGGLUND) if hagglund.detected else Oscillation()
 
 
 def _stiction_verdict(pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings) -> str:
@@ -360,7 +380,7 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
         "saturated": f"saturated: output at its limit {report.saturation_fraction:.0%} of the time",
         # oscillation_period_s is the period of the detected cycle in seconds; the '_s' suffix
         # denotes seconds.
-        "oscillating": f"oscillating: sustained cycle of {report.oscillation_period_s} s period",
+        "oscillating": _oscillation_message(report),
         # harris_index is the ratio of the best achievable output variance to the variance the loop
         # actually delivers. A value near 1 means the controller is close to optimal; smaller values
         # mean poor control.
@@ -379,6 +399,17 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
         )
     found += _valve_findings(report)
     return found
+
+
+def _oscillation_message(report: LoopReport) -> str:
+    """Oscillation finding; the ACF method finds regular cycles but cannot judge their size."""
+    if report.oscillation_method != OSC_ACF:
+        return f"oscillating: sustained cycle of {report.oscillation_period_s} s period"
+    return (
+        f"oscillating: regular cycle of {report.oscillation_period_s:.0f} s period "
+        f"(ACF regularity {report.oscillation_regularity:.1f}); whether its amplitude is "
+        "tolerable is not assessed without an amplitude limit"
+    )
 
 
 def _valve_findings(report: LoopReport) -> list[str]:
@@ -461,8 +492,10 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         error_std=_std_or_zero(arrays.error),
         # Harris index, dimensionless; 1.0 = best achievable (minimum variance) control.
         harris_index=arrays.harris,
-        # Dominant oscillation period in seconds, or NaN if no oscillation was found.
-        oscillation_period_s=arrays.period_s,
+        # Dominant oscillation period in seconds, or None if no oscillation was found.
+        oscillation_period_s=arrays.oscillation.period_s,
+        oscillation_method=arrays.oscillation.method,
+        oscillation_regularity=arrays.oscillation.regularity,
         # Left empty on purpose: the classifier that runs afterwards assigns the label.
         classification="",
         # Left empty on purpose: findings are appended by the later analysis stages.
@@ -480,7 +513,7 @@ def _build_draft(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
 
 def _longest_segment_metrics(
     series: LoopSeries, active: np.ndarray, settings: LoopSettings
-) -> tuple[float, float | None, str, SuspicionResult]:
+) -> tuple[float, Oscillation, str, SuspicionResult]:
     """Harris index, oscillation period, stiction verdict and suspicion of the longest stretch.
 
     A control loop's behaviour is judged only while it is "active" (disturbed, not sitting
@@ -494,7 +527,7 @@ def _longest_segment_metrics(
     * stiction verdict   -- a string label describing valve stiction, the mechanical
                         sticking of the control valve that shows up as small limit cycles.
 
-    Returns ``(harris, period_s, stiction, suspicion)``; the suspicion is the ranked score of
+    Returns ``(harris, oscillation, stiction, suspicion)``; the suspicion is the ranked score of
     :func:`crosscut_loops.stiction_suspicion.stiction_suspicion`.
     """
 
@@ -509,7 +542,7 @@ def _longest_segment_metrics(
 
     # The control error is process variable minus setpoint: how far the measurement is from where we
     # asked it to be. Computed sample-wise, then restricted to the segment.
-    harris, period_s = _segment_metrics((series.pv - series.sp)[segment], dt_s, settings)
+    harris, oscillation = _segment_metrics((series.pv - series.sp)[segment], dt_s, settings)
 
     # Stiction is detected from the relationship between the controller output (the valve
     # command, `out`) and the resulting process variable (`pv`), not from the error.
@@ -517,7 +550,7 @@ def _longest_segment_metrics(
 
     suspicion = _suspicion(series, segment, dt_s, settings)
 
-    return harris, period_s, stiction, suspicion
+    return harris, oscillation, stiction, suspicion
 
 
 def _valve_kpis(series: LoopSeries, active: np.ndarray, settings: LoopSettings) -> ValveKpis:
@@ -564,7 +597,7 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
     # Compute the Harris index, dominant oscillation period, and stiction verdict on the
     # longest contiguous run of active samples. These three metrics rely on a continuous
     # AUTO stretch, so they are extracted before the per-sample statistics are assembled.
-    harris, period_s, stiction, suspicion = _longest_segment_metrics(series, active, settings)
+    harris, oscillation, stiction, suspicion = _longest_segment_metrics(series, active, settings)
     return LoopArrays(
         pv=series.pv,
         out=series.out,
@@ -575,7 +608,7 @@ def _prepare_arrays(series: LoopSeries, settings: LoopSettings) -> LoopArrays:
         error=(series.pv - series.sp)[active],
         n_samples=len(series.t_s),
         harris=harris,
-        period_s=period_s,
+        oscillation=oscillation,
         stiction=stiction,
         suspicion=suspicion,
         valve=_valve_kpis(series, active, settings),

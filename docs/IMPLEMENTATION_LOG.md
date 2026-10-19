@@ -578,3 +578,22 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   `not_assessed`: NOT done (no Node.js).
 - Expected consequence: with nothing configured, loops will mostly show "ok" plus a not_assessed list until the
   parameter-free ACF oscillation detector (step 2) exists.
+
+## Parameter-free oscillation detection (2026-10-18, step 2a of the post-exp18 plan)
+
+- `oscillation_acf.py`: ACF regularity after Thornhill, Huang & Zhang (2003): period estimates from ACF zero
+  crossings, r = mean(Tp) / (3 std(Tp)), regular when r > 1 (published default). Two additions of ours, both
+  measured on synthetic signals only: (1) a crossing counts only when the ACF leaves a noise band on both sides
+  (hysteresis); the band is Bartlett's 95 % band for an MA(q) process with q = first zero crossing. Without it
+  white noise passed in 5 of 10 seeds and AR(1) phi=0.9 in 23 %; (2) at least 7 crossings (with 5, AR(1)
+  phi=0.99 drift passed 21 %).
+- Synthetic rates (100-200 runs each, 3000 samples): false positives white 1 %, AR(1) 0.9/0.97/0.99 0 %, random
+  walk 0 %; detection of sine amplitude 0.3-0.5 in white noise sigma 1: 99-100 %; square wave plus AR noise 100 %.
+  Known miss: a weak sine buried in stronger coloured noise (sine 0.5 + 0.5*AR(0.9)): 6 % detected; Thornhill's
+  band-pass prefilter is not implemented.
+- Wiring: `monitor._oscillation` uses Hagglund when oscillation limits are configured, otherwise ACF.
+  `LoopReport.oscillation_method` ("hagglund"/"acf") and `oscillation_regularity`; overview row key
+  `oscillation_method`. Without limits a regular cycle now classifies "oscillating" again; the finding says its
+  amplitude is not assessed, and `not_assessed` lists "oscillation_amplitude" (was "oscillation").
+- Delegated: module draft (DeepSeek; four spec bugs fixed by hand, among them second differences instead of
+  z[i+2]-z[i]) and tests (DeepSeek + Haiku). Not validated on real loops yet: that is exp19.

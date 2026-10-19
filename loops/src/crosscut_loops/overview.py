@@ -550,6 +550,8 @@ def _report_row(
         "harris_index": _optional_float(report.harris_index),
         # Dominant oscillation period in seconds; None if no oscillation was detected.
         "oscillation_period_s": _optional_period(report.oscillation_period_s),
+        # "hagglund" (configured limits), "acf" (parameter-free regularity) or None.
+        "oscillation_method": report.oscillation_method,
         # Verdict on valve stiction; may be None if the loop is not saturated or no oscillation was
         # found.
         "stiction_verdict": report.stiction_verdict,
