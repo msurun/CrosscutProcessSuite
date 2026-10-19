@@ -28,7 +28,7 @@ A commercial licence lets you use, modify and embed Crosscut **without the AGPL 
 your changes private or to ship Crosscut inside a closed product). Terms are agreed per customer; there is no
 standard price list.
 
-Contact: **[to be filled in by the owner before publication]**
+Contact: **Marcin.Surunowicz@gmail.com** (subject: "Crosscut commercial licence")
 
 The commercial licence is offered by the copyright holder, who wrote all code in this repository (see
 `git shortlog`). Contributions from others are accepted only under an agreement that allows this; see
