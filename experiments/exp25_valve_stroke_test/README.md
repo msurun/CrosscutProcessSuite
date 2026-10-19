@@ -69,3 +69,18 @@ resolution in {0, 0.1, 0.4} % of span (all combinations with resolution <= deadb
   resulting PV deviation, `pv_left_band` is True in 100 % of runs.
 - Seeds: 0..19 per cell, one run; constants not edited after the run. If V1 or V2 miss, the module ships as
   "procedure plus raw brackets" without a deadband number in the report, and the miss is documented.
+
+## RESULT (2026-10-19, one run, `results25.md`)
+
+V1 PASS (deadband within 0.25 % of span in 100 % of runs without load disturbance, noise 0 and 0.05), V2 PASS
+(healthy valve <= 0.25 % in 100 %), V3 PASS (abort flag in 100 % of the big-disturbance suite).
+
+Report-only: with a 0.3 % load step during the test the share within tolerance drops to 88-91 %; at noise 0.2 it is
+89 %; the 0.25 % steps get lost in noise 0.2, so a healthy valve is then bracketed only by the 1 % steps (estimate
+0.5 %). The resolution number was only checked for availability, not against the truth: it is reported as an upper
+bound ("<= s") and not claimed.
+
+What this supports: on a simulated FOPDT process with an instantaneous valve and a dwell of 6 (tau + theta), the
+bracket estimator recovers deadbands of 0.3-2 % to within one fine step. What it does not: real valves with
+positioner dynamics, PV as a poor proxy for position (slow or integrating loops, interacting loops), operators who
+cannot hold the dwell. No real test record exists yet; the result in the product is labelled accordingly.
