@@ -57,6 +57,17 @@ def test_nan_samples_are_ignored_and_all_nan_buckets_become_nan() -> None:
     assert downsampled.mean[-1] == 1.0
 
 
+def test_a_single_nan_does_not_blank_the_bucket() -> None:
+    """One missing sample inside a bucket must not hide the finite samples around it."""
+    sample_timestamps = np.arange(1000, dtype=np.int64)
+    sample_values = np.arange(1000, dtype=float)
+    sample_values[5] = np.nan  # inside the first bucket of 100 samples
+    downsampled = downsample_minmax(sample_timestamps, sample_values, max_points=10)
+    assert downsampled.min[0] == 0.0
+    assert downsampled.max[0] == 99.0
+    expected_mean = (sum(range(100)) - 5) / 99  # 99 finite samples
+    assert downsampled.mean[0] == pytest.approx(expected_mean)
+
 def test_max_points_below_two_is_rejected() -> None:
     with pytest.raises(ValueError, match="max_points"):
         downsample_minmax(np.arange(5, dtype=np.int64), np.zeros(5), max_points=1)

@@ -53,9 +53,10 @@ class BacktestRequest(BaseModel):
 
     document: dict[str, Any]
     output_id: str
-    dead_band: float = 2.0
-    lookback_s: float = 900.0
-    silent_band: float = 1.0
+    # The defaults are those of BacktestSettings (one source of truth in the fuzzy package).
+    dead_band: float = BacktestSettings.dead_band
+    lookback_s: float = BacktestSettings.lookback_s
+    silent_band: float = BacktestSettings.silent_band
 
 
 class MatrixRequest(BaseModel):
