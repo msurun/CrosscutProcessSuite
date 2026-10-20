@@ -10,13 +10,18 @@ import { fetchSeries } from "../api";
 import { toUplotData, windowToRange } from "../trendData";
 import { TrendPane } from "./TrendPane";
 import { StatusChip } from "./StatusChip";
+import { KnowledgeEditor } from "./KnowledgeEditor";
 import { findingText, nextStepTexts, type Translate } from "../findings";
+import { actionText, isPartiallyAssessed, withheldText } from "../worklist";
 
 /** Maximum number of points requested per trend series. */
 const TREND_MAX_POINTS = 1500;
 
 /** Seconds in a minute, used to render an oscillation period in minutes. */
 const SECONDS_PER_MINUTE = 60;
+
+/** Stand-in for a callback the caller did not give. */
+function noop(): void {}
 
 /** Placeholder shown when a nullable key number has no value. */
 const NOT_AVAILABLE = "–";
@@ -101,20 +106,87 @@ function KeyNumber({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** "12.3 per h" or a dash when the number is unknown. */
+function perHour(value: number | null, t: Translate): string {
+  return value === null ? NOT_AVAILABLE : t("loops.perHour", { value: value.toFixed(1) });
+}
+
+/** The ranked stiction suspicion (0..1) as text, or "not ranked" when the loop could not be ranked. */
+function stictionText(loop: LoopSummary, t: Translate): string {
+  return loop.stiction_suspicion === null ? t("loops.stictionNotRanked") : loop.stiction_suspicion.toFixed(2);
+}
+
+/** Oscillation period in minutes plus how it was found, or a dash when no cycle was found. */
+function oscillationText(loop: LoopSummary, t: Translate): string {
+  if (loop.oscillation_period_s === null) return NOT_AVAILABLE;
+  const minutes = t("loops.minutes", { value: (loop.oscillation_period_s / SECONDS_PER_MINUTE).toFixed(1) });
+  return loop.oscillation_method === null ? minutes : `${minutes} (${t(`loops.method.${loop.oscillation_method}`)})`;
+}
+
+/** The sizing hint ("oversized" / "undersized") as text, or "no concern". */
+function sizingText(loop: LoopSummary, t: Translate): string {
+  return loop.valve_sizing_hint === null ? t("loops.sizingOk") : t(`valve.${loop.valve_sizing_hint}`);
+}
+
 /** The compact list of numbers behind the loop verdict. */
 function KeyNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
-  const oscillation =
-    loop.oscillation_period_s === null
-      ? NOT_AVAILABLE
-      : t("loops.minutes", { value: (loop.oscillation_period_s / SECONDS_PER_MINUTE).toFixed(1) });
-
   return (
     <dl className="key-numbers">
       <KeyNumber label={t("loops.inUse")} value={`${loop.service_percent} %`} />
       <KeyNumber label={t("loops.saturated")} value={loop.saturation_percent === null ? NOT_AVAILABLE : `${loop.saturation_percent} %`} />
       <KeyNumber label={t("loops.harris")} value={formatNumber(loop.harris_index, 2)} />
-      <KeyNumber label={t("loops.oscillation")} value={oscillation} />
+      <KeyNumber label={t("loops.oscillation")} value={oscillationText(loop, t)} />
     </dl>
+  );
+}
+
+/** Valve and output numbers: stiction suspicion, travel, reversals, output resolution and sizing. */
+function ValveNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
+  return (
+    <dl className="key-numbers">
+      <KeyNumber label={t("loops.stictionSuspicion")} value={stictionText(loop, t)} />
+      <KeyNumber label={t("loops.valveTravel")} value={perHour(loop.valve_travel_per_h, t)} />
+      <KeyNumber label={t("loops.valveReversals")} value={perHour(loop.valve_reversals_per_h, t)} />
+      <KeyNumber label={t("loops.quantisation")} value={formatNumber(loop.out_quantisation_ratio, 1)} />
+      <KeyNumber label={t("loops.sizing")} value={sizingText(loop, t)} />
+    </dl>
+  );
+}
+
+/** The one action the worklist ranks first for this loop, plus the loops that cycle with it. */
+function NextAction({ loop, t, onOpenLoop }: { loop: LoopSummary; t: Translate; onOpenLoop?: (name: string) => void }) {
+  return (
+    <section className="next-action" aria-labelledby="next-action-title">
+      <h3 id="next-action-title">{t("loops.nextAction")}</h3>
+      <p className="next-action-text">{actionText(t, loop.next_action)}</p>
+      {loop.same_period_as.length > 0 && (
+        <p>
+          {t("loops.sharedPeriod", { loops: "" })}
+          {loop.same_period_as.map((name, index) => (
+            <span key={name}>
+              {index > 0 && ", "}
+              {onOpenLoop ? (
+                <button type="button" className="link-button" onClick={() => onOpenLoop(name)}>
+                  {name}
+                </button>
+              ) : (
+                name
+              )}
+            </span>
+          ))}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Tells the user that "no problems" only covers the checks that could run, and which ones could not. */
+function NotAssessedNotice({ loop, t }: { loop: LoopSummary; t: Translate }) {
+  if (!isPartiallyAssessed(loop)) return null;
+  return (
+    <p className="notice notice-warning" role="note">
+      <strong>{t("loops.notAssessedTitle")}.</strong> {t("loops.notAssessedBody", { missing: withheldText(t, loop.not_assessed) })}
+    </p>
   );
 }
 
@@ -228,6 +300,8 @@ export function LoopDetail({
   onBack,
   onOpenTuning,
   onOpenBenefit,
+  onOpenLoop,
+  onKnowledgeSaved,
 }: {
   datasetId: string;
   loop: LoopSummary;
@@ -235,6 +309,10 @@ export function LoopDetail({
   onBack: () => void;
   onOpenTuning: () => void;
   onOpenBenefit: () => void;
+  /** Opens another loop (used by the "same period" links); the links are plain text when absent. */
+  onOpenLoop?: (loopName: string) => void;
+  /** Called after the loop data was saved, so the caller can fetch the analysis again. */
+  onKnowledgeSaved?: () => void;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
   const [shownWindow, setShownWindow] = useState<[number, number] | undefined>(undefined);
@@ -260,8 +338,11 @@ export function LoopDetail({
         </button>
       </p>
 
+      <NotAssessedNotice loop={loop} t={t} />
+
       <div className="loop-detail-grid">
         <div>
+          <NextAction loop={loop} t={t} onOpenLoop={onOpenLoop} />
           <section>
             <h3>{t("loops.why")}</h3>
             <Findings loop={loop} t={t} onShow={setShownWindow} />
@@ -274,8 +355,12 @@ export function LoopDetail({
         <section>
           <h3>{t("loops.keyNumbers")}</h3>
           <KeyNumbers loop={loop} t={t} />
+          <h3 className="subheading">{t("loops.valveSection")}</h3>
+          <ValveNumbers loop={loop} t={t} />
         </section>
       </div>
+
+      <KnowledgeEditor datasetId={datasetId} loop={loop} t={t} onSaved={onKnowledgeSaved ?? noop} />
 
       <section>
         {shownWindow !== undefined && (

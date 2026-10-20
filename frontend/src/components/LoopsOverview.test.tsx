@@ -1,41 +1,15 @@
-// Unit tests for the LoopsOverview table, which lists every control loop with its status.
-// They check row order, status filters, the attention count, the empty state and cell text.
+// Unit tests for the LoopsOverview worklist table: default order, sorting, status filters,
+// search, the attention count, the empty state, badges, links and cell text.
 // A fake translator is used, so assertions compare translation keys and their parameters.
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LoopsOverview, countByStatus } from "./LoopsOverview";
-import type { LoopSummary } from "../api";
+import { makeLoop } from "../testFixtures";
 
 // ---------------------------------------------------------------------------
-// Fixtures and helpers
+// Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Builds a fully populated LoopSummary so each test only states the fields it
- * cares about. Defaults describe a healthy loop.
- */
-function makeLoop(overrides: Partial<LoopSummary> = {}): LoopSummary {
-  return {
-    name: "Loop A",
-    pv: "PV",
-    sp: "SP",
-    out: "OUT",
-    mode: "AUTO",
-    unit: "degC",
-    status: "ok",
-    health_percent: 80,
-    classification: "good",
-    findings: [],
-    service_percent: 100,
-    saturation_percent: 0,
-    harris_index: 0.7,
-    oscillation_period_s: null,
-    stiction_verdict: "no_stiction",
-    sparkline: [1, 2, 3, 2],
-    ...overrides,
-  };
-}
 
 /**
  * Fake translator: returns the key plus stringified params so a test can assert
@@ -50,50 +24,88 @@ const t = (key: string, params?: Record<string, string | number>) =>
 function renderedLoopNames(): string[] {
   const table = screen.getByRole("table");
   const bodyRows = within(table).getAllByRole("row").slice(1); // skip header row
-  return bodyRows.map((row) => within(row).getAllByRole("cell")[1].textContent ?? "");
+  return bodyRows.map((row) => within(row).getByRole("rowheader").textContent ?? "");
 }
 
 // ---------------------------------------------------------------------------
-// Row order
+// Row order and sorting
 // ---------------------------------------------------------------------------
 
 describe("LoopsOverview row order", () => {
-  it("sorts rows by status problem, warning, ok, unused before anything else", () => {
+  it("lists rows by priority_rank by default, not by name", () => {
     render(
       <LoopsOverview
         loops={[
-          makeLoop({ name: "unused loop", status: "unused" }),
-          makeLoop({ name: "ok loop", status: "ok" }),
-          makeLoop({ name: "warning loop", status: "warning" }),
-          makeLoop({ name: "problem loop", status: "problem" }),
+          makeLoop({ name: "alpha", priority_rank: 3 }),
+          makeLoop({ name: "bravo", priority_rank: 1 }),
+          makeLoop({ name: "charlie", priority_rank: 2 }),
         ]}
         t={t}
         onOpen={vi.fn()}
       />,
     );
 
-    expect(renderedLoopNames()).toEqual([
-      "problem loop",
-      "warning loop",
-      "ok loop",
-      "unused loop",
-    ]);
+    expect(renderedLoopNames()).toEqual(["bravo", "charlie", "alpha"]);
   });
 
-  it("sorts loops with the same status by health ascending", () => {
+  it("sorts by status problem, warning, ok, unused when the status header is clicked", () => {
     render(
       <LoopsOverview
         loops={[
-          makeLoop({ name: "healthy", status: "ok", health_percent: 95 }),
-          makeLoop({ name: "sick", status: "ok", health_percent: 40 }),
-          makeLoop({ name: "middling", status: "ok", health_percent: 70 }),
+          makeLoop({ name: "unused loop", status: "unused", priority_rank: 1 }),
+          makeLoop({ name: "ok loop", status: "ok", priority_rank: 2 }),
+          makeLoop({ name: "warning loop", status: "warning", priority_rank: 3 }),
+          makeLoop({ name: "problem loop", status: "problem", priority_rank: 4 }),
         ]}
         t={t}
         onOpen={vi.fn()}
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "loops.column.status" }));
+
+    expect(renderedLoopNames()).toEqual(["problem loop", "warning loop", "ok loop", "unused loop"]);
+  });
+
+  it("sorts by health ascending when the health header is clicked", () => {
+    render(
+      <LoopsOverview
+        loops={[
+          makeLoop({ name: "healthy", health_percent: 95, priority_rank: 1 }),
+          makeLoop({ name: "sick", health_percent: 40, priority_rank: 2 }),
+          makeLoop({ name: "middling", health_percent: 70, priority_rank: 3 }),
+        ]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "loops.column.health" }));
+
     expect(renderedLoopNames()).toEqual(["sick", "middling", "healthy"]);
+  });
+
+  it("sets aria-sort on the clicked column and reverses the order on a second click", () => {
+    render(
+      <LoopsOverview
+        loops={[
+          makeLoop({ name: "beta", priority_rank: 1 }),
+          makeLoop({ name: "alpha", priority_rank: 2 }),
+          makeLoop({ name: "gamma", priority_rank: 3 }),
+        ]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+    const header = screen.getByRole("columnheader", { name: "loops.column.loop" });
+
+    fireEvent.click(within(header).getByRole("button"));
+    expect(header).toHaveAttribute("aria-sort", "ascending");
+    expect(renderedLoopNames()).toEqual(["alpha", "beta", "gamma"]);
+
+    fireEvent.click(within(header).getByRole("button"));
+    expect(header).toHaveAttribute("aria-sort", "descending");
+    expect(renderedLoopNames()).toEqual(["gamma", "beta", "alpha"]);
   });
 });
 
@@ -106,7 +118,7 @@ describe("LoopsOverview opening a loop", () => {
     const onOpen = vi.fn();
     render(<LoopsOverview loops={[makeLoop({ name: "Reactor TIC-101" })]} t={t} onOpen={onOpen} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Reactor TIC-101" }));
+    fireEvent.click(screen.getByRole("button", { name: 'loops.openLoop{"name":"Reactor TIC-101"}' }));
 
     expect(onOpen).toHaveBeenCalledWith("Reactor TIC-101");
   });
@@ -150,7 +162,7 @@ describe("LoopsOverview filtering", () => {
   it("marks the all filter as pressed by default", () => {
     render(<LoopsOverview loops={[makeLoop({ status: "ok" })]} t={t} onOpen={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "loops.filter.all" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "loops.filter.all (1)" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -177,8 +189,8 @@ describe("LoopsOverview filtering", () => {
     render(
       <LoopsOverview
         loops={[
-          makeLoop({ name: "warning loop", status: "warning" }),
-          makeLoop({ name: "ok loop", status: "ok" }),
+          makeLoop({ name: "warning loop", status: "warning", priority_rank: 1 }),
+          makeLoop({ name: "ok loop", status: "ok", priority_rank: 2 }),
         ]}
         t={t}
         onOpen={vi.fn()}
@@ -194,8 +206,8 @@ describe("LoopsOverview filtering", () => {
     render(
       <LoopsOverview
         loops={[
-          makeLoop({ name: "warning loop", status: "warning" }),
-          makeLoop({ name: "ok loop", status: "ok" }),
+          makeLoop({ name: "warning loop", status: "warning", priority_rank: 1 }),
+          makeLoop({ name: "ok loop", status: "ok", priority_rank: 2 }),
         ]}
         t={t}
         onOpen={vi.fn()}
@@ -203,9 +215,51 @@ describe("LoopsOverview filtering", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "status.warning (1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "loops.filter.all" }));
+    fireEvent.click(screen.getByRole("button", { name: "loops.filter.all (2)" }));
 
     expect(renderedLoopNames()).toEqual(["warning loop", "ok loop"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+describe("LoopsOverview search", () => {
+  it("narrows the rows to the loops matching the search text", () => {
+    render(
+      <LoopsOverview
+        loops={[
+          makeLoop({ name: "Reactor TIC-101", priority_rank: 1 }),
+          makeLoop({ name: "Mixer FIC-200", priority_rank: 2 }),
+        ]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "loops.search" }), { target: { value: "mixer" } });
+
+    expect(renderedLoopNames()).toEqual(["Mixer FIC-200"]);
+  });
+
+  it("shows the no-match state, and the clear button restores every row", () => {
+    render(
+      <LoopsOverview
+        loops={[makeLoop({ name: "Reactor TIC-101" })]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+    const search = screen.getByRole("searchbox", { name: "loops.search" });
+
+    fireEvent.change(search, { target: { value: "no such loop" } });
+    expect(screen.getByText("loops.noMatch")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "loops.clearFilters" }));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(search).toHaveValue("");
   });
 });
 
@@ -219,6 +273,41 @@ describe("LoopsOverview empty state", () => {
 
     expect(screen.getByText("loops.none")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Toolbar and badges
+// ---------------------------------------------------------------------------
+
+describe("LoopsOverview toolbar", () => {
+  it("shows the CSV export button", () => {
+    render(<LoopsOverview loops={[makeLoop()]} t={t} onOpen={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "loops.exportCsv" })).toBeInTheDocument();
+  });
+});
+
+describe("LoopsOverview partial assessment badge", () => {
+  it("marks only the loops that have withheld conclusions", () => {
+    render(
+      <LoopsOverview
+        loops={[
+          makeLoop({ name: "partly known", not_assessed: ["harris"], priority_rank: 1 }),
+          makeLoop({ name: "fully known", not_assessed: [], priority_rank: 2 }),
+        ]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const partial = screen.getByRole("row", { name: /partly known/ });
+    expect(within(partial).getByText("loops.partial")).toHaveAttribute(
+      "title",
+      'loops.partialHint{"missing":"withheld.harris"}',
+    );
+    const full = screen.getByRole("row", { name: /fully known/ });
+    expect(within(full).queryByText("loops.partial")).not.toBeInTheDocument();
   });
 });
 
@@ -260,6 +349,23 @@ describe("LoopsOverview cell contents", () => {
     render(<LoopsOverview loops={[makeLoop({ name: "quiet", findings: [] })]} t={t} onOpen={vi.fn()} />);
 
     expect(screen.getByText("loops.noFindings")).toBeInTheDocument();
+  });
+
+  it("shows the next action as its translated key with params", () => {
+    render(
+      <LoopsOverview
+        loops={[
+          makeLoop({
+            name: "valve loop",
+            next_action: { code: "valve_test", params: { percent: 12 } },
+          }),
+        ]}
+        t={t}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('action.valve_test{"percent":12}')).toBeInTheDocument();
   });
 });
 

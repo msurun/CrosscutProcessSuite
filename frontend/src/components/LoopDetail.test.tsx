@@ -6,8 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LoopDetail } from "./LoopDetail";
 import { fetchSeries, type LoopSummary, type Series } from "../api";
+import { makeLoop } from "../testFixtures";
 
 vi.mock("../api", () => ({ fetchSeries: vi.fn() }));
+
+// The loop-data editor has its own tests and would call the network here.
+vi.mock("./KnowledgeEditor", () => ({ KnowledgeEditor: () => null }));
 
 vi.mock("./TrendPane", () => ({
   TrendPane: ({ labels }: { labels: string[] }) => <div role="img" aria-label={labels.join(", ")} />,
@@ -16,29 +20,6 @@ vi.mock("./TrendPane", () => ({
 /** Fake translator: returns the key plus stringified params, as in the other test files. */
 const t = (key: string, params?: Record<string, string | number>) =>
   key + (params ? JSON.stringify(params) : "");
-
-/** Builds a LoopSummary with healthy defaults; tests override only what they need. */
-function makeLoop(overrides: Partial<LoopSummary> = {}): LoopSummary {
-  return {
-    name: "Loop A",
-    pv: "PV",
-    sp: "SP",
-    out: "OUT",
-    mode: "AUTO",
-    unit: "degC",
-    status: "ok",
-    health_percent: 80,
-    classification: "good",
-    findings: [],
-    service_percent: 100,
-    saturation_percent: 0,
-    harris_index: 0.7,
-    oscillation_period_s: null,
-    stiction_verdict: "no_stiction",
-    sparkline: [1, 2, 3],
-    ...overrides,
-  };
-}
 
 /** Builds a minimal downsampled series for one tag with two points. */
 function makeSeries(tag: string): Series {

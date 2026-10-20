@@ -3,7 +3,7 @@
 // and that loops sort by status (problem, warning, ok, unused) and then by health.
 import { describe, expect, it } from "vitest";
 
-import type { LoopSummary } from "./api";
+import { makeLoop } from "./testFixtures";
 import { compareLoops, findingText, mainFindingText, nextStepTexts, type Translate } from "./findings";
 
 /**
@@ -11,32 +11,6 @@ import { compareLoops, findingText, mainFindingText, nextStepTexts, type Transla
  * so assertions can read which translation key was used.
  */
 const t: Translate = (key, params) => key + (params ? JSON.stringify(params) : "");
-
-/**
- * Builds a LoopSummary where every field has a sensible "everything is fine"
- * default, so each test overrides only the fields it cares about.
- */
-function makeLoop(overrides: Partial<LoopSummary> = {}): LoopSummary {
-  return {
-    name: "loop",
-    pv: "pv",
-    sp: "sp",
-    out: "out",
-    mode: "auto",
-    unit: "bar",
-    status: "ok",
-    health_percent: 80,
-    classification: "ok",
-    findings: [],
-    service_percent: 100,
-    saturation_percent: 0,
-    harris_index: 0.7,
-    oscillation_period_s: null,
-    stiction_verdict: "no_stiction",
-    sparkline: [],
-    ...overrides,
-  };
-}
 
 describe("findingText", () => {
   it("uses the finding code as the translation key", () => {

@@ -253,3 +253,40 @@ body {
 .rule-row .link-button { font-size: 12px; }
 .rule-row label { display: inline-flex; align-items: center; gap: 4px; }
 .rules-list { margin: 8px 0 12px; }
+
+/* --- Loop worklist (overview) --- */
+.loops-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+.loops-search { min-width: 220px; flex: 1 1 220px; max-width: 360px; }
+.loops-count { margin: 0; color: var(--text-muted); font-size: 12px; flex: 1 1 auto; }
+.loops-filters { flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
+.th-sort { padding: 0; color: inherit; background: none; border: none; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.th-sort:hover { color: var(--text); text-decoration: underline; }
+.loops-table th[scope="row"] { color: var(--text); font-size: inherit; font-weight: 400; }
+.cell-rank { width: 2.5em; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cell-action { max-width: 28em; }
+.cell-loop .badge { margin-left: 8px; }
+.badge-partial { color: var(--status-warning); background: var(--status-warning-bg); border-color: var(--status-warning); cursor: help; }
+.loops-table tbody tr:hover { background: var(--surface-2); }
+
+/* --- Loop detail: next action, notices, valve numbers --- */
+.loop-detail-grid .next-action { margin-bottom: 12px; border-left: 4px solid var(--accent); }
+.next-action-text { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.loop-detail-grid h3.subheading { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); }
+.notice { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; }
+.notice-warning { color: var(--text); background: var(--status-warning-bg); border-color: var(--status-warning); }
+
+/* --- Knowledge editor (loop data form) --- */
+.knowledge-editor { margin: 12px 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.knowledge-editor > summary { cursor: pointer; font-weight: 600; }
+.knowledge-editor form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.knowledge-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; align-items: start; }
+.knowledge-editor .field-help { display: block; }
+.knowledge-editor .field-help { color: var(--text-muted); font-size: 12px; }
+.knowledge-editor [role="alert"] { color: var(--status-problem); font-size: 12px; }
+.knowledge-editor input[aria-invalid="true"] { border-color: var(--status-problem); }
+.knowledge-editor .form-actions { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.badge-partial { display: inline-block; margin: 2px 0 0; white-space: nowrap; }
+.cell-loop .badge { margin-left: 0; display: block; width: fit-content; }
+.cell-health { white-space: nowrap; }

@@ -16,6 +16,8 @@ interface LoopsState {
   loops: LoopSummary[];
   status: LoadStatus;
   errorReason: string;
+  /** Fetches the loops again without showing the loading state (used after the loop data changed). */
+  reload: () => void;
 }
 
 /**
@@ -28,11 +30,13 @@ function useLoops(datasetId: string): LoopsState {
   const [loops, setLoops] = useState<LoopSummary[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [errorReason, setErrorReason] = useState("");
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     // A late response from a previous dataset must not overwrite the current one.
     let isCancelled = false;
-    setStatus("loading");
+    // A reload keeps the list on screen; only a new dataset shows the loading text.
+    if (reloadCount === 0) setStatus("loading");
     setErrorReason("");
 
     fetchLoops(datasetId)
@@ -54,9 +58,11 @@ function useLoops(datasetId: string): LoopsState {
     return () => {
       isCancelled = true;
     };
-  }, [datasetId]);
+    // reloadCount is a trigger, not a value used inside the effect.
+  }, [datasetId, reloadCount]);
 
-  return { loops, status, errorReason };
+  const reload = () => setReloadCount((count) => count + 1);
+  return { loops, status, errorReason, reload };
 }
 
 /**
@@ -67,7 +73,7 @@ function useLoops(datasetId: string): LoopsState {
  * going back clears the selection.
  */
 export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate }) {
-  const { loops, status, errorReason } = useLoops(datasetId);
+  const { loops, status, errorReason, reload } = useLoops(datasetId);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [subview, setSubview] = useState<"detail" | "tuning" | "benefit">("detail");
 
@@ -115,6 +121,8 @@ export function LoopsPage({ datasetId, t }: { datasetId: string; t: Translate })
         onBack={() => setSelectedName(null)}
         onOpenTuning={() => setSubview("tuning")}
         onOpenBenefit={() => setSubview("benefit")}
+        onOpenLoop={setSelectedName}
+        onKnowledgeSaved={reload}
       />
     );
   }

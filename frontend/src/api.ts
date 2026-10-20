@@ -176,7 +176,46 @@ export interface LoopSummary {
   harris_index: number | null;
   oscillation_period_s: number | null;
   stiction_verdict: string;
+  /** "hagglund" (limits configured), "acf" (regularity only) or null when no cycle was found. */
+  oscillation_method: "hagglund" | "acf" | null;
+  /** Ranked stiction suspicion 0..1; null when the loop could not be ranked. */
+  stiction_suspicion: number | null;
+  /** "test_valve" or "not_ranked" (the backend may add codes; unknown ones are shown verbatim). */
+  stiction_advice: string;
+  valve_travel_per_h: number | null;
+  valve_reversals_per_h: number | null;
+  /** OUT step size relative to the loop's noise; large values mean a coarse output. */
+  out_quantisation_ratio: number | null;
+  valve_sizing_hint: string | null;
+  /** Conclusions withheld for missing per-loop knowledge: saturation, valve_kpis, harris, oscillation_amplitude. */
+  not_assessed: string[];
+  /** Other loops cycling at about the same period (a hint of a shared disturbance). */
+  same_period_as: string[];
+  /** The one thing to do next, from the worklist rules. */
+  next_action: NextAction;
+  /** 1 = look at this loop first; unique per dataset. */
+  priority_rank: number;
   sparkline: (number | null)[];
+}
+
+/** Worklist action codes the backend can return (see `loops/worklist.py`). */
+export type NextActionCode =
+  | "ask_why_manual"
+  | "check_measurement"
+  | "check_output_limit"
+  | "valve_test"
+  | "find_common_source"
+  | "test_cycle_cause"
+  | "check_output_resolution"
+  | "bump_test_and_retune"
+  | "review_valve_sizing"
+  | "configure_knowledge"
+  | "none";
+
+/** One worklist action: a stable code plus parameters (percent, ratio, loops, missing, hint). */
+export interface NextAction {
+  code: NextActionCode;
+  params: Record<string, number | string | readonly string[] | null>;
 }
 
 /** Fetch the loop analysis of a dataset. */
@@ -392,4 +431,46 @@ export async function fetchFuzzyVersion(systemId: string, versionId: string): Pr
 /** What changed from `oldDocument` to `newDocument`. */
 export async function diffFuzzy(oldDocument: FuzzyDocument, newDocument: FuzzyDocument): Promise<FuzzyChange[]> {
   return sendJson<FuzzyChange[]>("POST", "/api/fuzzy/diff", { old: oldDocument, new: newDocument });
+}
+
+/** Per-loop knowledge kept in the dataset's project.json; null means "not given". */
+export interface LoopKnowledgeValues {
+  /** Process dead time in seconds (unlocks the Harris index). */
+  delay_s: number | null;
+  /** Period of the loop's natural oscillation in seconds (with the amplitude limit: oscillation amplitude). */
+  ultimate_period_s: number | null;
+  /** Acceptable oscillation amplitude in PV units. */
+  amplitude_limit: number | null;
+  process_kind: "self_regulating" | "integrating";
+}
+
+/** Result of `GET/PUT /api/datasets/{id}/loops/{loop}/knowledge`. */
+export interface LoopKnowledge {
+  loop: string;
+  knowledge: LoopKnowledgeValues;
+  /** True once a project.json exists for the dataset. */
+  saved: boolean;
+  /** Engineering ranges the tags already give, [low, high] or null when not configured. */
+  ranges: { pv: [number, number] | null; out: [number, number] | null };
+}
+
+/** The part of the knowledge the user changes; null clears a value. */
+export type LoopKnowledgeUpdate = Partial<LoopKnowledgeValues>;
+
+function knowledgeUrl(datasetId: string, loopName: string): string {
+  return `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/knowledge`;
+}
+
+/** Read what is known about a loop (delay, ultimate period, amplitude limit, process kind). */
+export async function fetchKnowledge(datasetId: string, loopName: string): Promise<LoopKnowledge> {
+  return getJson<LoopKnowledge>(knowledgeUrl(datasetId, loopName));
+}
+
+/** Save loop knowledge to the dataset's project.json (local configuration; nothing goes to a plant). */
+export async function saveKnowledge(
+  datasetId: string,
+  loopName: string,
+  update: LoopKnowledgeUpdate,
+): Promise<LoopKnowledge> {
+  return sendJson<LoopKnowledge>("PUT", knowledgeUrl(datasetId, loopName), update);
 }
