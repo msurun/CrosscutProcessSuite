@@ -87,10 +87,10 @@ export function DcsForms({ forms, t }: { forms: Record<string, Record<string, nu
   }
 
   return (
-    <>
+    <div className="dcs-forms">
       {formEntries.map(([formName, values]) => (
         <DcsForm key={formName} formName={formName} values={values} t={t} />
       ))}
-    </>
+    </div>
   );
 }

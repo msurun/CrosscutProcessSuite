@@ -277,5 +277,15 @@
   "knowledge.rangeOut": "Rango de salida del controlador: {range}",
   "knowledge.rangeOutMissing": "La etiqueta de salida no tiene rango de ingeniería, por lo que no se pueden evaluar la saturación y los números de válvula. Establezca el rango en la etiqueta de salida.",
   "knowledge.rangePv": "Rango de medida: {range}",
-  "knowledge.rangePvMissing": "La etiqueta de medida no tiene rango de ingeniería; el límite de amplitud debe ingresarse manualmente."
+  "knowledge.rangePvMissing": "La etiqueta de medida no tiene rango de ingeniería; el límite de amplitud debe ingresarse manualmente.",
+  "trends.time": "tiempo",
+  "tuning.current.title": "Comparar con los ajustes actuales",
+  "tuning.current.intro": "Ingrese los ajustes que el controlador usa ahora para ver qué tan lejos está la propuesta de ellos. Permanecen solo en este navegador.",
+  "tuning.current.kc": "Ganancia actual Kc",
+  "tuning.current.ti": "Tiempo integral actual Ti (s)",
+  "tuning.current.proposed": "Propuesta",
+  "tuning.current.change": "Cambio",
+  "tuning.current.invalid": "Ingrese un número positivo.",
+  "tuning.current.close": "Los ajustes actuales están dentro del 10 % de esta propuesta.",
+  "tuning.current.differs": "Los ajustes actuales difieren de esta propuesta en más del 10 %. Cambie un ajuste a la vez y observe el bucle."
 }

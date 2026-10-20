@@ -298,6 +298,7 @@ export function App() {
         {isDownsampled && <span className="badge">{t("trends.downsampled")}</span>}
         {unitGroups.map((group) => (
           <TrendPane
+            timeLabel={t("trends.time")}
             key={group.unit}
             data={toUplotData(group.series)}
             labels={group.labels}

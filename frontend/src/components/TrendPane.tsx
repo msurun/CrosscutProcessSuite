@@ -20,6 +20,8 @@ export interface TrendPaneProps {
   labels: string[];
   /** One CSS variable name per value series, e.g. "--series-1". */
   colors: string[];
+  /** Name of the x series in the legend (translated by the caller); defaults to "time". */
+  timeLabel?: string;
   /** Optional y-axis unit shown next to the axis label. */
   unit?: string;
   /** Chart height in pixels. Defaults to 180. */
@@ -41,12 +43,28 @@ function readCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/** Date and time as the user's language writes them, for axis ticks and the cursor readout. */
+function timeFormatter(options: Intl.DateTimeFormatOptions): (seconds: number) => string {
+  const locale = document.documentElement.lang || undefined;
+  const format = new Intl.DateTimeFormat(locale, options);
+  return (seconds) => format.format(new Date(seconds * MILLISECONDS_PER_SECOND));
+}
+
+const MILLISECONDS_PER_SECOND = 1000;
+/** Minimum pixels between time ticks; a "dd.mm, hh:mm" label needs about 90. */
+const TIME_TICK_SPACE_PX = 100;
+const TICK_FORMAT: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
+const CURSOR_FORMAT: Intl.DateTimeFormatOptions = { ...TICK_FORMAT, second: "2-digit" };
+
 /** Build the uPlot options: colours are resolved once, series come from labels/colors. */
 function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
   const textColor = readCssVar("--text-muted");
   const gridColor = readCssVar("--grid");
+  const isTime = props.xIsTime ?? true;
+  const formatTick = timeFormatter(TICK_FORMAT);
+  const formatCursor = timeFormatter(CURSOR_FORMAT);
   const series: uPlot.Series[] = [
-    { label: "time" },
+    { label: props.timeLabel ?? (isTime ? "time" : (props.xLabel ?? "x")), ...(isTime ? { value: (_: uPlot, v: number | null) => (v === null ? "--" : formatCursor(v)) } : {}) },
     ...props.labels.map((label, index) => ({
       label,
       stroke: readCssVar(props.colors[index]),
@@ -60,7 +78,12 @@ function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
     cursor: { sync: { key: props.syncKey ?? DEFAULT_SYNC_KEY } },
     scales: { x: { time: props.xIsTime ?? true } },
     axes: [
-      { label: props.xLabel, stroke: textColor, grid: { stroke: gridColor } },
+      {
+        label: props.xLabel,
+        stroke: textColor,
+        grid: { stroke: gridColor },
+        ...(isTime ? { space: TIME_TICK_SPACE_PX, values: (_: uPlot, ticks: number[]) => ticks.map(formatTick) } : {}),
+      },
       { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
     ],
     series,

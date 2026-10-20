@@ -422,6 +422,7 @@ function ResultSection({ payload, t }: { payload: BenefitPayload; t: Translate }
       <NotesList notes={payload.notes} t={t} />
       <p>{t("benefit.chart")}</p>
       <TrendPane
+        timeLabel={t("trends.time")}
         data={chartData}
         labels={[t("benefit.curve.now"), t("benefit.curve.after")]}
         colors={[CURVE_COLOR_NOW, CURVE_COLOR_AFTER]}

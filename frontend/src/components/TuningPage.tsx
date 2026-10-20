@@ -14,6 +14,7 @@ import {
 } from "../api";
 import type { Translate } from "../findings";
 import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
+import { CurrentSettingsCompare } from "./CurrentSettingsCompare";
 import { StatusChip } from "./StatusChip";
 import { TrendPane } from "./TrendPane";
 
@@ -231,9 +232,11 @@ function RobustnessSlider({
   t: Translate;
 }) {
   return (
-    <label>
-      {t("tuning.robustness")}
+    <div className="robustness">
+      <label htmlFor="robustness-range">{t("tuning.robustness")}</label>
+      <span className="hint">{t("tuning.robustness.fast")}</span>
       <input
+        id="robustness-range"
         type="range"
         min={ROBUSTNESS_MIN}
         max={ROBUSTNESS_MAX}
@@ -241,9 +244,8 @@ function RobustnessSlider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <span className="hint">{t("tuning.robustness.fast")}</span>
       <span className="hint">{t("tuning.robustness.smooth")}</span>
-    </label>
+    </div>
   );
 }
 
@@ -252,12 +254,14 @@ function SettingsStep({
   payload,
   robustness,
   onRobustnessChange,
+  datasetId,
   loopName,
   t,
 }: {
   payload: TuningPayload;
   robustness: number;
   onRobustnessChange: (value: number) => void;
+  datasetId: string;
   loopName: string;
   t: Translate;
 }) {
@@ -272,6 +276,7 @@ function SettingsStep({
       <h3>{t("tuning.step3")}</h3>
       <RobustnessSlider value={robustness} onChange={onRobustnessChange} t={t} />
       <PiSettingsTable settings={settings} t={t} />
+      <CurrentSettingsCompare storageKey={`crosscut.currentSettings.${datasetId}.${loopName}`} settings={settings} t={t} />
       {stepData !== null && (
         <>
           <p>{t("tuning.preview")}</p>
@@ -325,6 +330,7 @@ export function TuningPage({ datasetId, loopName, t, onBack }: TuningPageProps) 
             payload={payload}
             robustness={robustness}
             onRobustnessChange={setRobustness}
+            datasetId={datasetId}
             loopName={loopName}
             t={t}
           />

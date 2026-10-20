@@ -32,8 +32,9 @@ section) and in `experiments/exp21..exp26`. Everything is pushed to `main`; CI w
    with the same arguments. This is the first real evidence for anything stiction-related.
 2. **Blind review of the worklist** by an independent control engineer on about 20 loops (Kendall tau >= 0.5, >= 80 %
    agreement on the next action). The owner is the domain expert but not independent (the rules' intent came from them).
-3. **Frontend** once Node.js is installed: types and locale strings for `next_action`, `priority_rank`,
-   `not_assessed`, `saturation_percent: number | null`, `stiction_*`, `valve_*`, `out_quantisation_ratio`.
+3. **Frontend** (done 2026-10-20): worklist overview, valve/stiction numbers, not-assessed notice, loop-data editor and
+   tuning comparison are in; see IMPLEMENTATION_LOG "Loop monitoring and tuning screens" for what is still open
+   (valve stroke test screen, free tuning window, Playwright smoke test).
 4. Sluggish-loop detection, if wanted: Hagglund's load-episode detection or Visioli's area index on setpoint steps
    (exp22 has a generator and harness ready).
 5. Module 2 planning can start: module 1 has no open blocking item on the assistant side.

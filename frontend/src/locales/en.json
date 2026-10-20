@@ -277,5 +277,15 @@
   "knowledge.rangeOut": "Output range: {range}",
   "knowledge.rangeOutMissing": "The output tag has no engineering range, so saturation and valve numbers cannot be assessed. Set the range on the output tag.",
   "knowledge.rangePv": "Measurement range: {range}",
-  "knowledge.rangePvMissing": "The measurement tag has no engineering range; the amplitude limit must then be entered by hand."
+  "knowledge.rangePvMissing": "The measurement tag has no engineering range; the amplitude limit must then be entered by hand.",
+  "trends.time": "time",
+  "tuning.current.title": "Compare with the current settings",
+  "tuning.current.intro": "Enter the settings the controller uses now to see how far the proposal is from them. They stay in this browser only.",
+  "tuning.current.kc": "Current gain Kc",
+  "tuning.current.ti": "Current integral time Ti (s)",
+  "tuning.current.proposed": "Proposed",
+  "tuning.current.change": "Change",
+  "tuning.current.invalid": "Enter a positive number.",
+  "tuning.current.close": "The current settings are within 10 % of this proposal.",
+  "tuning.current.differs": "The current settings differ from this proposal by more than 10 %. Change one setting at a time and watch the loop."
 }

@@ -270,6 +270,7 @@ function Trends({
   return (
     <>
       <TrendPane
+        timeLabel={t("trends.time")}
         data={pvSpData}
         labels={[loop.pv, loop.sp]}
         colors={[...PV_SP_COLORS]}
@@ -277,6 +278,7 @@ function Trends({
         xRange={range}
       />
       <TrendPane
+        timeLabel={t("trends.time")}
         data={outData}
         labels={[loop.out]}
         colors={[OUT_COLOR]}

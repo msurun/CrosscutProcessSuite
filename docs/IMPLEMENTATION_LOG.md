@@ -655,3 +655,22 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - `fuzzy/examples/mill_feed_supervisor_v2.json` (narrower terms, one rule added); 4 candidates scored on the tuning
   half of seeds 1-10 only, targets frozen (938b382), then run once on fresh seeds 11-20: C1-C5 all met, silent share
   38 % -> 8.5 %, sign agreement 0.77 -> 0.72. The original example file stays. Still a simulated operator.
+
+## Loop monitoring and tuning screens: gap review and UX pass (2026-10-20)
+- Review method: ran the app on simulated datasets (stiction, detuned, observational, step_test) and looked at the
+  screens (Playwright screenshots, light/dark, 1440 and 390 px). Findings: (1) the overview ignored the worklist
+  (`next_action`, `priority_rank`) and the `not_assessed` list, so loops that were only partly checked showed "OK, no
+  problems"; (2) valve/stiction/quantisation numbers were not shown; (3) nothing in the UI or API let the user supply
+  the per-loop knowledge (dead time, ultimate period, amplitude limit, process kind) that unlocks the withheld checks,
+  so `configure_knowledge` was a dead end; (4) tuning screen: raw DCS key layout broken, slider labels misplaced, no
+  "current vs proposed" comparison (design S5), chart axes in English whatever the language; (5) no responsive layout.
+- Done: LoopSummary contract extended; worklist logic in `src/worklist.ts` (filter, search, sort, CSV); overview as a
+  worklist (priority, next action, sortable headers with aria-sort, search, "partly assessed" badge, CSV export);
+  detail with next action, shared-period links, valve and stiction numbers, not-assessed notice; `KnowledgeEditor` +
+  `GET/PUT /datasets/{id}/loops/{loop}/knowledge` (`loops/project_edit.py`, writes only the dataset's project.json,
+  atomic); tuning: current-vs-proposed comparison (kept in browser localStorage), slider and DCS layout fixed;
+  locale-aware time axis; responsive CSS. en/pl/es strings; 232 frontend tests, loops + api tests green.
+- Still open: a screen for the valve stroke test (plan generator and CSV analysis need API endpoints), step 1 of the
+  tuning wizard lets the user pick only suggested windows (no free start/end), the model gain has no unit, the
+  predicted-response chart mixes PV and OUT scales, the Fuzzy tab was not reviewed in this pass, no Playwright test
+  in the repo yet, per-tag range editing (OUT/PV engineering range) is still done in tags.json by hand.
