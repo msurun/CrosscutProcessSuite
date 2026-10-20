@@ -171,7 +171,7 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
     <>
       <Breadcrumb crumbs={crumbs} label={t("nav.breadcrumb")} />
       {route.sub === "tuning" && (
-        <TuningPage datasetId={datasetId} loopName={loop.name} t={t} onBack={toDetail} />
+        <TuningPage datasetId={datasetId} loopName={loop.name} loop={loop} t={t} onBack={toDetail} />
       )}
       {route.sub === "benefit" && (
         <BenefitPage datasetId={datasetId} loopName={loop.name} t={t} onBack={toDetail} />

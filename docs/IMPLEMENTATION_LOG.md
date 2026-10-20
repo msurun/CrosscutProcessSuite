@@ -689,3 +689,12 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   API-offline banner with retry, 404 messages for an unknown dataset or loop, skip link and focus to the content after
   navigation. Checked in a browser with Playwright scripts (deep link, back, reload, 404, offline, skip link); 302 vitest.
 - Not done from P1: S1 datasets list screen and skeleton rows (loading is a status sentence); both are low value next to P2-P4.
+
+## UI remediation P2: tuning wizard (2026-10-20)
+- Stepper (shape + word per state), free analysis window (zoom the PV/OUT trends and "use the visible range", or type minutes),
+  gain with unit (PV unit per % of output), dead time / time constant with a plain-language controllability hint,
+  predicted response in two panes (PV and OUT), a recommendation sentence (SIMC proposal, fit verdict, "enter by hand"),
+  a full-width read-only banner. Browser check on the step_test dataset (free window 5-45 min applied).
+- New guard `i18nKeys.test.ts`: every static t("key") in the source must exist in en.json. It found five raw keys used as
+  `aria-label` in the fuzzy rule editor (fixed) and one wrong key in the new window picker.
+- 333 vitest tests, tsc and build green.

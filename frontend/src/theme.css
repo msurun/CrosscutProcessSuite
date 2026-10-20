@@ -335,3 +335,15 @@ body {
 .breadcrumb li + li::before { content: "›"; margin-right: 4px; color: var(--text-muted); }
 .breadcrumb li[aria-current="page"] { font-weight: 600; }
 .error-boundary { padding: 12px 16px; border: 1px solid var(--status-problem); border-radius: 4px; background: var(--status-problem-bg); }
+
+/* --- Tuning wizard: stepper, banner, recommendation --- */
+.banner { margin: 0 0 12px; padding: 10px 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 4px; }
+.stepper { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 16px; padding: 0; list-style: none; }
+.stepper-step { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.stepper-step[aria-current="step"] { border-color: var(--accent); font-weight: 600; }
+.stepper-number { display: inline-flex; justify-content: center; align-items: center; width: 1.6em; height: 1.6em; border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
+.stepper-state { color: var(--text-muted); font-size: 12px; }
+.stepper-detail { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.stepper-step--blocked { color: var(--status-problem); }
+.recommendation { margin: 0 0 12px; padding: 10px 14px; background: var(--surface-2); border-radius: 4px; }
+.unit { color: var(--text-muted); font-size: 12px; font-weight: 400; }

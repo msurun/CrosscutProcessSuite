@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 
 import {
   fetchTuning,
+  type LoopSummary,
   type TuningPayload,
 } from "../api";
 import type { Translate } from "../findings";
@@ -17,7 +18,9 @@ import { formatFixed } from "../format";
 import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
 import { CurrentSettingsCompare } from "./CurrentSettingsCompare";
 import { StatusChip } from "./StatusChip";
+import { Stepper, type StepInfo } from "./Stepper";
 import { TrendPane } from "./TrendPane";
+import { WindowPicker } from "./WindowPicker";
 
 /** Milliseconds the robustness slider must stay still before a refetch. */
 const ROBUSTNESS_DEBOUNCE_MS = 250;
@@ -39,6 +42,8 @@ type TuningWindow = { startS: number; endS: number } | null;
 type TuningPageProps = {
   datasetId: string;
   loopName: string;
+  /** The loop being tuned; its tags and unit feed the window picker and the units on the page. */
+  loop: LoopSummary;
   t: Translate;
   onBack: () => void;
 };
@@ -127,11 +132,15 @@ function downloadMarkdown(markdown: string, fileName: string): void {
 
 /** Step 1: pick one of the backend's suggested windows, or keep the automatic one. */
 function WindowStep({
+  datasetId,
+  loop,
   payload,
   window,
   onSelectWindow,
   t,
 }: {
+  datasetId: string;
+  loop: LoopSummary;
   payload: TuningPayload;
   window: TuningWindow;
   onSelectWindow: (window: TuningWindow) => void;
@@ -170,12 +179,19 @@ function WindowStep({
           manual: current.manual_percent,
         })}
       </p>
+      <WindowPicker
+        datasetId={datasetId}
+        loop={loop}
+        window={window ?? { startS: current.start_s, endS: current.end_s }}
+        onSelectWindow={onSelectWindow}
+        t={t}
+      />
     </section>
   );
 }
 
 /** Step 2: warnings, model fit verdict, key numbers and the check overlay. */
-function ModelStep({ payload, t }: { payload: TuningPayload; t: Translate }) {
+function ModelStep({ payload, unit, t }: { payload: TuningPayload; unit: string; t: Translate }) {
   const checkData = payload.check
     ? [payload.check.t_s, payload.check.measured, payload.check.simulated]
     : null;
@@ -200,12 +216,20 @@ function ModelStep({ payload, t }: { payload: TuningPayload; t: Translate }) {
       {payload.model !== null && (
         <dl className="key-numbers">
           <dt>{t("tuning.model.gain")}</dt>
-          <dd>{formatNumber(payload.model.gain)}</dd>
+          <dd>
+            {formatNumber(payload.model.gain)}{" "}
+            <span className="unit">{t("tuning.model.gainUnit", { unit })}</span>
+          </dd>
           <dt>{t("tuning.model.tau")}</dt>
           <dd>{t("tuning.model.seconds", { value: formatNumber(payload.model.time_constant_s) })}</dd>
           <dt>{t("tuning.model.delay")}</dt>
           <dd>{t("tuning.model.seconds", { value: formatNumber(payload.model.delay_s) })}</dd>
+          <dt>{t("tuning.model.ratio")}</dt>
+          <dd>{formatFixed(payload.model.delay_s / payload.model.time_constant_s, 2)}</dd>
         </dl>
+      )}
+      {payload.model !== null && (
+        <p className="hint">{t(ratioHintKey(payload.model.delay_s / payload.model.time_constant_s))}</p>
       )}
       {checkData !== null && (
         <TrendPane
@@ -257,6 +281,7 @@ function SettingsStep({
   onRobustnessChange,
   datasetId,
   loopName,
+  unit,
   t,
 }: {
   payload: TuningPayload;
@@ -264,28 +289,52 @@ function SettingsStep({
   onRobustnessChange: (value: number) => void;
   datasetId: string;
   loopName: string;
+  unit: string;
   t: Translate;
 }) {
   const settings = payload.settings;
   if (settings === null) return null;
   if (payload.blocked_code !== null) return null;
 
-  const stepData = payload.step ? [payload.step.t_s, payload.step.pv, payload.step.out] : null;
+  const pvData = payload.step ? [payload.step.t_s, payload.step.pv] : null;
+  const outData = payload.step ? [payload.step.t_s, payload.step.out] : null;
+  const fitText =
+    payload.fit === null
+      ? ""
+      : t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) });
 
   return (
     <section className="tuning-step">
       <h3>{t("tuning.step3")}</h3>
+      <p className="recommendation" role="status">
+        {t("tuning.recommendation", {
+          kc: formatNumber(settings.simc.kc),
+          ti: formatNumber(settings.simc.ti_s),
+          fit: fitText,
+        })}
+      </p>
       <RobustnessSlider value={robustness} onChange={onRobustnessChange} t={t} />
       <PiSettingsTable settings={settings} t={t} />
       <CurrentSettingsCompare storageKey={`crosscut.currentSettings.${datasetId}.${loopName}`} settings={settings} t={t} />
-      {stepData !== null && (
+      {pvData !== null && outData !== null && (
         <>
           <p>{t("tuning.preview")}</p>
           <TrendPane
-            data={stepData}
-            labels={[t("tuning.preview.pv"), t("tuning.preview.out")]}
-            colors={["--series-1", "--series-3"]}
-            height={200}
+            data={pvData}
+            labels={[t("tuning.preview.pvPane")]}
+            colors={["--series-1"]}
+            unit={unit}
+            height={160}
+            syncKey="tuning-step"
+            xIsTime={false}
+            xLabel={t("tuning.preview.xLabel")}
+          />
+          <TrendPane
+            data={outData}
+            labels={[t("tuning.preview.outPane")]}
+            colors={["--series-3"]}
+            unit="%"
+            height={160}
             syncKey="tuning-step"
             xIsTime={false}
             xLabel={t("tuning.preview.xLabel")}
@@ -305,8 +354,43 @@ function SettingsStep({
   );
 }
 
+/** Controllability class from the dead time / time constant ratio (a common rule of thumb). */
+const RATIO_EASY_BELOW = 0.3;
+const RATIO_MEDIUM_BELOW = 1;
+
+/** Locale key of the plain-language hint for a dead-time / time-constant ratio. */
+function ratioHintKey(ratio: number): string {
+  if (ratio < RATIO_EASY_BELOW) return "tuning.model.ratioEasy";
+  if (ratio < RATIO_MEDIUM_BELOW) return "tuning.model.ratioMedium";
+  return "tuning.model.ratioHard";
+}
+
+/** State of the three wizard steps, derived from what the backend returned. */
+function buildSteps(payload: TuningPayload, t: Translate): StepInfo[] {
+  const blocked = payload.blocked_code !== null || payload.settings === null;
+  const modelBlocked = payload.blocked_code !== null || payload.fit?.verdict === "poor";
+  return [
+    {
+      id: "window",
+      label: t("tuning.stepper.window"),
+      state: "done",
+      detail: t("tuning.window.range", {
+        start: toMinutes(payload.window.start_s),
+        end: toMinutes(payload.window.end_s),
+      }),
+    },
+    {
+      id: "model",
+      label: t("tuning.stepper.model"),
+      state: modelBlocked ? "blocked" : "done",
+      detail: payload.fit === null ? undefined : formatFixed(payload.fit.r_squared, 2),
+    },
+    { id: "settings", label: t("tuning.stepper.settings"), state: blocked ? "blocked" : "active" },
+  ];
+}
+
 /** Full tuning page for one loop: window picker, model report and settings. */
-export function TuningPage({ datasetId, loopName, t, onBack }: TuningPageProps) {
+export function TuningPage({ datasetId, loopName, loop, t, onBack }: TuningPageProps) {
   const [window, setWindow] = useState<TuningWindow>(null);
   const [robustness, setRobustness] = useState(ROBUSTNESS_DEFAULT);
   const appliedRobustness = useDebouncedValue(robustness, ROBUSTNESS_DEBOUNCE_MS);
@@ -319,20 +403,41 @@ export function TuningPage({ datasetId, loopName, t, onBack }: TuningPageProps) 
         ← {t("loops.back")}
       </button>
       <h2>
-        {t("tuning.title")} <span className="badge">{t("tuning.readOnly")}</span>
+        {t("tuning.title")}
       </h2>
       {status === "loading" && payload === null && <p className="status">{t("trends.loading")}</p>}
       {status === "error" && <p className="status status-error">{t("trends.error", { reason: errorReason })}</p>}
+      <p className="banner" role="note">
+        {t("tuning.banner")}
+      </p>
       {payload !== null && (
         <>
-          <WindowStep payload={payload} window={window} onSelectWindow={setWindow} t={t} />
-          <ModelStep payload={payload} t={t} />
+          <Stepper
+            steps={buildSteps(payload, t)}
+            ariaLabel={t("tuning.stepper")}
+            stateLabels={{
+              todo: t("tuning.stepState.todo"),
+              active: t("tuning.stepState.active"),
+              done: t("tuning.stepState.done"),
+              blocked: t("tuning.stepState.blocked"),
+            }}
+          />
+          <WindowStep
+            datasetId={datasetId}
+            loop={loop}
+            payload={payload}
+            window={window}
+            onSelectWindow={setWindow}
+            t={t}
+          />
+          <ModelStep payload={payload} unit={loop.unit} t={t} />
           <SettingsStep
             payload={payload}
             robustness={robustness}
             onRobustnessChange={setRobustness}
             datasetId={datasetId}
             loopName={loopName}
+            unit={loop.unit}
             t={t}
           />
         </>
