@@ -1,7 +1,7 @@
 // Unit tests for the LoopDetail trends: the panes render when the backend returns all loop tags,
 // and a missing tag shows the trends error message instead of crashing the detail view.
 // The trend panes are replaced by a stub (uPlot needs a real canvas), and fetchSeries is mocked.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LoopDetail } from "./LoopDetail";
@@ -14,7 +14,9 @@ vi.mock("../api", () => ({ fetchSeries: vi.fn() }));
 vi.mock("./KnowledgeEditor", () => ({ KnowledgeEditor: () => null }));
 
 vi.mock("./TrendPane", () => ({
-  TrendPane: ({ labels }: { labels: string[] }) => <div role="img" aria-label={labels.join(", ")} />,
+  TrendPane: ({ labels, mode }: { labels: string[]; mode?: (number | null)[] }) => (
+    <div role="img" aria-label={labels.join(", ")} data-mode={mode ? JSON.stringify(mode) : ""} />
+  ),
 }));
 
 /** Fake translator: returns the key plus stringified params, as in the other test files. */
@@ -51,6 +53,37 @@ describe("LoopDetail trends with all loop tags", () => {
 
     const panes = await screen.findAllByRole("img");
     expect(panes.map((pane) => pane.getAttribute("aria-label"))).toEqual(["PV, SP", "OUT"]);
+    expect(screen.queryByText(/^trends\.error/)).not.toBeInTheDocument();
+  });
+});
+
+/** Mocks fetchSeries: the PV/SP/OUT request resolves, the MODE request behaves as given. */
+function mockFetch(modeResult: () => Promise<{ dataset_id: string; series: Series[] }>) {
+  vi.mocked(fetchSeries).mockImplementation((_id, tags) =>
+    tags.length === 1
+      ? modeResult()
+      : Promise.resolve({ dataset_id: "ds-1", series: [makeSeries("PV"), makeSeries("SP"), makeSeries("OUT")] }),
+  );
+}
+
+describe("LoopDetail MODE band", () => {
+  it("passes the aligned mode values to the PV pane when the MODE tag loads", async () => {
+    const modeSeries: Series = { tag: "AUTO", downsampled: false, t: [0, 1], min: [1, 0], max: [1, 0], mean: [1, 0] };
+    mockFetch(() => Promise.resolve({ dataset_id: "ds-1", series: [modeSeries] }));
+
+    renderDetail(makeLoop());
+
+    await waitFor(() => expect(screen.getAllByRole("img")[0].getAttribute("data-mode")).toBe("[1,0]"));
+  });
+
+  it("keeps the trends working without a band when the MODE request fails", async () => {
+    mockFetch(() => Promise.reject(new Error("no such tag")));
+
+    renderDetail(makeLoop());
+
+    const panes = await screen.findAllByRole("img");
+    expect(panes).toHaveLength(2);
+    expect(panes[0].getAttribute("data-mode")).toBe("");
     expect(screen.queryByText(/^trends\.error/)).not.toBeInTheDocument();
   });
 });

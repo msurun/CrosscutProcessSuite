@@ -45,7 +45,7 @@ export interface TrendPaneProps {
   t?: Translate;
   /** One role per value series ("pv", "sp" or "out"), shown before the label in the legend. */
   roles?: SeriesRole[];
-  /** MODE tag values aligned with the time column; stretches that differ from the usual mode are shaded. */
+  /** MODE tag values aligned with the time column; manual stretches (0) are shaded. */
   mode?: (number | null)[];
 }
 

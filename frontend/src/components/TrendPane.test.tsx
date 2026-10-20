@@ -86,9 +86,10 @@ describe("range and MODE helpers", () => {
     expect(presetRange([], "1h")).toBeNull();
   });
 
-  it("finds the stretches where the mode is not the usual one", () => {
-    expect(modeSpans([0, 1, 2, 3, 4, 5], [1, 1, 2, 2, 1, 1])).toEqual([[2, 4]]);
-    expect(modeSpans([0, 1, 2, 3], [1, 1, 1, 2])).toEqual([[3, 3]]);
+  it("finds the stretches where the controller is in manual (0)", () => {
+    expect(modeSpans([0, 1, 2, 3, 4, 5], [1, 1, 0, 0, 1, 1])).toEqual([[2, 4]]);
+    expect(modeSpans([0, 1, 2, 3], [1, 1, 1, 0])).toEqual([[3, 3]]);
+    expect(modeSpans([0, 1, 2], [2, 2, 2])).toEqual([]);
     expect(modeSpans([0, 1], [null, null])).toEqual([]);
   });
 });
@@ -124,7 +125,7 @@ describe("TrendPane controls", () => {
   });
 
   it("explains the MODE band only when a stretch is shaded", () => {
-    renderPane({ mode: TIMES.map((_, i) => (i > 20 ? 2 : 1)) });
+    renderPane({ mode: TIMES.map((_, i) => (i > 20 ? 0 : 1)) });
     expect(screen.getByText("trend.modeBand")).toBeInTheDocument();
   });
 

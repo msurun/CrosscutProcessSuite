@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import type { LoopSummary, Series } from "../api";
 import { fetchSeries } from "../api";
-import { toUplotData, windowToRange } from "../trendData";
+import { alignModeToAxis, toUplotData, windowToRange } from "../trendData";
 import { TrendPane } from "./TrendPane";
 import { StatusChip } from "./StatusChip";
 import { KnowledgeEditor } from "./KnowledgeEditor";
@@ -40,6 +40,30 @@ type SeriesState =
   | { status: "loading" }
   | { status: "error"; reason: string }
   | { status: "ready"; series: Series[] };
+
+/**
+ * Loads the MODE series of one loop; a failure or a missing tag gives null (no band, no error).
+ */
+function useModeSeries(datasetId: string, loop: LoopSummary): Series | null {
+  const [mode, setMode] = useState<Series | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMode(null);
+    fetchSeries(datasetId, [loop.mode], { maxPoints: TREND_MAX_POINTS })
+      .then((result) => {
+        if (!cancelled) setMode(result.series.find((s) => s.tag === loop.mode) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setMode(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [datasetId, loop.mode]);
+
+  return mode;
+}
 
 /**
  * Loads the PV, SP and OUT series of one loop.
@@ -271,11 +295,13 @@ function Trends({
   loop,
   t,
   window,
+  modeSeries,
 }: {
   state: SeriesState;
   loop: LoopSummary;
   t: Translate;
   window: [number, number] | undefined;
+  modeSeries: Series | null;
 }) {
   if (state.status === "loading") {
     return <p className="status">{t("trends.loading")}</p>;
@@ -295,6 +321,7 @@ function Trends({
   const outData = toUplotData(out);
   // Both panes share the time axis, so one window gives the same range for both.
   const range = windowToRange(pvSpData[0], window);
+  const mode = modeSeries === null ? undefined : alignModeToAxis(pvSpData[0], modeSeries);
 
   return (
     <>
@@ -307,6 +334,7 @@ function Trends({
         colors={[...PV_SP_COLORS]}
         unit={loop.unit}
         xRange={range}
+        mode={mode}
       />
       <TrendPane
         timeLabel={t("trends.time")}
@@ -317,6 +345,7 @@ function Trends({
         colors={[OUT_COLOR]}
         unit={OUT_UNIT}
         xRange={range}
+        mode={mode}
       />
     </>
   );
@@ -353,6 +382,7 @@ export function LoopDetail({
   onKnowledgeSaved?: () => void;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
+  const modeSeries = useModeSeries(datasetId, loop);
   const [shownWindow, setShownWindow] = useState<[number, number] | undefined>(undefined);
 
   return (
@@ -416,7 +446,7 @@ export function LoopDetail({
             {t("loops.showAll")}
           </button>
         )}
-        <Trends state={seriesState} loop={loop} t={t} window={shownWindow} />
+        <Trends state={seriesState} loop={loop} t={t} window={shownWindow} modeSeries={modeSeries} />
       </section>
     </>
   );

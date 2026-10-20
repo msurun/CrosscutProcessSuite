@@ -183,40 +183,44 @@ export function presetRange(times: readonly number[], preset: RangePreset): [num
   return [Math.max(start, times[0]), end];
 }
 
-/** The value that occurs most often in `mode`, ignoring gaps; null when there is none. */
-function dominantValue(mode: readonly (number | null)[]): number | null {
-  const counts = new Map<number, number>();
-  for (const value of mode) {
-    if (value !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-  let best: number | null = null;
-  for (const [value, count] of counts) {
-    if (best === null || count > (counts.get(best) ?? 0)) best = value;
-  }
-  return best;
-}
+/** Controller mode code for manual, as encoded by the simulator and the plant export (MAN=0, AUTO=1, CAS=2). */
+export const MODE_MANUAL = 0;
 
 /**
- * Stretches where the MODE tag differs from its usual (most frequent) value, for the shaded band.
+ * Stretches where the controller is in manual mode (mode === 0), for the shaded band.
  *
- * A stretch runs from the first sample of a different mode to the first sample that is back to the usual one
+ * A stretch runs from the first manual sample to the first sample that is not manual
  * (or to the last sample). Gaps (null) end a stretch.
  *
  * @param times Time axis in seconds.
  * @param mode MODE values aligned with `times`.
  */
 export function modeSpans(times: readonly number[], mode: readonly (number | null)[]): TimeSpan[] {
-  const usual = dominantValue(mode);
   const spans: [number, number][] = [];
   let start: number | null = null;
   mode.forEach((value, index) => {
-    const unusual = value !== null && value !== usual;
-    if (unusual && start === null) start = times[index];
-    if (!unusual && start !== null) {
+    const manual = value === MODE_MANUAL;
+    if (manual && start === null) start = times[index];
+    if (!manual && start !== null) {
       spans.push([start, times[index]]);
       start = null;
     }
   });
   if (start !== null && times.length > 0) spans.push([start, times[times.length - 1]]);
   return spans;
+}
+
+/**
+ * Resample a MODE series onto another time axis (nearest sample, rounded to a whole mode code).
+ *
+ * @param axis Target time axis in seconds.
+ * @returns Mode values aligned with `axis`; all null when the series is empty.
+ */
+export function alignModeToAxis(axis: readonly (number | null)[], mode: Series): (number | null)[] {
+  const modeTimes = mode.t.map((value) => value / NS_PER_SECOND);
+  return axis.map((x) => {
+    const index = x === null ? -1 : nearestIndex(modeTimes, x);
+    const value = index < 0 ? null : mode.mean[index];
+    return value === null ? null : Math.round(value);
+  });
 }

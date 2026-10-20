@@ -1,6 +1,7 @@
 // src/trendData.test.ts
 import { describe, expect, it } from "vitest";
 import {
+  alignModeToAxis,
   NS_PER_SECOND,
   anyDownsampled,
   nearestIndex,
@@ -150,5 +151,17 @@ describe("nearestIndex", () => {
 
   it("handles a single sample array", () => {
     expect(nearestIndex([10], 1000)).toBe(0);
+  });
+});
+
+describe("alignModeToAxis", () => {
+  it("resamples a coarser MODE series onto the PV axis by nearest sample", () => {
+    const mode = { tag: "M", downsampled: false, t: [0, 10e9], min: [], max: [], mean: [1, 0] };
+    expect(alignModeToAxis([0, 2, 8, 10], mode)).toEqual([1, 1, 0, 0]);
+  });
+
+  it("gives all null for an empty MODE series", () => {
+    const mode = { tag: "M", downsampled: false, t: [], min: [], max: [], mean: [] };
+    expect(alignModeToAxis([0, 1], mode)).toEqual([null, null]);
   });
 });
