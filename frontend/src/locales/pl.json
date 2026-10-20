@@ -439,5 +439,10 @@
   "valve.result.chartOp": "Wyjście regulatora",
   "valve.result.chartPv": "Wartość procesowa",
   "valve.result.again": "Analizuj inny zapis",
-  "valve.result.newPlan": "Zaplanuj nowy test"
+  "valve.result.newPlan": "Zaplanuj nowy test",
+  "trend.role.pv": "PV",
+  "trend.role.sp": "SP",
+  "trend.role.out": "OUT",
+  "trend.range": "Zakres czasu",
+  "trend.modeBand": "Zacieniowanie: tryb regulatora inny niż zwykle"
 }

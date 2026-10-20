@@ -1,7 +1,12 @@
 // src/components/TrendPane.tsx
-import { useEffect, useRef, useState } from "react";
+// A synced uPlot time-series pane: role-labelled legend that shows the last value when not hovering,
+// a shaded MODE band, range buttons and an undo of the last range change.
+import { useCallback, useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { formatFixed } from "../format";
+import type { Translate } from "../findings";
+import { fittingPresets, modeSpans, presetRange, type RangePreset, type TimeSpan } from "../trendData";
 import { visibleRange } from "../visibleRange";
 
 /** Minimum pixel width for the chart so uPlot never renders a degenerate canvas. */
@@ -36,6 +41,62 @@ export interface TrendPaneProps {
   xRange?: readonly [number, number] | null;
   /** Called with the visible x range when the user zooms. */
   onZoom?: (minSeconds: number, maxSeconds: number) => void;
+  /** Translator; without it the range buttons, undo and role labels are not shown. */
+  t?: Translate;
+  /** One role per value series ("pv", "sp" or "out"), shown before the label in the legend. */
+  roles?: SeriesRole[];
+  /** MODE tag values aligned with the time column; stretches that differ from the usual mode are shaded. */
+  mode?: (number | null)[];
+}
+
+/** What a value series is in the control loop. */
+export type SeriesRole = "pv" | "sp" | "out";
+
+/** Decimals of the legend values. */
+const LEGEND_DECIMALS = 2;
+/** Opacity of the shaded MODE band. */
+const MODE_BAND_ALPHA = 0.18;
+/** How many earlier ranges Undo can step back through. */
+const MAX_RANGE_HISTORY = 20;
+
+/** Translated PV/SP/OUT abbreviation. */
+function roleText(t: Translate, role: SeriesRole): string {
+  if (role === "pv") return t("trend.role.pv");
+  if (role === "sp") return t("trend.role.sp");
+  return t("trend.role.out");
+}
+
+/** Legend label of one series: "PV tag" when a role is known, else just the tag. */
+function legendLabel(props: TrendPaneProps, index: number): string {
+  const role = props.roles?.[index];
+  return props.t && role ? `${roleText(props.t, role)} ${props.labels[index]}` : props.labels[index];
+}
+
+/** Legend value: the hovered sample, or the last sample while the cursor is away. */
+function legendValue(self: uPlot, raw: number | null, seriesIndex: number, cursorIndex: number | null | undefined): string {
+  const column = self.data[seriesIndex] ?? [];
+  const value = cursorIndex == null ? column[column.length - 1] ?? null : raw;
+  return value === null || value === undefined ? "--" : formatFixed(value, LEGEND_DECIMALS);
+}
+
+/** Hooks into the plot that the component needs: shading and range tracking. */
+interface PlotCallbacks {
+  spans: () => readonly TimeSpan[];
+  onRange: (min: number, max: number) => void;
+}
+
+/** Paint the MODE stretches behind the series. */
+function drawModeBand(self: uPlot, spans: readonly TimeSpan[], color: string): void {
+  const { ctx, bbox } = self;
+  ctx.save();
+  ctx.globalAlpha = MODE_BAND_ALPHA;
+  ctx.fillStyle = color;
+  for (const [start, end] of spans) {
+    const left = self.valToPos(start, "x", true);
+    const right = self.valToPos(end, "x", true);
+    ctx.fillRect(left, bbox.top, Math.max(right - left, 1), bbox.height);
+  }
+  ctx.restore();
 }
 
 /** Read a CSS custom property from the document root, trimmed. */
@@ -57,7 +118,7 @@ const TICK_FORMAT: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digi
 const CURSOR_FORMAT: Intl.DateTimeFormatOptions = { ...TICK_FORMAT, second: "2-digit" };
 
 /** Build the uPlot options: colours are resolved once, series come from labels/colors. */
-function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
+function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallbacks): uPlot.Options {
   const textColor = readCssVar("--text-muted");
   const gridColor = readCssVar("--grid");
   const isTime = props.xIsTime ?? true;
@@ -65,8 +126,9 @@ function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
   const formatCursor = timeFormatter(CURSOR_FORMAT);
   const series: uPlot.Series[] = [
     { label: props.timeLabel ?? (isTime ? "time" : (props.xLabel ?? "x")), ...(isTime ? { value: (_: uPlot, v: number | null) => (v === null ? "--" : formatCursor(v)) } : {}) },
-    ...props.labels.map((label, index) => ({
-      label,
+    ...props.labels.map((_, index) => ({
+      label: legendLabel(props, index),
+      value: legendValue,
       stroke: readCssVar(props.colors[index]),
       width: SERIES_STROKE_WIDTH,
       spanGaps: false,
@@ -88,11 +150,14 @@ function buildOptions(props: TrendPaneProps, width: number): uPlot.Options {
     ],
     series,
     hooks: {
+      drawClear: [(self) => drawModeBand(self, callbacks.spans(), textColor)],
       setScale: [
         (self, scaleKey) => {
-          if (scaleKey !== "x" || !props.onZoom) return;
+          if (scaleKey !== "x") return;
           const range = visibleRange(self.scales.x.min, self.scales.x.max, self.data[0] ?? []);
-          if (range) props.onZoom(range[0], range[1]);
+          if (!range) return;
+          callbacks.onRange(range[0], range[1]);
+          props.onZoom?.(range[0], range[1]);
         },
       ],
     },
@@ -110,6 +175,59 @@ function useThemeVersion(): number {
   return version;
 }
 
+/** Tracks the visible x range so the user can step back to the previous one. */
+function useRangeHistory(plotRef: { current: uPlot | null }) {
+  const current = useRef<TimeSpan | null>(null);
+  const history = useRef<TimeSpan[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+
+  const onRange = useCallback((min: number, max: number) => {
+    const before = current.current;
+    current.current = [min, max];
+    if (before === null || (before[0] === min && before[1] === max)) return;
+    history.current = [...history.current, before].slice(-MAX_RANGE_HISTORY);
+    setCanUndo(true);
+  }, []);
+
+  const reset = useCallback(() => {
+    history.current = [];
+    setCanUndo(false);
+  }, []);
+
+  const undo = useCallback(() => {
+    const previous = history.current[history.current.length - 1];
+    if (!previous) return;
+    history.current = history.current.slice(0, -1);
+    setCanUndo(history.current.length > 0);
+    current.current = previous; // already the current range, so the scale hook does not record it again
+    plotRef.current?.setScale("x", { min: previous[0], max: previous[1] });
+  }, [plotRef]);
+
+  return { onRange, reset, undo, canUndo };
+}
+
+/** The range buttons and Undo above the plot. */
+function RangeToolbar(props: {
+  t: Translate;
+  presets: RangePreset[];
+  canUndo: boolean;
+  onPreset: (preset: RangePreset) => void;
+  onUndo: () => void;
+}) {
+  return (
+    <div className="trend-toolbar" role="group" aria-label={props.t("trend.range")}>
+      {props.presets.map((preset) => (
+        <button key={preset} type="button" onClick={() => props.onPreset(preset)}>
+          {props.t(`trends.range.${preset}`)}
+        </button>
+      ))}
+      <button type="button" onClick={props.onUndo} disabled={!props.canUndo}>
+        {props.t("trends.undoZoom")}
+      </button>
+    </div>
+  );
+}
+
 /**
  * A synced, resizable time-series pane backed by uPlot.
  * Re-creates the plot when labels, colors, height or syncKey change;
@@ -119,13 +237,19 @@ export function TrendPane(props: TrendPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const themeVersion = useThemeVersion();
+  const rangeHistory = useRangeHistory(plotRef);
+  const times = props.data[0] as number[];
+  const spans = props.mode ? modeSpans(times, props.mode) : [];
+  const spansRef = useRef<readonly TimeSpan[]>(spans);
+  spansRef.current = spans;
 
   // Create (or re-create) the plot when structural props change.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const width = Math.max(container.clientWidth, MIN_WIDTH_PX);
-    const plot = new uPlot(buildOptions(props, width), props.data as uPlot.AlignedData, container);
+    const callbacks = { spans: () => spansRef.current, onRange: rangeHistory.onRange };
+    const plot = new uPlot(buildOptions(props, width, callbacks), props.data as uPlot.AlignedData, container);
     plotRef.current = plot;
 
     const observer = new ResizeObserver(() => {
@@ -139,7 +263,7 @@ export function TrendPane(props: TrendPaneProps) {
       plotRef.current = null;
     };
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
-  }, [props.labels.join("|"), props.colors.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
+  }, [props.labels.join("|"), props.colors.join("|"), props.roles?.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
 
   // Push new data into the existing plot without re-creating it.
   useEffect(() => {
@@ -151,17 +275,34 @@ export function TrendPane(props: TrendPaneProps) {
   useEffect(() => {
     const plot = plotRef.current;
     if (!plot) return;
-    const times = props.data[0] as number[];
     const range = props.xRange ?? (times.length > 0 ? [times[0], times[times.length - 1]] : null);
     if (range) plot.setScale("x", { min: range[0], max: range[1] });
+    rangeHistory.reset();
   }, [props.xRange?.[0], props.xRange?.[1], props.data]);
 
+  // Repaint the MODE band when the mode data changes.
+  useEffect(() => {
+    plotRef.current?.redraw();
+  }, [props.mode]);
+
+  const showPreset = (preset: RangePreset) => {
+    const range = presetRange(times, preset);
+    if (range) plotRef.current?.setScale("x", { min: range[0], max: range[1] });
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className="trend-pane"
-      role="img"
-      aria-label={props.labels.join(", ")}
-    />
+    <div className="trend-pane">
+      {props.t && (
+        <RangeToolbar
+          t={props.t}
+          presets={fittingPresets(times)}
+          canUndo={rangeHistory.canUndo}
+          onPreset={showPreset}
+          onUndo={rangeHistory.undo}
+        />
+      )}
+      <div ref={containerRef} role="img" aria-label={props.labels.join(", ")} />
+      {props.t && spans.length > 0 && <p className="trend-mode-note">{props.t("trend.modeBand")}</p>}
+    </div>
   );
 }

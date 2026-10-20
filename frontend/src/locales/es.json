@@ -439,5 +439,10 @@
   "valve.result.chartOp": "Salida del controlador",
   "valve.result.chartPv": "Valor de proceso",
   "valve.result.again": "Analizar otro registro",
-  "valve.result.newPlan": "Planificar una nueva prueba"
+  "valve.result.newPlan": "Planificar una nueva prueba",
+  "trend.role.pv": "PV",
+  "trend.role.sp": "SP",
+  "trend.role.out": "OUT",
+  "trend.range": "Rango de tiempo",
+  "trend.modeBand": "Sombreado: el modo del controlador difiere del habitual"
 }

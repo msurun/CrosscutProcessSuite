@@ -439,5 +439,10 @@
   "valve.result.chartOp": "Controller output",
   "valve.result.chartPv": "Process value",
   "valve.result.again": "Analyse another record",
-  "valve.result.newPlan": "Plan a new test"
+  "valve.result.newPlan": "Plan a new test",
+  "trend.role.pv": "PV",
+  "trend.role.sp": "SP",
+  "trend.role.out": "OUT",
+  "trend.range": "Time range",
+  "trend.modeBand": "Shaded: controller mode differs from the usual one"
 }

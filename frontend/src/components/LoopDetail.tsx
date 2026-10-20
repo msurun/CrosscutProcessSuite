@@ -302,6 +302,8 @@ function Trends({
         timeLabel={t("trends.time")}
         data={pvSpData}
         labels={[loop.pv, loop.sp]}
+        roles={["pv", "sp"]}
+        t={t}
         colors={[...PV_SP_COLORS]}
         unit={loop.unit}
         xRange={range}
@@ -310,6 +312,8 @@ function Trends({
         timeLabel={t("trends.time")}
         data={outData}
         labels={[loop.out]}
+        roles={["out"]}
+        t={t}
         colors={[OUT_COLOR]}
         unit={OUT_UNIT}
         xRange={range}

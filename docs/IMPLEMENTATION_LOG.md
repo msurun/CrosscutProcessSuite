@@ -708,3 +708,9 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   record step with WindowPicker or CSV, result view), route sub `valve`, entry button on loop detail and on the next-action card.
 - 381 vitest, loops+api pytest, ruff, mypy, build green; browser end-to-end run with a synthetic record.
 - Still open: component tests for the valve components (only the reducer/logic has unit tests), P4-P7 of the plan.
+
+## UI remediation P4 (part 1) and valve component tests (2026-10-20)
+- TrendPane: range buttons (1h/8h/24h/all, only those that fit) with undo, MODE band, role labels and last value in the legend
+  (`trendData.fittingPresets`, `presetRange`, `modeSpans`; en/pl/es keys). 430 vitest, tsc and build green; five valve component test files added.
+- Still open in P4: LoopDetail does not fetch the mode series, so the MODE band is inactive; the band shades values that differ from
+  the most frequent one because the mode encoding is not documented; knowledge editor part (OUT/PV range overrides, help, diff). Then P5-P7.
