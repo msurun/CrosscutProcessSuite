@@ -22,7 +22,7 @@ export function nextStepTexts(t: Translate, loop: LoopSummary): string[] {
   return loop.findings.map((finding) => t(`next.${finding.code}`));
 }
 
-const STATUS_PRIORITY: Record<string, number> = { problem: 0, warning: 1, ok: 2, unused: 3 };
+const STATUS_PRIORITY: Record<string, number> = { problem: 0, warning: 1, not_assessed: 2, ok: 3, unused: 4 };
 
 /** Sort order for the overview: problems first, then the lowest health. */
 export function compareLoops(a: LoopSummary, b: LoopSummary): number {

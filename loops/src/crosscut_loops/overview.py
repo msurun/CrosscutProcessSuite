@@ -80,6 +80,8 @@ UNUSED_LEVEL = "unused"
 PROBLEM_LEVEL = "problem"
 WARNING_LEVEL = "warning"
 OK_LEVEL = "ok"
+# Nothing fired, but some checks were withheld for missing knowledge (see monitor.WITHHELD_BY).
+NOT_ASSESSED_LEVEL = "not_assessed"
 
 MANUAL_CLASSIFICATION = "manual"
 SATURATED_CLASSIFICATION = "saturated"
@@ -304,7 +306,7 @@ def _harris_share(harris_value: float) -> float:
 
 
 def health_percent(report: LoopReport) -> int | None:
-    """Health score of one loop, 0 to 100, or None when the loop is not in use.
+    """Health score of one loop, 0 to 100, or None when it is not in use or cannot be scored.
 
     Product of independent shares (assumption C5 in ``docs/ASSUMPTIONS.md``): time in use, time not
     saturated, time not frozen, a Harris share between HARRIS_FLOOR and 1, and one factor each for a
@@ -315,7 +317,7 @@ def health_percent(report: LoopReport) -> int | None:
         report: the analysis of one loop.
 
     Returns:
-        The rounded score, or None for a manual/unused loop that cannot be judged.
+        The rounded score, or None for a manual/unused loop or a loop without a Harris index.
     """
     # A service factor above 1.0 is impossible for a fraction of time, so it points at bad input.
     # The score is still computed unchanged; the warning only asks the operator to check the data.
@@ -327,6 +329,10 @@ def health_percent(report: LoopReport) -> int | None:
     # A manual loop has no controller output to judge, so it has no score at all; None (rather than
     # 0) lets callers leave it out of averages instead of dragging them down.
     if report.classification == MANUAL_CLASSIFICATION:
+        return None
+    # Without a Harris index the score would rest on an imputed value (HARRIS_NEUTRAL), which looks
+    # like a measurement. The loop is not scored; `not_assessed` tells the user what is missing.
+    if np.isnan(report.harris_index):
         return None
 
     # All six sub-scores are decimal shares, each 0..1, so the product is a share as well.
@@ -386,7 +392,7 @@ def _is_problem(report: LoopReport, settings: LoopSettings) -> bool:
 
 
 def status_level(report: LoopReport, settings: LoopSettings) -> str:
-    """Traffic-light level of one loop: ``unused``, ``problem``, ``warning`` or ``ok``.
+    """Traffic-light level: ``unused``, ``problem``, ``warning``, ``not_assessed`` or ``ok``.
 
     The levels are checked in order of urgency, so a manual loop is always ``unused`` whatever
     else the report says.
@@ -396,7 +402,7 @@ def status_level(report: LoopReport, settings: LoopSettings) -> str:
         settings: the thresholds used for the analysis.
 
     Returns:
-        One of UNUSED_LEVEL, PROBLEM_LEVEL, WARNING_LEVEL, OK_LEVEL.
+        One of UNUSED_LEVEL, PROBLEM_LEVEL, WARNING_LEVEL, NOT_ASSESSED_LEVEL, OK_LEVEL.
     """
     # A "manual" loop spends most of the time out of AUTO (service factor below manual_limit):
     # the operator runs it by hand, so there is no controller behaviour to judge yet.
@@ -410,7 +416,11 @@ def status_level(report: LoopReport, settings: LoopSettings) -> str:
     # monitor.WITHHELD_BY); otherwise the report lists it under not_assessed.
     if report.classification in ("saturated", OSCILLATING_CODE, "poor_performance"):
         return WARNING_LEVEL
-    # Nothing above fired: the loop is diagnosed as healthy and simply reported as such.
+    # Nothing fired, but if checks were withheld for missing per-loop knowledge, "no problem" would
+    # only mean "no problem in the checks that ran": say so instead of showing a green OK.
+    if report.not_assessed:
+        return NOT_ASSESSED_LEVEL
+    # Nothing above fired and every check ran: the loop is diagnosed as healthy.
     return OK_LEVEL
 
 

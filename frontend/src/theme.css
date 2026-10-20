@@ -106,6 +106,7 @@ body {
 .status-chip--warning { color: var(--status-warning); background: var(--status-warning-bg); }
 .status-chip--problem { color: var(--status-problem); background: var(--status-problem-bg); }
 .status-chip--unused  { color: var(--status-unused);  background: var(--status-unused-bg); }
+.status-chip--not_assessed { color: var(--status-unused); background: var(--surface); border-style: dashed; }
 
 /* Page frame: 48px top bar, then a sidebar (dataset and tags) and the main trend area. */
 .app-shell {

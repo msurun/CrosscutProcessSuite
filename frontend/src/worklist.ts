@@ -26,7 +26,13 @@ export const DEFAULT_QUERY: OverviewQuery = {
   sortDirection: "asc",
 };
 
-const STATUS_RANK: Record<LoopStatus, number> = { problem: 0, warning: 1, ok: 2, unused: 3 };
+const STATUS_RANK: Record<LoopStatus, number> = {
+  problem: 0,
+  warning: 1,
+  not_assessed: 2,
+  ok: 3,
+  unused: 4,
+};
 
 /** Sorts a missing health value after every real one, whatever the direction. */
 const UNKNOWN_HEALTH = Number.POSITIVE_INFINITY;

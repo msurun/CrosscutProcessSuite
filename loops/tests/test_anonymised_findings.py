@@ -100,4 +100,6 @@ def test_the_anonymised_export_gives_the_same_findings(both_rows: Rows) -> None:
     original, hidden = both_rows
     codes = [[finding["code"] for finding in row["findings"]] for row in both_rows]
     assert codes[0] == codes[1]
-    assert abs(original["health_percent"] - hidden["health_percent"]) <= 2
+    assert (original["health_percent"] is None) == (hidden["health_percent"] is None)
+    if original["health_percent"] is not None:
+        assert abs(original["health_percent"] - hidden["health_percent"]) <= 2

@@ -186,17 +186,19 @@ function downloadMarkdown(fileName: string, markdown: string): void {
 function LabeledField({
   label,
   isAssumed,
+  t,
   children,
 }: {
   label: string;
   isAssumed: boolean;
+  t: Translate;
   children: React.ReactNode;
 }) {
   return (
     <label className="field">
       <span className="field-label">
         {label}
-        {isAssumed ? <span className="badge">{"assumed"}</span> : null}
+        {isAssumed ? <span className="badge">{t("benefit.assumed")}</span> : null}
       </span>
       {children}
     </label>
@@ -221,7 +223,7 @@ function LimitField({
 
   return (
     <>
-      <LabeledField label={t("benefit.limit", { unit })} isAssumed>
+      <LabeledField label={t("benefit.limit", { unit })} isAssumed t={t}>
         <input type="number" step="any" placeholder={placeholder} value={inputs.limit} onChange={(e) => onChange(e.target.value)} />
       </LabeledField>
       {showDefaultHint ? (
@@ -247,7 +249,7 @@ function SideField({
   onChange: (side: "upper" | "lower") => void;
 }) {
   return (
-    <LabeledField label={t("benefit.side")} isAssumed>
+    <LabeledField label={t("benefit.side")} isAssumed t={t}>
       <select value={side} onChange={(e) => onChange(e.target.value === "lower" ? "lower" : "upper")}>
         <option value="upper">{t("benefit.side.upper")}</option>
         <option value="lower">{t("benefit.side.lower")}</option>
@@ -288,7 +290,7 @@ function ReductionField({
   onChange: (raw: string) => void;
 }) {
   return (
-    <LabeledField label={t("benefit.reduction")} isAssumed>
+    <LabeledField label={t("benefit.reduction")} isAssumed t={t}>
       <input
         type="range"
         min={0}
@@ -316,10 +318,10 @@ function RetuneStdFields({
 }) {
   return (
     <>
-      <LabeledField label={t("benefit.stdBefore")} isAssumed>
+      <LabeledField label={t("benefit.stdBefore")} isAssumed t={t}>
         <input type="number" min={0} step="any" value={inputs.stdBefore} onChange={(e) => onChange({ stdBefore: e.target.value })} />
       </LabeledField>
-      <LabeledField label={t("benefit.stdAfter")} isAssumed>
+      <LabeledField label={t("benefit.stdAfter")} isAssumed t={t}>
         <input type="number" min={0} step="any" value={inputs.stdAfter} onChange={(e) => onChange({ stdAfter: e.target.value })} />
       </LabeledField>
     </>
@@ -343,10 +345,10 @@ function InputsSection({
       <h3>{t("benefit.inputs")}</h3>
       <LimitField inputs={inputs} payload={payload} t={t} onChange={(limit) => onChange({ limit })} />
       <SideField side={inputs.side} t={t} onChange={(side) => onChange({ side })} />
-      <LabeledField label={t("benefit.value")} isAssumed>
+      <LabeledField label={t("benefit.value")} isAssumed t={t}>
         <input type="number" min={0} value={inputs.value} onChange={(e) => onChange({ value: e.target.value })} />
       </LabeledField>
-      <LabeledField label={t("benefit.margin")} isAssumed>
+      <LabeledField label={t("benefit.margin")} isAssumed t={t}>
         <input
           type="number"
           min={0}

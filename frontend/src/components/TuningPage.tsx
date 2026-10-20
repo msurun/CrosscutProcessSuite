@@ -13,6 +13,7 @@ import {
   type TuningPayload,
 } from "../api";
 import type { Translate } from "../findings";
+import { formatFixed } from "../format";
 import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
 import { CurrentSettingsCompare } from "./CurrentSettingsCompare";
 import { StatusChip } from "./StatusChip";
@@ -193,7 +194,7 @@ function ModelStep({ payload, t }: { payload: TuningPayload; t: Translate }) {
       {payload.fit !== null && (
         <StatusChip
           level={fitVerdictLevel(payload.fit.verdict)}
-          label={t(`tuning.fit.${payload.fit.verdict}`, { r2: payload.fit.r_squared.toFixed(2) })}
+          label={t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) })}
         />
       )}
       {payload.model !== null && (

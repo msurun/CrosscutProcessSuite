@@ -13,6 +13,7 @@ import { StatusChip } from "./StatusChip";
 import { KnowledgeEditor } from "./KnowledgeEditor";
 import { findingText, nextStepTexts, type Translate } from "../findings";
 import { actionText, isPartiallyAssessed, withheldText } from "../worklist";
+import { formatFixed } from "../format";
 
 /** Maximum number of points requested per trend series. */
 const TREND_MAX_POINTS = 1500;
@@ -93,7 +94,7 @@ function pickSeries(series: readonly Series[], tags: readonly string[]): PickRes
 
 /** Formats a nullable number with the given number of decimals, or a dash. */
 function formatNumber(value: number | null, decimals: number): string {
-  return value === null ? NOT_AVAILABLE : value.toFixed(decimals);
+  return value === null ? NOT_AVAILABLE : formatFixed(value, decimals);
 }
 
 /** One term/definition pair of the key-numbers list. */
@@ -108,18 +109,18 @@ function KeyNumber({ label, value }: { label: string; value: string }) {
 
 /** "12.3 per h" or a dash when the number is unknown. */
 function perHour(value: number | null, t: Translate): string {
-  return value === null ? NOT_AVAILABLE : t("loops.perHour", { value: value.toFixed(1) });
+  return value === null ? NOT_AVAILABLE : t("loops.perHour", { value: formatFixed(value, 1) });
 }
 
 /** The ranked stiction suspicion (0..1) as text, or "not ranked" when the loop could not be ranked. */
 function stictionText(loop: LoopSummary, t: Translate): string {
-  return loop.stiction_suspicion === null ? t("loops.stictionNotRanked") : loop.stiction_suspicion.toFixed(2);
+  return loop.stiction_suspicion === null ? t("loops.stictionNotRanked") : formatFixed(loop.stiction_suspicion, 2);
 }
 
 /** Oscillation period in minutes plus how it was found, or a dash when no cycle was found. */
 function oscillationText(loop: LoopSummary, t: Translate): string {
   if (loop.oscillation_period_s === null) return NOT_AVAILABLE;
-  const minutes = t("loops.minutes", { value: (loop.oscillation_period_s / SECONDS_PER_MINUTE).toFixed(1) });
+  const minutes = t("loops.minutes", { value: formatFixed(loop.oscillation_period_s / SECONDS_PER_MINUTE, 1) });
   return loop.oscillation_method === null ? minutes : `${minutes} (${t(`loops.method.${loop.oscillation_method}`)})`;
 }
 
@@ -201,7 +202,12 @@ function Findings({
   onShow: (window: [number, number] | undefined) => void;
 }) {
   if (loop.findings.length === 0) {
-    return <p>{t("loops.noFindings")}</p>;
+    // With withheld checks "no findings" only covers the checks that ran, so say so.
+    return isPartiallyAssessed(loop) ? (
+      <p>{t("loops.noFindingsPartial", { missing: withheldText(t, loop.not_assessed) })}</p>
+    ) : (
+      <p>{t("loops.noFindings")}</p>
+    );
   }
 
   return (
@@ -226,9 +232,14 @@ function Findings({
 
 /** The numbered list of actions suggested for the loop. */
 function NextSteps({ loop, t }: { loop: LoopSummary; t: Translate }) {
+  // "No action needed" would contradict a loop whose checks were withheld: list what is missing.
+  const steps =
+    loop.findings.length === 0 && isPartiallyAssessed(loop)
+      ? [t("next.partial", { missing: withheldText(t, loop.not_assessed) })]
+      : nextStepTexts(t, loop);
   return (
     <ul>
-      {nextStepTexts(t, loop).map((text, index) => (
+      {steps.map((text, index) => (
         // Action texts are plain strings; the index is the only stable key.
         <li key={index}>{text}</li>
       ))}
@@ -328,7 +339,9 @@ export function LoopDetail({
       <h2 className="loop-header">
         {loop.name}
         <StatusChip level={loop.status} label={t(`status.${loop.status}`)} />
-        {loop.health_percent !== null && t("health.label", { percent: loop.health_percent })}
+        {loop.health_percent === null
+          ? t("health.notScored")
+          : t("health.label", { percent: loop.health_percent })}
       </h2>
 
       <p>

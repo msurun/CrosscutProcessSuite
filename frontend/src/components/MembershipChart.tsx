@@ -5,6 +5,7 @@
 
 import type { FuzzyTerm, FuzzyVariable } from "../fuzzy";
 import { sampleTerm, termColor } from "../fuzzy";
+import { formatSignificant } from "../format";
 
 /** Fixed viewBox size; the SVG scales to its container, so geometry stays in these units. */
 const VIEW_WIDTH = 400;
@@ -53,7 +54,7 @@ function clamp(value: number, low: number, high: number): number {
 
 /** Format a number with at most 4 significant digits for the axis ticks. */
 function formatTick(value: number): string {
-  return value.toPrecision(4).replace(/\.?0+$/, "");
+  return formatSignificant(value);
 }
 
 /** Build the `points` attribute of one term curve. */

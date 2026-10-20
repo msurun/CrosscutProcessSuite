@@ -8,7 +8,7 @@
  * - "problem": something is broken and needs action.
  * - "unused": the item is not in use, so no judgement is made about its health.
  */
-export type StatusLevel = "ok" | "warning" | "problem" | "unused";
+export type StatusLevel = "ok" | "warning" | "problem" | "unused" | "not_assessed";
 
 /**
  * The decorative icon shown next to the label, per level.
@@ -22,6 +22,7 @@ const LEVEL_ICON: Record<StatusLevel, string> = {
   warning: "\u25B2", // filled triangle
   problem: "\u25A0", // filled square
   unused: "\u25CB", // hollow circle
+  not_assessed: "\u25CC", // dotted circle: not checked yet
 };
 
 type StatusChipProps = {

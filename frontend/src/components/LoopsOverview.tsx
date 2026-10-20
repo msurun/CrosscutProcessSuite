@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import type { LoopStatus, LoopSummary } from "../api";
+import { formatPercent } from "../format";
 import { StatusChip } from "./StatusChip";
 import { Sparkline } from "./Sparkline";
 import { mainFindingText, type Translate } from "../findings";
@@ -22,7 +23,7 @@ import {
 } from "../worklist";
 
 /** Every status the overview can display, in the order of the filter bar. */
-const STATUS_ORDER: LoopStatus[] = ["problem", "warning", "ok", "unused"];
+const STATUS_ORDER: LoopStatus[] = ["problem", "warning", "not_assessed", "ok", "unused"];
 
 /** CSV file name offered by the export button. */
 const EXPORT_FILE_NAME = "loop-worklist.csv";
@@ -51,7 +52,7 @@ function needsAttention(loop: LoopSummary): boolean {
 
 /** Health as "70 %" (the column header already says "Health"), or an en dash when unknown. */
 function formatHealth(loop: LoopSummary): string {
-  return loop.health_percent === null ? "–" : `${loop.health_percent} %`;
+  return loop.health_percent === null ? "–" : formatPercent(loop.health_percent);
 }
 
 /** Offers the worklist as a CSV download; the file is built in the browser, nothing is uploaded. */
@@ -214,8 +215,8 @@ function LoopRow({ loop, onOpen, t }: { loop: LoopSummary; onOpen: (loopName: st
         </button>
         <PartialMark loop={loop} t={t} />
       </th>
-      <td className="cell-health">
-        <progress max={100} value={loop.health_percent ?? 0} aria-hidden="true" />
+      <td className="cell-health" title={loop.health_percent === null ? t("health.notScoredHint") : undefined}>
+        {loop.health_percent !== null && <progress max={100} value={loop.health_percent} aria-hidden="true" />}
         {formatHealth(loop)}
       </td>
       <td>{mainFindingText(t, loop)}</td>

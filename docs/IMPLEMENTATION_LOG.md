@@ -674,3 +674,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   tuning wizard lets the user pick only suggested windows (no free start/end), the model gain has no unit, the
   predicted-response chart mixes PV and OUT scales, the Fuzzy tab was not reviewed in this pass, no Playwright test
   in the repo yet, per-tag range editing (OUT/PV engineering range) is still done in tags.json by hand.
+
+## UI remediation P0: truth fixes (2026-10-20)
+- Plan: `docs/design/ui-remediation-plan.md` (advisor review). Done: status `not_assessed` (backend `overview.status_level`,
+  UI chip/filter/sort), `health_percent` null when the Harris index cannot be computed (no imputed 70 %), detail page says
+  what was not checked instead of "no action needed", one locale-aware number formatter `frontend/src/format.ts` (DCS blocks
+  keep the dot), fuzzy axis ticks fixed (2600 was printed as "26"), "assumed" badge translated, test setup pins `<html lang>`
+  to en. Checked on the stiction dataset: no OK/70 % any more. Python loops+api and 260 vitest tests green.
+- Next: P0.5 rest (fuzzy example rule base text in the PL UI, DOM scan test), then P1 (router, context bar, ErrorBoundary).

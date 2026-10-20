@@ -142,7 +142,7 @@ def test_loops_endpoint_reports_each_discovered_loop_as_json(loops_client: TestC
     assert [loop["name"] for loop in body["loops"]] == ["hpgr_press", "mill_feed", "cyc_water"]
     first = body["loops"][0]
     assert {"name", "status", "health_percent", "findings", "sparkline", "pv", "mode"} <= set(first)
-    assert first["status"] in {"ok", "warning", "problem", "unused"}
+    assert first["status"] in {"ok", "warning", "problem", "unused", "not_assessed"}
 
 
 def test_loops_endpoint_returns_404_for_an_unknown_dataset(client: TestClient) -> None:
@@ -288,9 +288,11 @@ def fresh_wood_berry_client(tmp_path_factory: pytest.TempPathFactory) -> TestCli
     return TestClient(create_app(root))
 
 
-def test_a_wood_berry_run_reports_both_composition_loops_with_a_health_value(
+def test_a_wood_berry_run_reports_both_composition_loops_with_a_health_value_or_none(
     fresh_wood_berry_client: TestClient,
 ) -> None:
     loops = _fetch_loops(fresh_wood_berry_client)
     assert [loop["name"] for loop in loops] == ["Top composition", "Bottom composition"]
-    assert all(0 <= loop["health_percent"] <= 100 for loop in loops)
+    # None means "not scored" (no Harris index on a 10-minute run), never an imputed number.
+    healths = [loop["health_percent"] for loop in loops]
+    assert all(health is None or 0 <= health <= 100 for health in healths)

@@ -147,7 +147,8 @@ function appendOptionalInt(query: URLSearchParams, name: string, value: number |
 }
 
 /** Status level of a loop, as decided by the backend (see `docs/design/screens.md`). */
-export type LoopStatus = "ok" | "warning" | "problem" | "unused";
+/** "not_assessed": nothing fired, but some checks were withheld for missing loop data. */
+export type LoopStatus = "ok" | "warning" | "problem" | "unused" | "not_assessed";
 
 /** One finding as a stable code plus numeric parameters; the UI turns it into a sentence. */
 export interface LoopFinding {

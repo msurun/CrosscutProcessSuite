@@ -170,8 +170,8 @@ def test_a_zero_harris_index_costs_sixty_percent_of_the_score():
     assert health_percent(make_report(harris_index=0.0)) == 40
 
 
-def test_a_nan_harris_index_counts_as_one_half():
-    assert health_percent(make_report(harris_index=np.nan)) == 70
+def test_a_nan_harris_index_gives_no_score_instead_of_an_imputed_one():
+    assert health_percent(make_report(harris_index=np.nan)) is None
 
 
 def test_an_oscillating_loop_is_penalised_by_thirty_percent():
@@ -193,7 +193,6 @@ def test_a_stiction_verdict_costs_forty_percent_of_the_score():
         (-1.0, 1.0, 0.0, 0.0),
         (0.0, 0.0, 0.0, 0.0),
         (1.0, 1.0, 1.0, 1.0),
-        (np.nan, 0.5, 0.9, 0.9),
     ],
 )
 def test_health_stays_between_zero_and_one_hundred(
@@ -334,3 +333,21 @@ def test_a_service_factor_within_range_logs_nothing(caplog):
         health_percent(make_report(service_factor=0.9))
 
     assert caplog.records == []
+
+
+def test_a_loop_with_withheld_checks_is_not_assessed_instead_of_ok():
+    report = make_report(not_assessed=("harris", "oscillation_amplitude"))
+
+    assert status_level(report, make_settings()) == "not_assessed"
+
+
+def test_a_real_problem_still_wins_over_not_assessed():
+    report = make_report(stiction_verdict="stiction", not_assessed=("harris",))
+
+    assert status_level(report, make_settings()) == "problem"
+
+
+def test_a_manual_loop_stays_unused_even_when_checks_were_withheld():
+    report = make_report(classification="manual", not_assessed=("harris",))
+
+    assert status_level(report, make_settings()) == "unused"

@@ -1,6 +1,7 @@
 // src/components/SettingsTables.tsx
 
 import type { Translate } from "../findings";
+import { formatDcs, formatSignificant } from "../format";
 
 /**
  * Format a number with four significant digits.
@@ -9,7 +10,7 @@ import type { Translate } from "../findings";
  * becomes "0.06598". Used for every value shown in the tuning tables.
  */
 export function formatNumber(value: number): string {
-  return Number(value.toPrecision(4)).toString();
+  return formatSignificant(value);
 }
 
 /** Tuning constants of the PI controller, per rule. */
@@ -66,7 +67,7 @@ function DcsForm({ formName, values, t }: { formName: string; values: Record<str
         {Object.entries(values).map(([key, value]) => (
           <div key={key}>
             <dt>{key}</dt>
-            <dd>{formatNumber(value)}</dd>
+            <dd>{formatDcs(value)}</dd>
           </div>
         ))}
       </dl>

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import type { Translate } from "../findings";
+import { formatSigned } from "../format";
 import { formatNumber } from "./SettingsTables";
 
 /** Values currently active in the plant, as typed by the user. */
@@ -24,11 +25,7 @@ const CHANGE_DECIMALS = 1;
  * e.g. "+12.5 %", "-3.0 %" or "0.0 %".
  */
 export function formatChange(changePercent: number): string {
-  const rounded = changePercent.toFixed(CHANGE_DECIMALS);
-  // toFixed turns -0.04 into "-0.0", which would read as a negative change.
-  const normalised = Number(rounded) === 0 ? "0.0" : rounded;
-  const sign = Number(normalised) > 0 ? "+" : "";
-  return `${sign}${normalised} %`;
+  return `${formatSigned(changePercent, CHANGE_DECIMALS)} %`;
 }
 
 /**
