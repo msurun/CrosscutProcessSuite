@@ -1,7 +1,8 @@
 """HTTP API over Crosscut datasets (the backend of the trend viewer).
 
-Datasets and loops are read-only; the only thing a client can write is a fuzzy rule base, which
-is configuration kept under the data root (see fuzzy_routes). Nothing here writes to a plant.
+Datasets and loops are read-only. A client can write only configuration kept under the data
+root: a fuzzy rule base (see fuzzy_routes) and the per-loop knowledge in a dataset's
+project.json (see _KnowledgeEndpoints). Nothing here writes to a plant.
 """
 
 from __future__ import annotations
@@ -15,10 +16,17 @@ from typing import Annotated, Any, Literal
 import numpy as np
 from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
+from crosscut_loops.project_edit import (
+    KnowledgeError,
+    apply_knowledge,
+    loop_knowledge,
+    project_from_loops,
+    write_project_atomic,
+)
 from crosscut_loops.project_loops import loops_from_project
 from crosscut_loops.tuning_payload import TuningRequest, tuning_payload
 from crosscut_sim.dataset import read_dataset, to_wide
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
@@ -386,6 +394,63 @@ class _LoopEndpoints:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+class _KnowledgeEndpoints:
+    """Handlers that read and edit the per-loop knowledge kept in a dataset's project.json."""
+
+    def __init__(self, store: DatasetStore) -> None:
+        self.store = store
+
+    def get_knowledge(self, dataset_id: str, loop_name: str) -> dict[str, Any]:
+        """The delay, ultimate period, amplitude limit and process kind of one loop."""
+        dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        return self._document(dataset_dir, self._project_of(dataset_dir), loop_name)
+
+    def put_knowledge(
+        self, dataset_id: str, loop_name: str, update: Annotated[dict[str, Any], Body()]
+    ) -> dict[str, Any]:
+        """Change some of a loop's knowledge; None clears a value. Writes project.json only."""
+        dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        try:
+            project = apply_knowledge(self._project_of(dataset_dir), loop_name, update)
+        except KnowledgeError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
+        write_project_atomic(dataset_dir / PROJECT_FILE, project)
+        return self._document(dataset_dir, project, loop_name)
+
+    def _project_of(self, dataset_dir: Path) -> dict[str, Any]:
+        """The dataset's project file, or one built from the loops found by naming convention."""
+        path = dataset_dir / PROJECT_FILE
+        if path.exists():
+            return _read_json(path)
+        return project_from_loops(discover_loops(self.store.tags_of(dataset_dir)))
+
+    def _document(
+        self, dataset_dir: Path, project: dict[str, Any], loop_name: str
+    ) -> dict[str, Any]:
+        """The knowledge of one loop plus which engineering ranges the tags already give."""
+        loop = self.store.find_loop(dataset_dir, loop_name)
+        try:
+            knowledge = loop_knowledge(project, loop_name)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
+        return {
+            "loop": loop_name,
+            "knowledge": knowledge,
+            "saved": (dataset_dir / PROJECT_FILE).exists(),
+            "ranges": {
+                "pv": _range_or_none(loop.eng_min, loop.eng_max),
+                "out": _range_or_none(loop.out_low, loop.out_high),
+            },
+        }
+
+
+def _range_or_none(low: float | None, high: float | None) -> list[float] | None:
+    """[low, high] when both ends are configured, otherwise None."""
+    return None if low is None or high is None else [low, high]
+
+
 def _dataset_router(store: DatasetStore) -> APIRouter:
     """Routes listing datasets and serving their tags and downsampled series."""
     endpoints = _DatasetEndpoints(store)
@@ -407,6 +472,10 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     router.add_api_route(
         "/datasets/{dataset_id}/loops/{loop_name}/benefit", endpoints.get_benefit, methods=["GET"]
     )
+    knowledge = _KnowledgeEndpoints(store)
+    path = "/datasets/{dataset_id}/loops/{loop_name}/knowledge"
+    router.add_api_route(path, knowledge.get_knowledge, methods=["GET"])
+    router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
     return router
 
 
