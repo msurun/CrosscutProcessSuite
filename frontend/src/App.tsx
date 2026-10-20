@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchDatasets,
@@ -10,8 +10,12 @@ import {
   type TagInfo,
 } from "./api";
 import { availableLanguages, detectLanguage, translate } from "./i18n";
+import { ContextBar } from "./components/ContextBar";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FuzzyPage } from "./components/FuzzyPage";
-import { LoopsPage } from "./components/LoopsPage";
+import { LoopsPage, type AnalysisInfo } from "./components/LoopsPage";
+import { formatHash, withDataset, withView, type View } from "./route";
+import { useRoute } from "./useRoute";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
 import { TrendPane } from "./components/TrendPane";
@@ -44,29 +48,34 @@ interface LanguageState {
   setLanguage: (language: string) => void;
 }
 
-/** Loads the dataset catalogue once on mount. */
-function useDatasets(): { datasets: DatasetSummary[] } {
+/** Loads the dataset catalogue on mount; `retry` loads it again after a failure. */
+function useDatasets(): { datasets: DatasetSummary[]; failed: boolean; loaded: boolean; retry: () => void } {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let isCancelled = false;
 
     fetchDatasets()
-      .then((loaded) => {
-        if (!isCancelled) {
-          setDatasets(loaded);
-        }
+      .then((result) => {
+        if (isCancelled) return;
+        setDatasets(result);
+        setFailed(false);
+        setLoaded(true);
       })
       .catch((error: unknown) => {
         console.error("Failed to load datasets", error);
+        if (!isCancelled) setFailed(true);
       });
 
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  return { datasets };
+  return { datasets, failed, loaded, retry: () => setAttempt((count) => count + 1) };
 }
 
 /** Keeps the current language in sync with the browser and the document. */
@@ -183,26 +192,40 @@ function buildUnitGroups(series: readonly Series[], tags: readonly TagInfo[]): U
 
 /** Root component: wires the data hooks, the layout and the trend panes. */
 export function App() {
-  const { datasets } = useDatasets();
+  const { datasets, failed, loaded, retry } = useDatasets();
   const { language, t, setLanguage } = useLanguage();
   const [theme, setTheme] = useTheme();
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
+  const [route, navigate] = useRoute();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [view, setView] = useState<"trends" | "loops" | "fuzzy">("trends");
+  const [analysis, setAnalysis] = useState<AnalysisInfo | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const selectedDatasetId = route.dataset;
+  const view = route.view;
 
-  // The first dataset of the catalogue becomes the default selection.
+  // No dataset in the URL: the first dataset of the catalogue becomes the default.
   useEffect(() => {
     if (selectedDatasetId === "" && datasets.length > 0) {
-      setSelectedDatasetId(datasets[0].id);
+      navigate({ ...route, dataset: datasets[0].id }, true);
     }
-  }, [datasets, selectedDatasetId]);
+  }, [datasets, selectedDatasetId, route, navigate]);
+
+  // After the user navigates, focus moves to the content so keyboard and screen-reader users
+  // start at the new page instead of at the top of the document.
+  const previousHash = useRef(formatHash(route));
+  useEffect(() => {
+    const hash = formatHash(route);
+    if (hash !== previousHash.current) mainRef.current?.focus();
+    previousHash.current = hash;
+  }, [route]);
 
   const tags = useTags(selectedDatasetId);
   const { series, status, errorReason } = useSeries(selectedDatasetId, selectedTags);
+  const dataset = datasets.find((one) => one.id === selectedDatasetId);
+  const datasetMissing = loaded && selectedDatasetId !== "" && dataset === undefined;
 
   // Selecting another dataset invalidates the tag selection of the old one.
   const handleDatasetChange = (datasetId: string) => {
-    setSelectedDatasetId(datasetId);
+    navigate(withDataset(route, datasetId));
     setSelectedTags([]);
   };
 
@@ -222,6 +245,9 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}>
+        {t("a11y.skipToContent")}
+      </a>
       <TopBar
         title={t("app.name")}
         readOnlyLabel={t("app.readOnly")}
@@ -260,23 +286,47 @@ export function App() {
             />
           )}
         </aside>
-        <main className="main-area">
+        <main className="main-area" id="main-content" tabIndex={-1} ref={mainRef}>
+          {failed && (
+            <div className="notice notice-warning" role="alert">
+              <p>{t("error.apiOffline")}</p>
+              <button type="button" className="filter-chip" onClick={retry}>
+                {t("error.retry")}
+              </button>
+            </div>
+          )}
+          <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy"] as const).map((name) => (
+            {(["trends", "loops", "fuzzy"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
                 className="view-tab"
                 aria-current={view === name ? "page" : undefined}
-                onClick={() => setView(name)}
+                onClick={() => navigate(withView(route, name))}
               >
                 {t(`nav.${name}`)}
               </button>
             ))}
           </nav>
-          {view === "loops" && selectedDatasetId && <LoopsPage datasetId={selectedDatasetId} t={t} />}
-          {view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
-          {view === "trends" && renderTrendArea()}
+          <ErrorBoundary t={t} resetKey={formatHash(route)}>
+            {datasetMissing && (
+              <p className="status status-error" role="alert">
+                {t("route.notFoundDataset", { id: selectedDatasetId })}
+              </p>
+            )}
+            {!datasetMissing && view === "loops" && selectedDatasetId && (
+              <LoopsPage
+                datasetId={selectedDatasetId}
+                route={route}
+                navigate={navigate}
+                t={t}
+                onAnalysed={setAnalysis}
+              />
+            )}
+            {!datasetMissing && view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
+            {!datasetMissing && view === "trends" && renderTrendArea()}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

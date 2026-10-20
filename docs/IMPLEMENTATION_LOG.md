@@ -682,3 +682,10 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   keep the dot), fuzzy axis ticks fixed (2600 was printed as "26"), "assumed" badge translated, test setup pins `<html lang>`
   to en. Checked on the stiction dataset: no OK/70 % any more. Python loops+api and 260 vitest tests green.
 - Next: P0.5 rest (fuzzy example rule base text in the PL UI, DOM scan test), then P1 (router, context bar, ErrorBoundary).
+
+## UI remediation P1: app shell and context (2026-10-20)
+- Hash router (`route.ts`, `useRoute.ts`): `#/d/{dataset}/{view}/{loop}/{sub}`; reload, bookmarks and the back button work.
+  Dataset context bar (id, period, sample period, tags, analysis time), breadcrumb on loop pages, `ErrorBoundary` per route,
+  API-offline banner with retry, 404 messages for an unknown dataset or loop, skip link and focus to the content after
+  navigation. Checked in a browser with Playwright scripts (deep link, back, reload, 404, offline, skip link); 302 vitest.
+- Not done from P1: S1 datasets list screen and skeleton rows (loading is a status sentence); both are low value next to P2-P4.
