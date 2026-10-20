@@ -458,6 +458,18 @@ export interface LoopKnowledgeValues {
   /** Acceptable oscillation amplitude in PV units. */
   amplitude_limit: number | null;
   process_kind: "self_regulating" | "integrating";
+  /** Engineering range of the measurement, any sign; overrides the tag dictionary row. */
+  pv_eng_min: number | null;
+  pv_eng_max: number | null;
+  /** Engineering range of the controller output; overrides the tag dictionary row. */
+  out_eng_min: number | null;
+  out_eng_max: number | null;
+}
+
+/** Range taken from the tag dictionary row; null where the row has no value. */
+export interface RangeDefault {
+  min: number | null;
+  max: number | null;
 }
 
 /** Result of `GET/PUT /api/datasets/{id}/loops/{loop}/knowledge`. */
@@ -468,6 +480,9 @@ export interface LoopKnowledge {
   saved: boolean;
   /** Engineering ranges the tags already give, [low, high] or null when not configured. */
   ranges: { pv: [number, number] | null; out: [number, number] | null };
+  /** Tag-row ranges, shown as placeholders for the loop-level range fields. */
+  pv_eng_default: RangeDefault;
+  out_eng_default: RangeDefault;
 }
 
 /** The part of the knowledge the user changes; null clears a value. */

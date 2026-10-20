@@ -370,3 +370,6 @@ body {
 .valve-test form .valve-intro, .valve-test form details, .valve-test form button[type="submit"] { grid-column: 1 / -1; justify-self: start; }
 .valve-test form .valve-intro { justify-self: stretch; margin: 0; }
 .valve-test .field-help { display: block; margin-top: 4px; }
+.knowledge-editor .field-howto { font-size: 12px; margin-top: 2px; }
+.knowledge-editor .knowledge-ranges { border: 1px solid var(--border, #8884); margin: 12px 0; padding: 8px 12px; }
+.knowledge-editor .knowledge-diff ul { margin: 4px 0; }

@@ -714,3 +714,10 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   (`trendData.fittingPresets`, `presetRange`, `modeSpans`; en/pl/es keys). 430 vitest, tsc and build green; five valve component test files added.
 - Still open in P4: LoopDetail does not fetch the mode series, so the MODE band is inactive; the band shades values that differ from
   the most frequent one because the mode encoding is not documented; knowledge editor part (OUT/PV range overrides, help, diff). Then P5-P7.
+
+## UI remediation P4 completed (2026-10-20)
+- MODE band shades manual mode (MAN=0, AUTO=1, CAS=2 from sim/core.py); LoopDetail fetches the mode series separately and non-fatally.
+- Per-loop OUT/PV engineering-range overrides (`pv_eng_min/max`, `out_eng_min/max`) in project.json; the loop entry wins over the tag row;
+  served by the knowledge API with the tag-row defaults; min >= max is refused (422). Editor: range group, "how to measure" help, post-save diff.
+- 438 vitest, loops+api pytest, ruff green. Not checked in a browser; pl/es wording is machine-written and needs a native read.
+- Next: P5 Trends tab, P6 Fuzzy Studio, P7 quality (Playwright, axe).

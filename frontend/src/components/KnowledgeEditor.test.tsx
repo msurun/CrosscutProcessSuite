@@ -33,6 +33,22 @@ const EMPTY_VALUES: LoopKnowledgeValues = {
   ultimate_period_s: null,
   amplitude_limit: null,
   process_kind: "self_regulating",
+  pv_eng_min: null,
+  pv_eng_max: null,
+  out_eng_min: null,
+  out_eng_max: null,
+};
+
+/** A draft with every text blank; tests override the fields they are about. */
+const BLANK_DRAFT = {
+  delay_s: "",
+  ultimate_period_s: "",
+  amplitude_limit: "",
+  pv_eng_min: "",
+  pv_eng_max: "",
+  out_eng_min: "",
+  out_eng_max: "",
+  process_kind: "self_regulating" as const,
 };
 
 /** Builds a knowledge payload; pass overrides for the parts a test is about. */
@@ -42,6 +58,8 @@ function makeKnowledge(overrides: Partial<LoopKnowledge> = {}): LoopKnowledge {
     knowledge: EMPTY_VALUES,
     saved: false,
     ranges: { pv: [0, 100], out: [0, 100] },
+    pv_eng_default: { min: 0, max: 100 },
+    out_eng_default: { min: null, max: null },
     ...overrides,
   };
 }
@@ -89,39 +107,25 @@ describe("parseNumberField", () => {
 
 describe("buildUpdate", () => {
   const loaded: LoopKnowledgeValues = {
+    ...EMPTY_VALUES,
     delay_s: 10,
     ultimate_period_s: 60,
     amplitude_limit: 5,
-    process_kind: "self_regulating",
   };
+  const same = { ...BLANK_DRAFT, delay_s: "10", ultimate_period_s: "60", amplitude_limit: "5" };
 
   it("keeps only the fields that differ from the loaded values", () => {
-    const update = buildUpdate(loaded, {
-      delay_s: "10",
-      ultimate_period_s: "90",
-      amplitude_limit: "5",
-      process_kind: "self_regulating",
-    });
+    const update = buildUpdate(loaded, { ...same, delay_s: "10", ultimate_period_s: "90", amplitude_limit: "5", process_kind: "self_regulating" });
     expect(update).toEqual({ ultimate_period_s: 90 });
   });
 
   it("sends null when a numeric field is cleared", () => {
-    const update = buildUpdate(loaded, {
-      delay_s: "",
-      ultimate_period_s: "60",
-      amplitude_limit: "5",
-      process_kind: "self_regulating",
-    });
+    const update = buildUpdate(loaded, { ...same, delay_s: "", ultimate_period_s: "60", amplitude_limit: "5", process_kind: "self_regulating" });
     expect(update).toEqual({ delay_s: null });
   });
 
   it("includes a changed process kind", () => {
-    const update = buildUpdate(loaded, {
-      delay_s: "10",
-      ultimate_period_s: "60",
-      amplitude_limit: "5",
-      process_kind: "integrating",
-    });
+    const update = buildUpdate(loaded, { ...same, delay_s: "10", ultimate_period_s: "60", amplitude_limit: "5", process_kind: "integrating" });
     expect(update).toEqual({ process_kind: "integrating" });
   });
 });
@@ -307,5 +311,69 @@ describe("KnowledgeEditor load error", () => {
     await waitFor(() =>
       expect(screen.getByText('knowledge.error{"reason":"Error: offline"}')).toBeInTheDocument(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Measurement ranges, precedence hint and the save diff
+// ---------------------------------------------------------------------------
+
+describe("KnowledgeEditor ranges", () => {
+  it("accepts a negative range and saves it with a decimal comma", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(makeKnowledge());
+    vi.mocked(saveKnowledge).mockResolvedValue(
+      makeKnowledge({ knowledge: { ...EMPTY_VALUES, pv_eng_min: -50.5, pv_eng_max: 0 } }),
+    );
+    renderEditor();
+
+    fireEvent.change(await screen.findByLabelText("knowledge.pvMin"), { target: { value: "-50,5" } });
+    fireEvent.change(screen.getByLabelText("knowledge.pvMax"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "knowledge.save" }));
+
+    await waitFor(() => expect(saveKnowledge).toHaveBeenCalledWith("ds-1", "Loop A", { pv_eng_min: -50.5, pv_eng_max: 0 }));
+  });
+
+  it("blocks save and alerts when the minimum is not below the maximum", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(makeKnowledge());
+    renderEditor();
+
+    fireEvent.change(await screen.findByLabelText("knowledge.outMin"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("knowledge.outMax"), { target: { value: "10" } });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("knowledge.rangeInverted");
+    expect(screen.getByRole("button", { name: "knowledge.save" })).toBeDisabled();
+  });
+
+  it("states the precedence and shows the tag default as placeholder", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(makeKnowledge());
+    renderEditor();
+
+    const input = await screen.findByLabelText("knowledge.pvMin");
+
+    expect(screen.getByText("knowledge.rangesPrecedence")).toBeInTheDocument();
+    expect(input).toHaveAttribute("placeholder", 'knowledge.tagDefault{"value":0}');
+  });
+});
+
+describe("KnowledgeEditor save diff", () => {
+  it("lists old and new values, shows cleared, and can be dismissed", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(
+      makeKnowledge({ knowledge: { ...EMPTY_VALUES, delay_s: 10, out_eng_max: 80 } }),
+    );
+    vi.mocked(saveKnowledge).mockResolvedValue(
+      makeKnowledge({ knowledge: { ...EMPTY_VALUES, delay_s: 12 } }),
+    );
+    renderEditor();
+
+    fireEvent.change(await screen.findByLabelText("knowledge.delay"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("knowledge.outMax"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "knowledge.save" }));
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("knowledge.delay{\"unit\":");
+    expect(items[0]).toHaveTextContent("10 -> 12");
+    expect(items[1]).toHaveTextContent("80 -> knowledge.cleared");
+    fireEvent.click(screen.getByRole("button", { name: "knowledge.dismiss" }));
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 });
