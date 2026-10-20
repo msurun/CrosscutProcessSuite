@@ -10,8 +10,20 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 import numpy as np
+
+# Why a result can be incomplete: the English text (command line) and the stable code (UI).
+NO_GAIN_REASON = "no gain: valve did not move"
+NO_REVERSAL_MOVE_REASON = "no move after reversal within a leg"
+REASON_CODES = {NO_GAIN_REASON: "no_gain", NO_REVERSAL_MOVE_REASON: "no_move_after_reversal"}
+
+
+def reason_code(reason: str) -> str:
+    """Stable code of a StrokeResult.reason: "" when complete, "other" for an unknown text."""
+    return REASON_CODES.get(reason, "" if reason == "" else "other")
+
 
 # Analysis constants (units: % of output span unless noted)
 CHANGE_FRACTION = 0.4          # fraction of smallest step below which OP change is noise
@@ -234,6 +246,44 @@ def plan_stroke_test(
     return inputs.to_plan(pv_band, _build_steps(inputs))
 
 
+def procedure_steps(plan: StrokePlan) -> list[dict[str, Any]]:
+    """Return the operator instructions as stable codes plus parameters (no prose).
+
+    A UI translates each ``code``; ``procedure_text`` renders the same steps in English for the
+    command line. Codes: ``manual``, ``abort`` (params ``op_start``, ``pv_band`` or None),
+    ``set_start`` (``op``, ``dwell_s``), ``step`` (``op``, ``dwell_s``) and ``return_auto``
+    (``op``). The abort rule comes before the first move, so the operator knows it while stepping.
+    """
+    steps: list[dict[str, Any]] = [
+        {"code": "manual", "params": {}},
+        {"code": "abort", "params": {"op_start": plan.op_start, "pv_band": plan.pv_band}},
+        {"code": "set_start", "params": {"op": plan.op_start, "dwell_s": plan.dwell_s}},
+    ]
+    steps += [
+        {"code": "step", "params": {"op": step.op_target, "dwell_s": step.dwell_s}}
+        for step in plan.steps
+    ]
+    steps.append({"code": "return_auto", "params": {"op": plan.op_start}})
+    return steps
+
+
+def _procedure_sentence(step: dict[str, Any]) -> str:
+    """One procedure step as an English sentence (the command-line wording)."""
+    code, params = step["code"], step["params"]
+    if code == "manual":
+        return "Put the loop in MANUAL."
+    if code == "abort":
+        text = "If anything looks wrong at any time, abort: return the output to "
+        text += f"{params['op_start']:.2f}% and put the loop back in AUTO."
+        if params["pv_band"] is not None:
+            band = f"{params['pv_band']:.2f}"
+            text = f"If the PV moves more than {band} from its starting value, " + text
+        return text
+    if code == "return_auto":
+        return f"Return the output to {params['op']:.2f}% and put the loop back in AUTO."
+    return f"Set the output to {params['op']:.2f}% and wait {params['dwell_s']} seconds."
+
+
 def procedure_text(plan: StrokePlan) -> list[str]:
     """Return numbered operator instructions for executing the stroke test.
 
@@ -243,19 +293,8 @@ def procedure_text(plan: StrokePlan) -> list[str]:
     Returns:
         List of strings, each a numbered step in plain English.
     """
-    # The abort rule comes before the first move, so the operator knows it while stepping.
-    abort = "If anything looks wrong at any time, abort: return the output to "
-    abort += f"{plan.op_start:.2f}% and put the loop back in AUTO."
-    if plan.pv_band is not None:
-        abort = f"If the PV moves more than {plan.pv_band:.2f} from its starting value, " + abort
-    texts = ["Put the loop in MANUAL.", abort]
-    texts.append(f"Set the output to {plan.op_start:.2f}% and wait {plan.dwell_s} seconds.")
-    texts += [
-        f"Set the output to {step.op_target:.2f}% and wait {step.dwell_s} seconds."
-        for step in plan.steps
-    ]
-    texts.append(f"Return the output to {plan.op_start:.2f}% and put the loop back in AUTO.")
-    return [f"{number}. {text}" for number, text in enumerate(texts, start=1)]
+    sentences = [_procedure_sentence(step) for step in procedure_steps(plan)]
+    return [f"{number}. {text}" for number, text in enumerate(sentences, start=1)]
 
 
 def _find_change_points(op: np.ndarray, min_step: float, min_gap: int) -> np.ndarray:
@@ -415,7 +454,7 @@ def _estimate_deadband(
     lower = max(lower_bounds) if lower_bounds else None
     sized = [size for size in sorted(brackets) if brackets[size]]
     if not sized:
-        return None, None, lower, "no move after reversal within a leg"
+        return None, None, lower, NO_REVERSAL_MOVE_REASON
     return (*_median_bracket(brackets[sized[0]]), lower, "")
 
 
@@ -531,7 +570,7 @@ def _result_from_moves(
     gain = _compute_gain(moves, sigma_pv, max(plan.step_sizes))
     if gain is None:
         return StrokeResult(None, None, None, None, None, sigma_pv, moves, pv_left_band,
-                            "no gain: valve did not move")
+                            NO_GAIN_REASON)
     flags = _compute_moved(moves, gain, sigma_pv, min(plan.step_sizes))
     moves = [replace(move, moved=flag) for move, flag in zip(moves, flags, strict=True)]
     deadband, bracket, lower_bound, reason = _estimate_deadband(moves, plan.step_sizes)

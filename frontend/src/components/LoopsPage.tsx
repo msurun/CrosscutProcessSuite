@@ -13,6 +13,7 @@ import { BenefitPage } from "./BenefitPage";
 import { LoopDetail } from "./LoopDetail";
 import { LoopsOverview } from "./LoopsOverview";
 import { TuningPage } from "./TuningPage";
+import { ValveTestPage } from "./ValveTestPage";
 
 /** Whether the loop list is being fetched, has arrived, or failed. */
 type LoadStatus = "loading" | "ready" | "error";
@@ -164,7 +165,8 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
     crumbs.push({ label: loop.name });
   } else {
     crumbs.push({ label: loop.name, onSelect: toDetail });
-    crumbs.push({ label: t(route.sub === "tuning" ? "tuning.title" : "benefit.title") });
+    const pageTitleKey = { tuning: "tuning.title", benefit: "benefit.title", valve: "valve.title" }[route.sub];
+    crumbs.push({ label: t(pageTitleKey) });
   }
 
   return (
@@ -176,6 +178,7 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
       {route.sub === "benefit" && (
         <BenefitPage datasetId={datasetId} loopName={loop.name} t={t} onBack={toDetail} />
       )}
+      {route.sub === "valve" && <ValveTestPage datasetId={datasetId} loop={loop} t={t} onBack={toDetail} />}
       {route.sub === "detail" && (
         <LoopDetail
           datasetId={datasetId}
@@ -184,6 +187,7 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
           onBack={toList}
           onOpenTuning={() => navigate(withLoop(route, loop.name, "tuning"))}
           onOpenBenefit={() => navigate(withLoop(route, loop.name, "benefit"))}
+          onOpenValve={() => navigate(withLoop(route, loop.name, "valve"))}
           onOpenLoop={(name) => navigate(withLoop(route, name))}
           onKnowledgeSaved={reload}
         />

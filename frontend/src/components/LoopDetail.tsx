@@ -155,11 +155,29 @@ function ValveNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
 }
 
 /** The one action the worklist ranks first for this loop, plus the loops that cycle with it. */
-function NextAction({ loop, t, onOpenLoop }: { loop: LoopSummary; t: Translate; onOpenLoop?: (name: string) => void }) {
+function NextAction({
+  loop,
+  t,
+  onOpenLoop,
+  onOpenValve,
+}: {
+  loop: LoopSummary;
+  t: Translate;
+  onOpenLoop?: (name: string) => void;
+  onOpenValve?: () => void;
+}) {
+  const suggestsValveTest = loop.next_action.code === "valve_test" || loop.next_action.code === "test_cycle_cause";
   return (
     <section className="next-action" aria-labelledby="next-action-title">
       <h3 id="next-action-title">{t("loops.nextAction")}</h3>
       <p className="next-action-text">{actionText(t, loop.next_action)}</p>
+      {suggestsValveTest && onOpenValve && (
+        <p>
+          <button type="button" className="filter-chip" onClick={onOpenValve}>
+            {t("valve.open")}
+          </button>
+        </p>
+      )}
       {loop.same_period_as.length > 0 && (
         <p>
           {t("loops.sharedPeriod", { loops: "" })}
@@ -313,6 +331,7 @@ export function LoopDetail({
   onBack,
   onOpenTuning,
   onOpenBenefit,
+  onOpenValve,
   onOpenLoop,
   onKnowledgeSaved,
 }: {
@@ -322,6 +341,8 @@ export function LoopDetail({
   onBack: () => void;
   onOpenTuning: () => void;
   onOpenBenefit: () => void;
+  /** Opens the guided valve stroke test; the button is hidden when absent. */
+  onOpenValve?: () => void;
   /** Opens another loop (used by the "same period" links); the links are plain text when absent. */
   onOpenLoop?: (loopName: string) => void;
   /** Called after the loop data was saved, so the caller can fetch the analysis again. */
@@ -351,13 +372,21 @@ export function LoopDetail({
         <button type="button" className="filter-chip" onClick={onOpenBenefit}>
           {t("benefit.title")}
         </button>
+        {onOpenValve && (
+          <>
+            {" "}
+            <button type="button" className="filter-chip" onClick={onOpenValve}>
+              {t("valve.open")}
+            </button>
+          </>
+        )}
       </p>
 
       <NotAssessedNotice loop={loop} t={t} />
 
       <div className="loop-detail-grid">
         <div>
-          <NextAction loop={loop} t={t} onOpenLoop={onOpenLoop} />
+          <NextAction loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} />
           <section>
             <h3>{t("loops.why")}</h3>
             <Findings loop={loop} t={t} onShow={setShownWindow} />

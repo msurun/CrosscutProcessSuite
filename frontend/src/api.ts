@@ -42,11 +42,17 @@ export interface SeriesResponse {
 /** Error raised for any non-2xx response; `status` is the HTTP status code. */
 export class ApiError extends Error {
   readonly status: number;
+  /** Stable machine code of an input error (valve test routes), for the UI to translate. */
+  readonly code: string | null;
+  /** The request field the error is about, when the server names one. */
+  readonly field: string | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null, field: string | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.field = field;
   }
 }
 
@@ -355,13 +361,22 @@ async function sendJson<T>(method: string, url: string, body: unknown): Promise<
   });
   if (!response.ok) {
     let message = response.statusText;
+    let code: string | null = null;
+    let field: string | null = null;
     try {
-      const detail = (await response.json()) as { detail?: unknown };
-      if (typeof detail.detail === "string") message = detail.detail;
+      const detail = ((await response.json()) as { detail?: unknown }).detail;
+      if (typeof detail === "string") message = detail;
+      else if (typeof detail === "object" && detail !== null) {
+        // Structured input error: {code, message, field}.
+        const info = detail as { code?: unknown; message?: unknown; field?: unknown };
+        if (typeof info.message === "string") message = info.message;
+        if (typeof info.code === "string") code = info.code;
+        if (typeof info.field === "string") field = info.field;
+      }
     } catch {
       // keep the status text
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, code, field);
   }
   return (await response.json()) as T;
 }
@@ -474,4 +489,103 @@ export async function saveKnowledge(
   update: LoopKnowledgeUpdate,
 ): Promise<LoopKnowledge> {
   return sendJson<LoopKnowledge>("PUT", knowledgeUrl(datasetId, loopName), update);
+}
+
+/** Settings of a valve stroke test (all numbers; the server fills defaults for the optional ones). */
+export interface ValvePlanRequest {
+  op_start: number;
+  dwell_s: number;
+  op_low?: number;
+  op_high?: number;
+  /** Abort band in PV units: the operator stops when the PV leaves it. */
+  pv_band?: number | null;
+  step_sizes?: number[];
+  steps_per_leg?: number[];
+}
+
+/** One operator instruction as a stable code plus parameters (the UI turns it into a sentence). */
+export interface ValveProcedureStep {
+  code: "manual" | "abort" | "set_start" | "step" | "return_auto";
+  params: { op?: number; op_start?: number; dwell_s?: number; pv_band?: number | null };
+}
+
+/** A stroke test plan with its operator procedure (`POST /api/valve-test/plan`). */
+export interface ValvePlan {
+  op_start: number;
+  dwell_s: number;
+  op_low: number;
+  op_high: number;
+  pv_band: number | null;
+  step_sizes: number[];
+  steps_per_leg: number[];
+  n_steps: number;
+  total_s: number;
+  steps: { index: number; op_target: number; direction: number; size: number; after_reversal: boolean }[];
+  procedure: ValveProcedureStep[];
+}
+
+/** One detected OP step and the PV response to it. */
+export interface ValveMove {
+  start_index: number;
+  op_change: number;
+  pv_change: number | null;
+  moved: boolean;
+  size: number;
+  after_reversal: boolean;
+}
+
+/** Result of analysing a recorded stroke test (deadband, resolution, gain, noise). */
+export interface ValveResult {
+  deadband: number | null;
+  deadband_bracket: [number, number] | null;
+  deadband_lower_bound: number | null;
+  resolution_le: number | null;
+  gain: number | null;
+  sigma_pv: number | null;
+  pv_left_band: boolean;
+  /** "" when complete; "no_gain", "no_move_after_reversal" or "other" when incomplete. */
+  reason_code: string;
+  reason: string;
+  moves: ValveMove[];
+}
+
+/** The analysis response: the result plus the analysed record (decimated) for plotting. */
+export interface ValveAnalysis {
+  result: ValveResult;
+  record: {
+    n_samples: number;
+    start_s: number;
+    end_s: number;
+    series: { t_s: number[]; op: number[]; pv: number[] };
+  };
+}
+
+/** Build a stroke test plan and the operator procedure. Nothing is written to the plant. */
+export async function planValveTest(request: ValvePlanRequest): Promise<ValvePlan> {
+  return sendJson<ValvePlan>("POST", `${API_PREFIX}/valve-test/plan`, request);
+}
+
+/** Analyse a stroke test recorded inside a window of the dataset (seconds since the first sample). */
+export async function analyseValveWindow(
+  datasetId: string,
+  loopName: string,
+  plan: ValvePlanRequest,
+  window: { startS: number; endS: number } | null,
+): Promise<ValveAnalysis> {
+  const body = { plan, start_s: window?.startS ?? null, end_s: window?.endS ?? null };
+  const base = `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}`;
+  return sendJson<ValveAnalysis>("POST", `${base}/valve-test/analyse`, body);
+}
+
+/** Analyse a stroke test from CSV text (columns t_s, OP, PV); parsed in memory by the server. */
+export async function analyseValveCsv(
+  plan: ValvePlanRequest,
+  csvText: string,
+  columns?: { t?: string; op?: string; pv?: string },
+): Promise<ValveAnalysis> {
+  return sendJson<ValveAnalysis>("POST", `${API_PREFIX}/valve-test/analyse-csv`, {
+    plan,
+    csv_text: csvText,
+    columns: columns ?? null,
+  });
 }

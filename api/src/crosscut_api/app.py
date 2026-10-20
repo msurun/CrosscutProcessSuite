@@ -2,7 +2,8 @@
 
 Datasets and loops are read-only. A client can write only configuration kept under the data
 root: a fuzzy rule base (see fuzzy_routes) and the per-loop knowledge in a dataset's
-project.json (see _KnowledgeEndpoints). Nothing here writes to a plant.
+project.json (see _KnowledgeEndpoints). The valve stroke test (valve_routes) only reads a
+record. Nothing here writes to a plant.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
+from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
 
 DEFAULT_MAX_POINTS = 2000
 MAX_POINTS_LIMIT = 100_000
@@ -394,6 +396,19 @@ class _LoopEndpoints:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+def _loop_record_loader(store: DatasetStore) -> LoopRecordLoader:
+    """A reader of one loop's OUT and PV (with the time axis in seconds) for the valve test."""
+
+    def load(dataset_id: str, loop_name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        loop = store.find_loop(_dataset_dir(store.root, dataset_id), loop_name)
+        t_s, values = store.load_seconds(dataset_id)
+        op = np.asarray(values[loop.out], dtype=float)
+        pv = np.asarray(values[loop.pv], dtype=float)
+        return t_s, op, pv
+
+    return load
+
+
 class _KnowledgeEndpoints:
     """Handlers that read and edit the per-loop knowledge kept in a dataset's project.json."""
 
@@ -476,6 +491,7 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     path = "/datasets/{dataset_id}/loops/{loop_name}/knowledge"
     router.add_api_route(path, knowledge.get_knowledge, methods=["GET"])
     router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
+    router.include_router(build_valve_router(_loop_record_loader(store)))
     return router
 
 

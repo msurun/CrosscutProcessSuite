@@ -7,7 +7,7 @@
 export type View = "trends" | "loops" | "fuzzy";
 
 /** The sub-tabs of the "loops" view. */
-export type LoopSub = "detail" | "tuning" | "benefit";
+export type LoopSub = "detail" | "tuning" | "benefit" | "valve";
 
 /** A fully resolved location. `loop`/`sub` only mean something for view "loops". */
 export interface Route {
@@ -28,7 +28,7 @@ export const DEFAULT_ROUTE: Route = {
 const PATH_PREFIX = "/d/";
 const HASH_PREFIX = `#${PATH_PREFIX}`;
 const KNOWN_VIEWS: readonly View[] = ["trends", "loops", "fuzzy"];
-const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit"];
+const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];
 
 /**
  * Decode one percent-encoded hash segment.

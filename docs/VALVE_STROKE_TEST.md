@@ -131,3 +131,12 @@ These are **rules of thumb, not validated here**:
 | `Gain: not identifiable` / `Reason: no gain: valve did not move` | The valve did not move enough to measure K (stuck, wrong loop, or too little travel). | Check the process, the valve and that the loop really is in MANUAL. The plan's largest step is 1 %, and the CLI has no option for larger steps yet; a valve with a deadband above 1 % may not move at all. |
 | `Deadband: > X % (no move after a reversal)` | No visible move within any leg. | The deadband is **at least** X %; this plan cannot bracket it (fixed step sizes of 1 % and 0.25 %). Treat it as a maintenance finding. |
 | `Resolution: not certified` | No step size met the 75 % move share. | Likely too noisy or the valve is too stuck; repeat under quieter conditions. |
+
+## In the web UI (since 2026-10-20)
+Loop detail -> "Valve stroke test" (also offered on the next-action card when the worklist recommends a valve test). Flow:
+settings -> safety checklist (three boxes that must be ticked before the procedure is shown) -> operator procedure (printable)
+-> record (a window of the loaded dataset, or a CSV file read in the browser and sent in the request body, never stored)
+-> result (deadband with bracket, resolution, gain, noise, plain-language verdict, charts). API: `POST /valve-test/plan`,
+`POST /datasets/{id}/loops/{loop}/valve-test/analyse`, `POST /valve-test/analyse-csv`; input mistakes return 422 with a stable
+`code` (see `loops/valve_payload.py`). Checked end to end on a synthetic stick-slip record (true deadband 0.5 %, reported
+bracket 0.5 to 0.75 %). A real loop record is still needed before any claim about real valves.

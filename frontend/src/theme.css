@@ -347,3 +347,24 @@ body {
 .stepper-step--blocked { color: var(--status-problem); }
 .recommendation { margin: 0 0 12px; padding: 10px 14px; background: var(--surface-2); border-radius: 4px; }
 .unit { color: var(--text-muted); font-size: 12px; font-weight: 400; }
+
+/* --- Valve stroke test --- */
+.valve-intro { max-width: 70ch; }
+.valve-checks { margin: 8px 0 16px; padding: 0; list-style: none; }
+.valve-checks li { margin: 8px 0; }
+.valve-checks label { display: flex; gap: 8px; align-items: flex-start; }
+.valve-procedure { max-width: 80ch; line-height: 1.6; }
+.valve-procedure li { margin: 4px 0; }
+.valve-test .filter-chip + .filter-chip { margin-left: 6px; }
+.valve-record fieldset { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; }
+.valve-record fieldset label { display: block; margin: 4px 0; }
+@media print {
+  .no-print, .top-bar, .sidebar, .view-tabs, .skip-link, .stepper, .breadcrumb, .context-bar, .link-button { display: none !important; }
+  .app-shell, .app-body { display: block; height: auto; }
+  .main-area { overflow: visible; padding: 0; }
+  body { background: #fff; color: #000; }
+}
+.valve-test form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 20px; max-width: 960px; }
+.valve-test form .valve-intro, .valve-test form details, .valve-test form button[type="submit"] { grid-column: 1 / -1; justify-self: start; }
+.valve-test form .valve-intro { justify-self: stretch; margin: 0; }
+.valve-test .field-help { display: block; margin-top: 4px; }

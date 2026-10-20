@@ -698,3 +698,13 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - New guard `i18nKeys.test.ts`: every static t("key") in the source must exist in en.json. It found five raw keys used as
   `aria-label` in the fuzzy rule editor (fixed) and one wrong key in the new window picker.
 - 333 vitest tests, tsc and build green.
+
+## UI remediation P3: valve stroke test screen (2026-10-20)
+- Library: `valve_test.procedure_steps` (codes + params; `procedure_text` renders the same steps for the CLI, unchanged output),
+  `reason_code`. Contract layer `loops/valve_payload.py` (plan validation, JSON-safe result, window analysis, in-memory CSV
+  parser with delimiter/decimal-comma/BOM/ISO-time handling, 5 MB cap). Routes `api/valve_routes.py`. Review by a second
+  model found 4 real bugs before install; tests then found numpy bools in JSON and a wrong plan-too-long test.
+- UI: `ValveTestPage` wizard (reducer `valveTest.ts`, Stepper, settings form, safety checklist gate, printable procedure,
+  record step with WindowPicker or CSV, result view), route sub `valve`, entry button on loop detail and on the next-action card.
+- 381 vitest, loops+api pytest, ruff, mypy, build green; browser end-to-end run with a synthetic record.
+- Still open: component tests for the valve components (only the reducer/logic has unit tests), P4-P7 of the plan.
