@@ -67,6 +67,22 @@
             "minLength": 1,
             "description": "Display name; the id is used when absent."
           },
+          "pv_eng_min": {
+            "type": "number",
+            "description": "Overrides the PV tag's eng_min for this loop."
+          },
+          "pv_eng_max": {
+            "type": "number",
+            "description": "Overrides the PV tag's eng_max for this loop."
+          },
+          "out_eng_min": {
+            "type": "number",
+            "description": "Overrides the OUT tag's eng_min for this loop."
+          },
+          "out_eng_max": {
+            "type": "number",
+            "description": "Overrides the OUT tag's eng_max for this loop."
+          },
           "delay_s": {
             "type": "number",
             "exclusiveMinimum": 0,

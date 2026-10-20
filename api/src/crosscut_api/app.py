@@ -22,6 +22,7 @@ from crosscut_loops.project_edit import (
     apply_knowledge,
     loop_knowledge,
     project_from_loops,
+    tag_range_defaults,
     write_project_atomic,
 )
 from crosscut_loops.project_loops import loops_from_project
@@ -426,7 +427,12 @@ class _KnowledgeEndpoints:
         """Change some of a loop's knowledge; None clears a value. Writes project.json only."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
         try:
-            project = apply_knowledge(self._project_of(dataset_dir), loop_name, update)
+            project = apply_knowledge(
+                self._project_of(dataset_dir),
+                loop_name,
+                update,
+                self.store.tags_of(dataset_dir),
+            )
         except KnowledgeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except KeyError as error:
@@ -448,11 +454,13 @@ class _KnowledgeEndpoints:
         loop = self.store.find_loop(dataset_dir, loop_name)
         try:
             knowledge = loop_knowledge(project, loop_name)
+            defaults = tag_range_defaults(project, loop_name, self.store.tags_of(dataset_dir))
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
         return {
             "loop": loop_name,
             "knowledge": knowledge,
+            **defaults,
             "saved": (dataset_dir / PROJECT_FILE).exists(),
             "ranges": {
                 "pv": _range_or_none(loop.eng_min, loop.eng_max),

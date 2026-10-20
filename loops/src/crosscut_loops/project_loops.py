@@ -28,6 +28,10 @@ MODE_KEY = "mode"
 UNIT_KEY = "unit"
 ENG_MIN_KEY = "eng_min"
 ENG_MAX_KEY = "eng_max"
+PV_ENG_MIN_KEY = "pv_eng_min"
+PV_ENG_MAX_KEY = "pv_eng_max"
+OUT_ENG_MIN_KEY = "out_eng_min"
+OUT_ENG_MAX_KEY = "out_eng_max"
 DELAY_KEY = "delay_s"
 ULTIMATE_PERIOD_KEY = "ultimate_period_s"
 AMPLITUDE_LIMIT_KEY = "amplitude_limit"
@@ -107,6 +111,10 @@ def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, An
     `tag_rows` maps a tag id to that tag's own row; it supplies the unit and engineering range
     of the PV tag and the engineering range of the OUT tag. Returns the immutable LoopTags
     record used downstream.
+
+    Engineering ranges: a numeric ``pv_eng_min``/``pv_eng_max``/``out_eng_min``/``out_eng_max``
+    on the loop entry wins over the matching tag row's ``eng_min``/``eng_max``; a bound the
+    entry does not give comes from the tag row.
     """
     # A loop is identified by four tag ids plus the PV tag's unit and engineering range.
     unit, eng_min, eng_max = _pv_engineering_details(entry, tag_rows)
@@ -140,9 +148,20 @@ def _out_engineering_range(
     The OUT tag is the controller output (the signal sent to the valve or drive). Its range is
     the actuator span that saturation is measured against: a 4-20 mA output needs 4.0 and 20.0,
     not the 0-100 % that the analysis assumes when no range is given.
+
+    An ``out_eng_min``/``out_eng_max`` on the loop entry wins over the tag row's bound.
     """
     out_row = tag_rows[str(entry[OUT_KEY])]
-    return out_row.get(ENG_MIN_KEY), out_row.get(ENG_MAX_KEY)
+    return (
+        _override_or_row(entry, OUT_ENG_MIN_KEY, out_row.get(ENG_MIN_KEY)),
+        _override_or_row(entry, OUT_ENG_MAX_KEY, out_row.get(ENG_MAX_KEY)),
+    )
+
+
+def _override_or_row(entry: Mapping[str, Any], key: str, row_value: float | None) -> float | None:
+    """The loop entry's value for ``key`` when it gives one, otherwise the tag row's value."""
+    override = entry.get(key)
+    return row_value if override is None else override
 
 
 def _pv_engineering_details(
@@ -159,9 +178,11 @@ def _pv_engineering_details(
     low and high ends of the transmitter span in the tag's own unit (e.g. 0.0 and 100.0 for a
     0-100 degC transmitter); the analysis derives its default amplitude limit from that span.
 
+    A ``pv_eng_min``/``pv_eng_max`` on the loop entry wins over the tag row's bound.
+
     Returns:
         A 3-tuple ``(unit, engineering_minimum, engineering_maximum)``; the two bounds are
-        ``None`` when the tag row does not define them.
+        ``None`` when neither the entry nor the tag row defines them.
 
     Raises:
         KeyError: if ``entry[PV_KEY]`` names a PV tag that is absent from ``tag_rows``; that
@@ -176,8 +197,8 @@ def _pv_engineering_details(
         _text_or_empty(pv_row.get(UNIT_KEY)),
         # Both bounds are passed through as they are: None means "not configured", which is
         # different from a legitimate 0.0 bound.
-        pv_row.get(ENG_MIN_KEY),
-        pv_row.get(ENG_MAX_KEY),
+        _override_or_row(entry, PV_ENG_MIN_KEY, pv_row.get(ENG_MIN_KEY)),
+        _override_or_row(entry, PV_ENG_MAX_KEY, pv_row.get(ENG_MAX_KEY)),
     )
 
 

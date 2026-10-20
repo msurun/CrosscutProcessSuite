@@ -108,3 +108,44 @@ def test_default_settings_fall_back_for_a_loop_without_settings():
     plain = loops_from_project(project_with(loop_entry()), full_tags())[0]
     settings = default_settings(plain)
     assert (settings.delay_s, settings.ultimate_period_s) == (30.0, 600.0)
+
+
+def ranged_tags():
+    """Tags whose PV and OUT rows both carry a range."""
+    return [
+        tag("PV1", unit="degC", eng_min=0.0, eng_max=100.0),
+        tag("SP1"),
+        tag("OUT1", eng_min=0.0, eng_max=100.0),
+        tag("MODE1"),
+    ]
+
+
+def test_entry_pv_range_wins_over_the_tag_row():
+    entry = loop_entry(pv_eng_min=-10.0, pv_eng_max=50.0)
+    loop = loops_from_project(project_with(entry), ranged_tags())[0]
+    assert (loop.eng_min, loop.eng_max) == (-10.0, 50.0)
+
+
+def test_entry_out_range_wins_over_the_tag_row():
+    entry = loop_entry(out_eng_min=4.0, out_eng_max=20.0)
+    loop = loops_from_project(project_with(entry), ranged_tags())[0]
+    assert (loop.out_low, loop.out_high) == (4.0, 20.0)
+
+
+def test_a_single_override_keeps_the_other_bound_from_the_tag_row():
+    entry = loop_entry(pv_eng_max=80.0, out_eng_min=0.5)
+    loop = loops_from_project(project_with(entry), ranged_tags())[0]
+    assert (loop.eng_min, loop.eng_max) == (0.0, 80.0)
+    assert (loop.out_low, loop.out_high) == (0.5, 100.0)
+
+
+def test_a_zero_override_is_a_real_value_not_absent():
+    tags = [tag("PV1", eng_min=5.0, eng_max=9.0), tag("SP1"), tag("OUT1"), tag("MODE1")]
+    loop = loops_from_project(project_with(loop_entry(pv_eng_min=0.0)), tags)[0]
+    assert loop.eng_min == 0.0
+
+
+def test_override_supplies_a_range_the_tag_row_lacks():
+    entry = loop_entry(out_eng_min=0.0, out_eng_max=10.0)
+    loop = loops_from_project(project_with(entry), full_tags())[0]
+    assert (loop.out_low, loop.out_high) == (0.0, 10.0)

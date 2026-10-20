@@ -17,6 +17,7 @@ from crosscut_loops.project_edit import (
     find_entry,
     loop_knowledge,
     project_from_loops,
+    tag_range_defaults,
     validate_knowledge,
     write_project_atomic,
 )
@@ -325,3 +326,55 @@ def test_written_file_leaves_no_temp_file_behind(tmp_path: Path) -> None:
     path = tmp_path / "project.json"
     write_project_atomic(path, make_project())
     assert [p.name for p in tmp_path.iterdir()] == [path.name]
+
+
+# --- engineering-range overrides --------------------------------------------
+
+ENG_KEYS = ("pv_eng_min", "pv_eng_max", "out_eng_min", "out_eng_max")
+ENG_LOOP = "LIC-101"
+
+
+@pytest.mark.parametrize("key", ENG_KEYS)
+def test_eng_override_accepts_zero_and_negative_numbers(key: str) -> None:
+    assert validate_knowledge({key: -3})[key] == -3.0
+    assert validate_knowledge({key: 0})[key] == 0.0
+
+
+@pytest.mark.parametrize("key", ENG_KEYS)
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), True, "1"])
+def test_eng_override_rejects_non_finite_and_non_numbers(key: str, bad: object) -> None:
+    with pytest.raises(KnowledgeError):
+        validate_knowledge({key: bad})
+
+
+def test_eng_override_none_is_kept_to_signal_clearing() -> None:
+    assert validate_knowledge({"pv_eng_min": None}) == {"pv_eng_min": None}
+
+
+def test_apply_sets_and_then_clears_an_override() -> None:
+    tags = make_tag_rows(ENG_LOOP)
+    edited = apply_knowledge(make_project(), ENG_LOOP, {"pv_eng_min": -5, "pv_eng_max": 200}, tags)
+    assert loop_knowledge(edited, ENG_LOOP)["pv_eng_max"] == 200.0
+    cleared = apply_knowledge(edited, ENG_LOOP, {"pv_eng_min": None, "pv_eng_max": None}, tags)
+    assert "pv_eng_min" not in cleared[LOOPS_KEY][0]
+    assert loop_knowledge(cleared, ENG_LOOP)["pv_eng_max"] is None
+
+
+def test_apply_rejects_min_not_below_max_in_one_update() -> None:
+    tags = make_tag_rows(ENG_LOOP)
+    with pytest.raises(KnowledgeError):
+        apply_knowledge(make_project(), ENG_LOOP, {"out_eng_min": 10.0, "out_eng_max": 10.0}, tags)
+
+
+def test_apply_rejects_override_crossing_the_tag_row_bound() -> None:
+    tags = make_tag_rows(ENG_LOOP)
+    with pytest.raises(KnowledgeError):
+        apply_knowledge(make_project(), ENG_LOOP, {"pv_eng_min": 100.0}, tags)
+
+
+def test_tag_range_defaults_come_from_the_tag_rows() -> None:
+    tags = make_tag_rows(ENG_LOOP)
+    edited = apply_knowledge(make_project(), ENG_LOOP, {"pv_eng_max": 50.0}, tags)
+    defaults = tag_range_defaults(edited, ENG_LOOP, tags)
+    assert defaults["pv_eng_default"] == {"min": 0.0, "max": 100.0}
+    assert defaults["out_eng_default"] == {"min": 0.0, "max": 100.0}

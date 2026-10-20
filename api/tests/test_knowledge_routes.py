@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 
 DATASET = "mill_circuit_nominal_seed42"
 PROJECT_FILE = "project.json"
-KNOWLEDGE_KEYS = {"delay_s", "ultimate_period_s", "amplitude_limit", "process_kind"}
+ENG_KEYS = {"pv_eng_min", "pv_eng_max", "out_eng_min", "out_eng_max"}
+KNOWLEDGE_KEYS = {"delay_s", "ultimate_period_s", "amplitude_limit", "process_kind"} | ENG_KEYS
 
 
 @pytest.fixture(scope="module")
@@ -71,7 +72,14 @@ def test_get_returns_the_document_with_a_knowledge_block(
     client: TestClient, loop_name: str
 ) -> None:
     body = client.get(_knowledge_url(loop_name)).json()
-    assert set(body) == {"loop", "knowledge", "saved", "ranges"}
+    assert set(body) == {
+        "loop",
+        "knowledge",
+        "saved",
+        "ranges",
+        "pv_eng_default",
+        "out_eng_default",
+    }
     assert body["loop"] == loop_name
 
 
@@ -185,3 +193,57 @@ def test_a_failed_put_creates_no_project_file(
 ) -> None:
     client.put(_knowledge_url(loop_name), json={"not_a_key": 1.0})
     assert not (data_root / DATASET / PROJECT_FILE).exists()
+
+
+def test_get_reports_the_tag_row_defaults_and_no_override(
+    client: TestClient, loop_name: str
+) -> None:
+    body = client.get(_knowledge_url(loop_name)).json()
+    assert set(body["pv_eng_default"]) == {"min", "max"}
+    assert set(body["out_eng_default"]) == {"min", "max"}
+    assert all(body["knowledge"][key] is None for key in ENG_KEYS)
+
+
+def test_eng_override_round_trips_and_defaults_stay(client: TestClient, loop_name: str) -> None:
+    before = client.get(_knowledge_url(loop_name)).json()
+    update = {"pv_eng_min": -5.0, "pv_eng_max": 250.0, "out_eng_min": 4.0, "out_eng_max": 20.0}
+    assert client.put(_knowledge_url(loop_name), json=update).status_code == 200
+    after = client.get(_knowledge_url(loop_name)).json()
+    assert {key: after["knowledge"][key] for key in ENG_KEYS} == update
+    assert after["pv_eng_default"] == before["pv_eng_default"]
+    assert after["out_eng_default"] == before["out_eng_default"]
+
+
+def test_eng_override_can_be_cleared_with_none(client: TestClient, loop_name: str) -> None:
+    client.put(_knowledge_url(loop_name), json={"pv_eng_min": -5.0})
+    body = client.put(_knowledge_url(loop_name), json={"pv_eng_min": None}).json()
+    assert body["knowledge"]["pv_eng_min"] is None
+
+
+def test_eng_override_min_not_below_max_is_422(client: TestClient, loop_name: str) -> None:
+    update = {"out_eng_min": 20.0, "out_eng_max": 20.0}
+    assert client.put(_knowledge_url(loop_name), json=update).status_code == 422
+    assert client.get(_knowledge_url(loop_name)).json()["saved"] is False
+
+
+def test_eng_override_against_the_tag_row_bound_is_422(client: TestClient, loop_name: str) -> None:
+    default = client.get(_knowledge_url(loop_name)).json()["pv_eng_default"]
+    if default["max"] is None:
+        pytest.skip("the tag row has no eng_max")
+    update = {"pv_eng_min": default["max"] + 1.0}
+    assert client.put(_knowledge_url(loop_name), json=update).status_code == 422
+
+
+@pytest.mark.parametrize("bad", ["x", True])
+def test_eng_override_non_number_is_422(client: TestClient, loop_name: str, bad: object) -> None:
+    response = client.put(_knowledge_url(loop_name), json={"pv_eng_max": bad})
+    assert response.status_code == 422
+
+
+def test_eng_override_infinity_is_422(client: TestClient, loop_name: str) -> None:
+    response = client.put(
+        _knowledge_url(loop_name),
+        content='{"pv_eng_max": Infinity}',
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 422

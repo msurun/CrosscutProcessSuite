@@ -22,19 +22,38 @@ from crosscut_loops.project_loops import (
     AMPLITUDE_LIMIT_KEY,
     DEFAULT_PROCESS_KIND,
     DELAY_KEY,
+    ENG_MAX_KEY,
+    ENG_MIN_KEY,
     ID_KEY,
     LOOPS_KEY,
     MODE_KEY,
     NAME_KEY,
+    OUT_ENG_MAX_KEY,
+    OUT_ENG_MIN_KEY,
     OUT_KEY,
     PROCESS_KIND_KEY,
+    PV_ENG_MAX_KEY,
+    PV_ENG_MIN_KEY,
     PV_KEY,
     SP_KEY,
     ULTIMATE_PERIOD_KEY,
 )
 
 # The per-loop keys that carry the user's tuning knowledge.
-KNOWLEDGE_KEYS = (DELAY_KEY, ULTIMATE_PERIOD_KEY, AMPLITUDE_LIMIT_KEY, PROCESS_KIND_KEY)
+# The four engineering-range overrides (PV and OUT, min and max) are knowledge keys too.
+ENG_OVERRIDE_KEYS = (PV_ENG_MIN_KEY, PV_ENG_MAX_KEY, OUT_ENG_MIN_KEY, OUT_ENG_MAX_KEY)
+KNOWLEDGE_KEYS = (
+    DELAY_KEY,
+    ULTIMATE_PERIOD_KEY,
+    AMPLITUDE_LIMIT_KEY,
+    PROCESS_KIND_KEY,
+    *ENG_OVERRIDE_KEYS,
+)
+# Per signal: (loop-entry role key, override min key, override max key).
+_SIGNAL_RANGES = (
+    ("pv", PV_KEY, PV_ENG_MIN_KEY, PV_ENG_MAX_KEY),
+    ("out", OUT_KEY, OUT_ENG_MIN_KEY, OUT_ENG_MAX_KEY),
+)
 # Numeric knowledge keys must be strictly positive; the value is in the key's own unit
 # (seconds for the two time keys, engineering units for the amplitude limit).
 NUMERIC_KNOWLEDGE_KEYS = (DELAY_KEY, ULTIMATE_PERIOD_KEY, AMPLITUDE_LIMIT_KEY)
@@ -57,7 +76,8 @@ def validate_knowledge(update: Mapping[str, Any]) -> dict[str, Any]:
 
     ``update`` may contain only keys of ``KNOWLEDGE_KEYS``; a value of None means "clear this
     key". Numeric keys must be real numbers (not bool), finite and strictly positive;
-    ``process_kind`` must be one of ``PROCESS_KINDS``.
+    ``process_kind`` must be one of ``PROCESS_KINDS``. The four engineering-range overrides
+    (``ENG_OVERRIDE_KEYS``) must be finite real numbers of any sign.
 
     Returns:
         A new dict with the validated values (None kept as None to signal "clear").
@@ -106,14 +126,20 @@ def loop_knowledge(project: Mapping[str, Any], loop_name: str) -> dict[str, Any]
 
 
 def apply_knowledge(
-    project: Mapping[str, Any], loop_name: str, update: Mapping[str, Any]
+    project: Mapping[str, Any],
+    loop_name: str,
+    update: Mapping[str, Any],
+    tags: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Return a deep copy of ``project`` with ``update`` applied to one loop.
 
-    A None value in the validated update removes that key from the entry.
+    A None value in the validated update removes that key from the entry. Afterwards each
+    signal's effective range (entry override, else tag row from ``tags``) must have min < max
+    when both ends are known.
 
     Raises:
-        KnowledgeError: when ``update`` is invalid (see ``validate_knowledge``).
+        KnowledgeError: when ``update`` is invalid (see ``validate_knowledge``) or leaves an
+            effective range with min >= max.
         KeyError: when no loop has that display name.
     """
     cleaned = validate_knowledge(update)
@@ -121,7 +147,27 @@ def apply_knowledge(
     entry = find_entry(edited_project, loop_name)
     for key, value in cleaned.items():
         _set_or_remove(entry, key, value)
+    _check_effective_ranges(entry, tags)
     return edited_project
+
+
+def tag_range_defaults(
+    project: Mapping[str, Any], loop_name: str, tags: Sequence[Mapping[str, Any]]
+) -> dict[str, dict[str, float | None]]:
+    """The tag rows' own ranges of one loop: ``pv_eng_default`` and ``out_eng_default``.
+
+    Each value is ``{"min": ..., "max": ...}`` from the tag row (None where it has none), i.e.
+    what applies when the loop entry carries no override.
+
+    Raises:
+        KeyError: when no loop has that display name.
+    """
+    entry = find_entry(project, loop_name)
+    rows = _rows_by_id(tags)
+    return {
+        f"{signal}_eng_default": _row_range(rows.get(str(entry.get(role_key))))
+        for signal, role_key, _, _ in _SIGNAL_RANGES
+    }
 
 
 def project_from_loops(loops: Sequence[LoopTags]) -> dict[str, Any]:
@@ -170,6 +216,8 @@ def _clean_value(key: str, value: Any) -> Any:
         return None
     if key == PROCESS_KIND_KEY:
         return _clean_process_kind(value)
+    if key in ENG_OVERRIDE_KEYS:
+        return _clean_finite_number(key, value)
     return _clean_positive_number(key, value)
 
 
@@ -180,15 +228,45 @@ def _clean_process_kind(value: Any) -> str:
     return value
 
 
-def _clean_positive_number(key: str, value: Any) -> float:
-    """The value as a finite float strictly greater than zero.
+def _clean_finite_number(key: str, value: Any) -> float:
+    """The value as a finite float of any sign.
 
     ``bool`` is rejected explicitly: in Python ``True`` is an int and would pass silently.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise KnowledgeError(f"{key} must be a number, got {value!r}")
     number = float(value)
-    if not math.isfinite(number) or number <= 0.0:
+    if not math.isfinite(number):
+        raise KnowledgeError(f"{key} must be finite, got {value!r}")
+    return number
+
+
+def _rows_by_id(tags: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    """The tag rows indexed by tag id."""
+    return {str(row[ID_KEY]): row for row in tags}
+
+
+def _row_range(row: Mapping[str, Any] | None) -> dict[str, float | None]:
+    """``{"min", "max"}`` of a tag row; both None when the row is missing."""
+    source: Mapping[str, Any] = row or {}
+    return {"min": source.get(ENG_MIN_KEY), "max": source.get(ENG_MAX_KEY)}
+
+
+def _check_effective_ranges(entry: Mapping[str, Any], tags: Sequence[Mapping[str, Any]]) -> None:
+    """Raise KnowledgeError when a signal's effective range has min >= max."""
+    rows = _rows_by_id(tags)
+    for signal, role_key, min_key, max_key in _SIGNAL_RANGES:
+        default = _row_range(rows.get(str(entry.get(role_key))))
+        low = entry.get(min_key, default["min"])
+        high = entry.get(max_key, default["max"])
+        if low is not None and high is not None and low >= high:
+            raise KnowledgeError(f"{signal} range needs min < max, got {low!r} and {high!r}")
+
+
+def _clean_positive_number(key: str, value: Any) -> float:
+    """The value as a finite float strictly greater than zero."""
+    number = _clean_finite_number(key, value)
+    if number <= 0.0:
         raise KnowledgeError(f"{key} must be finite and greater than 0, got {value!r}")
     return number
 
