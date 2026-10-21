@@ -15,13 +15,13 @@
   --focus-ring: #0b5cab;
 
   /* Status colours are muted on purpose: never pure red or green. */
-  --status-ok: #2f7d4f;        /* 4.6:1 on --surface */
+  --status-ok: #286d46;        /* 5.3:1 on --status-ok-bg */
   --status-ok-bg: #e4f0e7;
   --status-warning: #8a6100;   /* 5.0:1 on --surface */
   --status-warning-bg: #f7eed6;
   --status-problem: #a13a3a;   /* 5.4:1 on --surface */
   --status-problem-bg: #f6e3e3;
-  --status-unused: #6a7079;    /* 4.9:1 on --surface */
+  --status-unused: #5f656e;    /* 5.0:1 on --status-unused-bg */
   --status-unused-bg: #eceef0;
 
   /* Series palette: Okabe-Ito, distinguishable for colour-vision deficiencies. */
@@ -311,7 +311,7 @@ body {
   .top-bar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px; }
   .app-body { grid-template-columns: 1fr; }
   .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
-  .main-area { padding: 12px 16px; overflow: visible; }
+  .main-area { padding: 12px 16px; overflow-x: auto; overflow-y: visible; }
   .view-tabs { flex-wrap: wrap; }
   .loop-detail-grid { grid-template-columns: 1fr; }
   .loops-toolbar { align-items: stretch; }
@@ -366,6 +366,14 @@ body {
   .app-shell, .app-body { display: block; height: auto; }
   .main-area { overflow: visible; padding: 0; }
   body { background: #fff; color: #000; }
+  @page { margin: 12mm; }
+  .main-area * { color: #000 !important; background: #fff !important; }
+  .main-area button, .main-area input[type="range"], .notice { display: none !important; }
+  .loop-detail-grid { display: block; }
+  tr, figure, canvas, .uplot, .chart-legend, details { break-inside: avoid; }
+  h2, h3, h4 { break-after: avoid; }
+  .table-scroll { overflow: visible; }
+  a { text-decoration: none; }
 }
 .valve-test form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 20px; max-width: 960px; }
 .valve-test form .valve-intro, .valve-test form details, .valve-test form button[type="submit"] { grid-column: 1 / -1; justify-self: start; }

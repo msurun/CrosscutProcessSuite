@@ -721,3 +721,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   served by the knowledge API with the tag-row defaults; min >= max is refused (422). Editor: range group, "how to measure" help, post-save diff.
 - 438 vitest, loops+api pytest, ruff green. Not checked in a browser; pl/es wording is machine-written and needs a native read.
 - Next: P5 Trends tab, P6 Fuzzy Studio, P7 quality (Playwright, axe).
+
+## UI remediation P7: quality (2026-10-20)
+- Added `frontend/e2e/smoke.spec.ts` (Playwright + axe, 11 views x 1440/390 px, PL), `playwright.config.ts`, `npm run e2e`,
+  `npm run lint` (ESLint 9 flat config, 40 lines / 4 params as warnings on files touched on 2026-10-20), `manualChunks`
+  (react, uplot; largest chunk 205 kB), print CSS for report pages, `frontend/README.md` (how to run e2e).
+- Browser run found: status chip contrast 4.3:1 (ok and unused colours darkened), unlabeled term inputs and shape selects in the
+  fuzzy variable editor (aria-labels, en/pl/es keys), horizontal page scroll at 390 px on fuzzy and benefit pages
+  (main area scrolls instead). Still open: English text from the backend fuzzy example rule base in the PL UI.

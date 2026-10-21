@@ -187,6 +187,8 @@
   "fuzzy.term.shape.trap": "Trapez",
   "fuzzy.term.shape.gauss": "Gaussa",
   "fuzzy.term.invalid": "Te parametry nie są rosnące.",
+  "fuzzy.term.shapeLabel": "Kształt terminu {name}",
+  "fuzzy.term.paramLabel": "Parametr {n} terminu {name}",
   "fuzzy.rules": "Reguły",
   "fuzzy.rule.if": "JEŻELI",
   "fuzzy.rule.is": "jest",

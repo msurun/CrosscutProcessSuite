@@ -5,6 +5,17 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: { "/api": { target: "http://127.0.0.1:8000", rewrite: (p) => p.replace(/^\/api/, "") } } },
-  test: { environment: "jsdom", globals: true, setupFiles: ["./src/setupTests.ts"] },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes("node_modules/uplot")) return "uplot";
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "react";
+          return undefined;
+        },
+      },
+    },
+  },
+  server: { proxy: { "/api": { target: process.env.CROSSCUT_API ?? "http://127.0.0.1:8000", rewrite: (p) => p.replace(/^\/api/, "") } } },
+  test: { exclude: ["e2e/**", "node_modules/**"], environment: "jsdom", globals: true, setupFiles: ["./src/setupTests.ts"] },
 });

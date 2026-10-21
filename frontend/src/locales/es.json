@@ -187,6 +187,8 @@
   "fuzzy.term.shape.trap": "Trapecio",
   "fuzzy.term.shape.gauss": "Gaussiana",
   "fuzzy.term.invalid": "Estos parámetros no están en orden creciente.",
+  "fuzzy.term.shapeLabel": "Forma del término {name}",
+  "fuzzy.term.paramLabel": "Parámetro {n} del término {name}",
   "fuzzy.rules": "Reglas",
   "fuzzy.rule.if": "SI",
   "fuzzy.rule.is": "es",

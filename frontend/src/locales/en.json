@@ -187,6 +187,8 @@
   "fuzzy.term.shape.trap": "Trapezoid",
   "fuzzy.term.shape.gauss": "Gaussian",
   "fuzzy.term.invalid": "These parameters are not in increasing order.",
+  "fuzzy.term.shapeLabel": "Shape of term {name}",
+  "fuzzy.term.paramLabel": "Parameter {n} of term {name}",
   "fuzzy.rules": "Rules",
   "fuzzy.rule.if": "IF",
   "fuzzy.rule.is": "is",

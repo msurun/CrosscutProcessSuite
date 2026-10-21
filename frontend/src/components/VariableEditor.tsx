@@ -169,13 +169,19 @@ function TermRow({
     <tr className={isSelected ? "row-selected" : undefined} onClick={onSelect}>
       <td>{term.name}</td>
       <td>
-        <ShapeSelect shape={term.shape} onChange={(shape) => onChange(changeShape(term, shape, variable))} t={t} />
+        <ShapeSelect
+          shape={term.shape}
+          label={t("fuzzy.term.shapeLabel", { name: term.name })}
+          onChange={(shape) => onChange(changeShape(term, shape, variable))}
+          t={t}
+        />
       </td>
       {term.params.map((value, index) => (
         <td key={index}>
           <input
             type="number"
             step="any"
+            aria-label={t("fuzzy.term.paramLabel", { n: index + 1, name: term.name })}
             value={value}
             onChange={(event) => {
               const next = replaceParameter(term, index, event.target.value);
@@ -190,9 +196,9 @@ function TermRow({
 }
 
 /** Dropdown of the three shapes. */
-function ShapeSelect({ shape, onChange, t }: { shape: TermShape; onChange: (shape: TermShape) => void; t: Translate }) {
+function ShapeSelect({ shape, label, onChange, t }: { shape: TermShape; label: string; onChange: (shape: TermShape) => void; t: Translate }) {
   return (
-    <select value={shape} onChange={(event) => onChange(event.target.value as TermShape)}>
+    <select aria-label={label} value={shape} onChange={(event) => onChange(event.target.value as TermShape)}>
       {SHAPE_ORDER.map((candidate) => (
         <option key={candidate} value={candidate}>
           {t(SHAPE_LABEL_KEYS[candidate])}
