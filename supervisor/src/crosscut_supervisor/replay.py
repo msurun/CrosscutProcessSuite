@@ -17,7 +17,7 @@ from crosscut_loops.overview import LoopTags, analyze_dataset
 from crosscut_supervisor.advise import Advice, advise
 from crosscut_supervisor.audit import AuditLog
 from crosscut_supervisor.config import SupervisorConfig
-from crosscut_supervisor.gates import gate_state
+from crosscut_supervisor.gates import GateResult, gate_state
 
 
 class ReplayError(ValueError):
@@ -83,10 +83,7 @@ def advise_series(
     Raises:
         ReplayError: a fuzzy input matches no column or several, or a loop column is missing.
     """
-    names = {gate.loop for gate in config.gates} | {config.target_loop}
-    chosen = [loop for loop in loops if loop.name in names]
-    _check_loop_columns(chosen, data)
-    mapping = _map_inputs(system, data)
+    chosen, mapping = _prepare(system, config, data, loops)
     state = _State()
     for t_end in _step_times(data.t_s, settings):
         window = _slice(data, t_end, settings.window_s)
@@ -94,11 +91,46 @@ def advise_series(
     return state.kept
 
 
+def advise_at(
+    system: FuzzySystem,
+    config: SupervisorConfig,
+    inputs: tuple[ReplayData, Sequence[LoopTags]],
+    window: tuple[float, float],
+) -> tuple[Advice | None, GateResult]:
+    """One advice evaluation: the last ``window[1]`` seconds ending at ``window[0]``.
+
+    Same evaluation as one replay step, without debounce or transition memory. Returns the
+    advice (None when silent or mode is off) and the gate state seen, so a caller can show why
+    nothing was advised. Nothing is written.
+
+    Raises:
+        ReplayError: a fuzzy input matches no column or several, or a loop column is missing.
+    """
+    data, loops = inputs
+    t_end, window_s = window
+    chosen, mapping = _prepare(system, config, data, loops)
+    cut = _slice(data, t_end, window_s)
+    rows = analyze_dataset(cut.t_s, cut.columns, chosen) if chosen else []
+    gate = gate_state(rows, config)
+    advice = advise(system, config, _window_means(cut, mapping), gate, int(t_end * 1e9))
+    return advice, (advice.gate if advice is not None else gate)
+
+
 def replay_to_log(advices: Sequence[Advice], log: AuditLog) -> int:
     """Append every advice as a hash-chained record; return how many were written."""
     for advice in advices:
         log.append(advice.to_record())
     return len(advices)
+
+
+def _prepare(
+    system: FuzzySystem, config: SupervisorConfig, data: ReplayData, loops: Sequence[LoopTags]
+) -> tuple[list[LoopTags], dict[str, str]]:
+    """The gating and target loops (columns checked) and the variable-to-column mapping."""
+    names = {gate.loop for gate in config.gates} | {config.target_loop}
+    chosen = [loop for loop in loops if loop.name in names]
+    _check_loop_columns(chosen, data)
+    return chosen, _map_inputs(system, data)
 
 
 def _step(

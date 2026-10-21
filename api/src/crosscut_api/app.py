@@ -32,6 +32,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
+from crosscut_api.supervisor_routes import build_supervisor_router
 from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
 
 DEFAULT_MAX_POINTS = 2000
@@ -214,6 +215,11 @@ class DatasetStore:
     def tags_of(self, dataset_dir: Path) -> list[dict[str, Any]]:
         """Return the "tags" list stored in ``tags.json`` next to a dataset."""
         return _tags_from_document(_read_json(dataset_dir / "tags.json"))
+
+    def loops_of(self, dataset_id: str) -> list[LoopTags]:
+        """The control loops of a dataset (its project.json, else found by naming convention)."""
+        dataset_dir = _dataset_dir(self.root, dataset_id)
+        return _loops_of(dataset_dir, self.tags_of(dataset_dir))
 
     def find_loop(self, dataset_dir: Path, loop_name: str) -> Any:
         """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
@@ -510,6 +516,7 @@ def create_app(data_root: Path) -> FastAPI:
     # The fuzzy rule-base endpoints (replay, backtest) need the same loaded tables, so they
     # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
+    app.include_router(build_supervisor_router(store.root, store.load_seconds, store.loops_of))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
