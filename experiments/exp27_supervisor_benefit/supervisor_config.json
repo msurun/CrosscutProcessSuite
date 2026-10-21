@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "id": "exp27_mill_feed",
+  "description": "exp27 advisory supervisor for the simulated mill feed loop; used unchanged for arm b (crisp) and arm c (fuzzy v2). Frozen by sha256 in README.md.",
+  "fuzzy_system_id": "mill_feed_supervisor_v2",
+  "output_id": "feed_change",
+  "target_loop": "mill_feed",
+  "mode": "advisory",
+  "gates": [
+    {
+      "loop": "mill_feed",
+      "block_on": ["manual", "saturated", "flatline", "unknown"],
+      "warn_on": ["oscillating"]
+    }
+  ],
+  "silent_band": 1.0,
+  "min_activation": 0.2,
+  "min_interval_s": 1500,
+  "display_clamp": [-20, 20]
+}

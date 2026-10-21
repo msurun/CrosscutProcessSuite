@@ -56,4 +56,27 @@ The operator is a simulation we wrote; acceptance probability and delay are assu
 Supervisor package: written by Sonnet subagents under the lead. Harness, operator model and baseline rule base: written by an Opus subagent
 that does not edit the supervisor package. Recorded here after the run.
 
+Harness note (Opus subagent, 2026-10-20): wrote `exp27.py`, `test_exp27_smoke.py`, `supervisor_config.json` and
+`baseline_rulebase.json`; did not modify `supervisor/`. Choices the protocol leaves open, fixed before the first dev seed:
+- Advice per operator instant via `crosscut_supervisor.replay.advise_at` (module 1 `analyze_dataset` + `gate_state` + `advise`,
+  window (t_k - 1800 s, t_k]); first instant t_1 = 1800 s. Acceptance: `default_rng(seed).random(n_instants) < 0.8`, one draw per
+  instant whether or not advice exists, so arms b and c see identical draws. Accepted step: SP := clip(SP + feed_change, 0, 300) at t_k + 300 s.
+- Arms b/c prepend `("operator", 0.0)` to the observational scenario params, which also stops the built-in press and water moves.
+- mill_feed `LoopTags` carry `delay_s` 30 and `ultimate_period_s` 600 (as `supervisor/tests/test_replay.py`); without them module 1
+  rates the loop `not_assessed` and the frozen `unknown` block closes every gate (seen in the first smoke run).
+- Baseline: input terms rectangular (trap a=b, c=d); output terms copied unchanged from v2, so only the antecedents differ.
+- E1: a non-hold advice counts when every sample of its window is faulted; "named" = a blocked record whose window touches the fault
+  carries `manual:mill_feed` / `flatline:mill_feed`. E2 checks the closed-loop arm c advices AND the min spacing of the `advise_series`
+  fault replays. E3 pass = wins >= 0.7 x seeds (14/20 on test). E5 window ends on the last sample before the arm a move; hold or silence = no advice.
+- Dev seeds 27001..27010 (results/dev.md, informational): E1 0 inside, named 20/20; E2 median 1.65/h; E3 9/10; E4 -0.0018; E5 0.206;
+  gate-open share 1.00. No harness bug found after the `not_assessed` fix above; runtime 305 s.
+
 ## Frozen files (sha256 recorded at freeze, filled in by the commit that adds the harness and before the first dev seed)
+sha256 of the LF-normalised bytes (= git blob content; `tr -d '\r' < f | sha256sum`). On a Windows checkout with autocrlf v2 is CRLF.
+
+| file | sha256 |
+|------|--------|
+| `experiments/exp27_supervisor_benefit/supervisor_config.json` | `ab88cf3f30d81fd5b5b7707464a3d5aebd9e28302932fedc872fd1e82b057c02` |
+| `experiments/exp27_supervisor_benefit/baseline_rulebase.json` | `c9fe983431f21a93d2f32af2f9bc9717de1cc2fd6e7a52ad8e7d9e9f1e63edc3` |
+| `experiments/exp27_supervisor_benefit/exp27.py` | `0d6b5fad2add9ec68133aec4bb9a740e7b61a1f761ff0b9aeb30c1466e4f0fb4` |
+| `fuzzy/examples/mill_feed_supervisor_v2.json` | `a901cd75d6e9e140fff631151dc2544e10fee79583d0dcf14e0f7261cd4ac83a` |

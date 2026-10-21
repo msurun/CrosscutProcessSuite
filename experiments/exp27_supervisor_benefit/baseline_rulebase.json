@@ -1,0 +1,66 @@
+{
+  "schema_version": "0.1.0",
+  "name": "exp27 crisp threshold baseline (arm b)",
+  "description": "Crisp comparison rule base for exp27: one threshold rule per direction, rectangular input terms (membership 0 or 1). Input and output variable ids, tags and ranges and the output terms are copied from fuzzy/examples/mill_feed_supervisor_v2.json, so only the antecedents differ from arm c. Thresholds 3200 kW, 158 um and 142 um are fixed by the exp27 protocol. A value exactly on a threshold belongs to both neighbouring rectangles (inclusive edges); with window means this has probability zero.",
+  "inputs": [
+    {
+      "id": "mill_power",
+      "label": "Mill power",
+      "unit": "kW",
+      "tag": "sim.mc.mill_power",
+      "low": 2600,
+      "high": 3400,
+      "terms": [
+        {"name": "not_high", "shape": "trap", "params": [2600, 2600, 3200, 3200]},
+        {"name": "high", "shape": "trap", "params": [3200, 3200, 3400, 3400]}
+      ]
+    },
+    {
+      "id": "p80",
+      "label": "Product size P80",
+      "unit": "um",
+      "tag": "sim.mc.p80",
+      "low": 120,
+      "high": 180,
+      "terms": [
+        {"name": "fine", "shape": "trap", "params": [120, 120, 142, 142]},
+        {"name": "coarse", "shape": "trap", "params": [158, 158, 180, 180]}
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "id": "feed_change",
+      "label": "Mill feed change",
+      "unit": "t/h",
+      "tag": "sim.mc.mill_feed_sp",
+      "low": -10,
+      "high": 10,
+      "terms": [
+        {"name": "decrease_large", "shape": "tri", "params": [-10, -10, -5]},
+        {"name": "decrease_small", "shape": "tri", "params": [-8, -4, 0]},
+        {"name": "hold", "shape": "tri", "params": [-3, 0, 3]},
+        {"name": "increase_small", "shape": "tri", "params": [0, 4, 8]},
+        {"name": "increase_large", "shape": "tri", "params": [5, 10, 10]}
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "b1",
+      "if": [{"variable": "mill_power", "is": "high"}],
+      "then": {"variable": "feed_change", "is": "decrease_large"}
+    },
+    {
+      "id": "b2",
+      "if": [{"variable": "p80", "is": "coarse"}],
+      "then": {"variable": "feed_change", "is": "decrease_small"}
+    },
+    {
+      "id": "b3",
+      "if": [{"variable": "p80", "is": "fine"}, {"variable": "mill_power", "is": "not_high"}],
+      "operator": "and",
+      "then": {"variable": "feed_change", "is": "increase_small"}
+    }
+  ]
+}
