@@ -1,12 +1,12 @@
 // src/App.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   fetchDatasets,
-  fetchSeries,
+  fetchLoops,
   fetchTags,
   type DatasetSummary,
-  type Series,
+  type LoopSummary,
   type TagInfo,
 } from "./api";
 import { availableLanguages, detectLanguage, translate } from "./i18n";
@@ -18,27 +18,8 @@ import { formatHash, withDataset, withView, type View } from "./route";
 import { useRoute } from "./useRoute";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
-import { TrendPane } from "./components/TrendPane";
-import { anyDownsampled, toUplotData } from "./trendData";
+import { TrendsPage } from "./components/TrendsPage";
 import { useTheme, type ThemePreference } from "./useTheme";
-
-/** Number of CSS series colour variables defined, cycled index % this. */
-const SERIES_COLOR_COUNT = 7;
-/** Maximum number of points the backend may return per series. */
-const MAX_POINTS = 1500;
-/** Height in pixels of every trend pane. */
-const TREND_PANE_HEIGHT_PX = 260;
-
-/** Lifecycle of the series request for the current dataset + tag selection. */
-type Status = "idle" | "loading" | "error";
-
-/** One trend pane: the tags that share a unit, plus the display metadata. */
-interface UnitGroup {
-  unit: string;
-  series: Series[];
-  labels: string[];
-  colors: string[];
-}
 
 /** Language, its translator and the language setter, for the whole app. */
 interface LanguageState {
@@ -76,6 +57,27 @@ function useDatasets(): { datasets: DatasetSummary[]; failed: boolean; loaded: b
   }, [attempt]);
 
   return { datasets, failed, loaded, retry: () => setAttempt((count) => count + 1) };
+}
+
+/** Loads the analysed loops of `datasetId` for grouping tags; a failure just means no grouping by loop. */
+function useLoops(datasetId: string): LoopSummary[] {
+  const [loops, setLoops] = useState<LoopSummary[]>([]);
+
+  useEffect(() => {
+    setLoops([]);
+    if (datasetId === "") return;
+    let isCancelled = false;
+    fetchLoops(datasetId)
+      .then((loaded) => {
+        if (!isCancelled) setLoops(loaded);
+      })
+      .catch((error: unknown) => console.error("Failed to load loops", error));
+    return () => {
+      isCancelled = true;
+    };
+  }, [datasetId]);
+
+  return loops;
 }
 
 /** Keeps the current language in sync with the browser and the document. */
@@ -126,70 +128,6 @@ function useTags(datasetId: string): TagInfo[] {
   return tags;
 }
 
-/** Loads the series of the selected tags, ignoring stale responses. */
-function useSeries(
-  datasetId: string,
-  selectedTags: readonly string[],
-): { series: Series[]; status: Status; errorReason: string } {
-  const [series, setSeries] = useState<Series[]>([]);
-  const [status, setStatus] = useState<Status>("idle");
-  const [errorReason, setErrorReason] = useState<string>("");
-
-  useEffect(() => {
-    if (datasetId === "" || selectedTags.length === 0) {
-      setSeries([]);
-      setStatus("idle");
-      setErrorReason("");
-      return;
-    }
-    let isCancelled = false;
-    setStatus("loading");
-
-    fetchSeries(datasetId, selectedTags, { maxPoints: MAX_POINTS })
-      .then((response) => {
-        if (isCancelled) {
-          return;
-        }
-        setSeries(response.series);
-        setStatus("idle");
-      })
-      .catch((error: unknown) => {
-        if (isCancelled) {
-          return;
-        }
-        setSeries([]);
-        setStatus("error");
-        setErrorReason(error instanceof Error ? error.message : String(error));
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [datasetId, selectedTags]);
-
-  return { series, status, errorReason };
-}
-
-/** Groups series by the unit of their tag, assigning colours in running order. */
-function buildUnitGroups(series: readonly Series[], tags: readonly TagInfo[]): UnitGroup[] {
-  const unitOfTag = new Map(tags.map((tag) => [tag.id, tag.unit ?? ""]));
-  const groups = new Map<string, Series[]>();
-
-  for (const one of series) {
-    const unit = unitOfTag.get(one.tag) ?? "";
-    const bucket = groups.get(unit) ?? [];
-    bucket.push(one);
-    groups.set(unit, bucket);
-  }
-
-  let colorIndex = 0;
-  return [...groups].map(([unit, groupedSeries]) => {
-    const labels = groupedSeries.map((one) => one.tag);
-    const colors = groupedSeries.map(() => `--series-${(colorIndex++ % SERIES_COLOR_COUNT) + 1}`);
-    return { unit, series: groupedSeries, labels, colors };
-  });
-}
-
 /** Root component: wires the data hooks, the layout and the trend panes. */
 export function App() {
   const { datasets, failed, loaded, retry } = useDatasets();
@@ -219,7 +157,7 @@ export function App() {
   }, [route]);
 
   const tags = useTags(selectedDatasetId);
-  const { series, status, errorReason } = useSeries(selectedDatasetId, selectedTags);
+  const loops = useLoops(selectedDatasetId);
   const dataset = datasets.find((one) => one.id === selectedDatasetId);
   const datasetMissing = loaded && selectedDatasetId !== "" && dataset === undefined;
 
@@ -235,8 +173,6 @@ export function App() {
     );
   };
 
-  const unitGroups = useMemo(() => buildUnitGroups(series, tags), [series, tags]);
-  const isDownsampled = anyDownsampled(series);
   const themeNames: Record<ThemePreference, string> = {
     light: t("theme.light"),
     dark: t("theme.dark"),
@@ -283,6 +219,8 @@ export function App() {
               onToggle={handleToggleTag}
               searchLabel={t("trends.searchTags")}
               emptyLabel={t("trends.noTagsMatch")}
+              loops={loops}
+              otherLabel={t("trends.otherTags")}
             />
           )}
         </aside>
@@ -325,40 +263,13 @@ export function App() {
               />
             )}
             {!datasetMissing && view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
-            {!datasetMissing && view === "trends" && renderTrendArea()}
+            {!datasetMissing && view === "trends" && (
+              <TrendsPage datasetId={selectedDatasetId} tags={tags} selectedTags={selectedTags} t={t} />
+            )}
           </ErrorBoundary>
         </main>
       </div>
     </div>
   );
 
-  /** Picks between the loading, error, empty and chart states of the main area. */
-  function renderTrendArea() {
-    if (status === "loading") {
-      return <p className="status">{t("trends.loading")}</p>;
-    }
-    if (status === "error") {
-      return <p className="status status-error">{t("trends.error", { reason: errorReason })}</p>;
-    }
-    if (selectedTags.length === 0) {
-      return <p className="status">{t("trends.noData")}</p>;
-    }
-    return (
-      <>
-        {isDownsampled && <span className="badge">{t("trends.downsampled")}</span>}
-        {unitGroups.map((group) => (
-          <TrendPane
-            timeLabel={t("trends.time")}
-            key={group.unit}
-            data={toUplotData(group.series)}
-            labels={group.labels}
-            colors={group.colors}
-            unit={group.unit}
-            height={TREND_PANE_HEIGHT_PX}
-            syncKey="trends"
-          />
-        ))}
-      </>
-    );
-  }
 }

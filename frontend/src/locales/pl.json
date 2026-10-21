@@ -463,5 +463,9 @@
   "trend.role.sp": "SP",
   "trend.role.out": "OUT",
   "trend.range": "Zakres czasu",
-  "trend.modeBand": "Zacieniowanie: tryb ręczny"
+  "trend.modeBand": "Zacieniowanie: tryb ręczny",
+  "trends.otherTags": "Pozostałe tagi",
+  "trends.showMorePanes": "Pokaż jeszcze {count} wykresów",
+  "trends.readout": "Wartości w miejscu kursora",
+  "trends.readoutNone": "Przesuń kursor nad wykres, aby odczytać wartości."
 }

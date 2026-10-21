@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent, ReactElement } from "react";
 
-import type { TagInfo } from "../api";
+import type { LoopSummary, TagInfo } from "../api";
+import { groupTagsByLoop, type LoopTags } from "../tagGroups";
 
 /**
  * Case-insensitive substring match of `query` against `id` and `description`.
@@ -38,6 +39,10 @@ interface TagListProps {
   searchLabel: string;
   /** Already-translated message shown when the search matches nothing. */
   emptyLabel: string;
+  /** Analysed loops used to group the tags; without them the tag-name prefix decides. */
+  loops?: readonly LoopSummary[];
+  /** Heading of the group of tags that belong to no loop. */
+  otherLabel?: string;
 }
 
 /**
@@ -52,11 +57,13 @@ export function TagList({
   onToggle,
   searchLabel,
   emptyLabel,
+  loops = [],
+  otherLabel = "",
 }: TagListProps): ReactElement {
   const [query, setQuery] = useState("");
 
   // Recompute only when the tags or the query change, not on every render.
-  const visibleTags = useMemo(() => filterTags(tags, query), [tags, query]);
+  const groups = useMemo(() => groupTagsByLoop(filterTags(tags, query), loops), [tags, query, loops]);
 
   function handleQueryChange(event: ChangeEvent<HTMLInputElement>): void {
     setQuery(event.target.value);
@@ -71,22 +78,39 @@ export function TagList({
         value={query}
         onChange={handleQueryChange}
       />
-      {visibleTags.length === 0 ? (
+      {groups.length === 0 ? (
         <p>{emptyLabel}</p>
       ) : (
-        <ul>
-          {visibleTags.map((tag) => (
+        groups.map((group) => (
+          <LoopGroup key={group.loop} group={group} heading={group.loop || otherLabel} selected={selected} onToggle={onToggle} />
+        ))
+      )}
+    </div>
+  );
+}
+
+interface LoopGroupProps {
+  group: LoopTags;
+  heading: string;
+  selected: readonly string[];
+  onToggle: (tagId: string) => void;
+}
+
+/** One loop heading with its tags listed per unit. */
+function LoopGroup({ group, heading, selected, onToggle }: LoopGroupProps): ReactElement {
+  return (
+    <section className="tag-group">
+      <h3 className="tag-group-heading">{heading}</h3>
+      {group.units.map((units) => (
+        <ul key={units.unit} aria-label={units.unit || undefined}>
+          {units.tags.map((tag) => (
             <li key={tag.id}>
-              <TagRow
-                tag={tag}
-                isSelected={selected.includes(tag.id)}
-                onToggle={onToggle}
-              />
+              <TagRow tag={tag} isSelected={selected.includes(tag.id)} onToggle={onToggle} />
             </li>
           ))}
         </ul>
-      )}
-    </div>
+      ))}
+    </section>
   );
 }
 

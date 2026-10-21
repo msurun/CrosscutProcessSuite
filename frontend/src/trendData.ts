@@ -5,7 +5,7 @@
  * return new arrays, so they are trivial to unit test without a DOM.
  */
 
-import type { Series } from "./api";
+import type { Series, TagInfo } from "./api";
 
 /** Nanoseconds in one second. uPlot expects seconds, the API sends nanoseconds. */
 export const NS_PER_SECOND = 1e9;
@@ -222,5 +222,34 @@ export function alignModeToAxis(axis: readonly (number | null)[], mode: Series):
     const index = x === null ? -1 : nearestIndex(modeTimes, x);
     const value = index < 0 ? null : mode.mean[index];
     return value === null ? null : Math.round(value);
+  });
+}
+
+/** Number of CSS series colour variables defined, cycled index % this. */
+const SERIES_COLOR_COUNT = 7;
+
+/** One trend pane: the tags that share a unit, plus the display metadata. */
+export interface UnitGroup {
+  unit: string;
+  series: Series[];
+  labels: string[];
+  colors: string[];
+}
+
+/** Groups series by the unit of their tag, assigning colours in running order. */
+export function buildUnitGroups(series: readonly Series[], tags: readonly TagInfo[]): UnitGroup[] {
+  const unitOfTag = new Map(tags.map((tag) => [tag.id, tag.unit ?? ""]));
+  const groups = new Map<string, Series[]>();
+
+  for (const one of series) {
+    const unit = unitOfTag.get(one.tag) ?? "";
+    groups.set(unit, [...(groups.get(unit) ?? []), one]);
+  }
+
+  let colorIndex = 0;
+  return [...groups].map(([unit, groupedSeries]) => {
+    const labels = groupedSeries.map((one) => one.tag);
+    const colors = groupedSeries.map(() => `--series-${(colorIndex++ % SERIES_COLOR_COUNT) + 1}`);
+    return { unit, series: groupedSeries, labels, colors };
   });
 }

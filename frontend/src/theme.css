@@ -373,3 +373,8 @@ body {
 .knowledge-editor .field-howto { font-size: 12px; margin-top: 2px; }
 .knowledge-editor .knowledge-ranges { border: 1px solid var(--border, #8884); margin: 12px 0; padding: 8px 12px; }
 .knowledge-editor .knowledge-diff ul { margin: 4px 0; }
+
+/* Trends: tags grouped by loop, cursor readout */
+.tag-group-heading { margin: 8px 0 2px; font-size: 0.85rem; color: var(--text-muted); }
+.trend-readout { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+.trend-readout-title { font-weight: 600; margin: 0 0 2px; }

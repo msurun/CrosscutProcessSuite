@@ -463,5 +463,9 @@
   "trend.role.sp": "SP",
   "trend.role.out": "OUT",
   "trend.range": "Time range",
-  "trend.modeBand": "Shaded: manual mode"
+  "trend.modeBand": "Shaded: manual mode",
+  "trends.otherTags": "Other tags",
+  "trends.showMorePanes": "Show {count} more panes",
+  "trends.readout": "Values at the cursor",
+  "trends.readoutNone": "Move the cursor over a chart to read the values."
 }

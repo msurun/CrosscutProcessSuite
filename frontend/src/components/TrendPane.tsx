@@ -47,6 +47,8 @@ export interface TrendPaneProps {
   roles?: SeriesRole[];
   /** MODE tag values aligned with the time column; manual stretches (0) are shaded. */
   mode?: (number | null)[];
+  /** Called with the time (seconds) under the cursor, or null when the cursor leaves the plot. */
+  onCursor?: (seconds: number | null) => void;
 }
 
 /** What a value series is in the control loop. */
@@ -150,6 +152,12 @@ function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallb
     ],
     series,
     hooks: {
+      setCursor: [
+        (self) => {
+          const index = self.cursor.idx;
+          props.onCursor?.(index == null ? null : (self.data[0][index] ?? null));
+        },
+      ],
       drawClear: [(self) => drawModeBand(self, callbacks.spans(), textColor)],
       setScale: [
         (self, scaleKey) => {

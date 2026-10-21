@@ -463,5 +463,9 @@
   "trend.role.sp": "SP",
   "trend.role.out": "OUT",
   "trend.range": "Rango de tiempo",
-  "trend.modeBand": "Sombreado: modo manual"
+  "trend.modeBand": "Sombreado: modo manual",
+  "trends.otherTags": "Otros tags",
+  "trends.showMorePanes": "Mostrar {count} paneles más",
+  "trends.readout": "Valores en el cursor",
+  "trends.readoutNone": "Mueve el cursor sobre un gráfico para leer los valores."
 }
