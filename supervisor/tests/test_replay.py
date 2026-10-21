@@ -170,3 +170,14 @@ def test_replay_to_log_chain_verifies(tmp_path: Path) -> None:
     assert replay_to_log(advices, log) == len(advices) > 0
     report = log.verify()
     assert report.ok and report.records == len(advices)
+
+
+def test_replay_to_log_is_idempotent(tmp_path: Path) -> None:
+    """Replaying the same advices twice writes each advice id once."""
+    advices = _run(_faulty())
+    assert advices
+    log = AuditLog(tmp_path / "log.jsonl")
+    first = replay_to_log(advices, log)
+    assert first == len({a.advice_id for a in advices})
+    assert replay_to_log(advices, log) == 0
+    assert len(log.records()) == first

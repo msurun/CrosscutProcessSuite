@@ -117,10 +117,17 @@ def advise_at(
 
 
 def replay_to_log(advices: Sequence[Advice], log: AuditLog) -> int:
-    """Append every advice as a hash-chained record; return how many were written."""
+    """Append each advice not yet in the log as a hash-chained record; return how many were written.
+
+    Idempotent: ``advice_id`` is a hash of config, rule base and time, so replaying the same
+    stretch twice must not write duplicate ids (one acknowledgement would then cover both).
+    """
+    written = 0
     for advice in advices:
-        log.append(advice.to_record())
-    return len(advices)
+        if log.find_advice(advice.advice_id) is None:
+            log.append(advice.to_record())
+            written += 1
+    return written
 
 
 def _prepare(
