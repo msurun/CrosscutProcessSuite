@@ -115,3 +115,13 @@ def test_check_against_system_ok_and_unknown() -> None:
     check_against_system(load_config(VALID), system)
     with pytest.raises(SupervisorConfigError, match="output_id"):
         check_against_system(load_config(_doc(output_id="nope")), system)
+
+
+def test_bundled_mill_feed_advisor_example_is_valid() -> None:
+    """The example the web UI offers loads, targets the mill circuit and fits its fuzzy system."""
+    example = Path(__file__).resolve().parents[1] / "examples" / "mill_feed_advisor.json"
+    config = load_config(json.loads(example.read_text(encoding="utf-8")))
+    system_path = EXAMPLE.with_name(f"{config.fuzzy_system_id}.json")
+    system = system_from_dict(json.loads(system_path.read_text(encoding="utf-8")))
+    check_against_system(config, system)
+    assert config.target_loop == "mill_feed" and config.mode == "advisory"

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "id": "mill_feed_advisor",
+  "description": "Advisory only: suggests a mill feed setpoint move from the v2 fuzzy rule base, gated by the health of the mill feed loop. Nothing is written to a plant.",
+  "fuzzy_system_id": "mill_feed_supervisor_v2",
+  "output_id": "feed_change",
+  "target_loop": "mill_feed",
+  "mode": "advisory",
+  "gates": [
+    {"loop": "mill_feed", "block_on": ["manual", "saturated", "flatline"], "warn_on": ["oscillating"]}
+  ],
+  "silent_band": 0.3,
+  "min_activation": 0.2,
+  "min_interval_s": 300,
+  "display_clamp": [-10, 10]
+}

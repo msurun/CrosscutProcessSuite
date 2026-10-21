@@ -401,3 +401,15 @@ body {
 .fuzzy-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .fuzzy-tabpanel { padding: 8px 0 16px; }
 .banner-warning { border-left-color: var(--warning, #d97706); font-weight: 600; }
+
+/* Advisory page */
+.advice-list { margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.advice-card { padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; overflow-wrap: anywhere; }
+.advice-card p, .advice-explanation { margin: 4px 0; }
+.advice-explanation { padding-left: 18px; }
+.ack-form { display: grid; gap: 8px; max-width: 420px; padding: 8px 0; }
+.advisory-config { display: grid; gap: 4px; margin: 0; }
+.advisory-config div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.advisory-config dt { min-width: 240px; color: var(--text-muted); }
+.advisory-config dd { margin: 0; }
+.advisory-config ul { margin: 0; padding-left: 16px; }

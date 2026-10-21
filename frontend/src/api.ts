@@ -645,3 +645,168 @@ export async function analyseValveCsv(
     columns: columns ?? null,
   });
 }
+
+// ---- Advisory supervisor (module 2, ADR 010): advice, gates and the audit log. Nothing here writes to a plant. ----
+
+/** What the supervisor suggests for the target setpoint; "hold" means no move. */
+export type AdviceDirection = "increase" | "decrease" | "hold";
+/** State of the loop-health gate in front of an advice. */
+export type GateState = "open" | "degraded" | "blocked";
+/** The operator's decision about one advice. */
+export type AckDecision = "accepted" | "rejected" | "deferred";
+
+/** Gate verdict with the codes behind it (for example `mill_feed:manual`). */
+export interface AdvisoryGate {
+  state: GateState;
+  reasons: string[];
+}
+
+/** One fired rule that explains an advice. */
+export interface AdviceReason {
+  rule_id: string;
+  sentence: string;
+  strength: number;
+}
+
+/** An advice record (`schemas/advisory-record.schema.json`, kind "advice"); `t_ns` is UTC nanoseconds. */
+export interface AdviceRecord {
+  kind: "advice";
+  advice_id: string;
+  t_ns: number;
+  target_loop: string;
+  direction: AdviceDirection;
+  magnitude?: number | null;
+  activation: number;
+  explanation: AdviceReason[];
+  inputs: Record<string, number | null>;
+  gate: AdvisoryGate;
+  rulebase_sha256: string;
+  prev_sha256: string;
+}
+
+/** An acknowledgement record (kind "ack") of one logged advice. */
+export interface AckRecord {
+  kind: "ack";
+  advice_id: string;
+  decision: AckDecision;
+  reason_code: string;
+  note?: string;
+  who: string;
+  t_ns: number;
+  prev_sha256: string;
+}
+
+/** One line of the advisory log. */
+export type AdvisoryLogRecord = AdviceRecord | AckRecord;
+
+/** Supervisor configuration (`schemas/supervisor.schema.json`); mode can only be "off" or "advisory". */
+export interface SupervisorConfig {
+  schema_version: string;
+  id: string;
+  description?: string;
+  fuzzy_system_id: string;
+  fuzzy_version_id?: string;
+  output_id: string;
+  target_loop: string;
+  mode: "off" | "advisory";
+  gates: { loop: string; block_on?: string[]; warn_on?: string[] }[];
+  silent_band: number;
+  min_activation: number;
+  min_interval_s: number;
+  display_clamp: [number, number];
+}
+
+/** Result of `advise-now`: the advice is null when nothing is advised; the gate is always given. */
+export interface AdviseNowResult {
+  advice: AdviceRecord | null;
+  gate: AdvisoryGate;
+}
+
+/** Result of a replay; `recorded` is the number of advices appended to the log. */
+export interface SupervisorReplayResult {
+  advices: AdviceRecord[];
+  recorded: number;
+}
+
+/** Result of chain verification: the first broken record index is null when the chain is intact. */
+export interface ChainReport {
+  ok: boolean;
+  records: number;
+  first_broken_index: number | null;
+  reason: string;
+}
+
+/** Log records from an index on, the total count and the verification of the whole chain. */
+export interface AdvisoryLog {
+  records: AdvisoryLogRecord[];
+  total: number;
+  chain: ChainReport;
+}
+
+/** Replay window settings in seconds from the first sample; the server has defaults. */
+export interface SupervisorReplayOptions {
+  startS?: number;
+  endS?: number;
+  windowS?: number;
+  stepS?: number;
+  record?: boolean;
+}
+
+/** The operator's decision as sent to the server. */
+export interface AckInput {
+  decision: AckDecision;
+  reasonCode: string;
+  who: string;
+  note?: string;
+}
+
+const supervisorUrl = (supervisorId: string): string => `${API_PREFIX}/supervisors/${encodeURIComponent(supervisorId)}`;
+const supervisorOnDataset = (datasetId: string, supervisorId: string): string =>
+  `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/supervisor/${encodeURIComponent(supervisorId)}`;
+
+/** Ids of the saved supervisor configurations. */
+export async function fetchSupervisors(): Promise<string[]> {
+  return getJson<string[]>(`${API_PREFIX}/supervisors`);
+}
+
+/** One saved supervisor configuration. */
+export async function fetchSupervisorConfig(supervisorId: string): Promise<SupervisorConfig> {
+  return getJson<SupervisorConfig>(supervisorUrl(supervisorId));
+}
+
+/** Validate and save a configuration under its own id (a 422 error carries the reason). */
+export async function saveSupervisorConfig(config: SupervisorConfig): Promise<SupervisorConfig> {
+  return sendJson<SupervisorConfig>("PUT", supervisorUrl(config.id), config);
+}
+
+/** Advise once on the window ending at `tS` (default: end of the record). The log is not written. */
+export async function adviseNow(datasetId: string, supervisorId: string, tS?: number): Promise<AdviseNowResult> {
+  return sendJson<AdviseNowResult>("POST", `${supervisorOnDataset(datasetId, supervisorId)}/advise`, { t_s: tS ?? null });
+}
+
+/** Replay the supervisor over a record; with `record` the advices are appended to the log. */
+export async function replaySupervisor(
+  datasetId: string,
+  supervisorId: string,
+  options: SupervisorReplayOptions = {},
+): Promise<SupervisorReplayResult> {
+  const body = {
+    start_s: options.startS ?? null,
+    end_s: options.endS ?? null,
+    window_s: options.windowS,
+    step_s: options.stepS,
+    record: options.record ?? false,
+  };
+  return sendJson<SupervisorReplayResult>("POST", `${supervisorOnDataset(datasetId, supervisorId)}/replay`, body);
+}
+
+/** The advisory log from `sinceIndex` on, with the verification of the whole chain. */
+export async function fetchAdvisoryLog(supervisorId: string, sinceIndex = 0): Promise<AdvisoryLog> {
+  return getJson<AdvisoryLog>(`${supervisorUrl(supervisorId)}/log?since_index=${sinceIndex}`);
+}
+
+/** Record the operator's decision about one logged advice; returns the stored ack record. */
+export async function ackAdvice(supervisorId: string, adviceId: string, input: AckInput): Promise<AckRecord> {
+  const body = { decision: input.decision, reason_code: input.reasonCode, who: input.who, note: input.note ?? "" };
+  return sendJson<AckRecord>("POST", `${supervisorUrl(supervisorId)}/log/${encodeURIComponent(adviceId)}/ack`, body);
+}

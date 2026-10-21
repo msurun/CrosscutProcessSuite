@@ -16,6 +16,6 @@ export default defineConfig({
       },
     },
   },
-  server: { proxy: { "/api": { target: process.env.CROSSCUT_API ?? "http://127.0.0.1:8000", rewrite: (p) => p.replace(/^\/api/, "") } } },
+  server: { fs: { allow: [".."] }, proxy: { "/api": { target: process.env.CROSSCUT_API ?? "http://127.0.0.1:8000", rewrite: (p) => p.replace(/^\/api/, "") } } },
   test: { exclude: ["e2e/**", "node_modules/**"], environment: "jsdom", globals: true, setupFiles: ["./src/setupTests.ts"] },
 });
