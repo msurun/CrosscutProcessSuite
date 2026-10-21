@@ -43,6 +43,12 @@ describe("mainFindingText", () => {
 
     expect(text).toBe("loops.noFindings");
   });
+
+  it("says there is no conclusion, not 'no problems', for a not_assessed loop", () => {
+    const loop = makeLoop({ findings: [], status: "not_assessed", not_assessed: ["harris"] });
+
+    expect(mainFindingText(t, loop)).toBe("loops.noConclusion");
+  });
 });
 
 describe("nextStepTexts", () => {

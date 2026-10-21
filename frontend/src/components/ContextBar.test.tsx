@@ -91,6 +91,27 @@ describe("ContextBar", () => {
     expect(screen.getByText("1.5 min")).toBeInTheDocument();
   });
 
+  it("prints the period in UTC with an explicit zone mark, whatever the browser time zone", () => {
+    const dataset = makeDataset({
+      startIso: "2024-01-01T23:30:00Z",
+      endIso: "2024-01-02T01:15:00Z",
+      nSamples: 8640,
+    });
+
+    render(<ContextBar dataset={dataset} analysis={null} t={t} />);
+
+    expect(screen.getByText("1/1/24, 11:30 PM UTC – 1/2/24, 1:15 AM UTC")).toBeInTheDocument();
+  });
+
+  it("marks the analysis time as UTC too", () => {
+    const dataset = makeDataset({ startIso: "2024-01-01T00:00:00Z", endIso: "2024-01-02T00:00:00Z", nSamples: 8640 });
+    const analysis = { finishedAt: new Date("2024-01-02T12:00:00Z"), tookMs: 25000 };
+
+    render(<ContextBar dataset={dataset} analysis={analysis} t={t} />);
+
+    expect(screen.getByText(/1\/2\/24, 12:00 PM UTC/)).toBeInTheDocument();
+  });
+
   it("shows a dash when there is only one sample", () => {
     const dataset = makeDataset({
       startIso: "2024-01-01T00:00:00Z",

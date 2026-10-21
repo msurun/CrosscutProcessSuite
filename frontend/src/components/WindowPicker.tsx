@@ -217,19 +217,24 @@ function WindowTrends({
   xRange: readonly [number, number] | null;
   onZoom: (minSeconds: number, maxSeconds: number) => void;
 }) {
+  // The data arrays must keep their identity between renders: TrendPane resets the visible range
+  // whenever `data` changes, and onZoom re-renders this component, which would loop forever.
+  const columns = useMemo(() => (state.status === "ready" ? toUplotData(state.series) : null), [state]);
+  const pvData = useMemo(() => (columns ? [columns[0], columns[1]] : null), [columns]);
+  const outData = useMemo(() => (columns ? [columns[0], columns[2]] : null), [columns]);
   if (state.status === "loading") {
     return <p className="status">{t("tuning.window.loadingTrend")}</p>;
   }
   if (state.status === "error") {
     return <p className="status status-error">{t("trends.error", { reason: state.reason })}</p>;
   }
+  if (!pvData || !outData) return null;
 
-  const [timeAxis, pvValues, outValues] = toUplotData(state.series);
   return (
     <>
       <TrendPane
         timeLabel={t("trends.time")}
-        data={[timeAxis, pvValues]}
+        data={pvData}
         labels={[t("tuning.window.pvLabel")]}
         colors={[PV_COLOR]}
         unit={loop.unit}
@@ -240,7 +245,7 @@ function WindowTrends({
       />
       <TrendPane
         timeLabel={t("trends.time")}
-        data={[timeAxis, outValues]}
+        data={outData}
         labels={[t("tuning.window.outLabel")]}
         colors={[OUT_COLOR]}
         unit={OUT_UNIT}
@@ -319,7 +324,9 @@ export function WindowPicker({
         loop={loop}
         t={t}
         xRange={xRange}
-        onZoom={(minSeconds, maxSeconds) => setVisible([minSeconds, maxSeconds])}
+        onZoom={(minSeconds, maxSeconds) =>
+          setVisible((old) => (old && old[0] === minSeconds && old[1] === maxSeconds ? old : [minSeconds, maxSeconds]))
+        }
       />
 
       <p className="hint">{t("tuning.window.zoomHint")}</p>

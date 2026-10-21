@@ -10,10 +10,14 @@ export function findingText(t: Translate, finding: LoopFinding): string {
   return t(`finding.${finding.code}`, finding.params);
 }
 
-/** The most important finding of a loop as a sentence, or the "no problems" text. */
+/**
+ * The most important finding of a loop as a sentence. Without findings: "no problems" for a fully
+ * assessed loop, "no conclusion" for a not_assessed one (some checks could not run).
+ */
 export function mainFindingText(t: Translate, loop: LoopSummary): string {
   const first = loop.findings[0];
-  return first ? findingText(t, first) : t("loops.noFindings");
+  if (first) return findingText(t, first);
+  return t(loop.status === "not_assessed" ? "loops.noConclusion" : "loops.noFindings");
 }
 
 /** Hints for the "what to do next" list: one per finding, or "no action needed". */

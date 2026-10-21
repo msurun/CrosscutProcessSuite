@@ -351,6 +351,13 @@ describe("LoopsOverview cell contents", () => {
     expect(screen.getByText("loops.noFindings")).toBeInTheDocument();
   });
 
+  it("shows 'no conclusion' instead of 'no problems' for a not_assessed loop", () => {
+    render(<LoopsOverview loops={[makeLoop({ name: "unknown", status: "not_assessed", findings: [], not_assessed: ["harris"] })]} t={t} onOpen={vi.fn()} />);
+
+    expect(screen.getByText("loops.noConclusion")).toBeInTheDocument();
+    expect(screen.queryByText("loops.noFindings")).not.toBeInTheDocument();
+  });
+
   it("shows the next action as its translated key with params", () => {
     render(
       <LoopsOverview

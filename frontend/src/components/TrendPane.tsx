@@ -288,9 +288,12 @@ export function TrendPane(props: TrendPaneProps) {
     rangeHistory.reset();
   }, [props.xRange?.[0], props.xRange?.[1], props.data]);
 
-  // Repaint the MODE band when the mode data changes.
+  // Repaint the MODE band when the mode data changes. uPlot commits its first scales in a microtask;
+  // a redraw() before that commit discards the pending scales and leaves the plot without lines, so a
+  // plot that has no x scale yet is skipped (its first commit paints the band anyway).
   useEffect(() => {
-    plotRef.current?.redraw();
+    const plot = plotRef.current;
+    if (plot && plot.scales.x.min != null) plot.redraw();
   }, [props.mode]);
 
   const showPreset = (preset: RangePreset) => {

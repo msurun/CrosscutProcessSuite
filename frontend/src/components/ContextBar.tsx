@@ -30,8 +30,11 @@ const DASH = "–";
 /** Rendered when a dataset has fewer than two samples, so no period can exist. */
 const INSUFFICIENT_SAMPLES = 2;
 
-/** Short date + time formatter options; identical for the period and analysis times. */
-const SHORT_DATE_TIME: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "short" };
+/** Time zone of every timestamp in the bar: the data are stamped in UTC, so it is shown explicitly. */
+const DISPLAY_TIME_ZONE = "UTC";
+
+/** Short date + time formatter options, in UTC; identical for the period and analysis times. */
+const SHORT_DATE_TIME: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "short", timeZone: DISPLAY_TIME_ZONE };
 
 type AnalysisInfo = { finishedAt: Date; tookMs: number };
 
@@ -45,12 +48,12 @@ type ContextBarProps = {
 };
 
 /**
- * Format a timestamp in the user's language, using the language of `<html lang>`.
- * Read at call time so a runtime language switch takes effect immediately.
+ * Format a timestamp in UTC with a zone mark ("1/1/24, 12:00 AM UTC"), in the language of
+ * `<html lang>`. Read at call time so a runtime language switch takes effect immediately.
  */
 function formatTimestamp(time: Date): string {
   const lang = document.documentElement.lang || undefined;
-  return new Intl.DateTimeFormat(lang, SHORT_DATE_TIME).format(time);
+  return `${new Intl.DateTimeFormat(lang, SHORT_DATE_TIME).format(time)} ${DISPLAY_TIME_ZONE}`;
 }
 
 /**

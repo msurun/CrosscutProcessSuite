@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fittingPresets, modeSpans, presetRange } from "../trendData";
 import { visibleRange } from "../visibleRange";
 
-const fake = vi.hoisted(() => ({ instances: [] as Array<Record<string, any>> }));
+const fake = vi.hoisted(() => ({ instances: [] as Array<Record<string, any>>, deferScales: false }));
 
 vi.mock("uplot", () => ({
   default: class {
@@ -16,8 +16,13 @@ vi.mock("uplot", () => ({
     height = 100;
     opts: any;
     setScale = vi.fn((key: string, range: { min: number; max: number }) => {
-      this.scales.x = { min: range.min, max: range.max };
-      this.opts.hooks.setScale[0](this, key);
+      const apply = () => {
+        this.scales.x = { min: range.min, max: range.max };
+        this.opts.hooks.setScale[0](this, key);
+      };
+      // Real uPlot applies scales in a microtask, so right after construction x.min is still unset.
+      if (fake.deferScales) queueMicrotask(apply);
+      else apply();
     });
     setData = vi.fn();
     setSize = vi.fn();
@@ -40,6 +45,7 @@ const T = (key: string) => key;
 
 beforeEach(() => {
   fake.instances.length = 0;
+  fake.deferScales = false;
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 });
 
@@ -132,5 +138,27 @@ describe("TrendPane controls", () => {
   it("shows no MODE note without a mode tag", () => {
     renderPane();
     expect(screen.queryByText("trend.modeBand")).not.toBeInTheDocument();
+  });
+});
+
+describe("TrendPane first paint", () => {
+  it("does not call redraw() before uPlot has committed its x scale (that left the plot without lines)", async () => {
+    fake.deferScales = true;
+    renderPane({ mode: TIMES.map(() => 1) });
+
+    const plot = fake.instances[0];
+    expect(plot.redraw).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(plot.scales.x.min).toBe(TIMES[0]);
+  });
+
+  it("redraws the MODE band when the mode data changes on a plot that has its scale", () => {
+    const { rerender } = renderPane({ mode: TIMES.map(() => 1) });
+    const plot = fake.instances[0];
+    plot.redraw.mockClear();
+
+    rerender(<TrendPane data={[TIMES, TIMES.map((x) => x / 10)]} labels={["TIC1.PV"]} colors={["--series-1"]} t={T} roles={["pv"]} mode={TIMES.map(() => 0)} />);
+
+    expect(plot.redraw).toHaveBeenCalledTimes(1);
   });
 });
