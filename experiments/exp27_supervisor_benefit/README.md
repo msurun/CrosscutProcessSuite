@@ -80,3 +80,21 @@ sha256 of the LF-normalised bytes (= git blob content; `tr -d '\r' < f | sha256s
 | `experiments/exp27_supervisor_benefit/baseline_rulebase.json` | `c9fe983431f21a93d2f32af2f9bc9717de1cc2fd6e7a52ad8e7d9e9f1e63edc3` |
 | `experiments/exp27_supervisor_benefit/exp27.py` | `0d6b5fad2add9ec68133aec4bb9a740e7b61a1f761ff0b9aeb30c1466e4f0fb4` |
 | `fuzzy/examples/mill_feed_supervisor_v2.json` | `a901cd75d6e9e140fff631151dc2544e10fee79583d0dcf14e0f7261cd4ac83a` |
+
+## Result (test seeds 27101..27120, first and only run, 2026-10-21; table in results/test.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| E1 | 0 non-hold advices inside faults; blocked records name the fault 40/40 | 0 | yes |
+| E2 | median advice rate 1.73 per hour; spacing respected on every seed | <= 4 per hour | yes |
+| E3 | onT(c) >= onT(b) + 0.05 on 18 of 20 seeds (median difference +0.151) | >= 14 of 20 | yes |
+| E4 | median high(c) - high(b) = -0.0043 | <= 0.01 | yes |
+| E5 | median silent share 0.220 | <= 0.30 | yes |
+
+Medians of on-target share: arm a (scripted operator) 0.790, arm b (crisp rule) 0.489, arm c (fuzzy v2) 0.649. Gate-open share in
+fault-free runs 1.00. All frozen criteria met on the first run.
+
+Reading: in this simulator, an operator who accepts advice 80 % of the time keeps P80 on target clearly more often with the fuzzy v2 rule
+base than with a crisp threshold rule base, without more power excursions, and the gate stays silent in injected faults. Limits: (1) the scripted
+operator of arm a, which uses the ore hardness estimate, is better than both advisors (0.79 vs 0.65), so the advisor does not replace
+that information; (2) v2 terms were shaped on this simulator (exp11), the crisp baseline was not tuned at all, so E3 partly measures tuning effort;
+(3) acceptance probability and delay are assumptions (A18); (4) nothing here concerns a real plant.

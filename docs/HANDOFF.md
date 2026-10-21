@@ -82,3 +82,11 @@ Found while cleaning the code, then fixed with a test that fails on the old code
 
 Not touched on purpose: `experiments/` (about 830 `codecheck` findings; frozen records of runs, hashes in the READMEs).
 Tests were cleaned too (0 findings, no test or assertion removed, vacuous tests strengthened).
+
+## Module 2 (advisory supervisor), 2026-10-21: built and evidence-tested in simulation
+
+Plan `docs/design/module2-plan.md`, decisions `docs/adr/010-advisory-supervisor.md` (proposed, owner review pending). Package `supervisor/`
+(config, gates from module 1 rows, fail-closed advice with explanation, hash-chained audit log, rolling replay), API `api/.../supervisor_routes.py`,
+UI view Advisor, schemas `supervisor.schema.json` and `advisory-record.schema.json`. Nothing writes to a plant (guard test in CI).
+exp27 (frozen protocol, one test run): E1-E5 all met; fuzzy v2 beat a crisp rule (on-target 0.65 vs 0.49) but not the scripted operator (0.79).
+Open: owner review of ADR 010; real acknowledgement data (A18); no authentication of `who`; a write path needs its own ADR; advice times of simulated data show as 1970 in the UI.

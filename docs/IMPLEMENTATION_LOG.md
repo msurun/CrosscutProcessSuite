@@ -729,3 +729,11 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 - Browser run found: status chip contrast 4.3:1 (ok and unused colours darkened), unlabeled term inputs and shape selects in the
   fuzzy variable editor (aria-labels, en/pl/es keys), horizontal page scroll at 390 px on fuzzy and benefit pages
   (main area scrolls instead). Still open: English text from the backend fuzzy example rule base in the PL UI.
+
+## Module 2: advisory supervisor (2026-10-21)
+- Steps S1-S13 of `docs/design/module2-plan.md` done: ADR 010, schemas, `supervisor/` (config, gates, advise, audit, replay), API routes, Advisor UI,
+  no-write guard tests, exp27. Tests: supervisor + api pytest green, 483 vitest, 29 e2e.
+- Review decisions: gate states from module 1 rows (missing row or not_assessed with `unknown` blocks; oscillating only warns), blocked advice is logged as
+  a hold record without magnitude, replay logs blocked records only on gate transitions, replay_to_log is idempotent on advice_id.
+- exp27: harness by an Opus subagent (different from the Sonnet authors of the package); first harness run exposed that the loop needs `delay_s` and
+  `ultimate_period_s` or module 1 returns not_assessed and every gate closes (recorded in the README). Test seeds run once: E1-E5 met.
