@@ -32,9 +32,11 @@ section) and in `experiments/exp21..exp26`. Everything is pushed to `main`; CI w
    with the same arguments. This is the first real evidence for anything stiction-related.
 2. **Blind review of the worklist** by an independent control engineer on about 20 loops (Kendall tau >= 0.5, >= 80 %
    agreement on the next action). The owner is the domain expert but not independent (the rules' intent came from them).
-3. **Frontend** (done 2026-10-20): worklist overview, valve/stiction numbers, not-assessed notice, loop-data editor and
-   tuning comparison are in; see IMPLEMENTATION_LOG "Loop monitoring and tuning screens" for what is still open
-   (valve stroke test screen, free tuning window, Playwright smoke test).
+3. **Frontend** (UI remediation plan P0-P7 done 2026-10-20/21, 459 vitest, 24 Playwright e2e with axe, all pushed): worklist,
+   loop detail with trends (range buttons, MODE band for manual mode), knowledge editor with range overrides, tuning wizard,
+   valve stroke test wizard, Trends tab (loop/unit grouping, 3-pane cap, cursor readout), Fuzzy Studio tabs with backtest.
+   Open (cosmetic/data): PL page shows English text from the backend example rule base; fuzzy terms are raw ids; 26 ESLint
+   size warnings; print CSS not checked visually; pl/es texts are machine-written and need a native read; per-tag range editing UI.
 4. Sluggish-loop detection, if wanted: Hagglund's load-episode detection or Visioli's area index on setpoint steps
    (exp22 has a generator and harness ready).
 5. Module 2 planning can start: module 1 has no open blocking item on the assistant side.
