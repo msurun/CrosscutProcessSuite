@@ -122,7 +122,7 @@ function BasicFields({ draft, unit, t, edit }: {
   t: Translate;
   edit: (patch: Partial<KnowledgeDraft>) => void;
 }) {
-  const field = (name: DraftFieldName, id: string, label: string, help: string, how: string) => (
+  const field = (name: DraftFieldName, id: string, label: string, [help, how]: [string, string]) => (
     <NumberInput
       id={id}
       label={label}
@@ -137,9 +137,9 @@ function BasicFields({ draft, unit, t, edit }: {
   );
   return (
     <div className="knowledge-fields">
-      {field("delay_s", "knowledge-delay", t("knowledge.delay"), "knowledge.delayHelp", "knowledge.howToDelay")}
-      {field("ultimate_period_s", "knowledge-ultimate", t("knowledge.ultimate"), "knowledge.ultimateHelp", "knowledge.howToUltimate")}
-      {field("amplitude_limit", "knowledge-amplitude", t("knowledge.amplitude", { unit }), "knowledge.amplitudeHelp", "knowledge.howToAmplitude")}
+      {field("delay_s", "knowledge-delay", t("knowledge.delay"), ["knowledge.delayHelp", "knowledge.howToDelay"])}
+      {field("ultimate_period_s", "knowledge-ultimate", t("knowledge.ultimate"), ["knowledge.ultimateHelp", "knowledge.howToUltimate"])}
+      {field("amplitude_limit", "knowledge-amplitude", t("knowledge.amplitude", { unit }), ["knowledge.amplitudeHelp", "knowledge.howToAmplitude"])}
       <ProcessKindField value={draft.process_kind} t={t} onChange={(kind) => edit({ process_kind: kind })} />
     </div>
   );

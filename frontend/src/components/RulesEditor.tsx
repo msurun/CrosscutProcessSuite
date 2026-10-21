@@ -5,6 +5,7 @@
  * never mutates the document it receives.
  */
 
+import { termLabel, variableLabel } from "../fuzzyNames";
 import type { FuzzyClause, FuzzyDocument, FuzzyRule } from "../fuzzy";
 import { newRuleId } from "../fuzzy";
 import type { Translate } from "../findings";
@@ -44,12 +45,12 @@ function clampWeight(raw: string, fallback: number): number {
 }
 
 /** Options of a `<select>` listing variables by id, showing label ?? id. */
-function VariableOptions({ variables, t: _t }: { variables: FuzzyDocument["inputs"]; t: Translate }) {
+function VariableOptions({ variables, t }: { variables: FuzzyDocument["inputs"]; t: Translate }) {
   return (
     <>
       {variables.map((variable) => (
         <option key={variable.id} value={variable.id}>
-          {variable.label ?? variable.id}
+          {variableLabel(t, variable)}
         </option>
       ))}
     </>
@@ -89,13 +90,19 @@ function ConditionRow({
       <select aria-label={t("fuzzy.rule.term")} value={clause.is} onChange={(event) => onChangeClause(index, { ...clause, is: event.target.value })}>
         {terms.map((term) => (
           <option key={term.name} value={term.name}>
-            {term.name}
+            {termLabel(t, clause.variable, term.name)}
           </option>
         ))}
       </select>
       {isRemovable && (
-        <button type="button" className="link-button" onClick={() => onRemove(index)}>
-          {t("fuzzy.rule.removeCondition")}
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={t("fuzzy.rule.removeCondition")}
+          title={t("fuzzy.rule.removeCondition")}
+          onClick={() => onRemove(index)}
+        >
+          {"×"}
         </button>
       )}
     </>
@@ -142,7 +149,7 @@ function ConclusionSelects({
       <select aria-label={t("fuzzy.rule.term")} value={clause.is} onChange={(event) => onChangeClause({ ...clause, is: event.target.value })}>
         {(output?.terms ?? []).map((term) => (
           <option key={term.name} value={term.name}>
-            {term.name}
+            {termLabel(t, clause.variable, term.name)}
           </option>
         ))}
       </select>

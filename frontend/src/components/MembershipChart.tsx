@@ -3,6 +3,8 @@
  * value cursor with the membership degree on each curve, and a clickable legend.
  */
 
+import type { Translate } from "../findings";
+import { termLabel, variableLabel } from "../fuzzyNames";
 import type { FuzzyTerm, FuzzyVariable } from "../fuzzy";
 import { sampleTerm, termColor } from "../fuzzy";
 import { formatSignificant } from "../format";
@@ -33,6 +35,8 @@ export interface MembershipChartProps {
   selectedTerm?: string | null;
   onSelectTerm?: (name: string) => void;
   height?: number;
+  /** Translator for example-system names; without it stored names are shown. */
+  t?: Translate;
 }
 
 /** Map `value` from [low, high] to the plot x range, clamped to the plot area. */
@@ -177,18 +181,20 @@ function LegendEntry({
   index,
   degree,
   onSelectTerm,
+  text,
 }: {
   term: FuzzyTerm;
   index: number;
   degree?: number;
   onSelectTerm?: (name: string) => void;
+  text: string;
 }) {
   const color = termColor(index);
   return (
     <li>
       <span className="legend-swatch" style={{ background: `var(${color})` }} />
       <button type="button" className="link-button" onClick={() => onSelectTerm?.(term.name)}>
-        {term.name}
+        {text}
       </button>
       {degree !== undefined ? ` ${Math.round(degree * 100)} %` : null}
     </li>
@@ -200,10 +206,12 @@ function ChartLegend({
   variable,
   degrees,
   onSelectTerm,
+  t,
 }: {
   variable: FuzzyVariable;
   degrees?: Record<string, number>;
   onSelectTerm?: (name: string) => void;
+  t?: Translate;
 }) {
   return (
     <ul className="chart-legend">
@@ -214,9 +222,20 @@ function ChartLegend({
           index={index}
           degree={degrees?.[term.name]}
           onSelectTerm={onSelectTerm}
+          text={t === undefined ? term.name : termLabel(t, variable.id, term.name)}
         />
       ))}
     </ul>
+  );
+}
+
+/** The value cursor and, when degrees are known, their markers on the curves. */
+function CursorLayer({ variable, degrees, cursorX }: { variable: FuzzyVariable; degrees?: Record<string, number>; cursorX: number }) {
+  return (
+    <>
+      <ValueCursor x={cursorX} />
+      {degrees ? <DegreeMarkers variable={variable} degrees={degrees} cursorX={cursorX} /> : null}
+    </>
   );
 }
 
@@ -228,6 +247,7 @@ export function MembershipChart({
   selectedTerm,
   onSelectTerm,
   height,
+  t,
 }: MembershipChartProps) {
   const showCursor = isInsideRange(value, variable);
   const cursorX = showCursor ? toX(value, variable.low, variable.high) : PLOT_LEFT;
@@ -238,7 +258,7 @@ export function MembershipChart({
         preserveAspectRatio="none"
         style={{ width: "100%", height: height ?? DEFAULT_HEIGHT_PX }}
         role="img"
-        aria-label={variable.label ?? variable.id}
+        aria-label={t === undefined ? (variable.label ?? variable.id) : variableLabel(t, variable)}
       >
         {GRID_DEGREES.map((degree) => (
           <GridLine key={degree} degree={degree} />
@@ -253,11 +273,10 @@ export function MembershipChart({
             onSelectTerm={onSelectTerm}
           />
         ))}
-        {showCursor ? <ValueCursor x={cursorX} /> : null}
-        {showCursor && degrees ? <DegreeMarkers variable={variable} degrees={degrees} cursorX={cursorX} /> : null}
+        {showCursor ? <CursorLayer variable={variable} degrees={degrees} cursorX={cursorX} /> : null}
       </svg>
         <AxisTicks low={variable.low} high={variable.high} />
-      <ChartLegend variable={variable} degrees={degrees} onSelectTerm={onSelectTerm} />
+      <ChartLegend variable={variable} degrees={degrees} onSelectTerm={onSelectTerm} t={t} />
     </figure>
   );
 }

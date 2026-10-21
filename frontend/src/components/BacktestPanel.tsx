@@ -3,6 +3,7 @@
  * Illustrative only: a banner says so, and nothing is written to the plant.
  */
 
+import { variableLabel } from "../fuzzyNames";
 import { useState } from "react";
 import { backtestFuzzy, type BacktestMetrics, type FuzzyBacktest } from "../api";
 import type { Translate } from "../findings";
@@ -88,7 +89,7 @@ function SettingsForm({ document, outputId, settings, onOutput, onSettings, t }:
         <select value={outputId} onChange={(event) => onOutput(event.target.value)}>
           {document.outputs.map((output) => (
             <option key={output.id} value={output.id}>
-              {output.label ?? output.id}
+              {variableLabel(t, output)}
             </option>
           ))}
         </select>

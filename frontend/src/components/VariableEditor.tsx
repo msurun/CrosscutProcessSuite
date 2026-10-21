@@ -1,5 +1,6 @@
 /** Editor of the fuzzy variables of one kind: pick a variable, tune its terms, see the membership chart. */
 
+import { termLabel, variableLabel } from "../fuzzyNames";
 import { useEffect, useState } from "react";
 import type { FuzzyDocument, FuzzyTerm, FuzzyVariable, TermShape } from "../fuzzy";
 import { SHAPE_PARAMETER_COUNTS } from "../fuzzy";
@@ -52,7 +53,7 @@ export function VariableEditor({ document, kind, onChange, values, degrees, t }:
   return (
     <section className="variable-editor">
       <h3>{t(kind === "inputs" ? "fuzzy.inputs" : "fuzzy.outputs")}</h3>
-      <VariableChips variables={variables} selectedId={selectedId} onSelect={setSelectedId} />
+      <VariableChips variables={variables} selectedId={selectedId} onSelect={setSelectedId} t={t} />
       {selected !== null && (
         <SelectedVariable variable={selected} t={t} />
       )}
@@ -63,6 +64,7 @@ export function VariableEditor({ document, kind, onChange, values, degrees, t }:
           degrees={degrees?.[selected.id]}
           selectedTerm={selectedTerm}
           onSelectTerm={setSelectedTerm}
+          t={t}
         />
       )}
       {selected?.tag !== undefined && <p className="hint">{t("fuzzy.variable.tag") + ": " + selected.tag}</p>}
@@ -84,10 +86,12 @@ function VariableChips({
   variables,
   selectedId,
   onSelect,
+  t,
 }: {
   variables: FuzzyVariable[];
   selectedId: string;
   onSelect: (id: string) => void;
+  t: Translate;
 }) {
   return (
     <div className="chip-row">
@@ -99,7 +103,7 @@ function VariableChips({
           aria-pressed={variable.id === selectedId}
           onClick={() => onSelect(variable.id)}
         >
-          {variable.label ?? variable.id}
+          {variableLabel(t, variable)}
         </button>
       ))}
     </div>
@@ -167,11 +171,11 @@ function TermRow({
 }) {
   return (
     <tr className={isSelected ? "row-selected" : undefined} onClick={onSelect}>
-      <td>{term.name}</td>
+      <td>{termLabel(t, variable.id, term.name)}</td>
       <td>
         <ShapeSelect
           shape={term.shape}
-          label={t("fuzzy.term.shapeLabel", { name: term.name })}
+          label={t("fuzzy.term.shapeLabel", { name: termLabel(t, variable.id, term.name) })}
           onChange={(shape) => onChange(changeShape(term, shape, variable))}
           t={t}
         />
@@ -181,7 +185,7 @@ function TermRow({
           <input
             type="number"
             step="any"
-            aria-label={t("fuzzy.term.paramLabel", { n: index + 1, name: term.name })}
+            aria-label={t("fuzzy.term.paramLabel", { n: index + 1, name: termLabel(t, variable.id, term.name) })}
             value={value}
             onChange={(event) => {
               const next = replaceParameter(term, index, event.target.value);

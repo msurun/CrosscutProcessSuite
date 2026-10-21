@@ -493,5 +493,12 @@
   "fuzzy.backtest.silent": "Silent share",
   "fuzzy.backtest.all": "Whole record",
   "fuzzy.backtest.firstHalf": "First half",
-  "fuzzy.backtest.secondHalf": "Second half"
+  "fuzzy.backtest.secondHalf": "Second half",
+  "fuzzy.names.system.mill_feed_supervisor.name": "Mill feed supervisor (synthetic example)",
+  "fuzzy.names.system.mill_feed_supervisor.description": "Illustration on the simulated grinding circuit. Not an operating recommendation: the rules and ranges are invented to show how a fuzzy supervisor is built and read.",
+  "fuzzy.names.system.mill_feed_supervisor_v2.name": "Mill feed supervisor v2 (synthetic example, narrowed terms)",
+  "fuzzy.names.system.mill_feed_supervisor_v2.description": "Illustration on the simulated grinding circuit. Not an operating recommendation: the rules and ranges are invented to show how a fuzzy supervisor is built and read.",
+  "fuzzy.names.var.mill_power": "Mill power",
+  "fuzzy.names.var.p80": "Product size P80",
+  "fuzzy.names.var.feed_change": "Mill feed change"
 }

@@ -127,19 +127,23 @@ export function parseSettings(settings: Settings): ParseResult {
   if (stepsPerLeg === null) {
     return { ok: false, field: "stepsPerLeg" };
   }
-  return { ok: true, request: buildRequest(opStart, dwellS, opLow, opHigh, pvBand, stepSizes, stepsPerLeg) };
+  return { ok: true, request: buildRequest({ opStart, dwellS, opLow, opHigh, pvBand, stepSizes, stepsPerLeg }) };
+}
+
+/** Parsed, validated form values that become a plan request. */
+interface RequestOptions {
+  opStart: number;
+  dwellS: number;
+  opLow: number;
+  opHigh: number;
+  pvBand: number | null;
+  stepSizes: number[];
+  stepsPerLeg: number[];
 }
 
 /** Fill the request; blank optional lists stay omitted so the server keeps its own default. */
-function buildRequest(
-  opStart: number,
-  dwellS: number,
-  opLow: number,
-  opHigh: number,
-  pvBand: number | null,
-  stepSizes: number[],
-  stepsPerLeg: number[],
-): ValvePlanRequest {
+function buildRequest(options: RequestOptions): ValvePlanRequest {
+  const { opStart, dwellS, opLow, opHigh, pvBand, stepSizes, stepsPerLeg } = options;
   const request: ValvePlanRequest = { op_start: opStart, dwell_s: dwellS, op_low: opLow, op_high: opHigh };
   if (pvBand !== null) {
     request.pv_band = pvBand;

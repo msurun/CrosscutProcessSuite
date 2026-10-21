@@ -113,7 +113,6 @@ export function useFuzzyLibrary(t: Translate): LibraryState {
       isCancelled = true;
     };
     // The list is read once on mount; later reloads go through reloadLibrary.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const markSaved = useCallback((document: FuzzyDocument): void => {

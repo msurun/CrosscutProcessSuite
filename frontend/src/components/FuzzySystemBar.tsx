@@ -2,6 +2,7 @@
  * System picker of the Fuzzy Studio page: choose a rule base, then save a copy under your own name.
  */
 
+import { systemName } from "../fuzzyNames";
 import { useEffect, useState } from "react";
 import { saveFuzzySystem } from "../api";
 import { slugify } from "../fuzzy";
@@ -46,7 +47,7 @@ export function SystemBar({ library, t }: SystemBarProps) {
         <select value={library.selectedId} onChange={(event) => library.selectSystem(event.target.value)}>
           {library.systems.map((system) => (
             <option key={system.id} value={system.id}>
-              {`${system.name} (${t(`fuzzy.source.${system.source}`)})`}
+              {`${systemName(t, system.id, system.name)} (${t(`fuzzy.source.${system.source}`)})`}
             </option>
           ))}
         </select>

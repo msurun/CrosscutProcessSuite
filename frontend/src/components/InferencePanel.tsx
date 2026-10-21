@@ -12,6 +12,7 @@
 // All numbers are formatted with formatNumber (4 significant digits) so the
 // panel never shows more precision than the model actually has.
 
+import { variableLabel } from "../fuzzyNames";
 import type { FuzzyDocument } from "../fuzzy";
 import type { FuzzyInference } from "../api";
 import type { Translate } from "../findings";
@@ -38,11 +39,6 @@ const PERCENT = 100;
 /** Default slider position when a variable has no value yet: the middle. */
 function sliderMiddle(low: number, high: number): number {
   return (low + high) / 2;
-}
-
-/** The label shown to the user: the variable label, or its id as a fallback. */
-function variableName(variable: { id: string; label?: string }): string {
-  return variable.label ?? variable.id;
 }
 
 /** Maps a value of the universe to an x coordinate inside the viewBox. */
@@ -75,10 +71,12 @@ function InputSliders({
   document,
   values,
   onValues,
+  t,
 }: {
   document: FuzzyDocument;
   values: Record<string, number>;
   onValues: (next: Record<string, number>) => void;
+  t: Translate;
 }) {
   return (
     <>
@@ -89,7 +87,7 @@ function InputSliders({
         return (
           <label className="field" key={input.id}>
             <span className="field-label">
-              {variableName(input)}
+              {variableLabel(t, input)}
               {input.unit ? ` (${input.unit})` : ""}
             </span>
             <input
@@ -218,14 +216,14 @@ export function InferencePanel({
     <div className="inference-panel">
       <h3>{t("fuzzy.whatif")}</h3>
       <p className="hint">{t("fuzzy.whatif.hint")}</p>
-      <InputSliders document={document} values={values} onValues={onValues} />
+      <InputSliders document={document} values={values} onValues={onValues} t={t} />
       {inference !== null && (
         <>
           {document.outputs.map((output) => {
             const shape = inference.outputs[output.id];
             return (
               <section className="fuzzy-output" key={output.id}>
-                <h4>{`${t("fuzzy.output")}: ${variableName(output)}`}</h4>
+                <h4>{`${t("fuzzy.output")}: ${variableLabel(t, output)}`}</h4>
                 <OutputValue crisp={shape.crisp} unit={output.unit} t={t} />
                 <OutputShape
                   universe={shape.universe}

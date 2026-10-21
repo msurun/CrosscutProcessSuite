@@ -4,6 +4,7 @@
  * The fuzzy output may contain `null` for "no rule fired"; that draws as a gap in the line.
  */
 
+import { variableLabel } from "../fuzzyNames";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { replayFuzzy, type FuzzyReplay } from "../api";
 import type { Translate } from "../findings";
@@ -90,7 +91,7 @@ function toSeconds(t: number[]): number[] {
 /** Trend pane of one input variable: always a single fuzzy-input series. */
 function InputPane({ variable, replay, t }: { variable: FuzzyVariable; replay: FuzzyReplay; t: Translate }) {
   const values = replay.inputs[variable.id] ?? [];
-  const label = t("fuzzy.replay.input", { name: variable.label ?? variable.id });
+  const label = t("fuzzy.replay.input", { name: variableLabel(t, variable) });
   const data = [toSeconds(replay.t), values];
 
   return (
@@ -109,7 +110,7 @@ function InputPane({ variable, replay, t }: { variable: FuzzyVariable; replay: F
 function OutputPane({ variable, replay, t }: { variable: FuzzyVariable; replay: FuzzyReplay; t: Translate }) {
   const fuzzy = replay.outputs[variable.id] ?? [];
   const actual = replay.actual[variable.id];
-  const fuzzyLabel = t("fuzzy.replay.output", { name: variable.label ?? variable.id });
+  const fuzzyLabel = t("fuzzy.replay.output", { name: variableLabel(t, variable) });
 
   const labels = [fuzzyLabel];
   const colors = [OUTPUT_COLORS[0]];

@@ -5,6 +5,7 @@
  * inference (debounced) so the panels only have to draw the result.
  */
 
+import { systemDescription } from "../fuzzyNames";
 import { useState } from "react";
 import type { FuzzyDocument } from "../fuzzy";
 import type { Translate } from "../findings";
@@ -91,7 +92,7 @@ export function FuzzyPage({ datasetId, t }: FuzzyPageProps) {
         <h2>{t("fuzzy.title")}</h2>
         <span className="badge">{t("fuzzy.advisory")}</span>
       </header>
-      {library.document.description !== undefined && <p className="hint">{library.document.description}</p>}
+      {library.document.description !== undefined && <p className="hint">{systemDescription(t, library.selectedId, library.document.description)}</p>}
       <SystemBar library={library} t={t} />
       <ErrorLines library={library} whatIf={whatIf} t={t} />
       <FuzzyTabList active={tab} onChange={setTab} t={t} />
