@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/advisory-record.schema.json",
+  "title": "Advisory log record",
+  "description": "One line of the append-only, hash-chained advisory log: an advice or an operator acknowledgement (ADR 010).",
+  "oneOf": [{"$ref": "#/$defs/advice"}, {"$ref": "#/$defs/ack"}],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "advice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "advice_id", "t_ns", "target_loop", "direction", "activation", "explanation", "inputs", "gate", "rulebase_sha256", "prev_sha256"],
+      "properties": {
+        "kind": {"const": "advice"},
+        "advice_id": {"$ref": "#/$defs/sha"},
+        "t_ns": {"type": "integer"},
+        "target_loop": {"type": "string", "minLength": 1},
+        "direction": {"enum": ["increase", "decrease", "hold"]},
+        "magnitude": {"type": ["number", "null"]},
+        "activation": {"type": "number", "minimum": 0, "maximum": 1},
+        "explanation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule_id", "sentence", "strength"],
+            "properties": {
+              "rule_id": {"type": "string"},
+              "sentence": {"type": "string"},
+              "strength": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "inputs": {"type": "object", "additionalProperties": {"type": ["number", "null"]}},
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reasons"],
+          "properties": {
+            "state": {"enum": ["open", "degraded", "blocked"]},
+            "reasons": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "rulebase_sha256": {"$ref": "#/$defs/sha"},
+        "prev_sha256": {"type": "string", "pattern": "^([0-9a-f]{64})?$"}
+      }
+    },
+    "ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "advice_id", "decision", "reason_code", "who", "t_ns", "prev_sha256"],
+      "properties": {
+        "kind": {"const": "ack"},
+        "advice_id": {"$ref": "#/$defs/sha"},
+        "decision": {"enum": ["accepted", "rejected", "deferred"]},
+        "reason_code": {"type": "string", "minLength": 1},
+        "note": {"type": "string"},
+        "who": {"type": "string", "minLength": 1},
+        "t_ns": {"type": "integer"},
+        "prev_sha256": {"type": "string", "pattern": "^([0-9a-f]{64})?$"}
+      }
+    }
+  }
+}

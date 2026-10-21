@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosscut-supervisor"
+version = "0.0.1"
+description = "Advisory fuzzy supervisor for the Crosscut Process Suite (no plant writes, ADR 010)"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = ["numpy>=1.26", "crosscut-fuzzy", "crosscut-loops"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+crosscut_supervisor = ["py.typed"]

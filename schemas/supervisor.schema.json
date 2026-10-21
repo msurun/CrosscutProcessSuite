@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/supervisor.schema.json",
+  "title": "Advisory supervisor configuration",
+  "description": "Data-only configuration of an advisory supervisor (ADR 010). mode can only be off or advisory: no write path exists.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "fuzzy_system_id", "output_id", "target_loop", "mode", "gates", "silent_band", "min_activation", "min_interval_s", "display_clamp"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "description": {"type": "string"},
+    "fuzzy_system_id": {"type": "string", "minLength": 1},
+    "fuzzy_version_id": {"type": "string", "minLength": 1},
+    "output_id": {"type": "string", "minLength": 1},
+    "target_loop": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["off", "advisory"]},
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["loop"],
+        "properties": {
+          "loop": {"type": "string", "minLength": 1},
+          "block_on": {"type": "array", "uniqueItems": true, "items": {"enum": ["manual", "saturated", "flatline", "unknown"]}},
+          "warn_on": {"type": "array", "uniqueItems": true, "items": {"enum": ["oscillating"]}}
+        }
+      }
+    },
+    "silent_band": {"type": "number", "minimum": 0},
+    "min_activation": {"type": "number", "minimum": 0, "maximum": 1},
+    "min_interval_s": {"type": "number", "minimum": 0},
+    "display_clamp": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+  }
+}

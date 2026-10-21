@@ -18,3 +18,4 @@ httpx>=0.27
 -e ./connectors
 -e ./loops
 -e ./fuzzy
+-e ./supervisor
