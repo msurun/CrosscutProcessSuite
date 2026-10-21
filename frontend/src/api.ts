@@ -411,6 +411,47 @@ export async function replayFuzzy(
   return sendJson<FuzzyReplay>("POST", `/api/datasets/${encodeURIComponent(datasetId)}/fuzzy/replay`, body);
 }
 
+/** Scoring numbers of one part of the recording; null means "not measurable" (no usable moves). */
+export interface BacktestMetrics {
+  n_moves: number;
+  sign_agreement: number | null;
+  correlation: number | null;
+  majority_share: number | null;
+  silent_share: number | null;
+}
+
+/** Result of a backtest (`POST /api/datasets/{id}/fuzzy/backtest`): the whole record and each half. */
+export interface FuzzyBacktest {
+  output: string;
+  all: BacktestMetrics;
+  first_half: BacktestMetrics;
+  second_half: BacktestMetrics;
+}
+
+/** Optional scoring settings of a backtest (SP units and seconds); the server has defaults. */
+export interface BacktestSettingsInput {
+  deadBand?: number;
+  lookbackS?: number;
+  silentBand?: number;
+}
+
+/** Score what an (unsaved) rule base advises just before each operator setpoint move. Advisory only. */
+export async function backtestFuzzy(
+  datasetId: string,
+  document: FuzzyDocument,
+  outputId: string,
+  settings?: BacktestSettingsInput,
+): Promise<FuzzyBacktest> {
+  const body = {
+    document,
+    output_id: outputId,
+    dead_band: settings?.deadBand,
+    lookback_s: settings?.lookbackS,
+    silent_band: settings?.silentBand,
+  };
+  return sendJson<FuzzyBacktest>("POST", `/api/datasets/${encodeURIComponent(datasetId)}/fuzzy/backtest`, body);
+}
+
 /** One structural difference between two rule bases (`POST /api/fuzzy/diff`): a code plus parameters. */
 export interface FuzzyChange {
   code:

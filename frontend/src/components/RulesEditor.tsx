@@ -169,37 +169,41 @@ function RuleRow({ rule, document, firing, onChangeRule, onDelete, t }: RuleRowP
   const addClause = () => onChangeRule({ ...rule, if: [...rule.if, defaultCondition(document)] });
   return (
     <li className={(rule.enabled ?? true) ? "rule-row" : "rule-row rule-disabled"}>
-      <span className="rule-word">{t("fuzzy.rule.if")}</span>
-      {rule.if.map((clause, index) => (
-        <span className="rule-condition" key={index}>
-          <ConditionRow
-            clause={clause}
-            index={index}
-            isRemovable={rule.if.length > 1}
-            document={document}
-            onChangeClause={changeClause}
-            onRemove={removeClause}
-            t={t}
-          />
-          {index < rule.if.length - 1 && (
-            <OperatorSelect operator={operator} onChange={(next) => onChangeRule({ ...rule, operator: next })} t={t} />
-          )}
-        </span>
-      ))}
-      <button type="button" className="link-button" onClick={addClause}>
-        {t("fuzzy.rule.addCondition")}
-      </button>
-      <span className="rule-word">{t("fuzzy.rule.then")}</span>
-      <ConclusionSelects
-        clause={rule.then}
-        document={document}
-        onChangeClause={(next) => onChangeRule({ ...rule, then: next })}
-        t={t}
-      />
-      <RuleSettings rule={rule} firing={firing} onChangeRule={onChangeRule} t={t} />
-      <button type="button" className="link-button" onClick={onDelete}>
-        {t("fuzzy.rule.delete")}
-      </button>
+      <div className="rule-sentence">
+        <span className="rule-word">{t("fuzzy.rule.if")}</span>
+        {rule.if.map((clause, index) => (
+          <span className="rule-condition" key={index}>
+            <ConditionRow
+              clause={clause}
+              index={index}
+              isRemovable={rule.if.length > 1}
+              document={document}
+              onChangeClause={changeClause}
+              onRemove={removeClause}
+              t={t}
+            />
+            {index < rule.if.length - 1 && (
+              <OperatorSelect operator={operator} onChange={(next) => onChangeRule({ ...rule, operator: next })} t={t} />
+            )}
+          </span>
+        ))}
+        <button type="button" className="link-button" onClick={addClause}>
+          {t("fuzzy.rule.addCondition")}
+        </button>
+        <span className="rule-word">{t("fuzzy.rule.then")}</span>
+        <ConclusionSelects
+          clause={rule.then}
+          document={document}
+          onChangeClause={(next) => onChangeRule({ ...rule, then: next })}
+          t={t}
+        />
+      </div>
+      <div className="rule-meta">
+        <RuleSettings rule={rule} firing={firing} onChangeRule={onChangeRule} t={t} />
+        <button type="button" className="link-button" onClick={onDelete}>
+          {t("fuzzy.rule.delete")}
+        </button>
+      </div>
     </li>
   );
 }
