@@ -23,6 +23,8 @@ Status: open / partly tested / retired.
 | A15 | The setpoint is exogenous (independent of the load disturbance), so setpoint lags are valid instruments for closed-loop identification | `identification_cl.py`, exp07 | operator-driven setpoints are NOT independent of the process in a real plant (they follow ore properties, A3/A4); test on lab testbed and customer data | L4, L6 | open (holds in the simulator by construction) |
 | A16 | The time-scale separation rule sigma = 4 to 10 and tuning the inner loop first is adequate for the plant's cascades | `cascade.py`, exp08 | a plant with a slow inner loop, lab testbed | L4, L6 | partly tested (one synthetic plant; no instability found at sigma 1) |
 | A17 | The PV noise is small enough (or filtered) for derivative action: controller-output noise grows 13-27 times with an AMIGO PID, N = 10 | `tuning_pid.py`, exp06 | real noise spectra from customer data and the actuator wear they cause | L4, L6 | open |
+| A18 | An operator who accepts advice applies it within a delay D (about 300 s) and with a probability below one | `supervisor` exp27 operator model | observe real acknowledgements and process moves | L5, L6 | open |
+| A19 | Module 1 gate states (manual, saturated, flatline, oscillating) are valid on windows of about 30 minutes | `supervisor` gates | rolling analysis on real data, gate-open share in no-fault runs | L4, L6 | open |
 
 ## Benefit estimate (C4)
 
