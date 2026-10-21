@@ -39,6 +39,33 @@ exploratory runs on two public loop datasets (SACAC, ISDB; not redistributed). S
 passive data, time-constant and delay estimates are poor at full noise, the sluggish-loop (idle index) idea was tried
 and dropped, and the OPC UA server was tested with a Python client only. Tuning and advice are advisory: nothing in
 this repository writes to a DCS.
+
+## Module 2: advisory supervisor
+
+Status: proposed design ([ADR 010](docs/adr/010-advisory-supervisor.md)), tested on simulated data only.
+
+- **What it is**: advice on the mill feed setpoint (increase, decrease or hold) from a fuzzy rule base. Advice is gated by
+  module 1 loop state (manual, saturated and flatline block; oscillating only warns), explained by its dominant rules,
+  and written to an append-only, hash-chained log. An operator records a decision (accepted, rejected or deferred) with
+  a reason code.
+- **No writes to a plant**: the package never imports OPC UA or connector code and writes only under `_advisory/` and
+  `_supervisor/` in the data root. Mode can only be `off` or `advisory`; a closed-loop mode needs a future ADR.
+- **Where**: `supervisor/` (package `crosscut_supervisor`), `api/src/crosscut_api/supervisor_routes.py`, the Advisor view
+  in `frontend/` (`src/advisory.ts`, `src/components/AckForm.tsx`), and the schemas `schemas/supervisor.schema.json`
+  and `schemas/advisory-record.schema.json`.
+- **Try it**: in the Advisor view, load the bundled example `supervisor/examples/mill_feed_advisor.json`, then run a
+  replay on a simulated dataset. Advice shows its gate state; during injected manual or flatline windows no magnitude
+  is given.
+- **Claim limits**:
+  - Evidence is simulation only. In exp27 (20 test seeds, one run, frozen criteria) the fuzzy v2 rule base kept P80 on
+    target more often than a crisp threshold rule (median 0.65 vs 0.49) without more mill-power excursions. A scripted
+    operator that uses the ore hardness estimate reached 0.79, so the advisor does not replace that information.
+    The crisp baseline was not tuned, and the rule bases were shaped on this simulator
+    ([results](experiments/exp27_supervisor_benefit/README.md)).
+  - Acceptance of advice (0.8) and the 300 s delay are assumptions of the simulated operator, not measurements.
+  - No plant data has been used.
+  - `who` on an acknowledgement is free text and is not authenticated.
+
 ## Foundations (stage 0)
 
 - Simulators with known ground truth: Wood-Berry distillation column and a grinding circuit (HPGR, mill, cyclone)
