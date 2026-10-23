@@ -228,6 +228,11 @@ class PlsModel:
     sample_period_s: float
     n_train: int
 
+    @property
+    def cv_sigma(self) -> float:
+        """Cross-validated RMSE of the chosen component count (original units)."""
+        return float(self.cv_rmse[self.chosen_components - 1])
+
     def _with_limits(self, x_train: np.ndarray) -> PlsModel:
         """Copy with score variances and empirical 99 % T2 / SPE limits of the training rows."""
         t = ((x_train - self.x_mean) / self.x_scale) @ self._projection()
