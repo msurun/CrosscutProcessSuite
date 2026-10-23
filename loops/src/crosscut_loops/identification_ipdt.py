@@ -5,7 +5,9 @@ absorbs baseline drift and the unknown balance output, so steps, doublets and st
 all work. theta is scanned on a grid (coarse, then a finer grid around the best point);
 for each theta the other coefficients are ordinary least squares. Quality: R^2, a
 moving-block bootstrap of the residuals for the slope (block from the residual autocorrelation,
-plus the slope shift under a quadratic baseline), and separate up/down slopes.
+plus the slope shift under a quadratic baseline), and separate up/down slopes. The dead time
+also gets a profile-likelihood interval (``delay_lower_s``, ``delay_upper_s``) from the SSE
+profile over theta; tuning uses the upper end as the conservative dead time.
 """
 
 from __future__ import annotations
@@ -61,6 +63,13 @@ class IpdtFit:
     baseline_slope: float
     verdict: str
     reasons: tuple[str, ...]
+    delay_lower_s: float = 0.0
+    delay_upper_s: float = 0.0
+
+    @property
+    def delay_used_s(self) -> float:
+        """Dead time the tuning rules use: the upper end of the interval."""
+        return self.delay_upper_s
 
 
 class IpdtIdentificationError(ValueError):
@@ -105,23 +114,49 @@ def _solve(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float]:
     return coef, float(np.sum((y - x @ coef) ** 2))
 
 
-def _best_theta(t: np.ndarray, u: np.ndarray, y: np.ndarray, thetas: np.ndarray) -> int:
-    """Index of the theta with the smallest SSE."""
-    sse = [_solve(_design(t, u, th), y)[1] for th in thetas]
-    return int(np.argmin(sse))
+def _sse_profile(t: np.ndarray, u: np.ndarray, y: np.ndarray, thetas: np.ndarray) -> np.ndarray:
+    """Sum of squared errors at each theta (other coefficients re-fitted)."""
+    return np.array([_solve(_design(t, u, th), y)[1] for th in thetas])
+
+
+def _f95_one(dof: float) -> float:
+    """F quantile at 0.95 for (1, dof) degrees of freedom, without scipy.
+
+    F(1, m) at 0.95 equals t(0.975, m)^2. t is taken from the Cornish-Fisher expansion about the
+    normal quantile z = 1.95996 (error under 0.1 % for m >= 5, tends to 3.84 for large m).
+    """
+    z = 1.959964
+    m = max(dof, 5.0)
+    t_q = z + (z**3 + z) / (4 * m) + (5 * z**5 + 16 * z**3 + 3 * z) / (96 * m**2)
+    return float(t_q**2)
+
+
+def _delay_interval(
+    thetas: np.ndarray, sse: np.ndarray, n: int, n_par: int = 3
+) -> tuple[float, float]:
+    """Profile interval: thetas with SSE <= SSE_min * (1 + F95(1, n-p) / (n-p)), clipped to grid."""
+    dof = n - n_par
+    limit = float(sse.min()) * (1.0 + _f95_one(dof) / dof)
+    inside = thetas[sse <= limit]
+    return float(inside.min()), float(inside.max())
 
 
 def _scan_delay(
     t: np.ndarray, u: np.ndarray, y: np.ndarray, s: IpdtSettings
-) -> tuple[float, bool]:
-    """Delay estimate (coarse grid, then fine grid) and whether it sits on a grid edge."""
+) -> tuple[float, bool, tuple[float, float]]:
+    """Delay estimate (coarse, then fine grid), grid-edge flag and the profile interval."""
     step = s.grid_step_samples * float(np.median(np.diff(t)))
     count = max(int(s.max_delay_fraction * (t[-1] - t[0]) / step), 3)
     coarse = np.arange(count + 1) * step
-    i = _best_theta(t, u, y, coarse)
+    sse_c = _sse_profile(t, u, y, coarse)
+    i = int(np.argmin(sse_c))
     edge = i == 0 or i == count
     fine = np.linspace(max(coarse[i] - step, 0.0), coarse[i] + step, s.refine_points)
-    return float(fine[_best_theta(t, u, y, fine)]), edge
+    sse_f = _sse_profile(t, u, y, fine)
+    theta = float(fine[int(np.argmin(sse_f))])
+    grid, sse = np.concatenate([coarse, fine]), np.concatenate([sse_c, sse_f])
+    interval = _delay_interval(grid, sse, len(t))
+    return theta, edge, interval
 
 
 def _move_span(t: np.ndarray, u: np.ndarray, s: IpdtSettings) -> tuple[float, float]:
@@ -272,7 +307,7 @@ def identify_ipdt(
     if float(np.ptp(u)) < settings.min_out_range:
         nothing = IpdtModel(0.0, 0.0)
         return IpdtFit(nothing, 0.0, float("inf"), None, 0.0, "blocked", ("no_out_move",))
-    theta, edge = _scan_delay(t, u, y, settings)
+    theta, edge, (lower, upper) = _scan_delay(t, u, y, settings)
     x = _design(t, u, theta)
     coef = _solve(x, y)[0]
     r2 = _r_squared(x, y)
@@ -282,7 +317,8 @@ def identify_ipdt(
     low = _confidence_reasons(se, ratio, settings)
     verdict = "blocked" if blocked else ("low_confidence" if low else "ok")
     model = IpdtModel(float(coef[2]), theta)
-    return IpdtFit(model, r2, se, ratio, float(coef[1]), verdict, tuple(blocked + low))
+    reasons = tuple(blocked + low)
+    return IpdtFit(model, r2, se, ratio, float(coef[1]), verdict, reasons, lower, upper)
 
 
 def fitted_pv(t_s: np.ndarray, out: np.ndarray, pv: np.ndarray, delay_s: float) -> np.ndarray:

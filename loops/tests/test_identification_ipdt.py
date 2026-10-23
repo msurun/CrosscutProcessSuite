@@ -153,3 +153,31 @@ def test_block_length_follows_the_autocorrelation_time() -> None:
     slow = _ou_noise(1000, 1.0, 100.0, 6)
     assert _block_length(white, DEFAULT_SETTINGS) == DEFAULT_SETTINGS.bootstrap_min_block
     assert _block_length(white, DEFAULT_SETTINGS) < _block_length(slow, DEFAULT_SETTINGS) <= 200
+
+
+def _interval(k: float, noise: float, seed: int) -> tuple[float, float, float]:
+    """(lower, theta_hat, upper) of a single-step record with slope k."""
+    t = _t()
+    u = _steps(t, [(300, 5)])
+    y = 10.0 + (_ramp_pv(t, u) - 10.0) * (k / K)
+    y = y + np.random.default_rng(seed).normal(0.0, noise, len(t))
+    fit = identify_ipdt(t, u, y)
+    return fit.delay_lower_s, fit.model.delay_s, fit.delay_upper_s
+
+
+@pytest.mark.parametrize("noise", [0.0, 0.01])
+def test_delay_interval_contains_true_theta(noise: float) -> None:
+    """The profile interval brackets the point estimate and the true delay in most runs."""
+    hits = 0
+    for seed in range(20):
+        lower, theta, upper = _interval(K, noise, seed)
+        assert lower <= theta <= upper
+        hits += lower <= THETA <= upper
+    assert hits >= 18
+
+
+def test_delay_interval_wider_for_slow_ramp() -> None:
+    """A slow ramp (k=0.002) pins the dead time less than a fast one (k=0.05)."""
+    slow = np.mean([np.subtract(*_interval(0.002, 0.01, s)[::-2]) for s in range(5)])
+    fast = np.mean([np.subtract(*_interval(0.05, 0.01, s)[::-2]) for s in range(5)])
+    assert slow > fast

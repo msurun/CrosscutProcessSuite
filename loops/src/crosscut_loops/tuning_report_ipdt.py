@@ -96,7 +96,7 @@ def _tune(
     report: IpdtTuningReport, fit: IpdtFit, swing: tuple[float, float] | None
 ) -> IpdtTuningReport:
     """Settings from the fitted slope and delay; low confidence adds a note, never a block."""
-    slope, delay = fit.model.slope_per_s, fit.model.delay_s
+    slope, delay = fit.model.slope_per_s, fit.delay_used_s
     try:
         if swing is None:
             tau_c = lambda_from_robustness_integrating(delay, report.robustness)
@@ -144,6 +144,8 @@ def _model_lines(report: IpdtTuningReport) -> list[str]:
         "| --- | --- |",
         f"| Slope (PV unit/s per % OUT) | {model.slope_per_s:.6g} |",
         f"| Dead time (s) | {_format_number(model.delay_s)} |",
+        f"| Dead time interval (s) | {_format_number(report.fit.delay_lower_s)} to "
+        f"{_format_number(report.fit.delay_upper_s)} (tuning uses the upper end) |",
         f"| R squared | {_format_number(report.fit.r_squared)} |",
         "",
     ]

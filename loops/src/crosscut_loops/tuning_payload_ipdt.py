@@ -12,6 +12,7 @@ import numpy as np
 from crosscut_loops.identification_ipdt import (
     IpdtFit,
     IpdtIdentificationError,
+    IpdtModel,
     fitted_pv,
     identify_ipdt,
 )
@@ -94,6 +95,9 @@ def _model_object(fit: IpdtFit) -> dict[str, object]:
         "kind": "ipdt",
         "slope_per_s": fit.model.slope_per_s,
         "delay_s": fit.model.delay_s,
+        "delay_lower_s": fit.delay_lower_s,
+        "delay_upper_s": fit.delay_upper_s,
+        "delay_used_s": fit.delay_used_s,
         "r_squared": fit.r_squared,
         "slope_rel_se": fit.slope_rel_se if np.isfinite(fit.slope_rel_se) else None,
         "up_down_ratio": fit.up_down_ratio,
@@ -107,7 +111,9 @@ def _settings_fields(report: IpdtTuningReport) -> dict[str, object]:
     """Settings, forms and closed-loop step; the FOPDT-only fields (AMIGO, PID) stay empty."""
     if report.simc is None or report.fit is None:
         return {"settings": None, "dcs_forms": {}, "vendor_forms": {}, "step": None}
-    step = closed_loop_step_ipdt(report.fit.model, report.simc)
+    step = closed_loop_step_ipdt(
+        IpdtModel(report.fit.model.slope_per_s, report.fit.delay_used_s), report.simc
+    )
     return {
         "settings": {"simc": {"kc": report.simc.kc, "ti_s": report.simc.ti_s}, "amigo": None},
         "dcs_forms": report.dcs_forms,

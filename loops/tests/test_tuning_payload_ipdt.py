@@ -18,7 +18,8 @@ THETA = 20.0
 N = 1200
 T = np.arange(N, dtype=float)
 MODEL_KEYS = {
-    "kind", "slope_per_s", "delay_s", "r_squared", "slope_rel_se", "up_down_ratio",
+    "kind", "slope_per_s", "delay_s", "delay_lower_s", "delay_upper_s", "delay_used_s",
+    "r_squared", "slope_rel_se", "up_down_ratio",
     "baseline_slope", "verdict", "reasons",
 }  # fmt: skip
 
@@ -202,3 +203,23 @@ def test_closed_loop_data_is_now_a_warning_object() -> None:
     request = TuningRequest(0.0, float(N - 1))
     body = tuning_payload(_loop("integrating"), T, columns, request)
     assert {"code": "closed_loop_data"} in body["warnings"]
+
+
+def test_settings_use_upper_delay_and_payload_keys() -> None:
+    """Kc with the upper dead time is smaller than with the point estimate; keys are present."""
+    from crosscut_loops.tuning_rules_integrating import (
+        lambda_from_robustness_integrating,
+        simc_pi_integrating,
+    )
+
+    u = _out([(300, 5)])
+    pv = _ramp(u, noise=0.01)
+    model = _payload("integrating", u, pv)["model"]
+    assert model["delay_lower_s"] <= model["delay_s"] <= model["delay_upper_s"]
+    assert model["delay_used_s"] == model["delay_upper_s"]
+    assert model["delay_upper_s"] > model["delay_s"]
+    body = _payload("integrating", u, pv, robustness=0.5)
+    slope, point = model["slope_per_s"], model["delay_s"]
+    tau_point = lambda_from_robustness_integrating(point, 0.5)
+    kc_point = simc_pi_integrating(slope, point, tau_point).kc
+    assert body["settings"]["simc"]["kc"] < kc_point
