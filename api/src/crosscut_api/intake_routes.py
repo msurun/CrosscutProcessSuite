@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
@@ -18,11 +18,12 @@ import numpy as np
 from crosscut_loops.identification_ipdt import IpdtIdentificationError
 from crosscut_loops.overview import LoopTags
 from crosscut_loops.step_test_check import StepTestCheck, check_step_test, resample_uniform
-from crosscut_loops.step_test_dataset import DatasetSpec, write_step_test_dataset
+from crosscut_loops.step_test_dataset import DatasetSpec, write_step_test_notes
 from crosscut_loops.step_test_io import (
     TAG_NAMES,
     TIME_NAMES,
     VALUE_NAMES,
+    Note,
     ReadOptions,
     Record,
     detect_decimal,
@@ -259,11 +260,19 @@ def chart_sample(rec: Record, step_s: float) -> dict[str, Any]:
     return sample
 
 
+def _note_dicts(notes: Iterable[Note]) -> list[dict[str, Any]]:
+    """Coded notes as JSON objects: code, English text and params."""
+    return [_clean(asdict(note)) for note in notes]
+
+
 def check_payload(rec: Record, check: StepTestCheck) -> dict[str, Any]:
     """JSON document of a check: all fields, the reading notes and the chart sample."""
     step = max(1.0, float(round(check.dt_median_s)))
     document = _clean(asdict(check))
-    return {**document, "read_as": list(rec.assumptions), "sample": chart_sample(rec, step)}
+    return {
+        **document, "read_as": list(rec.assumptions), "read_as_notes": _note_dicts(rec.notes),
+        "sample": chart_sample(rec, step),
+    }  # fmt: skip
 
 
 class _Intake:
@@ -295,7 +304,10 @@ class _Intake:
             raise _unprocessable({"message": "the record is not usable", "finding_codes": codes})
         notes = self._write(rec, out_dir, request)
         loops = [asdict(loop) for loop in self.loops_of(request.dataset_id)]
-        return {"dataset_id": request.dataset_id, "assumptions": notes, "loops": _clean(loops)}
+        return {
+            "dataset_id": request.dataset_id, "assumptions": [n.text for n in notes],
+            "assumption_notes": _note_dicts(notes), "loops": _clean(loops),
+        }
 
     def _new_dir(self, dataset_id: str) -> Path:
         """The not-yet-existing dataset directory directly under the root (409 if present)."""
@@ -306,13 +318,13 @@ class _Intake:
             raise HTTPException(status_code=409, detail=f"dataset '{dataset_id}' already exists")
         return out_dir
 
-    def _write(self, rec: Record, out_dir: Path, request: DatasetRequest) -> list[str]:
+    def _write(self, rec: Record, out_dir: Path, request: DatasetRequest) -> list[Note]:
         """Write the dataset; a failure removes the half-written folder."""
         spec = DatasetSpec(
             request.loop_name, request.process_kind, request.pv_unit, request.out_unit
         )
         try:
-            return write_step_test_dataset(rec, out_dir, spec)
+            return write_step_test_notes(rec, out_dir, spec)
         except FileExistsError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except (ValueError, OSError) as error:

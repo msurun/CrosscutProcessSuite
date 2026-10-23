@@ -1,10 +1,11 @@
 // Result panel of the step-test check in the Import view: the verdict (icon and word), the measured
 // numbers, the findings with what to do, the tuning wizard's dry run, the chart and the assumptions
-// the reader made. The finding texts come from the server (English).
+// the reader made. Finding, dry-run and "read as" texts are translated by code (intakeText.ts); the server's English is the fallback.
 import type { IntakeCheck, IntakeDryRun, IntakeFinding } from "../api";
 import type { Translate } from "../findings";
 import { formatFixed, formatPercent, formatSignificant } from "../format";
 import { verdictLevel } from "../intake";
+import { findingTexts, noteLines, reasonText } from "../intakeText";
 import { ImportChart } from "./ImportChart";
 import { StatusChip } from "./StatusChip";
 
@@ -39,14 +40,17 @@ function Findings({ findings, t }: { findings: IntakeFinding[]; t: Translate }) 
   if (findings.length === 0) return <p>{t("import.findings.none")}</p>;
   return (
     <ul className="import-findings">
-      {findings.map((finding) => (
+      {findings.map((finding) => {
+        const { text, todo } = findingTexts(finding, t);
+        return (
         <li key={finding.code}>
-          <strong>{finding.text}</strong>
+          <strong>{text}</strong>
           {finding.blocking && <span className="badge badge-partial">{t("import.findings.blocking")}</span>}
           <br />
-          <span>{t("import.findings.todo", { text: finding.what_to_do })}</span>
+          <span>{t("import.findings.todo", { text: todo })}</span>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
@@ -58,7 +62,7 @@ function DryRun({ run, t }: { run: IntakeDryRun; t: Translate }) {
     <section aria-label={t("import.dry.title")}>
       <h4>{t("import.dry.title")}</h4>
       {!ok && (
-        <ul>{[...run.reasons, ...(run.error ? [run.error] : [])].map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        <ul>{[...run.reasons.map((reason) => reasonText(reason, t)), ...(run.error ? [run.error] : [])].map((reason) => <li key={reason}>{reason}</li>)}</ul>
       )}
       {ok && (
         <dl className="advisory-config import-numbers">
@@ -89,7 +93,7 @@ export function ImportCheck({ check, t }: { check: IntakeCheck; t: Translate }) 
       {check.dry_run !== null && <DryRun run={check.dry_run} t={t} />}
       <ImportChart check={check} t={t} />
       <h4>{t("import.readAs")}</h4>
-      <ul>{check.read_as.map((note) => <li key={note}>{note}</li>)}</ul>
+      <ul>{noteLines(check.read_as_notes, check.read_as, t).map((note) => <li key={note}>{note}</li>)}</ul>
     </section>
   );
 }

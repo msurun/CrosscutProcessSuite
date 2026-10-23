@@ -222,3 +222,20 @@ def test_intake_routes_import_no_plant_capability() -> None:
     forbidden = {"opcua", "asyncua", "crosscut_opcua", "connectors", "crosscut_connectors"}
     assert not tops & forbidden
     assert not {n for n in names if "write_dataset" in n or "subprocess" in n}
+
+
+def test_check_and_dataset_add_coded_notes_next_to_the_texts(client: TestClient) -> None:
+    check = client.post("/intake/check", json=body(wide_csv())).json()
+    note = check["read_as_notes"][0]
+    assert [n["text"] for n in check["read_as_notes"]] == check["read_as"]
+    assert note["code"] == "read_wide" and note["params"]["time"] == "iso"
+    reply = client.post("/intake/dataset", json=create_body(wide_csv())).json()
+    assert [n["text"] for n in reply["assumption_notes"]] == reply["assumptions"]
+    codes = {n["code"] for n in reply["assumption_notes"]}
+    assert {"read_wide", "tz_utc", "units", "resampling", "no_sp", "no_mode"} <= codes
+
+
+def test_findings_in_the_payload_have_params(client: TestClient) -> None:
+    reply = client.post("/intake/check", json=body(wide_csv(step=0.0))).json()
+    finding = next(f for f in reply["findings"] if f["code"] == "no_out_move")
+    assert finding["params"]["min_range"] > 0

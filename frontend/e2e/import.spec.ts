@@ -74,6 +74,8 @@ test("upload, preview, check, create and open the tuning view", async ({ page },
   await expect(page.getByText(/\(zakres [\d,]+ do [\d,]+ s\)/)).toBeVisible();
   await expect(page.getByText(/górnej granicy zakresu czasu martwego/)).toBeVisible();
   await expect(page.getByText(/UTC/).first()).toBeVisible();
+  await expect(page.getByText(/Układ: szeroki/)).toBeVisible();
+  await expect(page.getByText(/layout wide/)).toHaveCount(0);
 
   created = `e2e_import_${Date.now()}_${info.workerIndex}`;
   await page.getByLabel("Identyfikator zbioru danych").fill(created);

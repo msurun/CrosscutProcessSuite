@@ -3,18 +3,13 @@
 // server's guesses. The labels use plain words ("Process variable (level)").
 import type { IntakeOptions, IntakePreview } from "../api";
 import type { Translate } from "../findings";
+import { delimiterName } from "../intakeText";
 import { requiredFields, type MappingField, type MappingForm } from "../intake";
 
 const DELIMITERS = [",", ";", "\t", "|"];
 const WIDE_FIELDS: MappingField[] = ["time_col", "pv_col", "out_col", "sp_col", "mode_col"];
 const LONG_FIELDS: MappingField[] = ["time_col", "tag_col", "value_col", "tag_pv", "tag_out", "tag_sp", "tag_mode"];
 const TAG_FIELDS: MappingField[] = ["tag_pv", "tag_out", "tag_sp", "tag_mode"];
-
-/** Human name of a delimiter character. */
-function delimiterName(delimiter: string, t: Translate): string {
-  const names: Record<string, string> = { "\t": "tab", ";": "semicolon", ",": "comma", "|": "pipe" };
-  return delimiter in names ? t(`import.delim.${names[delimiter]}`) : delimiter;
-}
 
 interface PickProps {
   label: string;

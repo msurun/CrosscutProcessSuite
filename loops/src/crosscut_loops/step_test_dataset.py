@@ -15,7 +15,7 @@ import numpy as np
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_loops.step_test_check import resample_uniform
-from crosscut_loops.step_test_io import Record
+from crosscut_loops.step_test_io import Note, Record
 
 GOOD_QUALITY = 0
 NS_PER_S = 1_000_000_000
@@ -56,21 +56,33 @@ def _signals(rec: Record, step: float) -> tuple[np.ndarray, dict[str, np.ndarray
     return resample_uniform(rec.t_s, cols, step)
 
 
+def assumption_notes(rec: Record, spec: DatasetSpec, step: float) -> list[Note]:
+    """What make-dataset assumed, as coded notes (stable code, English text, figures)."""
+    start = rec.origin_utc.isoformat()
+    notes = [
+        *rec.notes,
+        Note("tz_utc", f"time zone: UTC (naive timestamps are read as UTC); start {start}",
+             {"start": start}),
+        Note("units", f"units: PV '{spec.pv_unit}', OUT '{spec.out_unit}' (from the options)",
+             {"pv": spec.pv_unit, "out": spec.out_unit}),
+        Note("resampling",
+             f"resampling: uniform {step:g} s grid; OUT, SP, MODE hold the last value; PV linear",
+             {"step_s": step}),
+    ]  # fmt: skip
+    if not rec.absolute:
+        notes.append(Note("relative_anchor",
+                          "times were relative seconds: anchored at 2026-01-01T00:00:00Z"))
+    if rec.sp is None:
+        notes.append(Note("no_sp", "no SP column: SP is held at the first PV value"))
+    if rec.mode is None:
+        text = "no MODE column: MODE is set to 0 (manual) for the whole record"
+        notes.append(Note("no_mode", text))
+    return notes
+
+
 def assumptions(rec: Record, spec: DatasetSpec, step: float) -> list[str]:
     """Plain-language list of what make-dataset assumed."""
-    base = [
-        *rec.assumptions,
-        f"time zone: UTC (naive timestamps are read as UTC); start {rec.origin_utc.isoformat()}",
-        f"units: PV '{spec.pv_unit}', OUT '{spec.out_unit}' (from the options)",
-        f"resampling: uniform {step:g} s grid; OUT, SP, MODE hold the last value; PV linear",
-    ]
-    if not rec.absolute:
-        base.append("times were relative seconds: anchored at 2026-01-01T00:00:00Z")
-    if rec.sp is None:
-        base.append("no SP column: SP is held at the first PV value")
-    if rec.mode is None:
-        base.append("no MODE column: MODE is set to 0 (manual) for the whole record")
-    return base
+    return [note.text for note in assumption_notes(rec, spec, step)]
 
 
 def _samples(rec: Record, spec: DatasetSpec, step: float) -> tuple[Samples, list[str]]:
@@ -90,6 +102,14 @@ def write_step_test_dataset(rec: Record, out_dir: Path, spec: DatasetSpec) -> li
 
     Raises FileExistsError if ``out_dir`` already exists and is not empty.
     """
+    return [note.text for note in write_step_test_notes(rec, out_dir, spec)]
+
+
+def write_step_test_notes(rec: Record, out_dir: Path, spec: DatasetSpec) -> list[Note]:
+    """Like `write_step_test_dataset`, but return the assumptions as coded notes.
+
+    Raises FileExistsError if ``out_dir`` already exists and is not empty.
+    """
     if out_dir.exists() and any(out_dir.iterdir()):
         raise FileExistsError(f"{out_dir} already exists; choose a new dataset directory")
     step = choose_step(rec.t_s, spec.step_s)
@@ -101,7 +121,7 @@ def write_step_test_dataset(rec: Record, out_dir: Path, spec: DatasetSpec) -> li
     write_dataset(out_dir, samples, DatasetInfo(out_dir.name, {"kind": "file"}, start, tags))
     project = json.dumps(_project(spec, ids), indent=2)
     (out_dir / "project.json").write_text(project, encoding="utf-8")
-    return assumptions(rec, spec, step)
+    return assumption_notes(rec, spec, step)
 
 
 def _project(spec: DatasetSpec, ids: list[str]) -> dict[str, object]:

@@ -7,7 +7,7 @@ identification as a dry run, so the engineer sees what the wizard will say. Advi
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -29,12 +29,17 @@ THETA_UNKNOWN_POST_S = 300.0  # post-move requirement used while the dead time i
 
 @dataclass(frozen=True)
 class Finding:
-    """One problem found in the record: a code, what is wrong and what to do about it."""
+    """One problem found in the record: a code, what is wrong and what to do about it.
+
+    ``params`` holds the figures behind the English texts (shares as 0..1, times in s) so a
+    client can write the same message in its own language.
+    """
 
     code: str
     text: str
     what_to_do: str
     blocking: bool = False
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -160,6 +165,7 @@ def _lead_finding(lead_share: float, first_s: float, t_end: float, s: IpdtSettin
         f"Record at least {minutes_text(need)} of quiet time (OUT and PV steady) before the "
         "first move, then repeat the move and the hold.",
         blocking=True,
+        params={"share": lead_share, "lead_s": first_s, "min_share": f, "need_s": need},
     )
 
 
@@ -173,6 +179,10 @@ def _post_finding(post_s: float, need_s: float, known: bool) -> Finding:
         f"{minutes_text(need_s)} ({basis}){note}.",
         f"Keep recording and hold OUT for at least {minutes_text(need_s)} after the last move.",
         blocking=True,
+        params={
+            "post_s": post_s, "need_s": need_s, "known": known,
+            "basis": "fit" if need_s > THETA_UNKNOWN_POST_S else "floor",
+        },
     )
 
 
@@ -205,6 +215,7 @@ def _mode_findings(manual_share: float | None) -> list[Finding]:
         "Record the test with the loop in MANUAL for the whole record "
         "(or cut the record to the manual part).",
         blocking=blocking,
+        params={"share": manual_share, "closed_loop": blocking},
     )]  # fmt: skip
 
 
@@ -215,6 +226,7 @@ def _signal_findings(n_dropped: int, uneven: bool) -> list[Finding]:
         found.append(Finding(
             "bad_values", f"{n_dropped} rows with missing or non-numeric values were dropped.",
             "Check the export (quality column, gaps in the historian).",
+            params={"count": n_dropped},
         ))  # fmt: skip
     if uneven:
         found.append(Finding(
@@ -233,12 +245,14 @@ def _dry_run_findings(dry: DryRun, pv_quant: float, pv_range: float) -> list[Fin
             "low_confidence",
             "The identification is only low-confidence: " + ", ".join(dry.reasons),
             "Use a larger OUT step or a doublet, a longer hold, and keep other disturbances away.",
+            params={"reasons": list(dry.reasons)},
         ))  # fmt: skip
     if pv_range > 0 and pv_quant > COARSE_PV_FRACTION * pv_range:
         found.append(Finding(
             "pv_coarse",
             f"PV resolution ({pv_quant:g}) is coarse against its range ({pv_range:g}).",
             "Use a larger OUT move so PV travels further, or export PV with more digits.",
+            params={"resolution": pv_quant, "range": pv_range},
         ))  # fmt: skip
     return found
 
@@ -273,6 +287,7 @@ def _no_move_finding(s: IpdtSettings) -> Finding:
         "no_out_move", f"OUT does not move by the minimum of {s.min_out_range:g} % in this record.",
         "Move OUT by a step (5-10 % of OUT) while the loop is in manual and record the result.",
         blocking=True,
+        params={"min_range": s.min_out_range},
     )
 
 

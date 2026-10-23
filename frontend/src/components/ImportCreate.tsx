@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { IntakeCheck, IntakeCreated, IntakeDatasetSpec } from "../api";
 import type { Translate } from "../findings";
 import { canCreate, datasetIdError, loopNameValid } from "../intake";
+import { noteLines } from "../intakeText";
 
 interface CreateProps {
   check: IntakeCheck | null;
@@ -86,7 +87,7 @@ export function ImportDone({ created, onOpen, onReset, t }: DoneProps) {
       <h3>{t("import.done.title")}</h3>
       <p className="status" role="status">{t("import.done.text", { id: created.dataset_id })}</p>
       <h4>{t("import.readAs")}</h4>
-      <ul>{created.assumptions.map((note) => <li key={note}>{note}</li>)}</ul>
+      <ul>{noteLines(created.assumption_notes, created.assumptions, t).map((note) => <li key={note}>{note}</li>)}</ul>
       <div className="toolbar">
         <button type="button" onClick={() => onOpen(created.dataset_id, loop)}>{t("import.done.open")}</button>
         <button type="button" onClick={onReset}>{t("import.done.again")}</button>

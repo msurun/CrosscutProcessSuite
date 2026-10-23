@@ -1210,6 +1210,15 @@ export interface IntakeFinding {
   text: string;
   what_to_do: string;
   blocking: boolean;
+  /** Figures behind the texts (shares 0..1, times in s); absent in older servers. */
+  params?: Record<string, unknown>;
+}
+
+/** One "read as" or assumption line: a stable code, the English text and its figures. */
+export interface IntakeNote {
+  code: string;
+  text: string;
+  params: Record<string, unknown>;
 }
 
 /** What the tuning wizard would say about the record (identification dry run). */
@@ -1252,6 +1261,7 @@ export interface IntakeCheck {
   findings: IntakeFinding[];
   dry_run: IntakeDryRun | null;
   read_as: string[];
+  read_as_notes?: IntakeNote[];
   sample: IntakeSample;
 }
 
@@ -1268,6 +1278,7 @@ export interface IntakeDatasetSpec {
 export interface IntakeCreated {
   dataset_id: string;
   assumptions: string[];
+  assumption_notes?: IntakeNote[];
   loops: { name: string }[];
 }
 

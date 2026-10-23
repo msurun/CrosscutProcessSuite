@@ -179,3 +179,30 @@ def test_uneven_sampling_is_flagged():
     result = check_step_test(t[keep], out[keep], pv[keep])
     assert result.uneven_sampling
     assert "uneven_sampling" in codes(result)
+
+
+def test_findings_carry_the_figures_behind_their_texts():
+    t, out, pv = make_signals(move_at=300.0, back_at=3000.0)
+    by_code = {f.code: f for f in check_step_test(t, out, pv).findings}
+    lead = by_code["lead_too_short"].params
+    assert set(lead) == {"share", "lead_s", "min_share", "need_s"} and lead["share"] < 0.2
+    t, out, pv = make_signals(n=400, back_at=3900.0)
+    post = {f.code: f for f in check_step_test(t, out, pv).findings}["post_move_too_short"]
+    assert post.params["basis"] in {"fit", "floor"}
+    assert post.params["need_s"] > post.params["post_s"]
+    flat = {f.code: f for f in check_step_test(*make_signals(step=0.0)).findings}
+    assert flat["no_out_move"].params["min_range"] > 0
+    closed = check_step_test(t, out, pv, mode=np.ones(len(t)))
+    manual = {f.code: f for f in closed.findings}["not_in_manual"]
+    assert manual.params == {"share": 0.0, "closed_loop": True}
+
+
+def test_read_notes_have_stable_codes_and_params(tmp_path):
+    from crosscut_loops.step_test_io import ReadOptions, read_record
+
+    t, out, pv = make_signals()
+    path = write_wide(tmp_path / "eu.csv", t, out, pv, delimiter=";", decimal=",", iso=False)
+    opts = ReadOptions(time_col="timestamp", pv_col="LIC1.PV", out_col="LIC1.OUT")
+    note = read_record(path, opts).notes[0]
+    assert note.code == "read_wide" and note.text.startswith("layout wide")
+    assert note.params == {"time": "relative", "decimal": ",", "delimiter": ";"}

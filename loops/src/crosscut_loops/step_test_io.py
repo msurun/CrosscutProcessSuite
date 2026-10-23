@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -52,6 +53,15 @@ class ReadOptions:
 
 
 @dataclass(frozen=True)
+class Note:
+    """One line of "how the file was read": a stable code, the English text and its figures."""
+
+    code: str
+    text: str
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Record:
     """Aligned signals; t_s is Unix seconds when ``absolute`` else seconds from an unknown start."""
 
@@ -62,6 +72,7 @@ class Record:
     mode: np.ndarray | None
     absolute: bool
     assumptions: tuple[str, ...] = field(default_factory=tuple)
+    notes: tuple[Note, ...] = field(default_factory=tuple)
 
     @property
     def origin_utc(self) -> datetime:
@@ -161,6 +172,13 @@ def parse_times(cells: list[str], time_format: str, decimal: str) -> tuple[np.nd
     return np.array([_parse_iso(c) for c in cells]), True, "timestamps (naive times read as UTC)"
 
 
+def time_kind(how: str) -> str:
+    """Stable code of a time description from `parse_times`: epoch, relative or iso."""
+    if "Unix epoch" in how:
+        return "epoch"
+    return "relative" if "relative" in how else "iso"
+
+
 def parse_number(cell: str, decimal: str) -> float:
     """A finite float, or NaN for anything else (empty, 'Bad', 'Shutdown')."""
     try:
@@ -220,8 +238,12 @@ def _wide(header: list[str], rows: list[list[str]], o: ReadOptions, delim: str) 
     cols = [np.array([_converter(k, decimal, o)(r[i]) for r in rows]) for k, i in used.items()]
     t, arrays = _sorted_unique(t, cols)
     got = dict(zip(used, arrays, strict=True))
-    note = f"layout wide, time {how}, decimal '{decimal}', delimiter {delim!r}"
-    return Record(t, got["pv"], got["out"], got.get("sp"), got.get("mode"), absolute, (note,))
+    text = f"layout wide, time {how}, decimal '{decimal}', delimiter {delim!r}"
+    params = {"time": time_kind(how), "decimal": decimal, "delimiter": delim}
+    note = Note("read_wide", text, params)
+    return Record(
+        t, got["pv"], got["out"], got.get("sp"), got.get("mode"), absolute, (text,), (note,)
+    )
 
 
 def _long_series(
@@ -280,9 +302,13 @@ def _long(header: list[str], rows: list[list[str]], o: ReadOptions, delim: str) 
     grid, aligned = _hold_align([(s[0], s[1]) for s in series.values()])
     got = dict(zip(series, aligned, strict=True))
     absolute, how = next(iter(series.values()))[2:]
-    note = (f"layout long (hold-last alignment of {len(wanted)} tags), time {how}, "
+    text = (f"layout long (hold-last alignment of {len(wanted)} tags), time {how}, "
             f"decimal '{decimal}', delimiter {delim!r}")  # fmt: skip
-    return Record(grid, got["pv"], got["out"], got.get("sp"), got.get("mode"), absolute, (note,))
+    params = {"tags": len(wanted), "time": time_kind(how), "decimal": decimal, "delimiter": delim}
+    note = Note("read_long", text, params)
+    return Record(
+        grid, got["pv"], got["out"], got.get("sp"), got.get("mode"), absolute, (text,), (note,)
+    )
 
 
 def read_record(path: Path, options: ReadOptions) -> Record:
