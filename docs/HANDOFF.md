@@ -64,21 +64,24 @@ README, tag dictionaries and `POTRZEBY_DANYCH_Crosscut.txt` listing what is stil
 
 ## Next steps (the owner approved: work without stops, push to main after each verified step, never force)
 
-1. **DONE 2026-10-23** Import of whole PI wide files with the tag dictionary (Import view tab "Whole PI file", `docs/design/plant-import.md`). Datasets can be
-   made from the owner's Drive files; the loops open in the Loops view.
-2. **Triage of module 1 on the real loops** (June and October): table of what the tool says against what the data shows; add a
-   "control action driven by noise" warning (many valve reversals without regular oscillation) and review the worklist order.
-   Exploration, no pass/fail.
-3. **Step analyzer** (new view): detect setpoint and output steps, align with a test logbook (the `test` column and logbook times),
-   fit FOPDT or IPDT with standard errors, table of results; reuse for every future test.
-4. **Feed-disturbance model** (pump speed to feed flow, sump level, level outputs) as an identification report for a future MPC. Analysis only.
-5. **Anomaly smoke test on the June record** (train on a quiet start, scan the rest; test windows are known events). Not a false-alarm estimate.
-6. Level loops in closed loop (setpoint steps) only after the controller tunings arrive.
-7. Still open from before: review of ADR 008, 010, 011 with the owner; native review of the machine-written pl/es strings; one real valve
-   stroke test; the blind worklist review; UI cosmetics (26 ESLint size warnings, print CSS not checked visually).
+Done 2026-10-23 evening (details in `docs/IMPLEMENTATION_LOG.md`, last four sections):
+1. Whole PI file import with the tag dictionary (Import view tab "Whole PI file", `docs/design/plant-import.md`).
+2. Module 1 triage on the real loops and the `noise_driven` warning + worklist advice (thresholds exploratory, owner to judge).
+3. Step analyzer view "Steps" (`docs/design/step-analyzer.md`): OUT steps in manual and SP steps in auto, FOPDT/IPDT with SEs, consistency check.
+4. Feed-disturbance identification: `tools/driver_response.py`; pump speed to feed flow 145 +- 12 m3/h per pp, tau 15 s; level channels need an open-loop test.
+5. Anomaly smoke test on four weeks of real normal operation: 3 weeks of training gives about 0.3 events/24 h; 1 week gives 94 % flagged; a tag
+   linearly interpolated over an archive gap fooled the detector (not a false-alarm estimate).
 
-Not possible yet (missing data): soft sensor on real data (no lab results in the files), advisor on real operator behaviour,
-MPC identification of quality variables, any write path.
+Open, in suggested order:
+a. New owner package (`crosscut_data_package`, see the memory note): feed the logbook (`bitacora_transcripcion.csv`, `B1_logbook_check.csv`)
+   into the Steps view; look at the A5 lab/Courier data for a soft-sensor feasibility check (needs a long-format loader; sample time is one stamp).
+b. Detect "long exact linear ramp" tags (archive gap interpolation) and mark them unreliable in the anomaly and import views.
+c. Level loops in closed loop (setpoint steps) only after the controller tunings arrive (A2 in the owner's list).
+d. Review of ADR 008, 010, 011 with the owner; native review of the machine-written pl/es strings (now also plant import and Steps); one real valve
+   stroke test; the blind worklist review; UI cosmetics (ESLint size warnings, print CSS).
+e. Pump-speed (non-loop) tags are not selectable in the Steps view yet; the CLI covers them.
+
+Not possible yet (missing data): advisor on real operator behaviour, MPC identification of quality variables, any write path.
 
 ## Owner to-do
 
