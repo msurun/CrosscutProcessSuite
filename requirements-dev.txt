@@ -20,3 +20,4 @@ httpx>=0.27
 -e ./fuzzy
 -e ./supervisor
 -e ./anomaly
+-e ./softsensor

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosscut-softsensor"
+version = "0.0.1"
+description = "PLS soft sensor for lab-measured quality variables in the Crosscut Process Suite, advisory only"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = ["numpy>=1.26"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+crosscut_softsensor = ["py.typed"]
