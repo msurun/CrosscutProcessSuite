@@ -165,3 +165,15 @@ Decision: B1 met -> ship the example config and the GUI with alpha 0.999 and min
 
 ### Amendment 1 of round 3 (2026-10-23, written before any round 3 seed was run)
 The harness author found a seed collision: the harness derives the plant seeds s (training), s + 1000 (quiet record) and s + 2000 (fault record), so the quiet records of seeds 30801..30860 would use the plant seeds 31801..31860, which are the plant seeds of the round 2 fault test records (29801..29860). The seed ranges are therefore moved to unused values: quiet test 33001..33060 (plant seeds 33001..33060, 34001..34060) and fault test 33101..33199 (plant seeds 33101..33199, 35101..35199), none used by any earlier experiment. Criteria, settings and decision rule are unchanged.
+
+### Round 3 frozen files
+sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-23, after Amendment 1 and before any round 3 seed. The four anomaly files are unchanged from round 2. Harness: `exp29.py --round 3 --seeds test` (`--seeds dev` is refused); rounds 1 and 2 still reproduce bit-exactly on dev seeds 29001, 29002 and 29601, 29602. A script checked that the round 3 plant seeds (s, s + 1000 quiet, s + 2000 fault) collide with no plant seed of exp29 rounds 1-2, exp27, exp28 or exp30.
+
+| file | sha256 |
+|------|--------|
+| experiments/exp29_anomaly_detection/gen29.py | 6dfb0bcb41323eaea625f28f1175524b50be18d5effbc61a4b0abcf0642517b9 |
+| experiments/exp29_anomaly_detection/exp29.py | dc4e8ffe72997690bab2320d00f1ca9f990201fe4d08e80d9118f9a26106da40 |
+| anomaly/src/crosscut_anomaly/pca_model.py | 1cf6a92c92497fd5d3a0c16e2005394dc6b772018108855392f3415bd81103bb |
+| anomaly/src/crosscut_anomaly/detect.py | b342f3c7a1091e96380d63803db120755c0be34da0a70e28d46d75a49f3463a0 |
+| anomaly/src/crosscut_anomaly/config.py | eb8bed70818011bd180c55ae18284bdd742e3c8b4dd01161cdf18a75fe9bd6b6 |
+| anomaly/src/crosscut_anomaly/distributions.py | 382e28fd8c1890cca8ba8131ecd5fa43144312da3ec6a62f5ebbb841970846fd |

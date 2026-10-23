@@ -1,6 +1,7 @@
 """Smoke test of the exp29 harness: one short seed end to end plus the generator's fault encoding.
 
-Uses scratch seeds outside every reserved range (990029 round 1; 990011 and 990012 round 2) and
+Uses scratch seeds outside every reserved range (990029 round 1; 990011, 990012 round 2;
+990021, 990022 round 3) and
 short records; checks structure, determinism and the invalid-row encoding only, never the criteria.
 """
 
@@ -11,6 +12,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import exp29  # noqa: E402
@@ -93,3 +95,37 @@ def test_round2_freeze_is_found_by_stuck_rule(tmp_path: Path, monkeypatch) -> No
     assert fault["spec"]["kind"] == "freeze"
     assert fault["detection"]["stuck_detected"] and fault["detection"]["stuck_names_tag"]
     assert fault["n_stuck_events"] >= 1
+
+
+SMOKE3_SEEDS = (990021, 990022)  # round 3 scratch seeds (round 3 has no development seeds)
+
+
+def test_round3_end_to_end(tmp_path: Path, monkeypatch) -> None:
+    """Round 3: round 2 code path with alpha 0.999 and min_consecutive 15; B1..B6; names *3."""
+    jobs = [(s, True, gen29.FAULT_KINDS.index(k))
+            for s, k in zip(SMOKE3_SEEDS, ("freeze", "dropout"), strict=True)]
+    monkeypatch.setattr(exp29, "plan", lambda seeds, round_no=1: jobs)
+    monkeypatch.setattr(exp29, "run_one", _short_run_one(exp29.run_one, SHORT2))
+    payload = exp29.run("smoke", tmp_path, round_no=3)
+    saved = json.loads((tmp_path / "smoke3_runs.json").read_text(encoding="utf-8"))
+    assert set(saved["criteria"]) == {f"B{i}" for i in range(1, 7)}
+    config = saved["config"]
+    assert (config["alpha"], config["min_consecutive"]) == (0.999, 15)
+    assert (config["dynamic_lags"], config["stuck_samples"], config["close_after"]) == (2, 15, 10)
+    assert config["variance_fraction"] == 0.90
+    report = (tmp_path / "smoke3.md").read_text(encoding="utf-8")
+    assert report.startswith("# exp29 results (round 3)") and "1 - alpha = 0.001" in report
+    assert payload["runs"][0]["fault"]["detection"]["stuck_names_tag"]
+
+
+def test_round3_seeds_and_dev_refusal() -> None:
+    """Round 3 test plan uses the frozen ranges; --seeds dev is refused (no dev seeds)."""
+    jobs = exp29.plan("test", 3)
+    quiet = [s for s, has_quiet, _ in jobs if has_quiet]
+    fault = [(s, i) for s, has_quiet, i in jobs if not has_quiet]
+    assert quiet == list(range(33001, 33061)) and len(fault) == 99
+    assert fault[0] == (33101, 0) and fault[-1] == (33199, 98)
+    with pytest.raises(SystemExit, match="no development seeds"):
+        exp29.plan("dev", 3)
+    with pytest.raises(SystemExit, match="no development seeds"):
+        exp29.main(["--round", "3", "--seeds", "dev", "--out", "unused_never_written"])

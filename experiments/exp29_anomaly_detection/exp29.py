@@ -3,8 +3,9 @@
 Runs a FROZEN protocol of README.md: per seed fit on the 48 h training record, scan the quiet
 (72 h) and fault (24 h) records, judge the criteria and the reported items. ``--round 1`` (default)
 is the round 1 protocol (A1..A5); ``--round 2`` changes only the seeds, the configuration (dynamic
-PCA, stuck-sensor rule, min_consecutive 10), the criteria (B1..B6) and the output names.
-Writes results/<seeds>[2]_runs.json and results/<seeds>[2].md; never overwrites them.
+PCA, stuck-sensor rule, min_consecutive 10), the criteria (B1..B6) and the output names;
+``--round 3`` is round 2 with alpha 0.999, min_consecutive 15, new test seeds and no dev seeds.
+Writes results/<seeds>[2|3]_runs.json and results/<seeds>[2|3].md; never overwrites them.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ CONFIG2 = dataclasses.replace(
     CONFIG, id="exp29r2", variance_fraction=0.90, alpha=0.99, min_consecutive=10,
     close_after=10, dynamic_lags=2, stuck_samples=15,
 )
+# Round 3 (README "Round 3 protocol"): round 2 with alpha 0.999 and min_consecutive 15.
+CONFIG3 = dataclasses.replace(CONFIG2, id="exp29r3", alpha=0.999, min_consecutive=15)
 DEV_SEEDS = range(29001, 29061)  # each: training + quiet + fault record (harness check only)
 TEST_QUIET_SEEDS = range(29201, 29261)  # each: training + quiet record
 TEST_FAULT_SEEDS = range(29301, 29400)  # each: training + fault record
@@ -71,12 +74,22 @@ class Round:
 ROUNDS = {
     1: Round(1, CONFIG, DEV_SEEDS, TEST_QUIET_SEEDS, TEST_FAULT_SEEDS, ""),
     2: Round(2, CONFIG2, range(29601, 29661), range(29701, 29761), range(29801, 29900), "2"),
+    # No round 3 development seeds: only the scratch seeds 990021/990022 in the smoke tests.
+    3: Round(3, CONFIG3, range(0), range(33001, 33061), range(33101, 33200), "3"),
 }
 
 
 def plan(seeds: str, round_no: int = 1) -> list[tuple[int, bool, int | None]]:
-    """(seed, has quiet record, fault index or None) for 'dev' or 'test' of one round."""
+    """(seed, has quiet record, fault index or None) for 'dev' or 'test' of one round.
+
+    Raises SystemExit for 'dev' in a round without development seeds (round 3).
+    """
     rnd = ROUNDS[round_no]
+    if seeds == "dev" and not rnd.dev_seeds:
+        raise SystemExit(
+            f"round {round_no} has no development seeds (README 'Round {round_no} protocol'); "
+            "only --seeds test is allowed, harness checks use the scratch seeds of the smoke tests"
+        )
     if seeds == "dev":
         return [(s, True, s - rnd.dev_seeds.start) for s in rnd.dev_seeds]
     return [(s, True, None) for s in rnd.quiet_seeds] + [
@@ -392,7 +405,7 @@ def criterion_b6(rows: list[dict]) -> dict:
 
 
 def criteria(rows: list[dict], round_no: int = 1) -> dict:
-    """A1..A5 (round 1) or B1..B6 (round 2) values and verdicts."""
+    """A1..A5 (round 1) or B1..B6 (rounds 2 and 3) values and verdicts."""
     values = [
         criterion_a1(rows),
         criterion_detect(rows, "drift", A2_SHARE),
@@ -498,7 +511,7 @@ def _detect_cell(c: dict, kind: str) -> str:
 
 
 def criteria_lines2(crit: dict) -> list[str]:
-    """Markdown rows of the B1..B6 table (round 2)."""
+    """Markdown rows of the B1..B6 table (rounds 2 and 3)."""
     b1, b2, b3, b4, b5, b6 = (crit[f"B{i}"] for i in range(1, 7))
     return [
         "| id | values | verdict |",
@@ -536,7 +549,7 @@ def _common_lines(rep: dict, alpha: float) -> list[str]:
     """Bullet lines shared by both rounds: exceedance, valid share, pre-onset events, k."""
     ks = sorted(set(rep["k_per_seed"].values()))
     return [
-        f"\n- training-record exceedance (expected near 1 - alpha = {1 - alpha:.2f}): "
+        f"\n- training-record exceedance (expected near 1 - alpha = {1 - alpha:g}): "
         f"T2 {_fmt(rep['train_exc_t2'], 4)}, SPE {_fmt(rep['train_exc_spe'], 4)} "
         "(mean over seeds)",
         f"- valid-row share: quiet {_fmt(rep['valid_share_quiet'], 4)}, "
@@ -547,7 +560,7 @@ def _common_lines(rep: dict, alpha: float) -> list[str]:
 
 
 def reported_lines2(rep: dict, alpha: float = CONFIG2.alpha) -> list[str]:
-    """Markdown of the reported items (round 2): per kind and per rule, lag rows, SPE method."""
+    """Markdown of the reported items (rounds 2, 3): per kind and rule, lag rows, SPE method."""
     lines = [
         "| kind | records | rate (any) | median delay [min] | pca rate | pca delay | "
         "stuck rate | stuck delay |",
@@ -588,7 +601,7 @@ def seed_table(rows: list[dict]) -> list[str]:
 
 
 def seed_table2(rows: list[dict]) -> list[str]:
-    """Per-seed markdown table (round 2): SPE limit method and per-rule columns added."""
+    """Per-seed markdown table (rounds 2 and 3): SPE limit method and per-rule columns added."""
     lines = [
         "| seed | k | SPE limit | train exc T2/SPE | quiet ev/24h pca/stuck | kind | tag | "
         "onset [h] | detected | delay [min] | rule | top2 hit | pca/stuck hit | B5 | "
@@ -646,7 +659,7 @@ def render(payload: dict) -> str:
         f"{title}: {payload['seeds']} seeds\n",
         f"Seeds: {len(rows)}; runtime {payload['runtime_s']:.0f} s. {note}\n",
         "## Criteria\n", *crit(payload["criteria"]),
-        "\n## Reported (no target)\n", *rep(payload["reported"]),
+        "\n## Reported (no target)\n", *rep(payload["reported"], payload["config"]["alpha"]),
         "\n## Per seed\n", *table(rows),
     ]
     return "\n".join(parts) + "\n"
@@ -666,6 +679,7 @@ def run(
 
     ``name`` defaults to <seeds>[2] (round suffix).
     """
+    jobs = plan(seeds, round_no)  # refuses 'dev' for a round without dev seeds, before any write
     out_dir.mkdir(parents=True, exist_ok=True)
     name = name or f"{seeds}{ROUNDS[round_no].suffix}"
     json_path, md_path = out_dir / f"{name}_runs.json", out_dir / f"{name}.md"
@@ -673,7 +687,7 @@ def run(
         if path.exists():
             raise SystemExit(f"refusing to overwrite {path}")
     started = time.perf_counter()
-    rows = run_rows(plan(seeds, round_no), workers, round_no)
+    rows = run_rows(jobs, workers, round_no)
     payload = {
         "seeds": seeds,
         "round": round_no,
@@ -689,12 +703,12 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: --round 1|2 --seeds dev|test --out DIR (relative to this folder) --name --jobs N."""
+    """CLI: --round 1|2|3 --seeds dev|test --out DIR (relative to this folder) --name --jobs N."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", choices=("dev", "test"), required=True)
-    parser.add_argument("--round", type=int, choices=(1, 2), default=1, dest="round_no")
+    parser.add_argument("--round", type=int, choices=tuple(ROUNDS), default=1, dest="round_no")
     parser.add_argument("--out", default="results", help="output folder, relative to exp29")
-    parser.add_argument("--name", default=None, help="output base name (default <seeds>[2])")
+    parser.add_argument("--name", default=None, help="output base name (default <seeds>[2|3])")
     parser.add_argument(
         "--jobs",
         type=int,
