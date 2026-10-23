@@ -1,0 +1,192 @@
+[exp28] 1/676 good seed 30101
+[exp28] 13/676 good seed 30113
+[exp28] 25/676 good seed 30125
+[exp28] 37/676 good seed 30137
+[exp28] 49/676 good seed 30149
+[exp28] 61/676 good seed 30161
+[exp28] 73/676 good seed 30173
+[exp28] 85/676 good seed 30185
+[exp28] 97/676 good seed 30197
+[exp28] 109/676 good seed 30209
+[exp28] 121/676 good seed 30221
+[exp28] 133/676 good seed 30233
+[exp28] 145/676 good seed 30245
+[exp28] 157/676 good seed 30257
+[exp28] 169/676 good seed 30269
+[exp28] 181/676 good seed 30281
+[exp28] 193/676 good seed 30293
+[exp28] 205/676 good seed 30305
+[exp28] 217/676 good seed 30317
+[exp28] 229/676 good seed 30329
+[exp28] 241/676 good seed 30341
+[exp28] 253/676 good seed 30353
+[exp28] 265/676 good seed 30365
+[exp28] 277/676 good seed 30377
+[exp28] 289/676 B1 seed 30401
+[exp28] 301/676 B1 seed 30413
+[exp28] 313/676 B1 seed 30425
+[exp28] 325/676 B2 seed 30437
+[exp28] 337/676 B2 seed 30449
+[exp28] 349/676 B3 seed 30461
+[exp28] 361/676 B3 seed 30473
+[exp28] 373/676 B4 seed 30485
+[exp28] 385/676 B4 seed 30497
+[exp28] 397/676 valve seed 30509
+[exp28] 409/676 valve seed 30521
+[exp28] 421/676 valve seed 30533
+[exp28] 433/676 valve seed 30545
+[exp28] 445/676 valve seed 30557
+[exp28] 457/676 valve seed 30569
+[exp28] 469/676 valve seed 30581
+[exp28] 481/676 valve seed 30593
+[exp28] 493/676 valve seed 30605
+[exp28] 505/676 valve seed 30617
+[exp28] 517/676 valve seed 30629
+[exp28] 529/676 valve seed 30641
+[exp28] 541/676 valve seed 30653
+[exp28] 553/676 valve seed 30665
+[exp28] 565/676 valve seed 30677
+[exp28] 577/676 valve seed 30689
+[exp28] 589/676 valve seed 30701
+[exp28] 601/676 valve seed 30713
+[exp28] 613/676 valve seed 30725
+[exp28] 625/676 valve seed 30737
+[exp28] 637/676 valve seed 30749
+[exp28] 649/676 valve seed 30761
+[exp28] 661/676 valve seed 30773
+[exp28] 673/676 valve seed 30785
+# exp28 results: test seeds (round 2)
+
+Runs: 676; runtime 500 s. Dev seeds are a harness check only (one run per good cell); the frozen criteria apply to the test seeds.
+
+## Criteria (round 2)
+
+| id | values | verdict |
+| --- | --- | --- |
+| J1 | judged 276, unsafe 0 | PASS |
+| J2 | true theta in [delay_lower_s, delay_upper_s]: 0.866 of 276 accepted good runs | MISS |
+| J3 | blocked B1 1.000, B2 1.000, B3 1.000, B4 1.000; accepted good 0.958 (276/288) | PASS |
+| J4 | median overshoot 0.165 over 276 judged good runs | PASS |
+
+### J1 unsafe runs
+
+- none
+
+### J2 runs with the true theta outside the interval
+
+- k0.002_th5_single_N0.05_L0.5 seed 30105
+- k0.002_th5_single_N0.2_L0 seed 30111
+- k0.002_th5_doublet_N0.05_L0 seed 30120
+- k0.002_th5_doublet_N0.05_L0.5 seed 30122
+- k0.002_th5_train_N0.05_L0.5 seed 30137
+- k0.002_th5_train_N0.2_L0 seed 30141
+- k0.002_th30_single_N0.05_L0.5 seed 30153
+- k0.002_th30_single_N0.05_L0.5 seed 30155
+- k0.002_th30_single_N0.05_L0.5 seed 30156
+- k0.002_th30_single_N0.2_L0 seed 30159
+- k0.002_th30_doublet_N0.05_L0 seed 30166
+- k0.002_th30_doublet_N0.2_L0.5 seed 30177
+- k0.002_th30_doublet_N0.2_L0.5 seed 30178
+- k0.002_th30_train_N0.05_L0.5 seed 30185
+- k0.002_th30_train_N0.05_L0.5 seed 30187
+- k0.002_th30_train_N0.2_L0.5 seed 30194
+- k0.01_th5_single_N0.2_L0.5 seed 30211
+- k0.01_th5_single_N0.2_L0.5 seed 30212
+- k0.01_th5_doublet_N0.05_L0 seed 30216
+- k0.01_th5_doublet_N0.2_L0.5 seed 30226
+- k0.01_th5_doublet_N0.2_L0.5 seed 30228
+- k0.01_th5_train_N0.05_L0 seed 30232
+- k0.01_th30_single_N0.05_L0.5 seed 30249
+- k0.01_th30_single_N0.05_L0.5 seed 30250
+- k0.01_th30_single_N0.05_L0.5 seed 30252
+- k0.01_th30_single_N0.2_L0.5 seed 30257
+- k0.01_th30_single_N0.2_L0.5 seed 30259
+- k0.01_th30_doublet_N0.05_L0.5 seed 30266
+- k0.05_th5_single_N0.05_L0.5 seed 30299
+- k0.05_th5_single_N0.05_L0.5 seed 30300
+- k0.05_th5_single_N0.2_L0.5 seed 30308
+- k0.05_th5_doublet_N0.05_L0.5 seed 30314
+- k0.05_th30_single_N0.05_L0.5 seed 30345
+- k0.05_th30_single_N0.05_L0.5 seed 30347
+- k0.05_th30_single_N0.2_L0.5 seed 30354
+- k0.05_th30_single_N0.2_L0.5 seed 30355
+- k0.05_th30_doublet_N0.05_L0.5 seed 30362
+
+## Dead-time interval (good cells, accepted)
+
+| cell | accepted | covered | median theta_hat | median lower | median upper | median used |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| k0.002_th5_single_N0.05_L0 | 4 | 4 | 4.8 | 3.0 | 5.5 | 5.5 |
+| k0.002_th5_single_N0.05_L0.5 | 4 | 3 | 4.1 | 2.5 | 8.5 | 8.5 |
+| k0.002_th5_single_N0.2_L0 | 4 | 3 | 8.3 | 2.5 | 13.5 | 13.5 |
+| k0.002_th5_single_N0.2_L0.5 | 3 | 3 | 5.0 | 0.0 | 10.0 | 10.0 |
+| k0.002_th5_doublet_N0.05_L0 | 4 | 3 | 5.0 | 4.6 | 5.3 | 5.3 |
+| k0.002_th5_doublet_N0.05_L0.5 | 1 | 0 | 32.6 | 24.0 | 41.0 | 41.0 |
+| k0.002_th5_doublet_N0.2_L0 | 4 | 4 | 4.3 | 3.0 | 6.0 | 6.0 |
+| k0.002_th5_doublet_N0.2_L0.5 | 1 | 1 | 20.6 | 1.0 | 42.0 | 42.0 |
+| k0.002_th5_train_N0.05_L0 | 4 | 4 | 5.0 | 4.8 | 5.2 | 5.2 |
+| k0.002_th5_train_N0.05_L0.5 | 3 | 2 | 9.1 | 0.0 | 43.0 | 43.0 |
+| k0.002_th5_train_N0.2_L0 | 4 | 3 | 4.8 | 4.1 | 5.6 | 5.6 |
+| k0.002_th5_train_N0.2_L0.5 | 2 | 2 | 25.7 | 0.0 | 55.0 | 55.0 |
+| k0.002_th30_single_N0.05_L0 | 4 | 4 | 30.0 | 29.0 | 31.0 | 31.0 |
+| k0.002_th30_single_N0.05_L0.5 | 4 | 1 | 32.0 | 29.5 | 34.5 | 34.5 |
+| k0.002_th30_single_N0.2_L0 | 4 | 3 | 30.0 | 21.5 | 40.0 | 40.0 |
+| k0.002_th30_single_N0.2_L0.5 | 4 | 4 | 32.7 | 28.0 | 36.5 | 36.5 |
+| k0.002_th30_doublet_N0.05_L0 | 4 | 3 | 30.0 | 29.4 | 30.6 | 30.6 |
+| k0.002_th30_doublet_N0.05_L0.5 | 4 | 4 | 29.5 | 22.0 | 35.0 | 35.0 |
+| k0.002_th30_doublet_N0.2_L0 | 4 | 4 | 30.9 | 30.0 | 32.0 | 32.0 |
+| k0.002_th30_doublet_N0.2_L0.5 | 3 | 1 | 17.2 | 6.0 | 29.0 | 29.0 |
+| k0.002_th30_train_N0.05_L0 | 4 | 4 | 30.1 | 29.9 | 30.2 | 30.2 |
+| k0.002_th30_train_N0.05_L0.5 | 4 | 2 | 20.4 | 3.5 | 41.5 | 41.5 |
+| k0.002_th30_train_N0.2_L0 | 4 | 4 | 29.7 | 29.0 | 30.6 | 30.6 |
+| k0.002_th30_train_N0.2_L0.5 | 4 | 3 | 30.2 | 18.5 | 41.5 | 41.5 |
+| k0.01_th5_single_N0.05_L0 | 4 | 4 | 5.1 | 4.7 | 5.3 | 5.3 |
+| k0.01_th5_single_N0.05_L0.5 | 4 | 4 | 5.9 | 2.5 | 8.5 | 8.5 |
+| k0.01_th5_single_N0.2_L0 | 4 | 4 | 5.1 | 4.0 | 6.0 | 6.0 |
+| k0.01_th5_single_N0.2_L0.5 | 4 | 2 | 5.9 | 2.5 | 8.0 | 8.0 |
+| k0.01_th5_doublet_N0.05_L0 | 4 | 3 | 5.1 | 5.0 | 5.2 | 5.2 |
+| k0.01_th5_doublet_N0.05_L0.5 | 4 | 4 | 7.2 | 3.0 | 10.0 | 10.0 |
+| k0.01_th5_doublet_N0.2_L0 | 4 | 4 | 5.3 | 4.7 | 5.8 | 5.8 |
+| k0.01_th5_doublet_N0.2_L0.5 | 4 | 2 | 8.0 | 5.5 | 10.5 | 10.5 |
+| k0.01_th5_train_N0.05_L0 | 4 | 3 | 5.0 | 5.0 | 5.1 | 5.1 |
+| k0.01_th5_train_N0.05_L0.5 | 4 | 4 | 4.4 | 0.0 | 15.0 | 15.0 |
+| k0.01_th5_train_N0.2_L0 | 4 | 4 | 5.1 | 4.8 | 5.3 | 5.3 |
+| k0.01_th5_train_N0.2_L0.5 | 4 | 4 | 5.2 | 1.0 | 23.5 | 23.5 |
+| k0.01_th30_single_N0.05_L0 | 4 | 4 | 29.9 | 29.7 | 30.2 | 30.2 |
+| k0.01_th30_single_N0.05_L0.5 | 4 | 1 | 32.5 | 29.5 | 36.0 | 36.0 |
+| k0.01_th30_single_N0.2_L0 | 4 | 4 | 30.4 | 29.1 | 31.0 | 31.0 |
+| k0.01_th30_single_N0.2_L0.5 | 4 | 2 | 27.2 | 24.0 | 29.0 | 29.0 |
+| k0.01_th30_doublet_N0.05_L0 | 4 | 4 | 30.0 | 29.9 | 30.1 | 30.1 |
+| k0.01_th30_doublet_N0.05_L0.5 | 4 | 3 | 32.4 | 28.5 | 35.0 | 35.0 |
+| k0.01_th30_doublet_N0.2_L0 | 4 | 4 | 30.0 | 29.5 | 30.6 | 30.6 |
+| k0.01_th30_doublet_N0.2_L0.5 | 4 | 4 | 30.5 | 29.0 | 33.0 | 33.0 |
+| k0.01_th30_train_N0.05_L0 | 4 | 4 | 30.0 | 30.0 | 30.1 | 30.1 |
+| k0.01_th30_train_N0.05_L0.5 | 4 | 4 | 29.1 | 16.0 | 40.0 | 40.0 |
+| k0.01_th30_train_N0.2_L0 | 4 | 4 | 30.1 | 29.8 | 30.4 | 30.4 |
+| k0.01_th30_train_N0.2_L0.5 | 4 | 4 | 27.2 | 6.0 | 48.5 | 48.5 |
+| k0.05_th5_single_N0.05_L0 | 4 | 4 | 5.0 | 5.0 | 5.0 | 5.0 |
+| k0.05_th5_single_N0.05_L0.5 | 4 | 2 | 6.8 | 3.5 | 10.0 | 10.0 |
+| k0.05_th5_single_N0.2_L0 | 4 | 4 | 5.1 | 4.8 | 5.4 | 5.4 |
+| k0.05_th5_single_N0.2_L0.5 | 4 | 3 | 6.5 | 1.5 | 12.0 | 12.0 |
+| k0.05_th5_doublet_N0.05_L0 | 4 | 4 | 5.0 | 5.0 | 5.0 | 5.0 |
+| k0.05_th5_doublet_N0.05_L0.5 | 4 | 3 | 4.8 | 1.5 | 8.5 | 8.5 |
+| k0.05_th5_doublet_N0.2_L0 | 4 | 4 | 4.9 | 4.7 | 5.1 | 5.1 |
+| k0.05_th5_doublet_N0.2_L0.5 | 4 | 4 | 4.2 | 0.0 | 9.5 | 9.5 |
+| k0.05_th5_train_N0.05_L0 | 4 | 4 | 5.0 | 5.0 | 5.0 | 5.0 |
+| k0.05_th5_train_N0.05_L0.5 | 4 | 4 | 4.4 | 0.0 | 10.5 | 10.5 |
+| k0.05_th5_train_N0.2_L0 | 4 | 4 | 5.0 | 4.9 | 5.1 | 5.1 |
+| k0.05_th5_train_N0.2_L0.5 | 4 | 4 | 5.1 | 0.0 | 15.5 | 15.5 |
+| k0.05_th30_single_N0.05_L0 | 4 | 4 | 30.0 | 29.9 | 30.1 | 30.1 |
+| k0.05_th30_single_N0.05_L0.5 | 4 | 2 | 32.5 | 30.5 | 35.0 | 35.0 |
+| k0.05_th30_single_N0.2_L0 | 4 | 4 | 30.1 | 29.8 | 30.2 | 30.2 |
+| k0.05_th30_single_N0.2_L0.5 | 4 | 2 | 32.4 | 29.5 | 35.5 | 35.5 |
+| k0.05_th30_doublet_N0.05_L0 | 4 | 4 | 30.0 | 30.0 | 30.0 | 30.0 |
+| k0.05_th30_doublet_N0.05_L0.5 | 4 | 3 | 32.5 | 24.0 | 41.0 | 41.0 |
+| k0.05_th30_doublet_N0.2_L0 | 4 | 4 | 30.0 | 29.8 | 30.2 | 30.2 |
+| k0.05_th30_doublet_N0.2_L0.5 | 4 | 4 | 30.9 | 25.5 | 36.0 | 36.0 |
+| k0.05_th30_train_N0.05_L0 | 4 | 4 | 30.0 | 30.0 | 30.0 | 30.0 |
+| k0.05_th30_train_N0.05_L0.5 | 4 | 4 | 30.7 | 21.5 | 40.0 | 40.0 |
+| k0.05_th30_train_N0.2_L0 | 4 | 4 | 30.0 | 29.9 | 30.1 | 30.1 |
+| k0.05_th30_train_N0.2_L0.5 | 3 | 3 | 30.4 | 25.0 | 36.0 | 36.0 |
+
+

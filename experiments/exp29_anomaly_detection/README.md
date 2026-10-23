@@ -86,3 +86,18 @@ Changes in `anomaly/src/crosscut_anomaly/` (the sha256 values above are updated 
 3. `fit_pca`'s docstring documents the signature `fit_pca(x, tags, variance_fraction, alpha)`; the protocol's `fit_pca(x, config)` is provided by the thin helper `fit_from_config(x, config)` in `pca_model.py`.
 
 Behaviour on finite data with per-row quality is unchanged and no setting or criterion changed: `pytest anomaly -q -p no:warnings` and `test_exp29_smoke.py` pass; new tests are in `anomaly/tests/test_anomaly_robustness.py`.
+
+## Result (test seeds, first and only run, 2026-10-23; tables in results/test.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| A1 | false alarm events per 24 h on 60 quiet records: mean 2.128, max 4.667 | mean <= 1.0, max <= 3.0 | **no** |
+| A2 | drift detected 20/20 (median delay 104 min) | >= 80 % | yes |
+| A3 | freeze detected 2/20 (0.100) | >= 80 % | **no** |
+| A4 | faulty tag in the top 2 contributors 0.864 of 22 detected (either statistic 0.955) | >= 70 % | yes |
+| A5 | no imputation: 39/39 bad_quality and dropout records (60/60 other kinds) | 100 % | yes |
+
+Reported: spike 0.10, bad_quality 0.00 and dropout 0.00 detection (the last two by design: those rows are skipped, not imputed); training exceedance T2 0.0099 and SPE 0.0087 against 0.01; 91 events started before the fault onset on the fault records.
+Reading: PCA on the PV tags finds drift and points at the right tag, but (1) it raises about two false alarms per day on operator setpoint moves, which break the static correlation structure for a few minutes, and (2) it does not see a frozen sensor whose
+value stays inside its normal range. Per the decision rule the module ships with a visible "false alarm rate not validated on real data; expect more" label. A round 2 (new frozen protocol, new seeds 29601+) should test three changes:
+a dynamic PCA (lagged variables, Ku, Storer and Georgakis 1995), an explicit stuck-sensor rule (a tag exactly constant over N samples while the others vary) and a longer `min_consecutive`.
+

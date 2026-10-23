@@ -149,3 +149,16 @@ Development numbers after the change (dev seeds only; output regenerated, not co
 | 1 | I3 | - | judged 72, unsafe 0 (PASS) |
 
 No criterion or threshold was changed. The round 2 development seeds 30001..30072 are spent; no test seed (28101+, 30101+) was run.
+
+## Result round 2 (test seeds 30101..30788, first and only run, 2026-10-23; tables in results/test2.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| J1 | 276 judged, 0 unsafe | 100 % safe | yes |
+| J2 | true dead time inside [delay_lower_s, delay_upper_s] in 0.866 of 276 accepted good runs | >= 0.90 | **no** |
+| J3 | blocked B1..B4 each 1.000; accepted good 0.958 (276/288) | >= 0.90 each, >= 0.70 | yes |
+| J4 | median overshoot 0.165 | <= 0.35 | yes |
+
+Reading: using the upper bound of the dead-time interval removed the unsafe controllers of round 1 (3 of 270 before, 0 of 276 now) at the cost of nothing visible in overshoot, and the refusals are unchanged. The interval is
+a little too narrow (86.6 % coverage against the 95 % it is built for), so the dead time is still slightly overconfident. The integrating-loop recommendation therefore ships with the experimental notice and the upper bound; the claim is
+"in simulation, 0 of 276 accepted fits gave an unsafe controller; the dead-time interval covers the truth in about 87 % of cases". Not validated on any real loop. Line closed for this round; a third round would need a new frozen protocol and new seeds.
+
