@@ -7,7 +7,8 @@ for each theta the other coefficients are ordinary least squares. Quality: R^2, 
 moving-block bootstrap of the residuals for the slope (block from the residual autocorrelation,
 plus the slope shift under a quadratic baseline), and separate up/down slopes. The dead time
 also gets a profile-likelihood interval (``delay_lower_s``, ``delay_upper_s``) from the SSE
-profile over theta; tuning uses the upper end as the conservative dead time.
+profile over theta (sample size reduced to the effective one for correlated residuals; OUT is
+read as a zero-order hold); tuning uses the upper end as the conservative dead time.
 """
 
 from __future__ import annotations
@@ -92,15 +93,18 @@ def _validate(
     return t, u, y
 
 
-def _cum_integral(t: np.ndarray, x: np.ndarray) -> np.ndarray:
-    """Cumulative trapezoid integral of x over t, starting at 0."""
-    steps = 0.5 * (x[1:] + x[:-1]) * np.diff(t)
-    return np.concatenate(([0.0], np.cumsum(steps)))
-
-
 def _delayed_integral(t: np.ndarray, u: np.ndarray, theta: float) -> np.ndarray:
-    """Integral of u(s - theta) - u[0]; u is held at u[0] before the record starts."""
-    return _cum_integral(t, np.interp(t - theta, t, u) - u[0])
+    """Integral of u(s - theta) - u[0] with OUT read as a zero-order hold.
+
+    A historian record holds each value until the next sample, u(s) = u[k] on [t_k, t_k+1), and
+    u(s) = u[0] before the record. The integral F of the held input is piecewise linear in time
+    (exact at knots, linear inside a sample interval), so it is evaluated analytically at the
+    fractional arguments t - theta. Sampling may be uneven.
+    """
+    knots = np.concatenate(([0.0], np.cumsum((u[:-1] - u[0]) * np.diff(t))))
+    tau = t - theta
+    k = np.clip(np.searchsorted(t, tau, side="right") - 1, 0, len(t) - 1)
+    return np.where(tau <= t[0], 0.0, knots[k] + (u[k] - u[0]) * (tau - t[k]))
 
 
 def _design(t: np.ndarray, u: np.ndarray, theta: float) -> np.ndarray:
@@ -131,11 +135,23 @@ def _f95_one(dof: float) -> float:
     return float(t_q**2)
 
 
+def _effective_n(res: np.ndarray, n_par: int) -> float:
+    """Effective sample size n / tau_int of correlated residuals, bounded to [p + 2, n].
+
+    Principle: positively correlated residuals carry less independent information than their
+    count suggests; n_eff = n / (1 + 2 * sum of autocorrelations up to the first zero crossing).
+    """
+    return float(np.clip(len(res) / _autocorr_time(res), n_par + 2, len(res)))
+
+
 def _delay_interval(
-    thetas: np.ndarray, sse: np.ndarray, n: int, n_par: int = 3
+    thetas: np.ndarray, sse: np.ndarray, n_eff: float, n_par: int = 3
 ) -> tuple[float, float]:
-    """Profile interval: thetas with SSE <= SSE_min * (1 + F95(1, n-p) / (n-p)), clipped to grid."""
-    dof = n - n_par
+    """Profile interval: thetas with SSE <= SSE_min * (1 + F95(1, n_eff-p) / (n_eff-p)).
+
+    n_eff is the effective sample size (see ``_effective_n``); the result is clipped to the grid.
+    """
+    dof = n_eff - n_par
     limit = float(sse.min()) * (1.0 + _f95_one(dof) / dof)
     inside = thetas[sse <= limit]
     return float(inside.min()), float(inside.max())
@@ -155,7 +171,9 @@ def _scan_delay(
     sse_f = _sse_profile(t, u, y, fine)
     theta = float(fine[int(np.argmin(sse_f))])
     grid, sse = np.concatenate([coarse, fine]), np.concatenate([sse_c, sse_f])
-    interval = _delay_interval(grid, sse, len(t))
+    design = _design(t, u, theta)
+    n_eff = _effective_n(y - design @ _solve(design, y)[0], design.shape[1])
+    interval = _delay_interval(grid, sse, n_eff, design.shape[1])
     return theta, edge, interval
 
 

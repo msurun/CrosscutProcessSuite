@@ -28,8 +28,12 @@ def _ramp_pv(
     t: np.ndarray, u: np.ndarray, drift: float = 0.0, noise: float = 0.0, seed: int = 1
 ) -> np.ndarray:
     """Integrating PV: delayed integral of OUT deviation plus drift and noise."""
-    ud = np.interp(t - THETA, t, u) - u[0]
-    integral = np.concatenate(([0.0], np.cumsum(0.5 * (ud[1:] + ud[:-1]) * np.diff(t))))
+    # plant fed by the zero-order-hold reading of the record: brute-force integral on a 0.01 s grid
+    fine = np.arange(t[0], t[-1] + 1e-9, 0.01)
+    held = u[np.clip(np.searchsorted(t, fine - THETA, side="right") - 1, 0, len(t) - 1)] - u[0]
+    held[fine < t[0] + THETA] = 0.0
+    cum = np.concatenate(([0.0], np.cumsum(held[:-1]) * 0.01))
+    integral = cum[np.round((t - t[0]) / 0.01).astype(int)]
     y = 10.0 + drift * t + K * integral
     if noise:
         y = y + np.random.default_rng(seed).normal(0.0, noise, len(t))
@@ -45,6 +49,14 @@ def test_single_step_recovers_slope_and_delay() -> None:
     assert fit.model.slope_per_s == pytest.approx(K, rel=0.05)
     assert abs(fit.model.delay_s - THETA) <= DT
     assert fit.up_down_ratio is None
+
+
+def test_step_held_between_samples_gives_theta_within_0_2_s() -> None:
+    """Zero-order-hold record with a fractional dead time: clean data, theta_hat within 0.2 s."""
+    t = _t()
+    u = _steps(t, [(300, 5)])
+    y = 10.0 + K * 5.0 * np.maximum(t - 300.0 - 20.3, 0.0)
+    assert abs(identify_ipdt(t, u, y).model.delay_s - 20.3) <= 0.2
 
 
 def test_doublet_has_up_down_ratio_near_one() -> None:
@@ -181,3 +193,16 @@ def test_delay_interval_wider_for_slow_ramp() -> None:
     slow = np.mean([np.subtract(*_interval(0.002, 0.01, s)[::-2]) for s in range(5)])
     fast = np.mean([np.subtract(*_interval(0.05, 0.01, s)[::-2]) for s in range(5)])
     assert slow > fast
+
+
+def test_correlated_residuals_widen_the_delay_interval() -> None:
+    """Same residual variance: slow (tau 100 s) noise gives a wider profile interval than white."""
+    t = _t()
+    u = _steps(t, [(300, 5)])
+    clean = _ramp_pv(t, u)
+    widths = []
+    white = np.random.default_rng(8).normal(0.0, 0.05, len(t))
+    for noise in (white, _ou_noise(len(t), 0.05, 100.0, 8)):
+        fit = identify_ipdt(t, u, clean + noise)
+        widths.append(fit.delay_upper_s - fit.delay_lower_s)
+    assert widths[1] > 2.0 * widths[0]

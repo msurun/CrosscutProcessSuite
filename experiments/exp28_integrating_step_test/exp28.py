@@ -1,13 +1,15 @@
 """exp28 harness: step-test identification of level loops, refusals, PI safety, looks_integrating.
 
-Runs the FROZEN protocol of README.md: per record identify_ipdt, SIMC PI for accepted fits checked
-on the true plant (exp26 settled / oscillating definitions), looks_integrating through the shipped
-tuning payload; writes results/<seeds>_runs.json and results/<seeds>.md (criteria I1..I4).
-"""
+Runs the FROZEN protocols of README.md. Round 1 (default): per record identify_ipdt, SIMC PI from
+the point estimate checked on the true plant (exp26 settled / oscillating definitions),
+looks_integrating through the shipped tuning payload; results/<seeds>.md + _runs.json (I1..I4).
+Round 2 (``--round 2``): new seeds, the PI is the one the shipped integrating payload proposes
+(dead time delay_used_s), the dead-time interval is checked; results/<seeds>2.md (J1..J4)."""
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import sys
@@ -16,7 +18,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
-from crosscut_loops.identification_ipdt import identify_ipdt
+from crosscut_loops.identification_ipdt import IpdtFit, identify_ipdt
 from crosscut_loops.overview import LoopTags
 from crosscut_loops.tuning_payload import tuning_payload
 from crosscut_loops.tuning_rules_integrating import (
@@ -47,18 +49,38 @@ LOOP = LoopTags(name="LIC", pv="pv", sp="sp", out="out", mode="mode", unit="%",
                 eng_min=0.0, eng_max=100.0, out_low=0.0, out_high=100.0,
                 process_kind="self_regulating")
 LOOKS_INTEGRATING_KINDS = ("good", "B1", "B2")
+# Round 2: the same loop marked integrating, so the payload runs the shipped IPDT tuning path.
+LOOP_INTEGRATING = dataclasses.replace(LOOP, process_kind="integrating")
+J1_SAFE, J2_COVER, J3_BLOCKED, J3_ACCEPT, J4_OVERSHOOT = 1.0, 0.90, 0.90, 0.70, 0.35
+INTERVAL_FIELDS = ("delay_lower_s", "delay_upper_s")  # IpdtFit fields of round 2
+PAYLOAD_MODEL_KEYS = ("delay_lower_s", "delay_upper_s", "delay_used_s")  # payload "model" keys
 
 
-def plan(seeds: str) -> list[tuple[str, object, int]]:
-    """(kind, cell or bad kind, seed) for 'dev' or 'test', in protocol order."""
-    good = gen28.good_cells()
+@dataclasses.dataclass(frozen=True)
+class Round:
+    """Seed bases of one frozen round and the suffix of its result files."""
+
+    dev: int
+    good: int
+    bad: int
+    valve: int
+    suffix: str
+
+
+ROUNDS = {1: Round(dev=28001, good=28101, bad=28401, valve=28501, suffix=""),
+          2: Round(dev=30001, good=30101, bad=30401, valve=30501, suffix="2")}
+
+
+def plan(seeds: str, round_no: int = 1) -> list[tuple[str, object, int]]:
+    """(kind, cell or bad kind, seed) for 'dev' or 'test' of one round, in protocol order."""
+    good, base = gen28.good_cells(), ROUNDS[round_no]
     if seeds == "dev":
-        return [("good", cell, 28001 + i) for i, cell in enumerate(good)]
-    runs = [("good", c, 28101 + RUNS_PER_CELL * i + j)
+        return [("good", cell, base.dev + i) for i, cell in enumerate(good)]
+    runs = [("good", c, base.good + RUNS_PER_CELL * i + j)
             for i, c in enumerate(good) for j in range(RUNS_PER_CELL)]
-    runs += [(kind, kind, 28401 + RUNS_PER_BAD * i + j)
+    runs += [(kind, kind, base.bad + RUNS_PER_BAD * i + j)
              for i, kind in enumerate(gen28.BAD_KINDS) for j in range(RUNS_PER_BAD)]
-    runs += [("valve", c, 28501 + RUNS_PER_CELL * i + j)
+    runs += [("valve", c, base.valve + RUNS_PER_CELL * i + j)
              for i, c in enumerate(gen28.valve_cells()) for j in range(RUNS_PER_CELL)]
     return runs
 
@@ -142,7 +164,61 @@ def looks_integrating(record: gen28.Record) -> dict:
             "fopdt_blocked_code": payload.get("blocked_code")}
 
 
-def run_one(kind: str, spec: object, seed: int) -> dict:
+def require_round2_api() -> None:
+    """Fail fast when the library lacks the round 2 dead-time interval of ``IpdtFit``."""
+    names = {f.name for f in dataclasses.fields(IpdtFit)}
+    missing = [n for n in INTERVAL_FIELDS if n not in names]
+    if missing:
+        raise RuntimeError(f"round 2 needs IpdtFit.{', IpdtFit.'.join(missing)} (crosscut_loops."
+                           "identification_ipdt); the library change is not in place")
+
+
+def interval_summary(fit, plant: dict) -> dict:
+    """Round 2: the profile interval of the dead time and whether it holds the true theta (J2)."""
+    lower, upper = (float(getattr(fit, name)) for name in INTERVAL_FIELDS)
+    theta_true = plant["delay_s"]
+    return {"theta_lower": lower, "theta_upper": upper,
+            "theta_covered": bool(lower <= theta_true <= upper)}
+
+
+def payload_model_keys(model: dict | None) -> dict:
+    """The round 2 keys of the payload ``model`` object; RuntimeError naming any missing key."""
+    missing = [k for k in PAYLOAD_MODEL_KEYS if model is None or k not in model]
+    if missing:
+        raise RuntimeError(f"tuning payload model lacks {missing} (crosscut_loops."
+                           "tuning_payload_ipdt); the library change is not in place")
+    return {k: model[k] for k in PAYLOAD_MODEL_KEYS}
+
+
+def product_pi(record: gen28.Record, fit) -> dict:
+    """Round 2: the PI the shipped payload proposes for the loop marked integrating, MAN window.
+
+    Returns the payload model keys and ``pi`` (settings or the blocked code). The payload fits the
+    same samples as the harness; another verdict or delay means the window differs (harness bug).
+    """
+    columns = {"pv": record.pv, "out": record.out, "sp": np.full(len(record.t_s), gen28.PV_START),
+               "mode": np.full(len(record.t_s), MANUAL_MODE)}
+    request = TuningRequest(start_s=float(record.t_s[0]), end_s=float(record.t_s[-1]),
+                            robustness=ROBUSTNESS)
+    payload = tuning_payload(LOOP_INTEGRATING, record.t_s, columns, request)
+    keys = payload_model_keys(payload["model"])
+    model = payload["model"]
+    if (model["verdict"], model["delay_s"]) != (fit.verdict, fit.model.delay_s):
+        raise RuntimeError(f"payload fit differs from identify_ipdt on the record: {model}")
+    return {"payload_model": keys, "pi": _payload_settings(payload, keys["delay_used_s"])}
+
+
+def _payload_settings(payload: dict, delay_used_s: float) -> dict:
+    """PI of the payload in the harness form, or the payload's blocked code and reasons."""
+    settings = payload.get("settings")
+    if settings is None:
+        return {"error": f"payload blocked: {payload['blocked_code']} {payload['blocked_reasons']}"}
+    return {"kc": settings["simc"]["kc"], "ti_s": settings["simc"]["ti_s"],
+            "tau_c_s": payload["tau_c_s"], "direct": bool(payload["invert_control"]),
+            "delay_used_s": delay_used_s}
+
+
+def run_one(kind: str, spec: object, seed: int, round_no: int = 1) -> dict:
     """Identify, tune and judge one record; returns the JSON row."""
     started = time.perf_counter()
     record = make_record(kind, spec, seed)
@@ -150,7 +226,14 @@ def run_one(kind: str, spec: object, seed: int) -> dict:
     row = {"kind": kind, "seed": seed, "cell": record.meta["cell"], "meta": record.meta,
            "plant": record.plant, "n_samples": len(record.t_s), **fit_summary(fit, record.plant)}
     row["accepted"] = fit.verdict in ACCEPTED
-    row["pi"] = proposed_pi(fit.model.slope_per_s, fit.model.delay_s) if row["accepted"] else None
+    if round_no == 1:
+        row["pi"] = (proposed_pi(fit.model.slope_per_s, fit.model.delay_s)
+                     if row["accepted"] else None)
+    else:
+        product = product_pi(record, fit)
+        row |= interval_summary(fit, record.plant)
+        row["payload_model"] = product["payload_model"]
+        row["pi"] = product["pi"] if row["accepted"] else None
     row["loop"] = None
     if row["pi"] is not None and "error" not in row["pi"]:
         band = gen28.DEADBAND if kind == "valve" else 0.0
@@ -222,27 +305,65 @@ def criteria(rows: list[dict]) -> dict:
             "I4": criterion_i4(rows)}
 
 
-def run(seeds: str, out_dir: Path) -> dict:
-    """Run every planned record, write <seeds>_runs.json and <seeds>.md, return the payload."""
+def criterion_j2(rows: list[dict]) -> dict:
+    """Share of accepted good runs whose true theta lies in [delay_lower_s, delay_upper_s]."""
+    accepted = [r for r in rows if r["kind"] == "good" and r["accepted"]]
+    covered = share(accepted, lambda r: r["theta_covered"])
+    missed = [f"{r['cell']} seed {r['seed']}" for r in accepted if not r["theta_covered"]]
+    passed = None if covered is None else covered >= J2_COVER
+    return {"covered_share": covered, "n_accepted": len(accepted), "missed": missed,
+            "verdict": _verdict(passed)}
+
+
+def criterion_j3(rows: list[dict]) -> dict:
+    """Blocked share per bad kind (as I2) and the accepted share of good runs."""
+    i1, i2 = criterion_i1(rows), criterion_i2(rows)
+    blocked, accepted = i2["blocked_share"], i1["accepted_share"]
+    passed = None if not i2["n_bad"] or accepted is None else (
+        all(v is not None and v >= J3_BLOCKED for v in blocked.values()) and accepted >= J3_ACCEPT)
+    return {"blocked_share": blocked, "accepted_share": accepted, "n_good": i1["n_good"],
+            "n_accepted": i1["n_accepted"], "verdict": _verdict(passed)}
+
+
+def criterion_j4(rows: list[dict]) -> dict:
+    """Median overshoot of the proposed PI over the judged good runs."""
+    over = [r["loop"]["overshoot"] for r in rows if r["kind"] == "good" and r["loop"]]
+    median = _median(over)
+    passed = None if median is None else median <= J4_OVERSHOOT
+    return {"median_overshoot": median, "n_judged": len(over), "verdict": _verdict(passed)}
+
+
+def criteria_round2(rows: list[dict]) -> dict:
+    """J1..J4 values and verdicts (J1 is judged exactly as I3, on the product PI)."""
+    return {"J1": criterion_i3(rows), "J2": criterion_j2(rows), "J3": criterion_j3(rows),
+            "J4": criterion_j4(rows)}
+
+
+def run(seeds: str, out_dir: Path, round_no: int = 1) -> dict:
+    """Run every planned record, write <seeds><suffix>_runs.json and .md, return the payload."""
+    if round_no == 2:
+        require_round2_api()
     out_dir.mkdir(parents=True, exist_ok=True)
-    json_path, md_path = out_dir / f"{seeds}_runs.json", out_dir / f"{seeds}.md"
+    stem = f"{seeds}{ROUNDS[round_no].suffix}"
+    json_path, md_path = out_dir / f"{stem}_runs.json", out_dir / f"{stem}.md"
     for path in (json_path, md_path):
         if path.exists():
             raise SystemExit(f"refusing to overwrite {path}")
     started = time.perf_counter()
-    rows = run_rows(plan(seeds))
-    payload = {"seeds": seeds, "criteria": criteria(rows), "runs": rows,
+    rows = run_rows(plan(seeds, round_no), round_no)
+    crit = criteria(rows) if round_no == 1 else criteria_round2(rows)
+    payload = {"seeds": seeds, "round": round_no, "criteria": crit, "runs": rows,
                "runtime_s": time.perf_counter() - started}
     json_path.write_text(json.dumps(payload, indent=1, default=_json_default), encoding="utf-8")
     md_path.write_text(render(payload), encoding="utf-8")
     return payload
 
 
-def run_rows(runs: list[tuple[str, object, int]]) -> list[dict]:
+def run_rows(runs: list[tuple[str, object, int]], round_no: int = 1) -> list[dict]:
     """run_one over the plan with progress on stderr."""
     rows = []
     for i, (kind, spec, seed) in enumerate(runs):
-        rows.append(run_one(kind, spec, seed))
+        rows.append(run_one(kind, spec, seed, round_no))
         if i % 12 == 0:
             print(f"[exp28] {i + 1}/{len(runs)} {kind} seed {seed}", file=sys.stderr)
     return rows
@@ -349,17 +470,64 @@ def summary_lines(rows: list[dict]) -> list[str]:
     return lines
 
 
+def criteria_lines_round2(crit: dict) -> list[str]:
+    """Markdown rows of the J1..J4 table."""
+    j1, j2, j3, j4 = crit["J1"], crit["J2"], crit["J3"], crit["J4"]
+    blocked = ", ".join(f"{k} {_fmt(v)}" for k, v in j3["blocked_share"].items())
+    return [
+        "| id | values | verdict |", "| --- | --- | --- |",
+        f"| J1 | judged {j1['n_judged']}, unsafe {len(j1['unsafe'])} | {j1['verdict']} |",
+        f"| J2 | true theta in [delay_lower_s, delay_upper_s]: {_fmt(j2['covered_share'])} "
+        f"of {j2['n_accepted']} accepted good runs | {j2['verdict']} |",
+        f"| J3 | blocked {blocked}; accepted good {_fmt(j3['accepted_share'])} "
+        f"({j3['n_accepted']}/{j3['n_good']}) | {j3['verdict']} |",
+        f"| J4 | median overshoot {_fmt(j4['median_overshoot'])} over {j4['n_judged']} judged "
+        f"good runs | {j4['verdict']} |",
+    ]
+
+
+def interval_table(rows: list[dict]) -> list[str]:
+    """Round 2, good cells: dead-time point estimate, interval, value used and coverage."""
+    lines = ["| cell | accepted | covered | median theta_hat | median lower | median upper "
+             "| median used |", "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        if r["kind"] == "good" and r["accepted"]:
+            groups[r["cell"]].append(r)
+    for cell, g in groups.items():
+        med = [_fmt(_median([r[key] for r in g]), 1)
+               for key in ("theta_hat", "theta_lower", "theta_upper")]
+        used = _fmt(_median([r["payload_model"]["delay_used_s"] for r in g]), 1)
+        lines.append(f"| {cell} | {len(g)} | {sum(r['theta_covered'] for r in g)} | "
+                     f"{' | '.join(med)} | {used} |")
+    return lines
+
+
+def _criteria_parts(payload: dict) -> list[str]:
+    """Criteria section of the report for round 1 (I1..I4) or round 2 (J1..J4)."""
+    crit = payload["criteria"]
+    if payload.get("round", 1) == 1:
+        unsafe = crit["I3"]["unsafe"] or ["none"]
+        per_kind = crit["I4"]["false_share_per_kind"].items()
+        return ["## Criteria\n", *criteria_lines(crit),
+                "\nI4 false warnings are pooled over B1 and B2; per kind: "
+                + ", ".join(f"{k} {_fmt(v)}" for k, v in per_kind),
+                "\n### I3 unsafe runs\n", *[f"- {u}" for u in unsafe]]
+    unsafe, missed = crit["J1"]["unsafe"] or ["none"], crit["J2"]["missed"] or ["none"]
+    return ["## Criteria (round 2)\n", *criteria_lines_round2(crit),
+            "\n### J1 unsafe runs\n", *[f"- {u}" for u in unsafe],
+            "\n### J2 runs with the true theta outside the interval\n", *[f"- {m}" for m in missed],
+            "\n## Dead-time interval (good cells, accepted)\n", *interval_table(payload["runs"])]
+
+
 def render(payload: dict) -> str:
     """Markdown report of one seed set."""
-    rows, crit = payload["runs"], payload["criteria"]
-    unsafe = crit["I3"]["unsafe"] or ["none"]
-    parts = [f"# exp28 results: {payload['seeds']} seeds\n",
+    rows = payload["runs"]
+    title = "" if payload.get("round", 1) == 1 else " (round 2)"
+    parts = [f"# exp28 results: {payload['seeds']} seeds{title}\n",
              f"Runs: {len(rows)}; runtime {payload['runtime_s']:.0f} s. Dev seeds are a harness "
              "check only (one run per good cell); the frozen criteria apply to the test seeds.\n",
-             "## Criteria\n", *criteria_lines(crit),
-             "\nI4 false warnings are pooled over B1 and B2; per kind: "
-             + ", ".join(f"{k} {_fmt(v)}" for k, v in crit["I4"]["false_share_per_kind"].items()),
-             "\n### I3 unsafe runs\n", *[f"- {u}" for u in unsafe],
+             *_criteria_parts(payload),
              "\n## Reported (no target)\n", *summary_lines(rows),
              "\n## Good cells\n", *cell_table(rows, "good"),
              "\n## Valve-deadband cells (report only; PI judged with the deadband)\n",
@@ -369,13 +537,15 @@ def render(payload: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: --seeds dev|test --out DIR (relative to this folder)."""
+    """CLI: --seeds dev|test --round 1|2 --out DIR (relative to this folder)."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", choices=("dev", "test"), required=True)
+    parser.add_argument("--round", type=int, choices=sorted(ROUNDS), default=1,
+                        help="frozen protocol round (seeds, criteria, file names)")
     parser.add_argument("--out", default="results", help="output folder, relative to exp28")
     args = parser.parse_args(argv)
     out = Path(args.out) if Path(args.out).is_absolute() else HERE / args.out
-    payload = run(args.seeds, out)
+    payload = run(args.seeds, out, args.round)
     print(render(payload).split("## Reported")[0])
     return 0
 

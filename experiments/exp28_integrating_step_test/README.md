@@ -112,3 +112,40 @@ Same generator, same cells, same harness code paths (the harness gets a `--round
 | J4 | median overshoot of the proposed PI on good runs <= 0.35 (conservative tuning must not become useless) |
 Decision: if J1 fails again the integrating tuning stays labelled experimental, the settings are shown only as a range of Kc and Ti, and the line is closed. Never iterate on the test seeds.
 Development round (seeds 30001..30072) may be used to fix bugs only; the interval rule above is frozen as written.
+
+### Round 2 frozen files
+sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-22, after the library change (loops tests green) and before the first round 2 development seed:
+
+| file | sha256 |
+|------|--------|
+| experiments/exp28_integrating_step_test/gen28.py | c5a1f5f90b9d69af0e5607c064aaf1afc0066ccdb6e2f3cacaeae7a456c1623f |
+| experiments/exp28_integrating_step_test/exp28.py | 2257aeb2c19ef86b926f1b58549667b2535ec1bca7ac1cfb36b06fc5817b186f |
+| loops/src/crosscut_loops/identification_ipdt.py | 4ccfd3fc4a3ac9985398c9f3fe9f088bd6048fa64bab78df48b31c222afdee67 |
+| loops/src/crosscut_loops/tuning_report_ipdt.py | 34e8a8447807e71c92a5709c5db7c60feb362350c7d0efa9c86c29728f24cdea |
+| loops/src/crosscut_loops/tuning_payload_ipdt.py | fa0673d572ad4ebbe6f516196c5c07a6454145236f38802c5e21c8a2752bbc76 |
+| loops/src/crosscut_loops/tuning_rules_integrating.py | f8347270eb983df4d40320db229dfa5cd3263b0cf367d92faafc73b9fd5c7a38 |
+
+Harness reading for round 2 (`--round 2`): the PI judged in J1 is the SIMC PI of the shipped tuning payload with the loop marked integrating (settings built with `delay_used_s`), not a harness call of `simc_pi_integrating`; J2 reads `IpdtFit.delay_lower_s/delay_upper_s` and the payload keys `delay_lower_s`, `delay_upper_s`, `delay_used_s`; J4 is the median overshoot over the judged accepted good runs. Round 1 (`--round 1`, default) is unchanged.
+
+
+## Development round 2 (2026-10-22, before any round 2 test seed)
+
+The first round 2 development run (results/dev2.md) gave J2 = 0.296 on the dev seeds 30001..30072: the point estimate of the dead time was about 0.5 s too long and the intervals were 1-2 s wide while the error was 3-7 s. Two library changes in `loops/src/crosscut_loops/identification_ipdt.py` (the only frozen file changed; its sha256 above is updated):
+
+1. OUT is read as a zero-order hold (u(t) = u[k] on [t_k, t_k+1)), the usual reading of a historian record. The integral of the delayed input is piecewise linear in time and is evaluated analytically at fractional delays. Before, OUT was interpolated linearly and integrated with the trapezoid rule, so a step held between samples was treated as a ramp and theta came out too long. Uneven sampling is still supported.
+2. The SSE-profile interval uses an effective sample size n_eff = n / (1 + 2 * sum of residual autocorrelations up to the first zero crossing), bounded to [p + 2, n], in the F threshold SSE <= SSE_min * (1 + F95(1, n_eff - p) / (n_eff - p)). Principle: positively correlated residuals (slow load) carry less independent information than their count; white residuals were assumed before. The autocorrelation helper is the one the bootstrap block length uses.
+
+Unit tests added (step held between samples: theta within 0.2 s on clean data; correlated residuals give a wider interval than white noise); the test plant of `_ramp_pv` now feeds the zero-order-hold OUT (consistent with the new reading), no tolerance was loosened.
+
+Development numbers after the change (dev seeds only; output regenerated, not committed over results/):
+
+| round | criterion | before | after |
+|-------|-----------|--------|-------|
+| 2 | J1 | judged 71, unsafe 0 | judged 70, unsafe 0 (PASS) |
+| 2 | J2 | 0.296 | 0.886 of 70 accepted good runs (MISS vs 0.90) |
+| 2 | J3 | not exercised | not exercised; accepted good 70/72 |
+| 2 | J4 | 0.164 | 0.163 (PASS) |
+| 1 | I1 | - | accepted 1.000 (72/72), accurate among accepted 0.778 (MISS) |
+| 1 | I3 | - | judged 72, unsafe 0 (PASS) |
+
+No criterion or threshold was changed. The round 2 development seeds 30001..30072 are spent; no test seed (28101+, 30101+) was run.
