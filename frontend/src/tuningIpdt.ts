@@ -74,6 +74,21 @@ function interpolate(curve: FitCurve, at: number, rel: number): number | null {
   return span <= 0 ? y0 : y0 + ((y1 - y0) * (rel - curve.t_s[at])) / span;
 }
 
+/** Ratio of upper to lower dead-time bound above which the range counts as wide. */
+export const WIDE_DELAY_RATIO = 3;
+/** Share of the record length (window span) the range may span before it counts as wide. */
+export const WIDE_DELAY_SPAN_SHARE = 0.2;
+
+/**
+ * True when the dead-time range is wide: upper/lower above 3, or upper minus lower above 20 % of
+ * the record length (the window span in seconds, an upper estimate of the time after the move).
+ */
+export function isWideDelayRange(model: IpdtModel, spanS: number): boolean {
+  const { delay_lower_s: lower, delay_upper_s: upper } = model;
+  const ratioWide = lower > 0 ? upper / lower > WIDE_DELAY_RATIO : upper > 0;
+  return ratioWide || upper - lower > WIDE_DELAY_SPAN_SHARE * spanS;
+}
+
 /** Locale key of the plain-language reason text; unknown codes get the generic text. */
 export function reasonKey(code: string): string {
   return KNOWN_IPDT_REASONS.includes(code) ? `tuning.ipdt.reason.${code}` : "tuning.ipdt.reason.unknown";

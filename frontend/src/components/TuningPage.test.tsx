@@ -34,6 +34,9 @@ const IPDT: IpdtModel = {
   kind: "ipdt",
   slope_per_s: 0.002,
   delay_s: 20,
+  delay_lower_s: 15,
+  delay_upper_s: 30,
+  delay_used_s: 30,
   r_squared: 0.97,
   slope_rel_se: 0.05,
   up_down_ratio: null,
@@ -87,6 +90,19 @@ describe("integrating model view", () => {
     expect(screen.queryByText("tuning.model.tau")).toBeNull();
     expect(screen.queryByText("tuning.model.ratio")).toBeNull();
     expect(screen.getByText("tuning.ipdt.explain")).toBeInTheDocument();
+  });
+
+  it("shows the dead time as an estimate with its range and states the upper bound is used", async () => {
+    await show(ipdtPayload());
+    expect(screen.getByText(/tuning\.ipdt\.delayRange.*"lower":"15".*"upper":"30"/)).toBeInTheDocument();
+    expect(screen.getByText(/tuning\.recommendation\.ipdt.*"upper":"30"/)).toBeInTheDocument();
+    expect(screen.getByText("tuning.ipdt.experimental")).toBeInTheDocument();
+    expect(screen.queryByText("tuning.ipdt.delayWide")).toBeNull();
+  });
+
+  it("hints at a longer or larger step when the dead-time range is wide", async () => {
+    await show(ipdtPayload({ model: { ...IPDT, delay_lower_s: 3, delay_upper_s: 12, delay_used_s: 12 } }));
+    expect(screen.getByText("tuning.ipdt.delayWide")).toBeInTheDocument();
   });
 
   it("draws the fitted ramp over the measured PV in the check chart and the window preview", async () => {

@@ -45,6 +45,10 @@ for (const width of [1440, 390]) {
     await applyWindow(page, "0", "119");
     await expect(page.getByText("Nachylenie rampy")).toBeVisible();
     await expect(page.getByText(/Propozycja \(reguła SIMC dla procesu całkującego\)/)).toBeVisible();
+    await expect(page.getByText(/Czas martwy/).first()).toBeVisible();
+    await expect(page.getByText(/\(zakres [\d,.]+-[\d,.]+ s\)/).first()).toBeVisible();
+    await expect(page.getByText(/z górną granicą zakresu czasu opóźnienia/)).toBeVisible();
+    await expect(page.getByRole("note").filter({ hasText: "Strojenie pętli poziomu jest eksperymentalne" })).toBeVisible();
     await expect(page.getByText(/Przy tych nastawach spodziewane jest przeregulowanie/)).toBeVisible();
     await expect(page.getByText("Stała czasowa", { exact: true })).toHaveCount(0);
     await page.getByLabel(/Największe dopuszczalne wahanie/).fill("2");

@@ -114,6 +114,15 @@ describe("fetchTuning", () => {
     expect(url).toContain("load_step_pct=4");
   });
 
+  it("passes the dead-time range of an integrating model through", async () => {
+    const model = { kind: "ipdt", delay_s: 5, delay_lower_s: 3, delay_upper_s: 12, delay_used_s: 12 };
+    stubFetchOnce(fakeResponse({ model }));
+
+    const payload = await fetchTuning("d", "L");
+
+    expect(payload.model).toMatchObject({ delay_lower_s: 3, delay_upper_s: 12, delay_used_s: 12 });
+  });
+
   it("leaves both out when one of them is missing", async () => {
     const fetchMock = stubFetchOnce(fakeResponse({}));
 

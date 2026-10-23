@@ -285,7 +285,7 @@ function ModelStep({
         />
       )}
       {model !== null && model.kind === "fopdt" && <FopdtModelView model={model} unit={unit} t={t} />}
-      {ipdt && <IpdtModelView model={model} unit={unit} t={t} />}
+      {ipdt && <IpdtModelView model={model} unit={unit} spanS={payload.window.end_s - payload.window.start_s} t={t} />}
       {ipdt && (
         <SwingInputs
           maxText={swing.text.max}

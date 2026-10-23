@@ -8,11 +8,21 @@ import { useState } from "react";
 import { saveKnowledge, type IpdtModel, type TuningPayload, type TuningSettings, type TuningWarning } from "../api";
 import type { Translate } from "../findings";
 import { formatFixed } from "../format";
-import { parseSwing, reasonActionKey, reasonKey, type SwingInput } from "../tuningIpdt";
+import { isIpdtModel, isWideDelayRange, parseSwing, reasonActionKey, reasonKey, type SwingInput } from "../tuningIpdt";
 import { formatNumber } from "./SettingsTables";
 
 /** Model view of an integrating loop: ramp slope and dead time, no gain or time constant. */
-export function IpdtModelView({ model, unit, t }: { model: IpdtModel; unit: string; t: Translate }) {
+export function IpdtModelView({
+  model,
+  unit,
+  spanS,
+  t,
+}: {
+  model: IpdtModel;
+  unit: string;
+  spanS: number;
+  t: Translate;
+}) {
   return (
     <>
       <dl className="key-numbers">
@@ -21,8 +31,19 @@ export function IpdtModelView({ model, unit, t }: { model: IpdtModel; unit: stri
           {formatNumber(model.slope_per_s)} <span className="unit">{t("tuning.ipdt.slopeUnit", { unit })}</span>
         </dd>
         <dt>{t("tuning.model.delay")}</dt>
-        <dd>{t("tuning.model.seconds", { value: formatNumber(model.delay_s) })}</dd>
+        <dd>
+          {t("tuning.ipdt.delayRange", {
+            value: formatNumber(model.delay_s),
+            lower: formatNumber(model.delay_lower_s),
+            upper: formatNumber(model.delay_upper_s),
+          })}
+        </dd>
       </dl>
+      {isWideDelayRange(model, spanS) && (
+        <p className="notice notice-warning" role="note">
+          {t("tuning.ipdt.delayWide")}
+        </p>
+      )}
       <p className="hint">{t("tuning.ipdt.explain")}</p>
       {model.verdict === "low_confidence" && (
         <div className="notice notice-warning" role="note">
@@ -67,6 +88,7 @@ export function IpdtRecommendation({
   t: Translate;
 }) {
   const tauC = payload.tau_c_s === undefined ? "" : formatNumber(payload.tau_c_s);
+  const upper = isIpdtModel(payload.model) ? formatNumber(payload.model.delay_used_s) : "";
   return (
     <>
       <p className="recommendation" role="status">
@@ -74,8 +96,12 @@ export function IpdtRecommendation({
           kc: formatNumber(settings.simc.kc),
           ti: formatNumber(settings.simc.ti_s),
           tauc: tauC,
+          upper,
           fit: fitText,
         })}
+      </p>
+      <p className="notice notice-warning" role="note">
+        {t("tuning.ipdt.experimental")}
       </p>
       <p className="banner" role="note">
         {t("tuning.ipdt.overshoot")}

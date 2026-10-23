@@ -270,7 +270,14 @@ export type IpdtReason =
 export interface IpdtModel {
   kind: "ipdt";
   slope_per_s: number;
+  /** Point estimate of the dead time; the settings use `delay_used_s` (the upper bound). */
   delay_s: number;
+  /** Lower bound of the dead-time interval, seconds. */
+  delay_lower_s: number;
+  /** Upper bound of the dead-time interval, seconds. */
+  delay_upper_s: number;
+  /** Dead time the settings were computed with (the upper bound), seconds. */
+  delay_used_s: number;
   r_squared: number;
   slope_rel_se: number | null;
   up_down_ratio: number | null;

@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { alignCurve, findWarning, isIpdtModel, parseSwing, reasonActionKey, reasonKey } from "./tuningIpdt";
+import type { IpdtModel } from "./api";
+import { alignCurve, findWarning, isIpdtModel, isWideDelayRange, parseSwing, reasonActionKey, reasonKey } from "./tuningIpdt";
 
 describe("parseSwing", () => {
   it("treats two empty fields as not used", () => {
@@ -61,5 +62,36 @@ describe("reason keys and guards", () => {
     const warnings = [{ code: "closed_loop_data" as const }];
     expect(findWarning(warnings, "closed_loop_data")).toEqual({ code: "closed_loop_data" });
     expect(findWarning(warnings, "looks_self_regulating")).toBeUndefined();
+  });
+});
+
+describe("isWideDelayRange", () => {
+  const model = (lower: number, upper: number): IpdtModel => ({
+    kind: "ipdt",
+    slope_per_s: 0.01,
+    delay_s: lower,
+    delay_lower_s: lower,
+    delay_upper_s: upper,
+    delay_used_s: upper,
+    r_squared: 0.9,
+    slope_rel_se: null,
+    up_down_ratio: null,
+    baseline_slope: 0,
+    verdict: "ok",
+    reasons: [],
+  });
+
+  it("is narrow for a small ratio and a small share of the record", () => {
+    expect(isWideDelayRange(model(10, 20), 1000)).toBe(false);
+  });
+
+  it("is wide when upper/lower exceeds 3", () => {
+    expect(isWideDelayRange(model(3, 12), 10000)).toBe(true);
+    expect(isWideDelayRange(model(5, 15), 10000)).toBe(false);
+  });
+
+  it("is wide when the range exceeds 20 % of the record", () => {
+    expect(isWideDelayRange(model(100, 250), 700)).toBe(true);
+    expect(isWideDelayRange(model(100, 250), 800)).toBe(false);
   });
 });
