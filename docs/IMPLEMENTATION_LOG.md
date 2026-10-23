@@ -829,3 +829,10 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Data trap: a tag linearly interpolated over a long archive gap (same variance in two weeks, mean falling 1514 -> 935) made the
   detector flag 93-100 % of weeks 3 and 4. Idea (open): mark a tag with a long exact linear ramp as unreliable in the anomaly and import views.
 - Details with tag names are in the owner's Drive (SMOKE_anomalie_A4_2026-10-23.txt), not in the repo.
+
+## Feed-disturbance identification (2026-10-23, step 4; analysis only)
+- `tools/driver_response.py`: steps of one driver tag (a pump speed) found with step_events, outputs fitted with step_fit; generic, no tag names.
+- On the 11 October pump steps (15 steps of 1-3 pp): feed flow gain 145 +- 12 m3/h per pp, dead time about 5 s (grid), time constant 15 +- 6 s;
+  consistent in 11 of 15 steps. Sump level and level-loop OUTs respond through closed loops, so no process model comes out of them
+  (they need an open-loop test or known controller tunings). Plant tag names stay in the owner's Drive report.
+- The plant import tag cap was raised to 1200 because the first cap (file order) dropped the pump speed tag.

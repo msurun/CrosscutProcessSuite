@@ -44,7 +44,7 @@ VALID_SCOPES = frozenset({SCOPE_LOOPS, SCOPE_PROCESS})
 # A process tag must be present in at least half of the rows to be worth storing.
 MIN_PRESENT_FRACTION = 0.5
 # Upper bound on written tags, so the long table stays a manageable size in memory.
-MAX_PROCESS_TAGS = 500
+MAX_PROCESS_TAGS = 1200
 
 # Role names in tags.json for the loop signals; anything else is 'other'.
 LOOP_ROLES = (("pv", "PV"), ("sp", "SP"), ("out", "OUT"), ("mode", "MODE"))

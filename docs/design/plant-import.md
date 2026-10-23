@@ -25,7 +25,7 @@ old path stays untouched.
 - Dataset: original timestamps are kept (NO resampling, gaps between test windows stay gaps), values float64, a missing
   cell is written with quality 2 (bad) and value NaN. Tags written: all loop signals (pv, sp, out, mode, feedback,
   valve AI/AO) plus, by `scope`: `loops` (only those) or `process` (default: also every other analog tag that has at
-  least 50 % present values and is not constant, at most 500 tags in total; the rest is listed as skipped with a count).
+  least 50 % present values and is not constant, at most 1200 tags in total; the rest is listed as skipped with a count).
 - `tags.json`: `description` and `unit` from the dictionary; `role` PV/SP/OUT/MODE for loop tags (see tags schema), the
   other roles per the schema's enum (check it).
 - `project.json`: one `loops` entry per complete loop: id, name, pv, sp, out, mode, unit (PV unit), process_kind,
