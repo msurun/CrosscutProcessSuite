@@ -4,6 +4,7 @@
 // The typed values are remembered in localStorage when the browser allows it.
 
 import { useEffect, useState } from "react";
+import type { TuningSettings } from "../api";
 import type { Translate } from "../findings";
 import { formatSigned } from "../format";
 import { formatNumber } from "./SettingsTables";
@@ -155,7 +156,7 @@ export function CurrentSettingsCompare({
   t,
 }: {
   storageKey: string;
-  settings: { simc: { kc: number; ti_s: number }; amigo: { kc: number; ti_s: number } };
+  settings: TuningSettings;
   t: Translate;
 }) {
   const [kcText, setKcText] = useState("");
@@ -233,12 +234,12 @@ function ComparisonTable({
   current,
   t,
 }: {
-  settings: { simc: { kc: number; ti_s: number }; amigo: { kc: number; ti_s: number } };
+  settings: TuningSettings;
   current: CurrentValues;
   t: Translate;
 }) {
   const simc = ruleChanges(settings.simc, current);
-  const amigo = ruleChanges(settings.amigo, current);
+  const amigo = settings.amigo === null ? null : ruleChanges(settings.amigo, current);
   const isSimcClose = isClose(simc.kc.changePercent) && isClose(simc.ti.changePercent);
 
   return (
@@ -256,7 +257,7 @@ function ComparisonTable({
         </thead>
         <tbody>
           <ChangeRow label="SIMC" kc={simc.kc} ti={simc.ti} />
-          <ChangeRow label="AMIGO" kc={amigo.kc} ti={amigo.ti} />
+          {amigo !== null && <ChangeRow label="AMIGO" kc={amigo.kc} ti={amigo.ti} />}
         </tbody>
       </table>
       <p role="status">{isSimcClose ? t("tuning.current.close") : t("tuning.current.differs")}</p>

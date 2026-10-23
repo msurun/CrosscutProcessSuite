@@ -355,6 +355,19 @@ describe("KnowledgeEditor ranges", () => {
   });
 });
 
+describe("KnowledgeEditor process kind help", () => {
+  it("explains integrating versus self-regulating with a level example", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(makeKnowledge());
+    renderEditor();
+
+    const select = await screen.findByLabelText("knowledge.processKind");
+
+    expect(select).toHaveAccessibleDescription("knowledge.kindHelp");
+    expect(screen.getByText("knowledge.kindExampleTitle")).toBeInTheDocument();
+    expect(screen.getByText("knowledge.kindExample")).toBeInTheDocument();
+  });
+});
+
 describe("KnowledgeEditor save diff", () => {
   it("lists old and new values, shows cleared, and can be dismissed", async () => {
     vi.mocked(fetchKnowledge).mockResolvedValue(

@@ -5,9 +5,10 @@
 // the suggested-window chips, which only offer the windows the analysis found.
 
 import { useEffect, useMemo, useState } from "react";
-import type { LoopSummary, Series } from "../api";
+import type { FitCurve, LoopSummary, Series } from "../api";
 import { fetchSeries } from "../api";
 import { toUplotData, windowToRange } from "../trendData";
+import { alignCurve } from "../tuningIpdt";
 import { TrendPane } from "./TrendPane";
 import { formatFixed } from "../format";
 import type { Translate } from "../findings";
@@ -29,6 +30,9 @@ const BOUND_TOLERANCE_S = 1e-6;
 
 /** Colours of the PV series, matching the detail view's first pane. */
 const PV_COLOR = "--series-1";
+
+/** Colour of the fitted ramp drawn over the measured PV. */
+const FIT_COLOR = "--series-2";
 
 /** Colour of the controller output series, matching the detail view's second pane. */
 const OUT_COLOR = "--series-3";
@@ -209,18 +213,25 @@ function WindowTrends({
   loop,
   t,
   xRange,
+  fitCurve,
   onZoom,
 }: {
   state: SeriesState;
   loop: LoopSummary;
   t: Translate;
   xRange: readonly [number, number] | null;
+  fitCurve: FitCurve | null;
   onZoom: (minSeconds: number, maxSeconds: number) => void;
 }) {
   // The data arrays must keep their identity between renders: TrendPane resets the visible range
   // whenever `data` changes, and onZoom re-renders this component, which would loop forever.
   const columns = useMemo(() => (state.status === "ready" ? toUplotData(state.series) : null), [state]);
-  const pvData = useMemo(() => (columns ? [columns[0], columns[1]] : null), [columns]);
+  const pvData = useMemo(() => {
+    if (!columns) return null;
+    const firstS = columns[0][0];
+    if (fitCurve === null || firstS === null) return [columns[0], columns[1]];
+    return [columns[0], columns[1], alignCurve(columns[0], firstS, fitCurve)];
+  }, [columns, fitCurve]);
   const outData = useMemo(() => (columns ? [columns[0], columns[2]] : null), [columns]);
   if (state.status === "loading") {
     return <p className="status">{t("tuning.window.loadingTrend")}</p>;
@@ -235,8 +246,8 @@ function WindowTrends({
       <TrendPane
         timeLabel={t("trends.time")}
         data={pvData}
-        labels={[t("tuning.window.pvLabel")]}
-        colors={[PV_COLOR]}
+        labels={fitCurve === null ? [t("tuning.window.pvLabel")] : [t("tuning.window.pvLabel"), t("tuning.check.ramp")]}
+        colors={fitCurve === null ? [PV_COLOR] : [PV_COLOR, FIT_COLOR]}
         unit={loop.unit}
         height={PANE_HEIGHT_PX}
         syncKey={SYNC_KEY}
@@ -282,11 +293,14 @@ export function WindowPicker({
   datasetId,
   loop,
   window,
+  fitCurve = null,
   onSelectWindow,
   t,
 }: {
   datasetId: string;
   loop: LoopSummary;
+  /** Fitted ramp of an integrating loop, drawn over the measured PV; null for none. */
+  fitCurve?: FitCurve | null;
   /** Currently chosen window, in seconds since the first sample, or null. */
   window: { startS: number; endS: number } | null;
   onSelectWindow: (w: { startS: number; endS: number }) => void;
@@ -324,6 +338,7 @@ export function WindowPicker({
         loop={loop}
         t={t}
         xRange={xRange}
+        fitCurve={fitCurve}
         onZoom={(minSeconds, maxSeconds) =>
           setVisible((old) => (old && old[0] === minSeconds && old[1] === maxSeconds ? old : [minSeconds, maxSeconds]))
         }

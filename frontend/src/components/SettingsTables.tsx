@@ -1,5 +1,6 @@
 // src/components/SettingsTables.tsx
 
+import type { TuningSettings } from "../api";
 import type { Translate } from "../findings";
 import { formatDcs, formatSignificant } from "../format";
 
@@ -13,11 +14,8 @@ export function formatNumber(value: number): string {
   return formatSignificant(value);
 }
 
-/** Tuning constants of the PI controller, per rule. */
-type PiSettings = {
-  simc: { kc: number; ti_s: number };
-  amigo: { kc: number; ti_s: number };
-};
+/** Tuning constants of the PI controller, per rule (AMIGO is null for integrating loops). */
+type PiSettings = TuningSettings;
 
 /**
  * Render the PI tuning constants of the SIMC and AMIGO rules.
@@ -28,8 +26,8 @@ export function PiSettingsTable({ settings, t }: { settings: PiSettings; t: Tran
   // The rule name is shown as-is, so the table reads like the tuning sheet.
   const rules: Array<{ label: string; values: { kc: number; ti_s: number } }> = [
     { label: "SIMC", values: settings.simc },
-    { label: "AMIGO", values: settings.amigo },
   ];
+  if (settings.amigo !== null) rules.push({ label: "AMIGO", values: settings.amigo });
 
   return (
     <table className="settings-table">

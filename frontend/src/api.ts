@@ -237,33 +237,113 @@ export interface TimeWindow {
   end_s: number;
 }
 
+/** A warning of the tuning payload: a code the UI translates plus the numbers that triggered it. */
+export type TuningWarning =
+  | { code: "closed_loop_data" }
+  | { code: "looks_self_regulating"; fopdt_r_squared: number }
+  | {
+      code: "looks_integrating";
+      reason: "time_constant_over_3x_window" | "model_failed_ipdt_fits";
+      time_constant_s: number | null;
+      ipdt_r_squared: number | null;
+    };
+
+/** First-order-plus-dead-time model of a self-regulating loop. */
+export interface FopdtModel {
+  kind: "fopdt";
+  gain: number;
+  time_constant_s: number;
+  delay_s: number;
+}
+
+/** Reason codes of an integrating fit (blocking or low-confidence). */
+export type IpdtReason =
+  | "r2_below_0.8"
+  | "pre_move_lead_under_20pct"
+  | "post_move_too_short"
+  | "theta_on_grid_edge"
+  | "no_out_move"
+  | "slope_se_over_20pct"
+  | "up_down_differ_over_25pct";
+
+/** Integrator-with-dead-time model of a level loop; the slope is in PV unit per second per % OUT. */
+export interface IpdtModel {
+  kind: "ipdt";
+  slope_per_s: number;
+  delay_s: number;
+  r_squared: number;
+  slope_rel_se: number | null;
+  up_down_ratio: number | null;
+  baseline_slope: number;
+  verdict: "ok" | "low_confidence" | "blocked";
+  reasons: string[];
+}
+
+/** The identified process model; check `kind` first. */
+export type TuningModel = FopdtModel | IpdtModel;
+
+/** The fitted ramp of an integrating loop, on the window's time axis (seconds since the first sample). */
+export interface FitCurve {
+  t_s: number[];
+  pv_model: (number | null)[];
+}
+
+/** PI settings per rule; AMIGO is null for integrating loops. */
+export interface TuningSettings {
+  simc: { kc: number; ti_s: number };
+  amigo: { kc: number; ti_s: number } | null;
+}
+
 /** Result of `GET /api/datasets/{id}/loops/{loop}/tuning`; texts are codes the UI translates. */
 export interface TuningPayload {
   loop: string;
   windows: TimeWindow[];
   window: TimeWindow & { manual_percent: number };
-  warnings: string[];
+  warnings: TuningWarning[];
   robustness: number;
-  blocked_code: "stiction" | "model_failed" | "poor_fit" | null;
+  blocked_code: "stiction" | "model_failed" | "poor_fit" | "ipdt_refused" | null;
+  /** Reason codes behind `ipdt_refused` (integrating loops only). */
+  blocked_reasons?: string[];
   markdown: string;
-  model: { gain: number; time_constant_s: number; delay_s: number } | null;
+  model: TuningModel | null;
   fit: { verdict: "good" | "fair" | "poor"; r_squared: number } | null;
   check: { t_s: number[]; measured: (number | null)[]; simulated: (number | null)[] } | null;
-  settings: { simc: { kc: number; ti_s: number }; amigo: { kc: number; ti_s: number } } | null;
+  /** Fitted ramp (integrating loops only; null when there was no output move to fit). */
+  fit_curve?: FitCurve | null;
+  settings: TuningSettings | null;
   dcs_forms: Record<string, Record<string, number>>;
-  step?: { t_s: number[]; pv: number[]; out: number[] };
+  /** Integral-controller time constant used for the settings (integrating loops only), seconds. */
+  tau_c_s?: number;
+  /** True when the loop needs a direct-acting controller (negative slope; integrating loops only). */
+  invert_control?: boolean;
+  step?: { t_s: number[]; pv: number[]; out: number[] } | null;
+}
+
+/** Optional inputs of the tuning request. `maxSwing` and `loadStepPct` go together or not at all. */
+export interface TuningOptions {
+  startS?: number;
+  endS?: number;
+  robustness?: number;
+  /** Largest tolerated PV swing in PV units (integrating loops). */
+  maxSwing?: number;
+  /** Expected load step in % OUT (integrating loops). */
+  loadStepPct?: number;
 }
 
 /** Identify a loop on a data window and get proposed PI settings (nothing is written to the plant). */
 export async function fetchTuning(
   datasetId: string,
   loopName: string,
-  options?: { startS?: number; endS?: number; robustness?: number },
+  options?: TuningOptions,
 ): Promise<TuningPayload> {
   const query = new URLSearchParams();
   if (options?.startS !== undefined) query.set("start_s", String(options.startS));
   if (options?.endS !== undefined) query.set("end_s", String(options.endS));
   if (options?.robustness !== undefined) query.set("robustness", String(options.robustness));
+  if (options?.maxSwing !== undefined && options.loadStepPct !== undefined) {
+    query.set("max_swing", String(options.maxSwing));
+    query.set("load_step_pct", String(options.loadStepPct));
+  }
   const base = `/api/datasets/${encodeURIComponent(datasetId)}/loops/${encodeURIComponent(loopName)}/tuning`;
   return getJson<TuningPayload>(`${base}?${query.toString()}`);
 }

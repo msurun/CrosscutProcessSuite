@@ -11,6 +11,10 @@ errors, heading visible, no horizontal page scroll at 390 px, axe-core without s
 1. Make demo datasets in one folder, one directory per dataset (names are used by the spec):
    `python -m crosscut_sim.run --plant mill_circuit --scenario stiction --duration 6h --sample-period 10 --out <tmp>`
    and the same for `step_test`; move the `mill_circuit_<scenario>_seed42` folders into one data root.
+   For `e2e/level.spec.ts` (integrating loops) add the generated level dataset to the same root:
+   `python e2e/support/make_level_dataset.py <data root>` (creates `level_integrating_demo`).
+   `advisory.spec.ts` writes to the data root (`_supervisor`, `_advisory`): use a scratch copy and set
+   `E2E_DATA_ROOT=<data root>` for `npm run e2e`; the spec resets the supervisor state before each test.
 2. API: `uvicorn` serving `create_app(Path("<data root>"))` on port 8000.
 3. UI: `npm run dev` (port 5173). Other ports: `CROSSCUT_API=http://127.0.0.1:8010 npx vite --port 5183`
    and `E2E_BASE_URL=http://127.0.0.1:5183`.

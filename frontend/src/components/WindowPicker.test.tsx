@@ -68,6 +68,7 @@ function readyResponse(loop: LoopSummary) {
 function renderPicker(overrides: {
   window?: { startS: number; endS: number } | null;
   onSelectWindow?: (w: { startS: number; endS: number }) => void;
+  fitCurve?: { t_s: number[]; pv_model: number[] };
 } = {}) {
   const loop = makeLoop();
   fetchSeriesMock.mockResolvedValue(readyResponse(loop));
@@ -77,6 +78,7 @@ function renderPicker(overrides: {
       datasetId="ds1"
       loop={loop}
       window={overrides.window ?? null}
+      fitCurve={overrides.fitCurve}
       onSelectWindow={onSelectWindow}
       t={t}
     />,
@@ -240,5 +242,15 @@ describe("WindowPicker", () => {
 
     expect(screen.getByLabelText<HTMLInputElement>("tuning.window.startMin").value).toBe("1.0");
     expect(screen.getByLabelText<HTMLInputElement>("tuning.window.endMin").value).toBe("2.0");
+  });
+});
+
+describe("fit curve", () => {
+  it("adds the fitted ramp to the PV pane only when a curve is given", async () => {
+    renderPicker({ fitCurve: { t_s: [0, 100], pv_model: [1, 2] } });
+    expect(await screen.findByRole("img", { name: /tuning\.check\.ramp/ })).toBeInTheDocument();
+    cleanup();
+    renderPicker();
+    expect(await screen.findByRole("img", { name: "tuning.window.pvLabel" })).toBeInTheDocument();
   });
 });

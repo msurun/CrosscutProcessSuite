@@ -74,11 +74,14 @@ export function ProcessKindField({
         id="knowledge-process-kind"
         className="field-input"
         value={value}
+        aria-describedby="knowledge-process-kind-help"
         onChange={(event) => onChange(event.target.value as LoopKnowledgeValues["process_kind"])}
       >
         <option value="self_regulating">{t("knowledge.kind.self_regulating")}</option>
         <option value="integrating">{t("knowledge.kind.integrating")}</option>
       </select>
+      <small className="field-help" id="knowledge-process-kind-help">{t("knowledge.kindHelp")}</small>
+      <HowTo summary={t("knowledge.kindExampleTitle")} body={t("knowledge.kindExample")} />
     </div>
   );
 }

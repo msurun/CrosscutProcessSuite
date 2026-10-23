@@ -2,14 +2,29 @@
 // circuit record with "record to log" on, record a decision on one advice, reload and see it still
 // recorded. Also axe (serious/critical none) and no horizontal scroll at 1440 and 390 px.
 // Needs the demo dataset `mill_circuit_observational_seed42`; the API must be allowed to write to
-// its data root (_supervisor, _advisory), so use a scratch copy of the demo datasets.
+// its data root (_supervisor, _advisory), so use a scratch copy of the demo datasets and pass its
+// path in E2E_DATA_ROOT: before each test the spec resets the supervisor state there, so every test
+// is independent and the suite can be re-run on the same root.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 
 const DATASET = "mill_circuit_observational_seed42";
 const URL = `/#/d/${DATASET}/advisory`;
+const SUPERVISOR_ID = "mill_feed_advisor";
 
-/** Opens the page and loads the example config when no supervisor exists yet. */
+/** Deletes the example supervisor's config and advisory log under the API's data root. */
+function resetAdvisoryState(): void {
+  const root = process.env.E2E_DATA_ROOT;
+  if (!root) throw new Error("Set E2E_DATA_ROOT to the data root served by the API under test.");
+  rmSync(join(root, "_advisory", SUPERVISOR_ID), { recursive: true, force: true });
+  rmSync(join(root, "_supervisor", `${SUPERVISOR_ID}.json`), { force: true });
+}
+
+test.beforeEach(resetAdvisoryState);
+
+/** Opens the page and loads the example config through the UI (the state was reset). */
 async function openAdvisory(page: Page): Promise<void> {
   await page.goto(URL);
   const load = page.getByRole("button", { name: "Wczytaj przykład" });

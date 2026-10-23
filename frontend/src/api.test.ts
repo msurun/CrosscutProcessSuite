@@ -1,6 +1,6 @@
 // src/api.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchDatasets, fetchSeries, fetchTags } from "./api";
+import { ApiError, fetchDatasets, fetchSeries, fetchTags, fetchTuning } from "./api";
 
 /** Minimal stand-in for a fetch Response; only what src/api.ts reads. */
 function fakeResponse(body: unknown, { ok = true, status = 200, statusText = "OK" } = {}) {
@@ -100,5 +100,27 @@ describe("fetchSeries", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(500);
     expect(error.message).toBe("Internal Server Error");
+  });
+});
+
+describe("fetchTuning", () => {
+  it("sends max_swing and load_step_pct together", async () => {
+    const fetchMock = stubFetchOnce(fakeResponse({}));
+
+    await fetchTuning("d", "L", { robustness: 0.5, maxSwing: 2, loadStepPct: 4 });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("max_swing=2");
+    expect(url).toContain("load_step_pct=4");
+  });
+
+  it("leaves both out when one of them is missing", async () => {
+    const fetchMock = stubFetchOnce(fakeResponse({}));
+
+    await fetchTuning("d", "L", { maxSwing: 2 });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).not.toContain("max_swing");
+    expect(url).not.toContain("load_step_pct");
   });
 });

@@ -10,15 +10,19 @@ import { useEffect, useState } from "react";
 
 import {
   fetchTuning,
+  type FopdtModel,
   type LoopSummary,
+  type TuningOptions,
   type TuningPayload,
 } from "../api";
 import type { Translate } from "../findings";
 import { formatFixed } from "../format";
+import { isIpdtModel, parseSwing } from "../tuningIpdt";
 import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
 import { CurrentSettingsCompare } from "./CurrentSettingsCompare";
 import { StatusChip } from "./StatusChip";
 import { Stepper, type StepInfo } from "./Stepper";
+import { IpdtModelView, IpdtRecommendation, IpdtRefusal, SwingInputs, TuningWarnings } from "./TuningIpdt";
 import { TrendPane } from "./TrendPane";
 import { WindowPicker } from "./WindowPicker";
 
@@ -46,31 +50,45 @@ type TuningPageProps = {
   loop: LoopSummary;
   t: Translate;
   onBack: () => void;
+  /** Called after the process kind was saved from a warning, so the loop list can reload. */
+  onKnowledgeSaved?: () => void;
 };
+
+/** Averaging-level inputs as typed by the user (both empty = not used). */
+type SwingText = { max: string; load: string };
+
+/** Request options for the current window, robustness and (valid) averaging-level pair. */
+function requestOptions(window: TuningWindow, robustness: number, swing: SwingText): TuningOptions {
+  const options: TuningOptions = { robustness };
+  if (window !== null) Object.assign(options, { startS: window.startS, endS: window.endS });
+  const input = parseSwing(swing.max, swing.load);
+  if (input.state === "valid") Object.assign(options, { maxSwing: input.maxSwing, loadStepPct: input.loadStepPct });
+  return options;
+}
 
 /**
  * Loads the tuning payload, keeping the previous one visible while the next
  * request is in flight so the page never flashes back to a blank state.
  *
  * Returns the latest payload, a coarse status and, when it failed, the reason
- * string meant to be shown to the user.
+ * string meant to be shown to the user. Changing `reloadKey` forces a refetch.
  */
 function useTuning(
   datasetId: string,
   loopName: string,
-  window: TuningWindow,
-  robustness: number
+  request: { window: TuningWindow; robustness: number; swing: SwingText; reloadKey: number }
 ): { payload: TuningPayload | null; status: TuningStatus; errorReason: string } {
   const [payload, setPayload] = useState<TuningPayload | null>(null);
   const [status, setStatus] = useState<TuningStatus>("loading");
   const [errorReason, setErrorReason] = useState("");
 
+  const { window, robustness, swing, reloadKey } = request;
   const startS = window?.startS;
   const endS = window?.endS;
 
   useEffect(() => {
     let cancelled = false;
-    const options = startS !== undefined && endS !== undefined ? { startS, endS, robustness } : { robustness };
+    const options = requestOptions(startS === undefined || endS === undefined ? null : { startS, endS }, robustness, swing);
 
     fetchTuning(datasetId, loopName, options)
       .then((result) => {
@@ -87,16 +105,16 @@ function useTuning(
     return () => {
       cancelled = true;
     };
-  }, [datasetId, loopName, startS, endS, robustness]);
+  }, [datasetId, loopName, startS, endS, robustness, swing.max, swing.load, reloadKey]);
 
   return { payload, status, errorReason };
 }
 
 /**
- * Mirrors `value` after the slider has stopped moving for the debounce delay.
- * Lets the user drag smoothly without firing one request per pixel.
+ * Mirrors `value` after it has stopped changing for the debounce delay.
+ * Lets the user drag a slider or type without firing one request per change.
  */
-function useDebouncedValue(value: number, delayMs: number): number {
+function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
 
   useEffect(() => {
@@ -183,6 +201,7 @@ function WindowStep({
         datasetId={datasetId}
         loop={loop}
         window={window ?? { startS: current.start_s, endS: current.end_s }}
+        fitCurve={payload.fit_curve ?? null}
         onSelectWindow={onSelectWindow}
         t={t}
       />
@@ -190,22 +209,74 @@ function WindowStep({
   );
 }
 
+/** The model numbers of a FOPDT loop and the controllability hint. */
+function FopdtModelView({ model, unit, t }: { model: FopdtModel; unit: string; t: Translate }) {
+  return (
+    <>
+      <dl className="key-numbers">
+        <dt>{t("tuning.model.gain")}</dt>
+        <dd>
+          {formatNumber(model.gain)} <span className="unit">{t("tuning.model.gainUnit", { unit })}</span>
+        </dd>
+        <dt>{t("tuning.model.tau")}</dt>
+        <dd>{t("tuning.model.seconds", { value: formatNumber(model.time_constant_s) })}</dd>
+        <dt>{t("tuning.model.delay")}</dt>
+        <dd>{t("tuning.model.seconds", { value: formatNumber(model.delay_s) })}</dd>
+        <dt>{t("tuning.model.ratio")}</dt>
+        <dd>{formatFixed(model.delay_s / model.time_constant_s, 2)}</dd>
+      </dl>
+      <p className="hint">{t(ratioHintKey(model.delay_s / model.time_constant_s))}</p>
+    </>
+  );
+}
+
+/** Data of the check chart: measured PV against the model (the fitted ramp for integrating loops). */
+function checkChartData(payload: TuningPayload): (number | null)[][] | null {
+  if (!payload.check) return null;
+  const { t_s, measured, simulated } = payload.check;
+  const curve = payload.fit_curve;
+  const model = curve && curve.pv_model.length === t_s.length ? curve.pv_model : simulated;
+  return [t_s, measured, model];
+}
+
 /** Step 2: warnings, model fit verdict, key numbers and the check overlay. */
-function ModelStep({ payload, unit, t }: { payload: TuningPayload; unit: string; t: Translate }) {
-  const checkData = payload.check
-    ? [payload.check.t_s, payload.check.measured, payload.check.simulated]
-    : null;
+function ModelStep({
+  payload,
+  unit,
+  swing,
+  datasetId,
+  loopName,
+  actions,
+  t,
+}: {
+  payload: TuningPayload;
+  unit: string;
+  swing: { text: SwingText; onChange: (max: string, load: string) => void };
+  datasetId: string;
+  loopName: string;
+  actions: { onKindSaved: () => void };
+  t: Translate;
+}) {
+  const checkData = checkChartData(payload);
+  const model = payload.model;
+  const ipdt = isIpdtModel(model);
 
   return (
     <section className="tuning-step">
       <h3>{t("tuning.step2")}</h3>
-      {payload.warnings.map((code) => (
-        <p key={code} className="status status-error">
-          {t(`tuning.warning.${code}`)}
-        </p>
-      ))}
-      {payload.blocked_code !== null && (
-        <p className="status status-error">{t(`tuning.blocked.${payload.blocked_code}`)}</p>
+      <TuningWarnings
+        warnings={payload.warnings}
+        datasetId={datasetId}
+        loopName={loopName}
+        onKindSaved={actions.onKindSaved}
+        t={t}
+      />
+      {payload.blocked_code === "ipdt_refused" ? (
+        <IpdtRefusal reasons={payload.blocked_reasons ?? []} t={t} />
+      ) : (
+        payload.blocked_code !== null && (
+          <p className="status status-error">{t(`tuning.blocked.${payload.blocked_code}`)}</p>
+        )
       )}
       {payload.fit !== null && (
         <StatusChip
@@ -213,28 +284,22 @@ function ModelStep({ payload, unit, t }: { payload: TuningPayload; unit: string;
           label={t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) })}
         />
       )}
-      {payload.model !== null && (
-        <dl className="key-numbers">
-          <dt>{t("tuning.model.gain")}</dt>
-          <dd>
-            {formatNumber(payload.model.gain)}{" "}
-            <span className="unit">{t("tuning.model.gainUnit", { unit })}</span>
-          </dd>
-          <dt>{t("tuning.model.tau")}</dt>
-          <dd>{t("tuning.model.seconds", { value: formatNumber(payload.model.time_constant_s) })}</dd>
-          <dt>{t("tuning.model.delay")}</dt>
-          <dd>{t("tuning.model.seconds", { value: formatNumber(payload.model.delay_s) })}</dd>
-          <dt>{t("tuning.model.ratio")}</dt>
-          <dd>{formatFixed(payload.model.delay_s / payload.model.time_constant_s, 2)}</dd>
-        </dl>
-      )}
-      {payload.model !== null && (
-        <p className="hint">{t(ratioHintKey(payload.model.delay_s / payload.model.time_constant_s))}</p>
+      {model !== null && model.kind === "fopdt" && <FopdtModelView model={model} unit={unit} t={t} />}
+      {ipdt && <IpdtModelView model={model} unit={unit} t={t} />}
+      {ipdt && (
+        <SwingInputs
+          maxText={swing.text.max}
+          loadText={swing.text.load}
+          onChange={swing.onChange}
+          tauC={payload.tau_c_s}
+          unit={unit}
+          t={t}
+        />
       )}
       {checkData !== null && (
         <TrendPane
           data={checkData}
-          labels={[t("tuning.check.measured"), t("tuning.check.model")]}
+          labels={[t("tuning.check.measured"), t(ipdt ? "tuning.check.ramp" : "tuning.check.model")]}
           colors={["--series-1", "--series-2"]}
           height={200}
           syncKey="tuning-check"
@@ -306,13 +371,17 @@ function SettingsStep({
   return (
     <section className="tuning-step">
       <h3>{t("tuning.step3")}</h3>
-      <p className="recommendation" role="status">
-        {t("tuning.recommendation", {
-          kc: formatNumber(settings.simc.kc),
-          ti: formatNumber(settings.simc.ti_s),
-          fit: fitText,
-        })}
-      </p>
+      {isIpdtModel(payload.model) ? (
+        <IpdtRecommendation payload={payload} settings={settings} fitText={fitText} t={t} />
+      ) : (
+        <p className="recommendation" role="status">
+          {t("tuning.recommendation", {
+            kc: formatNumber(settings.simc.kc),
+            ti: formatNumber(settings.simc.ti_s),
+            fit: fitText,
+          })}
+        </p>
+      )}
       <RobustnessSlider value={robustness} onChange={onRobustnessChange} t={t} />
       <PiSettingsTable settings={settings} t={t} />
       <CurrentSettingsCompare storageKey={`crosscut.currentSettings.${datasetId}.${loopName}`} settings={settings} t={t} />
@@ -390,12 +459,25 @@ function buildSteps(payload: TuningPayload, t: Translate): StepInfo[] {
 }
 
 /** Full tuning page for one loop: window picker, model report and settings. */
-export function TuningPage({ datasetId, loopName, loop, t, onBack }: TuningPageProps) {
+export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSaved }: TuningPageProps) {
   const [window, setWindow] = useState<TuningWindow>(null);
   const [robustness, setRobustness] = useState(ROBUSTNESS_DEFAULT);
+  const [swingText, setSwingText] = useState<SwingText>({ max: "", load: "" });
+  const [reloadKey, setReloadKey] = useState(0);
   const appliedRobustness = useDebouncedValue(robustness, ROBUSTNESS_DEBOUNCE_MS);
+  const appliedMax = useDebouncedValue(swingText.max, ROBUSTNESS_DEBOUNCE_MS);
+  const appliedLoad = useDebouncedValue(swingText.load, ROBUSTNESS_DEBOUNCE_MS);
 
-  const { payload, status, errorReason } = useTuning(datasetId, loopName, window, appliedRobustness);
+  const { payload, status, errorReason } = useTuning(datasetId, loopName, {
+    window,
+    robustness: appliedRobustness,
+    swing: { max: appliedMax, load: appliedLoad },
+    reloadKey,
+  });
+  const onKindSaved = (): void => {
+    setReloadKey((key) => key + 1);
+    onKnowledgeSaved?.();
+  };
 
   return (
     <>
@@ -430,7 +512,15 @@ export function TuningPage({ datasetId, loopName, loop, t, onBack }: TuningPageP
             onSelectWindow={setWindow}
             t={t}
           />
-          <ModelStep payload={payload} unit={loop.unit} t={t} />
+          <ModelStep
+            payload={payload}
+            unit={loop.unit}
+            swing={{ text: swingText, onChange: (max, load) => setSwingText({ max, load }) }}
+            datasetId={datasetId}
+            loopName={loopName}
+            actions={{ onKindSaved }}
+            t={t}
+          />
           <SettingsStep
             payload={payload}
             robustness={robustness}
