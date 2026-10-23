@@ -43,3 +43,38 @@ Module: Sonnet subagents under the lead; the lead re-derives the T2 and SPE limi
 
 ## Frozen files
 (filled in by the harness commit before the first development seed.)
+
+sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-22, before the first development seed:
+
+| file | sha256 |
+|------|--------|
+| experiments/exp29_anomaly_detection/gen29.py | 6dfb0bcb41323eaea625f28f1175524b50be18d5effbc61a4b0abcf0642517b9 |
+| experiments/exp29_anomaly_detection/exp29.py | 36513750cf69bfba1c907c437dbd575ab17aadf54b38c1aa48d3187e23b4ff8f |
+| anomaly/src/crosscut_anomaly/pca_model.py | 3babe4ab354bb2865a3985fab579e6ea50a3d09410a09ee1222e86ebb05f8f7d |
+| anomaly/src/crosscut_anomaly/detect.py | 471c3a082e2084bbe08af357a5d59f93d3075b2bc8d4e2fcf044f74988c94d09 |
+| anomaly/src/crosscut_anomaly/config.py | 38c202a36a2051f9570fd128c047217f93a3167dde65066c0c45546a6c704cb2 |
+| anomaly/src/crosscut_anomaly/distributions.py | 382e28fd8c1890cca8ba8131ecd5fa43144312da3ec6a62f5ebbb841970846fd |
+
+Authorship note (harness): `gen29.py`, `exp29.py` and `test_exp29_smoke.py` were written by an Opus subagent that did not
+edit `anomaly/`. Harness readings of points the protocol leaves open:
+- Seeds: every seed s has its own training record (plant seed s); the quiet record uses plant seed s + 1000, the fault
+  record plant seed s + 2000 (distinct from training). Test quiet seeds 29201..29260 give training + quiet, test fault
+  seeds 29301..29399 give training + fault (kind = position mod 5 in the order drift, freeze, spike, bad_quality,
+  dropout; tag = position mod 8 in the protocol order). Each dev seed 29001..29060 gives training + quiet + fault
+  (same cycling, 12 records per kind).
+- Onset: `default_rng([seed, 29])`, uniform in [6 h, 16 h], rounded to whole seconds. Magnitudes use the standard
+  deviation (ddof 1) of the target tag over the 60 s training rows. Spike probability 0.02 applies per 10 s raw sample
+  (the fault RNG draws once per 1 s plant step; one step in ten is sampled).
+- 60 s rows are means of six 10 s samples stamped at the last sample (window start + 50 s); a NaN raw value makes the
+  row value NaN (no imputation), the row quality is the worst raw quality over the window and all eight tags. Quality
+  is passed to `scan` per row (the module accepts only a per-row quality vector).
+- `fit_pca` is called as `fit_pca(x, config.tags, config.variance_fraction, config.alpha)`: the shipped signature
+  differs from the `fit_pca(x, config)` of the contract above; the settings are the frozen defaults.
+- Detection (A2, A3, reported kinds): the first event whose start lies in [onset, onset + 180 min] (drift) or
+  [onset, onset + 60 min] (freeze, and the 1 h window of spike, bad_quality, dropout) and that overlaps the fault
+  window; an event already open at the onset does not count. Delay = event start - onset.
+- A4: top 2 of the contribution list of the statistic with the larger limit ratio at the event peak (T2 / T2 limit vs
+  SPE / SPE limit); the SPE-only, T2-only and either-list shares are reported beside it.
+- A5: the scan of the full record is compared with the scan of the record with every row that has a NaN or quality != 0
+  removed: equal event count and, per event, equal start/end time, closure, sample count and start/end/peak row after
+  mapping the reduced indices back. Checked on all fault records, judged on bad_quality and dropout.
