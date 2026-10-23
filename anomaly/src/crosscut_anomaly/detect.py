@@ -2,12 +2,17 @@
 
 The scan works on the sequence of valid rows only (finite values, quality 0).
 Invalid rows are counted, never imputed, and neither extend nor break a run.
-A second rule flags a sensor that is exactly constant while others move (stuck).
+A second rule flags a sensor that is exactly constant while others move (stuck). Its
+per-tag threshold is max(config.stuck_samples, ceil(1.5 x longest exactly-constant run of
+that tag in the training data)) when the model stores ``stuck_runs`` (held signals are
+then not stuck); models without them use config.stuck_samples for every tag.
+With dynamic lags, history never bridges a time step above 1.5 x sample_period_s.
 Advisory only: no plant writes.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -22,7 +27,11 @@ MIN_MOVING_OTHERS = 3
 
 @dataclass(frozen=True)
 class AnomalyEvent:
-    """One anomaly event; ``end_index`` is the last exceeding sample (inclusive)."""
+    """One anomaly event; ``end_index`` is the last exceeding sample (inclusive).
+
+    ``kind`` is 'pca' or 'stuck'; a stuck event names its tag in ``stuck_tag`` (the tag was
+    exactly constant for at least its threshold of valid samples while >= 3 others moved).
+    """
 
     start_index: int
     end_index: int
@@ -187,6 +196,14 @@ def _stuck_runs(col: np.ndarray, min_len: int) -> list[tuple[int, int]]:
     return [(int(a), int(b)) for a, b in zip(starts, ends, strict=True) if b - a + 1 >= min_len]
 
 
+def stuck_thresholds(model: PcaModel, config: AnomalyConfig) -> list[int]:
+    """Per-tag stuck run length: the config value, raised above the training hold lengths."""
+    base = config.stuck_samples
+    if not model.stuck_runs:
+        return [base] * len(model.monitored_tags)
+    return [max(base, math.ceil(1.5 * run)) for run in model.stuck_runs]
+
+
 def _others_moving(rows: np.ndarray, tag: int, first: int, count: int) -> bool:
     """True if at least 3 other tags are not constant over ``count`` samples from ``first``."""
     window = rows[first : first + count]
@@ -210,13 +227,15 @@ def _stuck_event(
 
 
 def _stuck_events(
-    tags: Sequence[str], rows: np.ndarray, orig: tuple[np.ndarray, np.ndarray], count: int
+    tags: Sequence[str], rows: np.ndarray, orig: tuple[np.ndarray, np.ndarray],
+    counts: Sequence[int],
 ) -> list[AnomalyEvent]:
-    """Stuck-sensor events on the valid rows (finite, quality 0); ``count`` >= 3 samples."""
+    """Stuck-sensor events on the valid rows (finite, quality 0); per-tag ``counts`` >= 3."""
     events: list[AnomalyEvent] = []
-    if len(rows) < count:
-        return events
     for j, name in enumerate(tags):
+        count = counts[j]
+        if len(rows) < count:
+            continue
         for span in _stuck_runs(rows[:, j], count):
             if _others_moving(rows, j, span[0], count):
                 events.append(_stuck_event(name, span, len(rows), orig))
@@ -231,6 +250,14 @@ def _pca_events(
     t2, spe = model.t2(rows), model.spe(rows)
     exceed = (t2 > model.t2_limit) | (spe > model.spe_limit)
     return tuple(_event(model, span, rows, (t2, spe), orig) for span in _spans(exceed, config))
+
+
+def _gap_invalid(t: np.ndarray, lags: int, period_s: float) -> np.ndarray:
+    """Rows whose lag history crosses a time step above 1.5 x the sample period."""
+    bad = np.zeros(len(t), dtype=bool)
+    for step in np.flatnonzero(np.diff(t) > 1.5 * period_s) + 1:
+        bad[step : step + lags] = True
+    return bad
 
 
 def scan(
@@ -262,11 +289,14 @@ def scan(
     valid, n_nan, n_quality = _validity(x, quality)
     index = np.flatnonzero(valid)
     aug = augment_lags(np.where(valid[:, None], x, np.nan), model.dynamic_lags)
-    a_index = np.flatnonzero(np.isfinite(aug).all(axis=1))
+    ok = np.isfinite(aug).all(axis=1)
+    if model.dynamic_lags:
+        ok &= ~_gap_invalid(t, model.dynamic_lags, config.sample_period_s)
+    a_index = np.flatnonzero(ok)
     events = list(_pca_events(model, aug[a_index], (a_index, t[a_index]), config))
     if config.stuck_samples:
         events += _stuck_events(model.monitored_tags, x[index], (index, t[index]),
-                                config.stuck_samples)
+                                stuck_thresholds(model, config))
     events.sort(key=lambda e: e.start_index)
     n_lag = len(index) - len(a_index)
     reasons = {"nan": n_nan, "quality": n_quality, **({"lag": n_lag} if model.dynamic_lags else {})}

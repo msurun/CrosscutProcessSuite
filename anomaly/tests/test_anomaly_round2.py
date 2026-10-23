@@ -300,3 +300,58 @@ def test_limit_method_round_trip_and_old_dicts() -> None:
     old = mdl.to_dict()
     del old["spe_limit_method"]
     assert PcaModel.from_dict(old).spe_limit_method == "jackson_mudholkar"
+
+
+def held_data(n: int, seed: int) -> np.ndarray:
+    """Quiet data where tag c is a signal updated only every 30 samples (legitimately held)."""
+    x = make_data(n, seed)
+    x[:, 2] = np.repeat(x[::30, 2], 30)[:n]
+    return x
+
+
+def test_held_tag_is_not_stuck_but_a_long_freeze_is() -> None:
+    mdl = fit_pca(held_data(5000, 1), TAGS, 0.9, 0.999, stuck_samples=15)
+    assert mdl.stuck_runs[2] == 30 and max(mdl.stuck_runs[0], mdl.stuck_runs[1]) < 5
+    cfg = replace(CFG, stuck_samples=15, min_consecutive=1000)
+    quiet = scan(mdl, times(3000), held_data(3000, 2), None, cfg)
+    assert quiet.n_stuck_events == 0
+    x = held_data(600, 3)
+    x[320:380, 1] = x[320, 1]
+    x[100:160, 2] = x[100, 2]
+    res = scan(mdl, times(600), x, None, cfg)
+    assert sorted((e.stuck_tag, e.start_index) for e in res.events) == [("b", 320), ("c", 90)]
+    plain = fit_pca(held_data(5000, 1), TAGS, 0.9, 0.999)
+    assert plain.stuck_runs == ()
+    assert scan(plain, times(3000), held_data(3000, 2), None, cfg).n_stuck_events > 0
+
+
+def test_stuck_runs_round_trip_and_old_model_fallback() -> None:
+    mdl = fit_pca(held_data(5000, 1), TAGS, 0.9, 0.999, stuck_samples=15)
+    back = PcaModel.from_dict(json.loads(json.dumps(mdl.to_dict())))
+    assert back.stuck_runs == mdl.stuck_runs
+    old = mdl.to_dict()
+    del old["stuck_runs"]
+    assert PcaModel.from_dict(old).stuck_runs == ()
+    assert "stuck_runs" not in fit_pca(held_data(5000, 1), TAGS).to_dict()
+
+
+def test_lag_history_breaks_at_a_time_gap_and_matches_masking() -> None:
+    dyn = fit_pca(make_data(5000, 1), TAGS, 0.9, 0.999, dynamic_lags=2)
+    cfg = replace(CFG, dynamic_lags=2, min_consecutive=1)
+    x = np.vstack([make_data(300, 5), make_data(300, 6) + 4.0])
+    t = times(600)
+    keep = np.ones(600, dtype=bool)
+    keep[300 - 60 : 300] = False
+    mask = np.where(keep[:, None], x, np.nan)
+    full = scan(dyn, t, mask, None, cfg)
+    red = scan(dyn, t[keep], x[keep], None, cfg)
+    assert red.skipped_reasons["lag"] == 2 + 2
+    assert full.skipped_reasons["lag"] == 2 + 2
+    key = lambda r: [(e.start_s, e.end_s, e.n_samples, e.closed, e.peak_t2) for e in r.events]  # noqa: E731
+    assert key(full) == key(red)
+    gap_s, after_s = t[239], t[300]
+    assert not any(e.start_s <= gap_s < e.end_s and e.end_s >= after_s for e in red.events)
+    assert not any(e.start_s in (after_s, t[301]) for e in red.events)
+    shifted_t = t[keep].copy()
+    shifted_t[240:] += 3600.0
+    assert scan(dyn, shifted_t, x[keep], None, cfg).skipped_reasons["lag"] == 2 + 2

@@ -96,6 +96,16 @@ def _choose_spe_limit(
     return float(np.quantile(train_spe, alpha, method="higher")), "empirical"
 
 
+def longest_runs(x: np.ndarray) -> tuple[int, ...]:
+    """Per tag, the longest run of exactly equal consecutive samples among finite rows."""
+    rows = x[np.isfinite(x).all(axis=1)]
+    out = []
+    for col in rows.T:
+        cuts = np.concatenate(([0], np.flatnonzero(col[1:] != col[:-1]) + 1, [len(col)]))
+        out.append(int(np.max(np.diff(cuts))) if len(col) else 0)
+    return tuple(out)
+
+
 def _choose_k(eigenvalues: np.ndarray, fraction: float) -> int:
     """Smallest k reaching the explained-variance fraction, in [1, p-1]."""
     cum = np.cumsum(eigenvalues) / eigenvalues.sum()
@@ -132,6 +142,7 @@ def fit_pca(
     variance_fraction: float = 0.90,
     alpha: float = 0.99,
     dynamic_lags: int = 0,
+    stuck_samples: int = 0,
 ) -> PcaModel:
     """Fit a PCA monitoring model on samples-by-tags data.
 
@@ -139,7 +150,9 @@ def fit_pca(
     ``AnomalyConfig`` use ``fit_from_config(x, config)``. Rows with a non-finite value
     (NaN or +-inf) are dropped, never imputed. With ``dynamic_lags`` > 0 the model is
     fitted on the lag-augmented matrix (``x`` stays raw, samples by ``tags``); a row
-    needs all its lagged source rows finite.
+    needs all its lagged source rows finite. If ``stuck_samples`` > 0 the longest run of
+    exactly equal samples of each tag in the training data is stored (``stuck_runs``), so
+    the stuck rule can use per-tag thresholds (a tag that is legitimately held is not stuck).
     """
     base = tuple(tags)
     if len(base) < 2:
@@ -160,13 +173,15 @@ def fit_pca(
         eigenvalues=values, k=k, n_train=n, alpha=alpha,
         t2_limit=t2_limit(n, k, alpha), spe_limit=spe_lim,
         base_tags=base, dynamic_lags=dynamic_lags, spe_limit_method=method,
+        stuck_runs=longest_runs(raw) if stuck_samples > 0 else (),
     )
 
 
 def fit_from_config(x: np.ndarray, config: AnomalyConfig) -> PcaModel:
     """Thin helper: ``fit_pca`` with the tags, variance_fraction and alpha of ``config``."""
     return fit_pca(
-        x, config.tags, config.variance_fraction, config.alpha, config.dynamic_lags
+        x, config.tags, config.variance_fraction, config.alpha, config.dynamic_lags,
+        config.stuck_samples,
     )
 
 
@@ -187,6 +202,7 @@ class PcaModel:
     base_tags: tuple[str, ...] = ()
     dynamic_lags: int = 0
     spe_limit_method: str = "jackson_mudholkar"
+    stuck_runs: tuple[int, ...] = ()
 
     @property
     def monitored_tags(self) -> tuple[str, ...]:
@@ -262,6 +278,8 @@ class PcaModel:
         if self.dynamic_lags:
             out["base_tags"] = list(self.base_tags)
             out["dynamic_lags"] = self.dynamic_lags
+        if self.stuck_runs:
+            out["stuck_runs"] = list(self.stuck_runs)
         if self.spe_limit_method != "jackson_mudholkar":
             out["spe_limit_method"] = self.spe_limit_method
         return out
@@ -281,6 +299,7 @@ class PcaModel:
             base_tags=tuple(d.get("base_tags", d["tags"])),
             dynamic_lags=int(d.get("dynamic_lags", 0)),
             spe_limit_method=str(d.get("spe_limit_method", "jackson_mudholkar")),
+            stuck_runs=tuple(int(v) for v in d.get("stuck_runs", ())),
         )
 
     def sha256(self) -> str:
