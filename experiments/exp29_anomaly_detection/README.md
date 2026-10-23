@@ -117,3 +117,28 @@ Same generator and harness code paths; the harness gets a `--round 2` switch cha
 | B6 | `stuck` events on the quiet records: mean <= 0.1 per 24 h |
 Reported, no target: detection rate and delay per kind and per rule (pca vs stuck), spike, bad_quality, dropout, number of valid rows lost to the lag history.
 Decision: if B1 misses again the module keeps the visible "false alarm rate not validated on real data" label and its default `min_consecutive` stays 10; if B3 misses the GUI states that frozen sensors are not reliably detected. Development seeds may be used to fix bugs only; the three changes are frozen as written. Never iterate on test seeds.
+
+### Round 2 frozen files
+sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-23. Updated after the development fixes below (module commit 513c01c) and before any round 2 test seed. The first development run used exp29.py 4ac3389e..., pca_model.py 7c6a338c... and detect.py ee36c6d9...; the other three files are unchanged:
+
+| file | sha256 |
+|------|--------|
+| experiments/exp29_anomaly_detection/gen29.py | 6dfb0bcb41323eaea625f28f1175524b50be18d5effbc61a4b0abcf0642517b9 |
+| experiments/exp29_anomaly_detection/exp29.py | dc3e93609dd98fe01e907203622c9ab99f8d3137c796b5c17556761b5a65f620 |
+| anomaly/src/crosscut_anomaly/pca_model.py | 1cf6a92c92497fd5d3a0c16e2005394dc6b772018108855392f3415bd81103bb |
+| anomaly/src/crosscut_anomaly/detect.py | b342f3c7a1091e96380d63803db120755c0be34da0a70e28d46d75a49f3463a0 |
+| anomaly/src/crosscut_anomaly/config.py | eb8bed70818011bd180c55ae18284bdd742e3c8b4dd01161cdf18a75fe9bd6b6 |
+| anomaly/src/crosscut_anomaly/distributions.py | 382e28fd8c1890cca8ba8131ecd5fa43144312da3ec6a62f5ebbb841970846fd |
+
+Harness readings for round 2 (`exp29.py --round 2`; round 1 output reproduces bit-exactly on dev seeds 29001, 29002, 29004 and 29005):
+- Config: `AnomalyConfig(..., variance_fraction=0.90, alpha=0.99, min_consecutive=10, close_after=10, dynamic_lags=2, stuck_samples=15)`, model fitted with `fit_from_config`. Seed families as in round 1 (training = plant seed s, quiet s + 1000, fault s + 2000; kind and tag cycle by position in the family).
+- B3 (and B2 and the reported kinds): the first event of either rule that starts in [onset, onset + window] and overlaps the fault window; the window already implies the overlap, so "naming or overlapping" adds nothing; whether a stuck hit names the faulty tag is reported (`stuck_names_tag`). Event start is the first sample of the run (for the stuck rule the first constant sample, confirmed 14 samples later).
+- B4: a PCA hit uses the top 2 of the dominant statistic as in A4; a stuck hit counts when `stuck_tag` is the faulty tag.
+- B5: as A5, with event kind and `stuck_tag` added to the per-event comparison. Training exceedance is taken over the rows with full lag history.
+
+### Development round 1 of round 2 (2026-10-23, before any round 2 test seed)
+The first round 2 development run (results/dev2.md, dev2_runs.json) found two module bugs. Both are fixed in `anomaly/` (commit 513c01c); the harness and the protocol are unchanged by them:
+1. A held signal was flagged as stuck. `ore_hardness_est` is a held estimate that updates every 30 min, so it is exactly constant for 29 samples while the other tags move, and the stuck rule fired on it every 30 min on every record (48 stuck events per 24 h on all 60 quiet records; this drove the B1, B4 and B6 values). Fix: the stuck threshold is per tag, max(`stuck_samples`, ceil(1.5 x the longest exactly-constant run of that tag in the fault-free training data)). It is learned at fit time and stored in the model (`PcaModel.stuck_runs`; `fit_pca(..., stuck_samples=...)`, passed through by `fit_from_config`). The frozen text "exactly unchanged for 15 consecutive valid samples" is therefore now the floor of a per-tag threshold learned from fault-free training data.
+2. Lag history bridged time gaps. The lag-augmented rows ignored the time stamps, so once invalid rows were removed a lagged row combined samples about 1 h apart. B5 failed on 1 of 24 records: a PCA event spanning a dropout gap had 107 samples on the full record and 109 on the record with the invalid rows removed. Fix: lagged history breaks when the time step exceeds 1.5 x `sample_period_s`; the affected rows are counted under `skipped_reasons['lag']`.
+
+Development seeds 29601..29660 are spent. The rerun after the fixes reuses them as a bug check only (results/dev2b.md, dev2b_runs.json). No criterion and no seed range changed, and no setting changed apart from the stuck threshold rule above. Round 1 output still reproduces bit-exactly on dev seeds 29001, 29002, 29004 and 29005. The harness only gained `--name` (output base name) and now reports the per-tag longest constant training runs.
