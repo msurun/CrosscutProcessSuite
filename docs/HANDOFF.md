@@ -10,7 +10,7 @@ writes to a plant.
 | --- | --- | --- | --- |
 | 1 Loop monitoring and tuning | KPI triage, ACF oscillation test, valve checks and stroke test, worklist, SIMC/AMIGO tuning, history tuning, integrating-loop tuning (experimental) | exp18-26, exp28 | simulation; thresholds not validated on real loops; worklist needs blind review; integrating tuning simulated only |
 | 2 Advisory supervisor | fuzzy gates from module 1, advice, hash-chained log, Advisor view | exp27 E1-E5 met | ADR 010 proposed; simulated operator; no plant data; `who` not authenticated |
-| 3 Anomaly detection | PCA T2 and SPE, lagged columns, stuck-sensor rule, Anomalies view | exp29 round 2: drift 19/20, freeze 19/20, false alarms 1.79 per 24 h (missed) | simulation only; spikes and bad-quality rows not detected; not validated on real data |
+| 3 Anomaly detection | PCA T2 and SPE, lagged columns, stuck-sensor rule, Anomalies view | exp29 round 3: B1-B6 met: drift 16/20, freeze 18/20, false alarms 0.36 per 24 h | simulation only; spikes and bad-quality rows not detected; not validated on real data |
 | 4 Soft sensor | PLS on lagged tags, validity flags, bias tracker, Soft sensor view | exp30: beats last lab value 31/34; validity 0.988; drift flag missed | simulation only; drift flag not reliable (5/33 vs 5/34); not validated on a real plant |
 | ADR 011 write path | proposed design, `gateway/` skeleton with 12 strict-xfail scenarios | design only | not accepted; nothing can write to a plant; owner review pending |
 
@@ -22,10 +22,11 @@ writes to a plant.
 | exp28 | 2 | J1 0 of 276 unsafe, J3, J4 | J2 dead-time interval covers 0.866 (target 0.90) |
 | exp29 anomaly detection | 1 | A2 drift 20/20, A4 tag in top 2 0.864, A5 no imputation | A1 2.13 false alarms per 24 h; A3 freeze 2/20 |
 | exp29 | 2 | B2 drift 19/20, B3 freeze 19/20, B4, B5, B6 | B1 1.79 false alarms per 24 h (max 4.33) |
+| exp29 | 3 | B1-B6 met (alpha 0.999, min_consecutive 15) | none |
 | exp30 soft sensor | 1 | S1 31/34 beat last lab value, S2 validity, S4 no leakage | S3 drift flag 5/33 vs 5/34 normal |
 
-Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-29600, 29601-29899, 30001-30788.
-Next unused: 29900 and up (exp29), 30801 and up (exp30). A new round needs a new frozen protocol first.
+Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-29600, 29601-29899, 30001-30788, 33001-33060, 33101-33199 (plant seeds 33001-35199).
+Next unused: 35200 and up (exp29), 30801 and up (exp30). A new round needs a new frozen protocol first.
 
 ## Decisions
 

@@ -13,10 +13,10 @@
     "sim.mc.ore_hardness_est"
   ],
   "variance_fraction": 0.9,
-  "alpha": 0.99,
+  "alpha": 0.999,
   "dynamic_lags": 2,
   "stuck_samples": 15,
-  "min_consecutive": 10,
+  "min_consecutive": 15,
   "close_after": 10,
   "sample_period_s": 60,
   "mode": "advisory"

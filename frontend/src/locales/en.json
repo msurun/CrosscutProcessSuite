@@ -628,7 +628,7 @@
   "nav.anomalies": "Anomalies",
   "anomaly.title": "Anomalies",
   "anomaly.banner": "Advisory only: nothing is written to the plant.",
-  "anomaly.statNote": "Alarm limits are statistical. In simulator tests the rule found drift in 19 of 20 cases and a frozen sensor in 19 of 20 (stuck rule), but raised about 1.8 false alarms per day on normal operator moves; spikes and rows with bad quality or missing values are not detected (those rows are skipped, never imputed). Not validated on a real plant: expect to tune consecutive samples.",
+  "anomaly.statNote": "Alarm limits are statistical. In simulator tests the rule found drift in 16 of 20 cases and a frozen sensor in 18 of 20, with about 0.4 false alarms per day; spikes and rows with bad quality or missing values are not detected (those rows are skipped, never imputed). Not validated on a real plant: use weeks of quiet data for training and expect to tune the consecutive samples.",
   "anomaly.detector": "Detector",
   "anomaly.empty": "No anomaly detector is configured yet. A configuration is a JSON file (tags, share of variance kept, alarm probability, number of consecutive samples). You can load the bundled example for the simulated mill circuit; it is saved as a configuration only and advises, nothing more.",
   "anomaly.loadExample": "Load example",

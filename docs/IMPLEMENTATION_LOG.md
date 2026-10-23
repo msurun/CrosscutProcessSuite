@@ -766,3 +766,7 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   once against frozen criteria; the misses are recorded as misses (exp28 J2, exp29 A1, A3 and B1, exp30 S3) and the UI and
   READMEs say what is not validated. No threshold was moved after a test run.
 - Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-29600, 29601-29899, 30001-30788.
+
+### Anomaly round 3
+
+Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms were slow moisture and hardness excursions, so the limits fitted on a short training record were too tight out of sample. Masking setpoint moves cut nothing. The change is config only: alpha 0.999 and min_consecutive 15 (defaults in Python unchanged), tested once on new seeds 33001-33060 (quiet) and 33101-33199 (fault). The harness author found a seed collision (plant seeds of the new quiet records matched round 2 fault records) and fixed it by Amendment 1 before the first seed was run. Result: B1-B6 met (drift 16/20, freeze 18/20, false alarms 0.36 per 24 h); spikes, bad-quality and dropout rows are still not detected; limits fitted on a short training record remain the weakness. Simulation only.

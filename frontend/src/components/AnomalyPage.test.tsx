@@ -45,9 +45,9 @@ describe("notes", () => {
     render(<AnomalyNotes t={t} />);
     const notes = screen.getAllByRole("note");
     expect(notes[0]).toHaveTextContent("Advisory only: nothing is written to the plant.");
-    expect(notes[1]).toHaveTextContent("19 of 20");
-    expect(notes[1]).toHaveTextContent("about 1.8 false alarms per day");
-    expect(notes[1]).toHaveTextContent("Not validated on a real plant: expect to tune consecutive samples.");
+    expect(notes[1]).toHaveTextContent("16 of 20");
+    expect(notes[1]).toHaveTextContent("about 0.4 false alarms per day");
+    expect(notes[1]).toHaveTextContent("Not validated on a real plant: use weeks of quiet data for training and expect to tune the consecutive samples.");
   });
 });
 

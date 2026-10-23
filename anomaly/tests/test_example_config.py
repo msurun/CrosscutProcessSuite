@@ -1,4 +1,4 @@
-"""The bundled example config (web UI "Load example") must be valid with the round 2 settings."""
+"""The bundled example config (web UI "Load example") must be valid with the round 3 settings."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ def test_example_is_valid_and_advisory() -> None:
     assert len(config.tags) == 8 and all(tag.startswith("sim.mc.") for tag in config.tags)
 
 
-def test_example_uses_the_round_2_settings() -> None:
+def test_example_uses_the_round_3_settings() -> None:
     config = load_config(EXAMPLE)
-    assert (config.variance_fraction, config.alpha) == (0.90, 0.99)
+    assert (config.variance_fraction, config.alpha) == (0.90, 0.999)
     assert (config.dynamic_lags, config.stuck_samples) == (2, 15)
-    assert (config.min_consecutive, config.close_after, config.sample_period_s) == (10, 10, 60.0)
+    assert (config.min_consecutive, config.close_after, config.sample_period_s) == (15, 10, 60.0)

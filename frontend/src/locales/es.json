@@ -639,7 +639,7 @@
   "nav.anomalies": "Anomalías",
   "anomaly.title": "Anomalías",
   "anomaly.banner": "Solo asesoría: no se escribe nada en la planta.",
-  "anomaly.statNote": "Los límites de alarma son estadísticos. En las pruebas con el simulador la regla detectó la deriva en 19 de 20 casos y un sensor congelado en 19 de 20 (regla de sensor congelado), pero generó unas 1,8 falsas alarmas por día con movimientos normales del operador; los picos y las filas con mala calidad o valores faltantes no se detectan (esas filas se omiten, nunca se imputan). No validado en una planta real: habrá que ajustar las muestras consecutivas.",
+  "anomaly.statNote": "Los límites de alarma son estadísticos. En las pruebas con el simulador la regla detectó la deriva en 16 de 20 casos y un sensor congelado en 18 de 20, con unas 0,4 falsas alarmas por día; los picos y las filas con mala calidad o valores faltantes no se detectan (esas filas se omiten, nunca se imputan). No validado en una planta real: use semanas de datos tranquilos para el entrenamiento y espere tener que ajustar las muestras consecutivas.",
   "anomaly.detector": "Detector",
   "anomaly.empty": "Todavía no hay ningún detector de anomalías configurado. Una configuración es un archivo JSON (tags, parte de la varianza que se conserva, probabilidad de alarma, número de muestras consecutivas). Puede cargar el ejemplo incluido para el circuito de molienda simulado; se guarda solo como configuración y solo asesora.",
   "anomaly.loadExample": "Cargar ejemplo",

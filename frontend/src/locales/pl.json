@@ -639,7 +639,7 @@
   "nav.anomalies": "Anomalie",
   "anomaly.title": "Anomalie",
   "anomaly.banner": "Tylko doradztwo: nic nie jest zapisywane do instalacji.",
-  "anomaly.statNote": "Limity alarmowe są statystyczne. W testach na symulatorze reguła wykryła dryf w 19 z 20 przypadków i zablokowany czujnik w 19 z 20 (reguła zablokowania), ale podniosła ok. 1,8 fałszywego alarmu na dobę przy zwykłych ruchach operatora; szpilki oraz wiersze ze złą jakością lub brakującymi wartościami nie są wykrywane (takie wiersze są pomijane, nigdy uzupełniane). Nie sprawdzono na rzeczywistej instalacji: trzeba będzie dobrać liczbę kolejnych próbek.",
+  "anomaly.statNote": "Limity alarmowe są statystyczne. W testach na symulatorze reguła wykryła dryf w 16 z 20 przypadków i zablokowany czujnik w 18 z 20, przy ok. 0,4 fałszywego alarmu na dobę; szpilki oraz wiersze ze złą jakością lub brakującymi wartościami nie są wykrywane (takie wiersze są pomijane, nigdy uzupełniane). Nie sprawdzono na rzeczywistej instalacji: do uczenia użyj kilku tygodni spokojnych danych i spodziewaj się dobierania liczby kolejnych próbek.",
   "anomaly.detector": "Detektor",
   "anomaly.empty": "Nie skonfigurowano jeszcze żadnego detektora anomalii. Konfiguracja to plik JSON (tagi, część zachowanej wariancji, prawdopodobieństwo alarmu, liczba kolejnych próbek). Możesz wczytać dołączony przykład dla symulowanego obiegu mielenia; zostanie zapisany tylko jako konfiguracja i jedynie doradza.",
   "anomaly.loadExample": "Wczytaj przykład",

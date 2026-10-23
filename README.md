@@ -84,9 +84,9 @@ Status: advisory, simulated data only.
 - **Try it**: in the Anomalies view press "Load example", then scan a simulated dataset. Read the T2 and SPE charts against
   their limits and the contribution bars of the flagged events.
 - **Claim limits** (exp29, test seeds run once, [results](experiments/exp29_anomaly_detection/README.md)):
-  - Simulation only. Drift detected in 19/20 fault records; frozen sensor in 19/20, by the stuck rule.
-  - False alarms 1.79 per 24 h on quiet records (target 1.0, missed), mostly from operator setpoint moves; the view says so.
-  - Spikes (0.05), bad-quality rows and dropouts are not detected; the last two are skipped by design.
+  - Simulation only. Drift detected in 16/20 fault records; frozen sensor in 18/20, by the stuck rule.
+  - False alarms 0.36 per 24 h on quiet records (target 1.0, met). Settings: alpha 0.999, min_consecutive 15.
+  - Spikes (0.05), bad-quality rows and dropouts are not detected; the last two are skipped by design. The remaining weakness: limits fitted on a short training record (use weeks of quiet data).
   - Not validated on real plant data.
 
 ## Module 4: soft sensor
