@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from crosscut_anomaly.config import AnomalyConfig
 from crosscut_anomaly.distributions import f_ppf, normal_ppf
 
 SCHEMA_VERSION = "1.0.0"
@@ -52,10 +53,10 @@ def _choose_k(eigenvalues: np.ndarray, fraction: float) -> int:
 
 
 def _clean_rows(x: np.ndarray, n_tags: int) -> np.ndarray:
-    """Drop NaN rows and validate size and variance."""
+    """Drop rows with NaN or +-inf and validate size and variance."""
     if x.ndim != 2 or x.shape[1] != n_tags:
         raise PcaModelError("x must be samples by tags")
-    valid = x[~np.isnan(x).any(axis=1)]
+    valid = x[np.isfinite(x).all(axis=1)]
     if len(valid) < max(50, 10 * n_tags):
         raise PcaModelError(f"too few valid rows: {len(valid)}")
     if np.any(valid.std(axis=0, ddof=1) <= 0.0):
@@ -80,7 +81,12 @@ def fit_pca(
     variance_fraction: float = 0.90,
     alpha: float = 0.99,
 ) -> PcaModel:
-    """Fit a PCA monitoring model on samples-by-tags data (NaN rows dropped)."""
+    """Fit a PCA monitoring model on samples-by-tags data.
+
+    The signature is ``fit_pca(x, tags, variance_fraction, alpha)``; to fit from an
+    ``AnomalyConfig`` use ``fit_from_config(x, config)``. Rows with a non-finite value
+    (NaN or +-inf) are dropped, never imputed.
+    """
     tags = tuple(tags)
     if len(tags) < 2:
         raise PcaModelError("at least two tags are required")
@@ -95,6 +101,11 @@ def fit_pca(
         eigenvalues=values, k=k, n_train=n, alpha=alpha,
         t2_limit=t2_limit(n, k, alpha), spe_limit=spe_limit(values.tolist(), k, alpha),
     )
+
+
+def fit_from_config(x: np.ndarray, config: AnomalyConfig) -> PcaModel:
+    """Thin helper: ``fit_pca`` with the tags, variance_fraction and alpha of ``config``."""
+    return fit_pca(x, config.tags, config.variance_fraction, config.alpha)
 
 
 @dataclass(frozen=True)
@@ -113,8 +124,10 @@ class PcaModel:
     spe_limit: float
 
     def _standardise(self, x: np.ndarray) -> np.ndarray:
-        """Standardise rows with the training mean and scale."""
-        z: np.ndarray = (np.atleast_2d(np.asarray(x, dtype=float)) - self.mean) / self.scale
+        """Standardise rows; rows with a non-finite value become all-NaN (no warnings)."""
+        rows = np.atleast_2d(np.asarray(x, dtype=float))
+        bad = ~np.isfinite(rows).all(axis=1)
+        z: np.ndarray = (np.where(bad[:, None], np.nan, rows) - self.mean) / self.scale
         return z
 
     def scores(self, x: np.ndarray) -> np.ndarray:
@@ -147,7 +160,7 @@ class PcaModel:
         """
         z = self._standardise(row)
         if np.isnan(z).any():
-            raise PcaModelError("contributions need a row without NaN")
+            raise PcaModelError("contributions need a row without NaN or inf")
         res2 = self._residual(z)[0] ** 2
         t = z @ self.loadings
         c = np.clip(((t / self.eigenvalues[: self.k]) @ self.loadings.T)[0] * z[0], 0, None)

@@ -1,7 +1,8 @@
 """Event detection on T2 and SPE: runs of limit exceedances become anomaly events.
 
-The scan works on the sequence of valid rows only (no NaN, quality 0). Invalid rows are counted,
-never imputed, and neither extend nor break a run. Advisory only: no plant writes.
+The scan works on the sequence of valid rows only (finite values, quality 0).
+Invalid rows are counted, never imputed, and neither extend nor break a run.
+Advisory only: no plant writes.
 """
 
 from __future__ import annotations
@@ -91,16 +92,29 @@ class _Runs:
         return self.run_start, self.last_exc, closed
 
 
+def _bad_quality(quality: Sequence[float] | np.ndarray | None, n: int, p: int) -> np.ndarray:
+    """Per-row bad-quality mask from one value per row (n,) or per tag (n, p).
+
+    Raises:
+        ValueError: for any other shape (a 2-D array must be exactly (n, p)).
+    """
+    if quality is None:
+        return np.zeros(n, dtype=bool)
+    q = np.asarray(quality, dtype=float)
+    if q.shape == (n,):
+        return np.asarray(q != 0)
+    if q.shape == (n, p):
+        return np.asarray((q != 0).any(axis=1))
+    raise ValueError(f"quality must have shape ({n},) or ({n}, {p}), got {q.shape}")
+
+
 def _validity(
     x: np.ndarray, quality: Sequence[float] | np.ndarray | None
 ) -> tuple[np.ndarray, int, int]:
-    """Valid mask plus the number of rows skipped for NaN and for quality."""
-    has_nan = np.isnan(x).any(axis=1)
-    if quality is None:
-        bad_q = np.zeros(len(x), dtype=bool)
-    else:
-        bad_q = np.asarray(quality, dtype=float) != 0
-    return ~(has_nan | bad_q), int(has_nan.sum()), int((bad_q & ~has_nan).sum())
+    """Valid mask plus the rows skipped as non-finite (reason 'nan') and for quality."""
+    non_finite = ~np.isfinite(x).all(axis=1)
+    bad_q = _bad_quality(quality, x.shape[0], x.shape[1])
+    return ~(non_finite | bad_q), int(non_finite.sum()), int((bad_q & ~non_finite).sum())
 
 
 def _peak(ratio: np.ndarray, start: int, end: int) -> int:
@@ -159,8 +173,13 @@ def scan(
 ) -> ScanResult:
     """Scan a record (samples by tags) and return its anomaly events.
 
+    ``quality`` is one value per row (n,) or one per tag (n, p); a row is invalid if any
+    value != 0. Rows with NaN or +-inf are invalid too and counted under
+    ``skipped_reasons['nan']`` (the key means non-finite).
+
     Raises:
         AnomalyConfigError: if ``config`` is missing.
+        ValueError: if ``quality`` has a shape other than (n,) or (n, p).
     """
     if config is None:
         raise AnomalyConfigError("config: required")

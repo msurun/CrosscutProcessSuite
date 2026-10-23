@@ -50,8 +50,8 @@ sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-22, bef
 |------|--------|
 | experiments/exp29_anomaly_detection/gen29.py | 6dfb0bcb41323eaea625f28f1175524b50be18d5effbc61a4b0abcf0642517b9 |
 | experiments/exp29_anomaly_detection/exp29.py | 36513750cf69bfba1c907c437dbd575ab17aadf54b38c1aa48d3187e23b4ff8f |
-| anomaly/src/crosscut_anomaly/pca_model.py | 3babe4ab354bb2865a3985fab579e6ea50a3d09410a09ee1222e86ebb05f8f7d |
-| anomaly/src/crosscut_anomaly/detect.py | 471c3a082e2084bbe08af357a5d59f93d3075b2bc8d4e2fcf044f74988c94d09 |
+| anomaly/src/crosscut_anomaly/pca_model.py | 721f687acfbb2876a30ac0046ec396ca0a983015c036191ed233fe172472f84a |
+| anomaly/src/crosscut_anomaly/detect.py | 90f5efbad2b378768df1d3d1999ff0355aa3ac9b53400b3c6fbb0f6fdc0f7a21 |
 | anomaly/src/crosscut_anomaly/config.py | 38c202a36a2051f9570fd128c047217f93a3167dde65066c0c45546a6c704cb2 |
 | anomaly/src/crosscut_anomaly/distributions.py | 382e28fd8c1890cca8ba8131ecd5fa43144312da3ec6a62f5ebbb841970846fd |
 
@@ -78,3 +78,11 @@ edit `anomaly/`. Harness readings of points the protocol leaves open:
 - A5: the scan of the full record is compared with the scan of the record with every row that has a NaN or quality != 0
   removed: equal event count and, per event, equal start/end time, closure, sample count and start/end/peak row after
   mapping the reduced indices back. Checked on all fault records, judged on bad_quality and dropout.
+
+## Robustness fixes (2026-10-22, after development seeds, before any test seed)
+Changes in `anomaly/src/crosscut_anomaly/` (the sha256 values above are updated for `pca_model.py` and `detect.py`; `gen29.py`, `exp29.py` and the protocol are untouched):
+1. Non-finite values (NaN and +-inf) are invalid everywhere: `fit_pca` drops such rows; `scan` counts them under `skipped_reasons['nan']` (the key is unchanged and now means non-finite); `t2`, `spe` give NaN and `contributions` raises `PcaModelError` for them, with no RuntimeWarning.
+2. `scan` accepts `quality` per row (n,) or per tag (n, p; a row is invalid if any tag's quality != 0); any other shape, including the n == p ambiguity (2-D must be exactly (n, p)), raises `ValueError`.
+3. `fit_pca`'s docstring documents the signature `fit_pca(x, tags, variance_fraction, alpha)`; the protocol's `fit_pca(x, config)` is provided by the thin helper `fit_from_config(x, config)` in `pca_model.py`.
+
+Behaviour on finite data with per-row quality is unchanged and no setting or criterion changed: `pytest anomaly -q -p no:warnings` and `test_exp29_smoke.py` pass; new tests are in `anomaly/tests/test_anomaly_robustness.py`.
