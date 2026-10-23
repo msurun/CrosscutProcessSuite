@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 from crosscut_loops.tuning_rules import FopdtModel, lambda_from_robustness, simc_pi
 from crosscut_loops.tuning_view import (
     StepPreview,
+    _run_pi_loop,
     closed_loop_step,
     fit_check,
     simulate_fopdt,
@@ -141,6 +144,31 @@ def _time_to_reach_90_percent(robustness: float) -> float:
 def test_a_more_robust_setting_reaches_the_setpoint_later():
     """A higher robustness must slow the response, which is the trade-off the slider promises."""
     assert _time_to_reach_90_percent(1.0) > _time_to_reach_90_percent(0.0)
+
+
+def test_an_extreme_tau_to_delay_ratio_returns_quickly_with_bounded_arrays():
+    """A huge time constant with a small delay must not hang the preview."""
+    model = FopdtModel(gain=1.0, time_constant_s=1e6, delay_s=1.0)
+    settings = simc_pi(model, lambda_from_robustness(model, 0.5))
+    started = time.perf_counter()
+    preview = closed_loop_step(model, settings)
+    assert time.perf_counter() - started < 2.0
+    assert len(preview.pv) <= 200
+    assert len(preview.t_s) == len(preview.pv) == len(preview.out)
+    assert np.all(np.isfinite(preview.pv))
+
+
+def test_an_ordinary_model_keeps_the_uncapped_step_and_result():
+    """For ordinary models the cap must not engage: the result equals the old-formula run."""
+    settings = simc_pi(MODEL, lambda_from_robustness(MODEL, 0.5))
+    old_dt_s = min(MODEL.time_constant_s, MODEL.delay_s) / 10
+    n_steps = int(np.ceil(6.0 * (MODEL.time_constant_s + MODEL.delay_s) / old_dt_s))
+    pv, out = _run_pi_loop(MODEL, settings, old_dt_s, n_steps)
+    keep = np.linspace(0, n_steps - 1, min(200, n_steps)).astype(int)
+    preview = closed_loop_step(MODEL, settings)
+    assert preview.t_s == pytest.approx(keep * old_dt_s)
+    assert preview.pv == pytest.approx(pv[keep])
+    assert preview.out == pytest.approx(out[keep])
 
 
 AUTO_MODE = 1.0

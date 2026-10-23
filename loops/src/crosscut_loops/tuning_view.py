@@ -17,6 +17,8 @@ FAIR_R_SQUARED = 0.5  # "fair" at or above this, "poor" below
 STEP_SAMPLES_PER_TIME_CONSTANT = 10  # preview resolution: the smaller of tau and delay / 10
 PREVIEW_HORIZON_FACTOR = 6.0  # preview length in (time constant + delay)
 PREVIEW_POINTS = 200
+MAX_PREVIEW_STEPS = 20000  # upper bound on integration steps, keeps the request fast
+PREVIEW_VALUE_LIMIT = 1e6  # a coarse step can make the Euler loop diverge; show a bounded value
 MIN_OUT_MOVE_PCT = 1.0  # a stretch needs at least this OUT movement to count as a test
 MANUAL_MODE = 0.0
 MOVE_STEP_PCT = 0.5  # a sample-to-sample OUT change above this counts as a deliberate move
@@ -144,11 +146,17 @@ def closed_loop_step(model: FopdtModel, settings: PiSettings) -> StepPreview:
     # is the number of combined dynamics (time constant + dead time) the preview covers [s].
     horizon_s = PREVIEW_HORIZON_FACTOR * (model.time_constant_s + model.delay_s)
 
+    # Cap the step count: for an extreme tau/delay ratio the step above would mean millions
+    # of Euler steps. A coarser step loses accuracy there; the preview is coarse by design.
+    dt_s = max(dt_s, horizon_s / MAX_PREVIEW_STEPS)
+
     # Number of integration steps, rounded up so the loop reaches at least the horizon.
     n_steps = int(np.ceil(horizon_s / dt_s))
 
     # Full-resolution simulation over n_steps instants, one PV/OUT pair per step.
-    pv, out = _run_pi_loop(model, settings, dt_s, n_steps)
+    with np.errstate(all="ignore"):
+        pv, out = _run_pi_loop(model, settings, dt_s, n_steps)
+    pv, out = _bounded(pv), _bounded(out)
 
     # keep holds the indices of the samples we display. linspace spans the full range
     # 0 .. n_steps - 1 with at most PREVIEW_POINTS points, cast to int so they can index
@@ -157,6 +165,12 @@ def closed_loop_step(model: FopdtModel, settings: PiSettings) -> StepPreview:
 
     # Turn the indices back into seconds and pick the previewed pv and out samples.
     return StepPreview(t_s=keep * dt_s, pv=pv[keep], out=out[keep])
+
+
+def _bounded(values: np.ndarray) -> np.ndarray:
+    """Replace NaN and clip to +-PREVIEW_VALUE_LIMIT so a diverged preview stays JSON-safe."""
+    limit = PREVIEW_VALUE_LIMIT
+    return np.asarray(np.clip(np.nan_to_num(values, nan=limit), -limit, limit))
 
 
 def _run_pi_loop(
