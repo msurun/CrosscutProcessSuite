@@ -148,6 +148,7 @@ def test_fit_stores_model_and_manifest_and_the_summary_matches(
     assert 1 <= summary["chosen_components"] <= summary["n_components"] <= 3
     assert len(summary["cv_rmse"]) == 3 and summary["cv_sigma"] > 0
     assert summary["n_train"] >= 10 and summary["r2_train"] > 0.9
+    assert summary["domain_rows"] > summary["n_train"]
     assert summary["dataset_id"] == dataset and len(summary["sha256"]) == 64
     manifest = json.loads((root / "_softsensor" / "p80lab.manifest.json").read_text("utf-8"))
     assert manifest["kind"] == "softsensor_pls" and manifest["model_sha256"] == summary["sha256"]
@@ -192,7 +193,8 @@ def test_run_reports_validity_and_no_drift_on_stable_data(
     body = json.loads(response.text, parse_constant=_refuse_constant)
     counts = body["validity_counts"]
     assert set(counts) == {"ok", "missing_input", "out_of_range", "extrapolation"}
-    assert sum(counts.values()) == 180 and counts["ok"] > 100 and counts["missing_input"] >= 1
+    assert sum(counts.values()) == 180 and counts["missing_input"] >= 1
+    assert counts["ok"] >= 0.9 * (180 - counts["missing_input"])
     assert body["drift_episodes"] == [] and not body["latest"]["drift"]
     series = body["series"]
     assert len(series["t_s"]) <= 50 and len(series["estimate"]) == len(series["t_s"])

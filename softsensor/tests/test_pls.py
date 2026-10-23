@@ -197,3 +197,24 @@ def test_config_schema_agreement() -> None:
             loaded = False
         assert loaded is ok, doc
     assert load_config(good).lags_s == (0.0, 300.0, 900.0, 1800.0)
+
+
+def test_x_domain_widens_validity_domain_from_sparse_labels() -> None:
+    x, y = _latent(n=5000, seed=9)
+    rng = np.random.default_rng(10)
+    cfg = _config(_tags(10), max_components=4)
+    sparse = np.full(len(y), np.nan)
+    sparse[::83] = y[::83]
+    assert np.isfinite(sparse).sum() == 61
+    plain = fit_pls(x, sparse, cfg)
+    wide = fit_pls(x, sparse, cfg, x_domain=x)
+    assert wide.domain_rows == 5000 and "domain_rows" not in plain.to_dict()
+    new = x[rng.integers(0, 5000, 2000)]
+    ok_plain = np.mean([v == "ok" for v in plain.validity(new)])
+    ok_wide = np.mean([v == "ok" for v in wide.validity(new)])
+    assert ok_wide >= 0.95 and ok_plain < ok_wide
+    far = x[:3].copy()
+    far[:, 1] += 50 * (x[:, 1].max() - x[:, 1].min())
+    assert wide.validity(far) == ["out_of_range"] * 3
+    again = PlsModel.from_dict(json.loads(json.dumps(wide.to_dict())))
+    assert again.domain_rows == 5000 and again.sha256() == wide.sha256()

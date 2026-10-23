@@ -334,7 +334,7 @@ def _training_target(
 def _fit_or_422(x: np.ndarray, y: np.ndarray, config: SoftSensorConfig) -> PlsModel:
     """Fit the model; a fit problem becomes HTTP 422 with its message."""
     try:
-        return fit_pls(x, y, config)
+        return fit_pls(x, y, config, x_domain=x)
     except (PlsModelError, FeatureError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -384,6 +384,7 @@ def _summary(model: PlsModel, manifest: dict[str, Any], r2: float | None) -> dic
         "chosen_components": model.chosen_components,
         "cv_sigma": _num(model.cv_sigma),
         "n_train": model.n_train,
+        "domain_rows": model.domain_rows,
         "r2_train": r2,
         "sha256": manifest["model_sha256"],
         "window": manifest["window"],

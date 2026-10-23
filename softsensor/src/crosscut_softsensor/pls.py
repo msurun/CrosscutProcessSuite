@@ -6,6 +6,11 @@ which a gap of the longest lag (in samples) is removed from the training side ar
 validation block, then by the one-standard-error rule. Validity per row: missing_input,
 out_of_range, extrapolation (Hotelling T2 of the scores or SPE of the x residual above the
 empirical 99 % training limit) or ok.
+
+The validity domain (feature min/max, T2 and SPE limits) normally comes from the labelled
+training rows. Labels are sparse, so ``fit_pls(..., x_domain=rows)`` takes all valid lagged
+rows of the training window (labelled or not) and computes the domain from them, projected
+with the fitted model; ``domain_rows`` then records their number (0 = labelled rows used).
 """
 
 from __future__ import annotations
@@ -156,12 +161,18 @@ def _valid_rows(
 
 
 def fit_pls(
-    x: np.ndarray, y: np.ndarray, config: SoftSensorConfig, n_components: int | None = None
+    x: np.ndarray,
+    y: np.ndarray,
+    config: SoftSensorConfig,
+    n_components: int | None = None,
+    x_domain: np.ndarray | None = None,
 ) -> PlsModel:
     """Fit a PLS1 model on lagged features ``x`` (rows = samples) and target ``y``.
 
     ``n_components`` overrides the cross-validated choice (for checks); the CV result is still
-    reported. Raises PlsModelError for constant columns, too few rows or a bad shape.
+    reported. ``x_domain`` (all valid lagged rows of the training window) defines the validity
+    domain instead of the labelled rows. Raises PlsModelError for constant columns, too few
+    rows or a bad shape.
     """
     names = feature_names(config.input_tags, config.lags_s)
     gap = max(lag_samples(config.lags_s, config.sample_period_s))
@@ -170,7 +181,19 @@ def fit_pls(
     splits = cv_split(idx, config.cv_blocks, gap)
     rmse, chosen = select_components(_cv_errors(xv, yv, splits, a_max))
     used = chosen if n_components is None else _check_forced(n_components, len(names))
-    return _final_model(xv, yv, config, (rmse, chosen, used))
+    domain = None if x_domain is None else _clean_domain(x_domain, len(names))
+    return _final_model(xv, yv, config, (rmse, chosen, used), domain)
+
+
+def _clean_domain(x_domain: np.ndarray, n_features: int) -> np.ndarray:
+    """Rows of the domain sample without NaN; at least 10 are needed."""
+    d = np.asarray(x_domain, dtype=float)
+    if d.ndim != 2 or d.shape[1] != n_features:
+        raise PlsModelError(f"x_domain must be samples by {n_features} features")
+    d = d[~np.isnan(d).any(axis=1)]
+    if len(d) < 10:
+        raise PlsModelError(f"x_domain has too few valid rows: {len(d)}")
+    return d
 
 
 def _check_forced(n_components: int, n_features: int) -> int:
@@ -181,7 +204,11 @@ def _check_forced(n_components: int, n_features: int) -> int:
 
 
 def _final_model(
-    x: np.ndarray, y: np.ndarray, config: SoftSensorConfig, choice: tuple[list[float], int, int]
+    x: np.ndarray,
+    y: np.ndarray,
+    config: SoftSensorConfig,
+    choice: tuple[list[float], int, int],
+    domain: np.ndarray | None = None,
 ) -> PlsModel:
     """Fit on all valid rows with the chosen component count and derive the limits."""
     rmse, chosen, used = choice
@@ -199,7 +226,7 @@ def _final_model(
         lag_s=tuple(float(v) for v in config.lags_s),
         sample_period_s=float(config.sample_period_s), n_train=len(y),
     )
-    return model._with_limits(x)
+    return model._with_limits(x, domain)
 
 
 @dataclass(frozen=True, eq=False)
@@ -227,22 +254,30 @@ class PlsModel:
     lag_s: tuple[float, ...]
     sample_period_s: float
     n_train: int
+    domain_rows: int = 0
 
     @property
     def cv_sigma(self) -> float:
         """Cross-validated RMSE of the chosen component count (original units)."""
         return float(self.cv_rmse[self.chosen_components - 1])
 
-    def _with_limits(self, x_train: np.ndarray) -> PlsModel:
-        """Copy with score variances and empirical 99 % T2 / SPE limits of the training rows."""
+    def _with_limits(self, x_train: np.ndarray, domain: np.ndarray | None = None) -> PlsModel:
+        """Copy with score variances, the x range and empirical 99 % T2 / SPE limits.
+
+        Score variances come from the labelled rows; range and limits from ``domain`` when
+        given, else from the labelled rows.
+        """
         t = ((x_train - self.x_mean) / self.x_scale) @ self._projection()
         var = t.var(axis=0, ddof=1) if len(t) > 1 else np.ones(t.shape[1])
         var = np.where(var > _TINY, var, 1.0)
         draft = replace(self, score_var=var)
-        t2, spe = draft._diagnostics(x_train)
+        ref = x_train if domain is None else domain
+        t2, spe = draft._diagnostics(ref)
         floor = 1e-10 * x_train.shape[1]
         return replace(
-            draft, t2_limit=float(np.quantile(t2, LIMIT_QUANTILE)),
+            draft, x_train_min=ref.min(axis=0), x_train_max=ref.max(axis=0),
+            domain_rows=0 if domain is None else len(domain),
+            t2_limit=float(np.quantile(t2, LIMIT_QUANTILE)),
             spe_limit=float(max(np.quantile(spe, LIMIT_QUANTILE), floor)),
         )
 
@@ -296,6 +331,8 @@ class PlsModel:
             spe_limit=self.spe_limit, lag_s=list(self.lag_s),
             sample_period_s=self.sample_period_s, n_train=self.n_train,
         )
+        if self.domain_rows:
+            d["domain_rows"] = self.domain_rows
         return d
 
     @classmethod
@@ -310,7 +347,8 @@ class PlsModel:
             intercept=float(d["intercept"]), cv_rmse=tuple(d["cv_rmse"]),
             chosen_components=int(d["chosen_components"]), t2_limit=float(d["t2_limit"]),
             spe_limit=float(d["spe_limit"]), lag_s=tuple(d["lag_s"]),
-            sample_period_s=float(d["sample_period_s"]), n_train=int(d["n_train"]), **arr,
+            sample_period_s=float(d["sample_period_s"]), n_train=int(d["n_train"]),
+            domain_rows=int(d.get("domain_rows", 0)), **arr,
         )
 
     def sha256(self) -> str:

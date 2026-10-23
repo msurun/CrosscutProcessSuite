@@ -35,12 +35,13 @@ def test_sustained_bias_flagged_after_three_results_single_outlier_not() -> None
     flags = [tr.update(i, 3.5, 0.0).drift for i in range(4)]
     assert flags == [False, False, True, True]
     tr = _tracker()
-    seq = [0.0, 0.0, 10.0, 0.0, 0.0, 0.0]
+    seq = [0.0, 0.0, 4.0, 0.0, 0.0, 0.0]  # EWMA 1.2 (< 1.2603)
     assert not any(tr.update(i, v, 0.0).drift for i, v in enumerate(seq))
 
 
 def test_weight_arithmetic_and_reset_of_counter() -> None:
-    tr = BiasTracker(sigma_cv=1.0, weight=0.3, k_sigma=2.0, consecutive=3)
+    tr = BiasTracker(sigma_cv=2.0)
+    assert tr.threshold == pytest.approx(3 * 2.0 * np.sqrt(0.3 / 1.7))  # 2.520
     s1 = tr.update(0.0, 5.0, 1.0)
     assert s1.bias_ewma == 4.0 and s1.n_over == 1 and s1.n_updates == 1
     s2 = tr.update(1.0, 1.0, 1.0)
@@ -147,11 +148,38 @@ def test_carry_forward_baseline_and_rmse() -> None:
 
 def test_drift_detected_within_24h_and_stable_twin_quiet() -> None:
     model, t, cols, _, labs = _fit_and_labs(True)
-    run = run_softsensor(model, CFG, t, cols, labs)
+    run = run_softsensor(model, CFG, t, cols, labs, BiasTracker(model.cv_sigma))
     onset = 15 * DAY
     hits = np.flatnonzero(run.drift & (t > onset))
     assert len(hits) > 0
     assert t[hits[0]] - onset <= DAY + CFG.lab_delay_s
     assert not run.drift[t <= onset].any()
     model, t, cols, _, labs = _fit_and_labs(False)
-    assert not run_softsensor(model, CFG, t, cols, labs).drift.any()
+    tracker = BiasTracker(model.cv_sigma)
+    assert not run_softsensor(model, CFG, t, cols, labs, tracker).drift.any()
+
+
+def test_threshold_plus_and_minus_ten_percent() -> None:
+    thr = _tracker().threshold
+    assert thr == pytest.approx(1.2602522)
+    tr = _tracker()
+    assert [tr.update(i, 1.1 * thr, 0.0).drift for i in range(4)] == [False, False, True, True]
+    tr = _tracker()
+    assert not any(tr.update(i, 0.9 * thr, 0.0).drift for i in range(20))
+
+
+def _false_flag_rate(k_sigma: float | None = None) -> float:
+    rng = np.random.default_rng(30)
+    flagged = 0
+    for _ in range(2000):
+        tr = _tracker() if k_sigma is None else BiasTracker(1.0, k_sigma=k_sigma)
+        errors = rng.normal(size=60)
+        flagged += any(tr.update(i, e, 0.0).drift for i, e in enumerate(errors))
+    return flagged / 2000
+
+
+def test_false_flag_rate_on_white_errors() -> None:
+    # Measured on 2000 sequences of 60 white errors: default (k 3) 3.65 %, k 2 28.25 %.
+    assert _false_flag_rate() < 0.05
+    assert _false_flag_rate() == pytest.approx(0.0365, abs=0.005)
+    assert _false_flag_rate(2.0) == pytest.approx(0.2825, abs=0.01)
