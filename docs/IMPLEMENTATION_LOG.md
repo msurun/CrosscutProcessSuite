@@ -821,3 +821,11 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   the consistency check and the `closed_loop` flag; level loops' SP steps are weak (SNR 2-5). Open-loop OUT steps exist only on
   one manual loop. Pump-speed steps are not loop records: they need step 4.
 - Tests: 61 Python, 19+ vitest, 3 e2e (axe 1440/390). Whole suite 1934 pytest, 679 vitest, 50 e2e twice.
+
+## Anomaly smoke test on four weeks of real normal operation (2026-10-23, step 5; exploration, no pass/fail)
+- Data: the owner's A4 package (1 min, 11.09-09.10), 39 process tags, round-3 settings. Not a false-alarm estimate (no event log).
+- 3 weeks of training then the 4th week: 0.29 events/24 h, 1.5 % of time flagged; 2 weeks then week 3: 1.0/24 h, 21 %;
+  1 week then week 2: 94 % flagged (operating point moves between weeks). In-sample 0.7-0.9/24 h.
+- Data trap: a tag linearly interpolated over a long archive gap (same variance in two weeks, mean falling 1514 -> 935) made the
+  detector flag 93-100 % of weeks 3 and 4. Idea (open): mark a tag with a long exact linear ramp as unreliable in the anomaly and import views.
+- Details with tag names are in the owner's Drive (SMOKE_anomalie_A4_2026-10-23.txt), not in the repo.
