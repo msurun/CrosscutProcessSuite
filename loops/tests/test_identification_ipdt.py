@@ -123,3 +123,33 @@ def test_malformed_input_raises() -> None:
     """Length mismatch raises the specific error."""
     with pytest.raises(IpdtIdentificationError):
         identify_ipdt(np.arange(100.0), np.zeros(99), np.zeros(100))
+
+
+def _ou_noise(n: int, std: float, tau: float, seed: int) -> np.ndarray:
+    """Ornstein-Uhlenbeck noise (stationary std, correlation time tau samples)."""
+    a = np.exp(-1.0 / tau)
+    shocks = np.random.default_rng(seed).normal(0.0, std * np.sqrt(1 - a * a), n)
+    out = np.zeros(n)
+    for i in range(1, n):
+        out[i] = a * out[i - 1] + shocks[i]
+    return out
+
+
+def test_autocorrelated_residuals_give_a_larger_slope_se_than_white_noise() -> None:
+    """Same residual variance: slow (tau 200 s) noise widens the bootstrap SE and the block."""
+    t = _t()
+    u = _steps(t, [(300, 5)])
+    clean = _ramp_pv(t, u)
+    white = identify_ipdt(t, u, clean + np.random.default_rng(5).normal(0.0, 0.3, len(t)))
+    slow = identify_ipdt(t, u, clean + _ou_noise(len(t), 0.3, 200.0, 5))
+    assert slow.slope_rel_se > 2.0 * white.slope_rel_se
+
+
+def test_block_length_follows_the_autocorrelation_time() -> None:
+    """White residuals keep the minimum block; slow residuals get a longer one, capped at n / 5."""
+    from crosscut_loops.identification_ipdt import DEFAULT_SETTINGS, _block_length
+
+    white = np.random.default_rng(6).normal(size=1000)
+    slow = _ou_noise(1000, 1.0, 100.0, 6)
+    assert _block_length(white, DEFAULT_SETTINGS) == DEFAULT_SETTINGS.bootstrap_min_block
+    assert _block_length(white, DEFAULT_SETTINGS) < _block_length(slow, DEFAULT_SETTINGS) <= 200

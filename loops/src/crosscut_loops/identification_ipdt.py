@@ -4,7 +4,8 @@ Model: y(t) = y0 + beta*t + k * integral(u(s - theta) - u[0]) ds. The linear ter
 absorbs baseline drift and the unknown balance output, so steps, doublets and step trains
 all work. theta is scanned on a grid (coarse, then a finer grid around the best point);
 for each theta the other coefficients are ordinary least squares. Quality: R^2, a
-moving-block bootstrap of the residuals for the slope, and separate up/down slopes.
+moving-block bootstrap of the residuals for the slope (block from the residual autocorrelation,
+plus the slope shift under a quadratic baseline), and separate up/down slopes.
 """
 
 from __future__ import annotations
@@ -32,7 +33,9 @@ class IpdtSettings:
     max_up_down_diff: float = 0.25
     min_direction_travel: float = 0.5  # OUT travel (%) needed per direction for up/down
     bootstrap_resamples: int = 200
-    bootstrap_block: int = 10  # samples per residual block (keeps short-range correlation)
+    bootstrap_min_block: int = 10  # shortest residual block, samples
+    bootstrap_block_factor: float = 3.0  # block = factor x integrated autocorrelation time
+    bootstrap_max_block_fraction: float = 0.2  # longest block, as a fraction of the record
     bootstrap_seed: int = 12345
 
 
@@ -152,19 +155,67 @@ def _block_resample(res: np.ndarray, block: int, rng: np.random.Generator) -> np
     return np.concatenate([res[a : a + block] for a in starts])[:n]
 
 
+def _autocorr_time(res: np.ndarray) -> float:
+    """Integrated autocorrelation time of the residuals, in samples (1.0 for white noise).
+
+    1 + 2 * sum of the ACF from lag 1 up to its first zero crossing.
+    """
+    centred = res - res.mean()
+    var = float(np.dot(centred, centred))
+    if var <= 0.0:
+        return 1.0
+    total = 1.0
+    for lag in range(1, len(res) // 2):
+        rho = float(np.dot(centred[:-lag], centred[lag:])) / var
+        if rho <= 0.0:
+            break
+        total += 2.0 * rho
+    return total
+
+
+def _block_length(res: np.ndarray, s: IpdtSettings) -> int:
+    """Bootstrap block = factor x autocorrelation time, clipped to [min block, n * max fraction].
+
+    A block much shorter than the correlation time of the residuals (slow load drift) hides that
+    correlation from the resamples and makes the slope error look too small.
+    """
+    upper = max(int(s.bootstrap_max_block_fraction * len(res)), s.bootstrap_min_block)
+    wanted = round(s.bootstrap_block_factor * _autocorr_time(res))
+    return int(min(max(wanted, s.bootstrap_min_block), upper, len(res)))
+
+
+def _curvature_shift(x: np.ndarray, y: np.ndarray) -> float:
+    """Relative change of the slope when a quadratic baseline term is added to the fit.
+
+    A drift that a straight baseline (beta) cannot remove leaks into the slope without showing in
+    the residuals, so the bootstrap cannot see it; this is the sensitivity of the slope to it.
+    """
+    span = x[:, 1] / x[-1, 1] if x[-1, 1] > 0 else x[:, 1]
+    curved = np.column_stack([x, span**2])
+    k_plain, k_curved = _solve(x, y)[0][2], _solve(curved, y)[0][2]
+    return abs(k_curved - k_plain) / abs(k_plain) if abs(k_plain) > 1e-15 else float("inf")
+
+
 def _slope_rel_se(x: np.ndarray, y: np.ndarray, s: IpdtSettings) -> float:
-    """Relative standard error of the slope from a moving-block bootstrap (fixed seed)."""
+    """Relative slope uncertainty: moving-block bootstrap SE (fixed seed) + curvature shift.
+
+    The block length follows the autocorrelation of the residuals (see ``_block_length``); the
+    curvature shift (``_curvature_shift``) is added because correlated drift is partly absorbed
+    by the fit and so under-represented in the residuals.
+    """
     coef = _solve(x, y)[0]
     fitted = x @ coef
     res = y - fitted
     pinv = np.linalg.pinv(x)
     rng = np.random.default_rng(s.bootstrap_seed)
-    block = min(s.bootstrap_block, len(res))
+    block = _block_length(res, s)
     slopes = [
         float((pinv @ (fitted + _block_resample(res, block, rng)))[2])
         for _ in range(s.bootstrap_resamples)
     ]
-    return float(np.std(slopes, ddof=1) / abs(coef[2])) if abs(coef[2]) > 1e-15 else float("inf")
+    if abs(coef[2]) <= 1e-15:
+        return float("inf")
+    return float(np.std(slopes, ddof=1) / abs(coef[2])) + _curvature_shift(x, y)
 
 
 def _r_squared(x: np.ndarray, y: np.ndarray) -> float:

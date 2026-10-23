@@ -26,6 +26,7 @@ from crosscut_loops.tuning_report_ipdt import (
     build_ipdt_report,
     render_ipdt_markdown,
 )
+from crosscut_loops.tuning_rules import FopdtModel
 from crosscut_loops.tuning_series import comparison, json_list, thin_index
 from crosscut_loops.tuning_types import TuningRequest, WindowData
 from crosscut_loops.tuning_view import (
@@ -36,6 +37,7 @@ from crosscut_loops.tuning_view import (
 )
 
 TAU_WINDOW_FACTOR = 3.0  # FOPDT time constant above this many windows looks like an integrator
+IPDT_R2_MARGIN = 0.02  # IPDT may trail FOPDT by this much R2 and still count as explaining as well
 Warnings = list[dict[str, object]]
 
 
@@ -133,21 +135,34 @@ def looks_self_regulating(report: IpdtTuningReport, window: WindowData) -> Warni
 def looks_integrating(report: TuningReport, window: WindowData) -> Warnings:
     """Warn when a loop marked self-regulating behaves like an integrator.
 
-    Two cases: the FOPDT time constant exceeds 3 window lengths, or the FOPDT fit failed while an
-    IPDT fit of the same window has R2 >= 0.8 and is not refused.
+    Three cases: the FOPDT time constant exceeds 3 window lengths; the FOPDT fit failed while an
+    IPDT fit of the same window has R2 >= 0.8 and is not refused; or the FOPDT fit exists but the
+    (not refused) IPDT fit has R2 >= 0.8 and explains the record at least as well as FOPDT
+    (R2_ipdt >= R2_fopdt - IPDT_R2_MARGIN), reason ``ipdt_explains_record_as_well``.
     """
     window_s = float(window.t_s[-1] - window.t_s[0])
     if report.model is not None:
         if report.model.time_constant_s > TAU_WINDOW_FACTOR * window_s:
             tau = report.model.time_constant_s
             return [_integrating_warning("time_constant_over_3x_window", tau)]
-        return []
+        return _ipdt_as_good_as_fopdt(report.model, window)
     if report.blocked_reason is None or not report.blocked_reason.startswith(MODEL_FAILURE_PREFIX):
         return []
     fit = _try_ipdt(window)
     if fit is not None and fit.r_squared >= GOOD_R_SQUARED and fit.verdict != "blocked":
         return [_integrating_warning("model_failed_ipdt_fits", None, fit.r_squared)]
     return []
+
+
+def _ipdt_as_good_as_fopdt(model: FopdtModel, window: WindowData) -> Warnings:
+    """The ``ipdt_explains_record_as_well`` warning, or nothing."""
+    fit = _try_ipdt(window)
+    if fit is None or fit.verdict == "blocked" or fit.r_squared < GOOD_R_SQUARED:
+        return []
+    check = fit_check(model, window.controller_output, window.process_value, window.dt_s)[0]
+    if fit.r_squared < check.r_squared - IPDT_R2_MARGIN:
+        return []
+    return [_integrating_warning("ipdt_explains_record_as_well", None, fit.r_squared)]
 
 
 def _integrating_warning(

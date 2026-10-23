@@ -170,6 +170,24 @@ def test_a_ramp_on_a_self_regulating_loop_warns_it_looks_integrating() -> None:
     assert again["settings"] == body["settings"]
 
 
+def test_ipdt_explains_record_as_well_fires_on_a_ramp_but_not_on_a_settling_fopdt() -> None:
+    from crosscut_loops.tuning_payload_ipdt import looks_integrating
+    from crosscut_loops.tuning_report import TuningReport
+    from crosscut_loops.tuning_rules import FopdtModel
+    from crosscut_loops.tuning_types import WindowData
+
+    u = _out([(300, 5)])
+    model = FopdtModel(gain=1.0, time_constant_s=300.0, delay_s=20.0)
+    report = TuningReport("LIC1", model, None, None)
+    ramp = WindowData(T, u, _ramp(u, noise=0.002), 1.0)
+    assert [w["reason"] for w in looks_integrating(report, ramp)] == [
+        "ipdt_explains_record_as_well"
+    ]
+    settled = WindowData(T, u, _first_order(u, gain=1.0, tau=60.0), 1.0)
+    fast = FopdtModel(gain=1.0, time_constant_s=60.0, delay_s=5.0)
+    assert looks_integrating(TuningReport("LIC1", fast, None, None), settled) == []
+
+
 def test_a_first_order_response_on_an_integrating_loop_warns_it_looks_self_regulating() -> None:
     u = _out([(300, 5), (400, -5), (500, 5), (600, -5), (700, 5), (800, -5)])
     body = _payload("integrating", u, _first_order(u, tau=20.0))
