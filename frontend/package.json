@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "e2e:all": "node e2e/support/run_e2e.mjs",
     "lint": "eslint"
   },
   "dependencies": {
