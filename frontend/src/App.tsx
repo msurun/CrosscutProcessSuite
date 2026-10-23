@@ -13,6 +13,8 @@ import { availableLanguages, detectLanguage, translate } from "./i18n";
 import { ContextBar } from "./components/ContextBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdvisoryPage } from "./components/AdvisoryPage";
+import { AnomalyPage } from "./components/AnomalyPage";
+import { recordHours } from "./anomaly";
 import { FuzzyPage } from "./components/FuzzyPage";
 import { LoopsPage, type AnalysisInfo } from "./components/LoopsPage";
 import { formatHash, withDataset, withView, type View } from "./route";
@@ -236,7 +238,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -264,6 +266,13 @@ export function App() {
               />
             )}
             {!datasetMissing && view === "advisory" && <AdvisoryPage datasetId={selectedDatasetId} t={t} />}
+            {!datasetMissing && view === "anomalies" && (
+              <AnomalyPage
+                datasetId={selectedDatasetId}
+                recordHours={dataset ? recordHours(dataset.time_range.start_utc, dataset.time_range.end_utc) : null}
+                t={t}
+              />
+            )}
             {!datasetMissing && view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
             {!datasetMissing && view === "trends" && (
               <TrendsPage datasetId={selectedDatasetId} tags={tags} selectedTags={selectedTags} t={t} />

@@ -897,3 +897,116 @@ export async function ackAdvice(supervisorId: string, adviceId: string, input: A
   const body = { decision: input.decision, reason_code: input.reasonCode, who: input.who, note: input.note ?? "" };
   return sendJson<AckRecord>("POST", `${supervisorUrl(supervisorId)}/log/${encodeURIComponent(adviceId)}/ack`, body);
 }
+
+// --- PCA anomaly detector (advisory only; routes in api/src/crosscut_api/anomaly_routes.py) ---
+
+/** Detector configuration (`schemas/anomaly.schema.json`); mode can only be "off" or "advisory". */
+export interface AnomalyConfig {
+  schema_version: string;
+  id: string;
+  description?: string;
+  tags: string[];
+  variance_fraction?: number;
+  alpha?: number;
+  min_consecutive?: number;
+  close_after?: number;
+  sample_period_s?: number;
+  mode: "off" | "advisory";
+}
+
+/** A window of a record in seconds from its first sample; an omitted bound means the record's edge. */
+export interface AnomalyWindow {
+  startS?: number;
+  endS?: number;
+}
+
+/** Summary of a fitted model (`GET .../model` and the answer of a fit). */
+export interface AnomalyModelSummary {
+  k: number;
+  n_train: number;
+  explained_variance: number[];
+  cumulative_variance: number[];
+  t2_limit: number;
+  spe_limit: number;
+  sha256: string;
+  window: { start_s: number; end_s: number };
+  dataset_id: string;
+  created_utc: string;
+}
+
+/** Share of each tag in one statistic at the event peak; each map sums to 1. */
+export interface AnomalyContributions {
+  spe: Record<string, number>;
+  t2: Record<string, number>;
+}
+
+/** One anomaly event of a scan; times are seconds from the first sample of the record. */
+export interface AnomalyEvent {
+  start_index: number;
+  end_index: number;
+  start_s: number;
+  end_s: number;
+  closed: boolean;
+  peak_t2: number;
+  peak_spe: number;
+  peak_index: number;
+  top_spe_tags: string[];
+  top_t2_tags: string[];
+  exceeded: "t2" | "spe" | "both";
+  n_samples: number;
+  contributions: AnomalyContributions;
+}
+
+/** T2 and SPE over time (max-pooled, null where no valid row) with their limits. */
+export interface AnomalySeries {
+  t_s: number[];
+  t2: (number | null)[];
+  spe: (number | null)[];
+  t2_limit: number;
+  spe_limit: number;
+}
+
+/** Result of a scan; rows that were skipped are counted and never imputed. */
+export interface AnomalyScan {
+  events: AnomalyEvent[];
+  n_valid: number;
+  n_skipped: number;
+  skipped_reasons: { nan?: number; quality?: number };
+  series: AnomalySeries;
+}
+
+const anomalyUrl = (aid: string): string => `${API_PREFIX}/anomaly/${encodeURIComponent(aid)}`;
+const anomalyOnDataset = (datasetId: string, aid: string): string =>
+  `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/anomaly/${encodeURIComponent(aid)}`;
+const windowBody = (window: AnomalyWindow) => ({ start_s: window.startS ?? null, end_s: window.endS ?? null });
+
+/** Ids of the saved anomaly detector configurations. */
+export async function fetchAnomalyIds(): Promise<string[]> {
+  return getJson<string[]>(`${API_PREFIX}/anomaly`);
+}
+
+/** One saved detector configuration. */
+export async function fetchAnomalyConfig(aid: string): Promise<AnomalyConfig> {
+  return getJson<AnomalyConfig>(anomalyUrl(aid));
+}
+
+/** Validate and save a configuration under its own id (a 422 error carries the reason). */
+export async function saveAnomalyConfig(config: AnomalyConfig): Promise<AnomalyConfig> {
+  return sendJson<AnomalyConfig>("PUT", anomalyUrl(config.id), config);
+}
+
+/** Fit the PCA model on a window of a record; stores it server-side and returns its summary. */
+export async function fitAnomalyModel(datasetId: string, aid: string, window: AnomalyWindow = {}): Promise<AnomalyModelSummary> {
+  return sendJson<AnomalyModelSummary>("POST", `${anomalyOnDataset(datasetId, aid)}/fit`, windowBody(window));
+}
+
+/** Summary of the stored model (404 "model not fitted" when there is none). */
+export async function fetchAnomalyModel(aid: string): Promise<AnomalyModelSummary> {
+  return getJson<AnomalyModelSummary>(`${anomalyUrl(aid)}/model`);
+}
+
+/** Scan a window of a record with the stored model; `maxPoints` caps the returned series. */
+export async function scanAnomalies(datasetId: string, aid: string, window: AnomalyWindow = {}, maxPoints?: number): Promise<AnomalyScan> {
+  const body = { ...windowBody(window), ...(maxPoints === undefined ? {} : { max_points: maxPoints }) };
+  return sendJson<AnomalyScan>("POST", `${anomalyOnDataset(datasetId, aid)}/scan`, body);
+}
