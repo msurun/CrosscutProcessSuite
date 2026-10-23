@@ -296,3 +296,15 @@ def test_a_wood_berry_run_reports_both_composition_loops_with_a_health_value_or_
     # None means "not scored" (no Harris index on a 10-minute run), never an imputed number.
     healths = [loop["health_percent"] for loop in loops]
     assert all(health is None or 0 <= health <= 100 for health in healths)
+
+
+def test_tuning_endpoint_rejects_a_swing_limit_without_a_load_step(
+    step_test_client: TestClient,
+) -> None:
+    dataset = step_test_client.get("/datasets").json()[0]["id"]
+    url = f"/datasets/{dataset}/loops/mill_feed/tuning"
+    assert step_test_client.get(url, params={"max_swing": 2.0}).status_code == 422
+    bad = {"load_step_pct": -1.0, "max_swing": 2}
+    assert step_test_client.get(url, params=bad).status_code == 422
+    body = step_test_client.get(url).json()
+    assert body["model"]["kind"] == "fopdt" and isinstance(body["warnings"], list)

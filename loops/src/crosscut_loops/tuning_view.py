@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from crosscut_loops.identification_ipdt import IpdtModel
 from crosscut_loops.tuning_rules import FopdtModel, PiSettings
 
 GOOD_R_SQUARED = 0.8  # share of PV variance the model explains: "good" at or above this
@@ -117,10 +118,10 @@ def fit_check(
     # When the measurement is constant (spread == 0) R-squared is undefined,
     # so we fall back to 0.0 rather than dividing by zero.
     r_squared = 1.0 - float(np.sum((pv - simulated) ** 2)) / spread if spread > 0.0 else 0.0
-    return FitCheck(_verdict(r_squared), r_squared), simulated
+    return FitCheck(fit_verdict(r_squared), r_squared), simulated
 
 
-def _verdict(r_squared: float) -> str:
+def fit_verdict(r_squared: float) -> str:
     """Plain-language verdict for an R-squared value."""
     if r_squared >= GOOD_R_SQUARED:
         return "good"
@@ -156,14 +157,49 @@ def closed_loop_step(model: FopdtModel, settings: PiSettings) -> StepPreview:
     # Full-resolution simulation over n_steps instants, one PV/OUT pair per step.
     with np.errstate(all="ignore"):
         pv, out = _run_pi_loop(model, settings, dt_s, n_steps)
+    return _thinned_preview(pv, out, dt_s)
+
+
+def closed_loop_step_ipdt(model: IpdtModel, settings: PiSettings) -> StepPreview:
+    """Unit setpoint step of the loop: PI controller plus integrator with dead time.
+
+    The plant is dy/dt = |slope| * u(t - theta) (the sign of the slope only selects the controller
+    action, see the payload), the controller a positional PI with a rectangular integral. The
+    horizon is 6 integral times and the step is a tenth of the dead time, coarsened so that the
+    step count never exceeds MAX_PREVIEW_STEPS.
+
+    Returns the same preview shape as :func:`closed_loop_step`.
+    """
+    horizon_s = PREVIEW_HORIZON_FACTOR * settings.ti_s
+    dt_s = max(model.delay_s / STEP_SAMPLES_PER_TIME_CONSTANT, horizon_s / MAX_PREVIEW_STEPS)
+    n_steps = int(np.ceil(horizon_s / dt_s))
+    with np.errstate(all="ignore"):
+        pv, out = _run_pi_integrator(model, settings, dt_s, n_steps)
+    return _thinned_preview(pv, out, dt_s)
+
+
+def _run_pi_integrator(
+    model: IpdtModel, settings: PiSettings, dt_s: float, n_steps: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Time loop of :func:`closed_loop_step_ipdt`: PV and OUT deviations for a unit step."""
+    delay = max(1, int(round(model.delay_s / dt_s)))
+    rate = abs(model.slope_per_s) * dt_s
+    pv, out = np.zeros(n_steps), np.zeros(n_steps)
+    integral = 0.0
+    for k in range(n_steps - 1):
+        error = 1.0 - pv[k]
+        integral += error * dt_s
+        out[k] = settings.kc * (error + integral / settings.ti_s)
+        pv[k + 1] = pv[k] + rate * (out[k - delay] if k >= delay else 0.0)
+    out[-1] = out[-2]
+    return pv, out
+
+
+def _thinned_preview(pv: np.ndarray, out: np.ndarray, dt_s: float) -> StepPreview:
+    """Bound the values and keep at most PREVIEW_POINTS equally spaced samples."""
     pv, out = _bounded(pv), _bounded(out)
-
-    # keep holds the indices of the samples we display. linspace spans the full range
-    # 0 .. n_steps - 1 with at most PREVIEW_POINTS points, cast to int so they can index
-    # the full-resolution arrays; the preview stays inside the simulated window.
-    keep = np.linspace(0, n_steps - 1, min(PREVIEW_POINTS, n_steps)).astype(int)
-
-    # Turn the indices back into seconds and pick the previewed pv and out samples.
+    # keep holds the indices of the samples we display, spanning 0 .. len - 1.
+    keep = np.linspace(0, len(pv) - 1, min(PREVIEW_POINTS, len(pv))).astype(int)
     return StepPreview(t_s=keep * dt_s, pv=pv[keep], out=out[keep])
 
 

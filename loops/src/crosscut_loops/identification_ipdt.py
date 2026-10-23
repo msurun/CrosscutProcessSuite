@@ -232,3 +232,17 @@ def identify_ipdt(
     verdict = "blocked" if blocked else ("low_confidence" if low else "ok")
     model = IpdtModel(float(coef[2]), theta)
     return IpdtFit(model, r2, se, ratio, float(coef[1]), verdict, tuple(blocked + low))
+
+
+def fitted_pv(t_s: np.ndarray, out: np.ndarray, pv: np.ndarray, delay_s: float) -> np.ndarray:
+    """Modelled PV y0 + beta*t + k' * integral(u(s - theta) - u[0]) ds over the record.
+
+    y0, beta and k' are the least-squares coefficients at the identified delay ``delay_s``, i.e.
+    the curve the fit drew through ``pv``; same length as the input.
+
+    Raises:
+        IpdtIdentificationError: malformed input.
+    """
+    t, u, y = _validate(t_s, out, pv, DEFAULT_SETTINGS)
+    x = _design(t, u, delay_s)
+    return np.asarray(x @ _solve(x, y)[0])

@@ -26,7 +26,8 @@ from crosscut_loops.project_edit import (
     write_project_atomic,
 )
 from crosscut_loops.project_loops import loops_from_project
-from crosscut_loops.tuning_payload import TuningRequest, tuning_payload
+from crosscut_loops.tuning_payload import tuning_payload
+from crosscut_loops.tuning_types import TuningRequest
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
@@ -263,6 +264,8 @@ class TuningQuery:
     start_s: float | None = None
     end_s: float | None = None
     robustness: Annotated[float, Query(ge=0.0, le=1.0)] = 0.5
+    max_swing: Annotated[float | None, Query(gt=0.0)] = None  # PV units; integrating loops only
+    load_step_pct: Annotated[float | None, Query(gt=0.0)] = None  # % OUT; with max_swing
 
 
 def _reject_unknown_tags(tag: list[str], values: dict[str, Any]) -> None:
@@ -374,7 +377,17 @@ class _LoopEndpoints:
         t_s, values = self.store.load_seconds(query.dataset_id)
         row = analyze_dataset(t_s, values, [loop])[0]
         suspected = any(finding["code"] == "stiction" for finding in row["findings"])
-        request = TuningRequest(query.start_s, query.end_s, query.robustness, suspected)
+        try:
+            request = TuningRequest(
+                query.start_s,
+                query.end_s,
+                query.robustness,
+                suspected,
+                query.max_swing,
+                query.load_step_pct,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         return tuning_payload(loop, t_s, values, request)
 
     def get_benefit(

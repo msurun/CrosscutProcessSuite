@@ -8,13 +8,12 @@ codes (``blocked_code``, ``warnings``) so that the interface can translate it.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 import numpy as np
 
 from crosscut_loops.overview import LoopTags
+from crosscut_loops.tuning_payload_ipdt import ipdt_body, looks_integrating
 from crosscut_loops.tuning_report import (
-    DEFAULT_ROBUSTNESS,
     MODEL_FAILURE_PREFIX,
     POOR_FIT_PREFIX,
     TuningReport,
@@ -22,35 +21,15 @@ from crosscut_loops.tuning_report import (
     render_markdown,
 )
 from crosscut_loops.tuning_rules import FopdtModel
+from crosscut_loops.tuning_series import comparison
+from crosscut_loops.tuning_types import TuningRequest, WindowData
 from crosscut_loops.tuning_view import closed_loop_step, fit_check, suggest_windows
 
 MIN_WINDOW_S = 600.0  # shortest stretch worth proposing as a test window
-MAX_CHECK_POINTS = 600  # points of the measured/simulated comparison sent to the browser
 CLOSED_LOOP_SHARE = 0.1  # more than this share of non-MAN samples in the window = closed-loop data
 MANUAL_MODE = 0.0
+INTEGRATING = "integrating"  # LoopTags.process_kind of a level loop
 
-
-@dataclass(frozen=True)
-class TuningRequest:
-    """What the user chose: the window (None = best suggestion) and the robustness slider."""
-
-    start_s: float | None = None
-    end_s: float | None = None
-    robustness: float = DEFAULT_ROBUSTNESS
-    stiction_suspected: bool = False
-
-
-@dataclass(frozen=True)
-class WindowData:
-    """One data window of a loop: time stamps, controller output, process value, sample time."""
-
-    t_s: np.ndarray
-    controller_output: np.ndarray
-    process_value: np.ndarray
-    dt_s: float
-
-
-JsonSeries = list[float] | list[float | None]
 
 
 def tuning_payload(
@@ -85,7 +64,7 @@ def tuning_payload(
     dt_s = float(np.median(np.diff(t_s[keep])))
     # Bundle the aligned window for the fitting and reporting routines.
     window = WindowData(t_s[keep], controller_output, process_value, dt_s)
-    report = _report_for(loop, window, request)
+    body, model_warnings = _model_body(loop, window, request)
     # Fraction of samples in the window where the controller was in manual mode, in [0, 1]:
     # a high share means the operator drove the loop, so the data may not reflect the tuning.
     manual_share = float(np.mean(columns[loop.mode][keep] == MANUAL_MODE))
@@ -93,12 +72,26 @@ def tuning_payload(
         "loop": loop.name,
         # Window-level fields: the suggested windows, the chosen span and the manual share.
         **_window_parts(windows, start_s, end_s, manual_share),
+        # Model-level fields: model, fit, settings and the model-related warnings.
+        **body,
+        "warnings": [*_data_warnings(manual_share), *model_warnings],
+    }
+
+
+def _model_body(
+    loop: LoopTags, window: WindowData, request: TuningRequest
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Payload fields that depend on the model kind, and the warnings of the model comparison."""
+    if loop.process_kind == INTEGRATING:
+        return ipdt_body(loop.name, window, request)
+    report = _report_for(loop, window, request)
+    body: dict[str, object] = {
         "robustness": report.robustness,
         "blocked_code": _blocked_code(report),
         "markdown": render_markdown(report),
-        # Model-level fields: the fitted model summary and its quality metrics.
         **_model_parts(report, window),
     }
+    return body, looks_integrating(report, window)
 
 
 def _window_parts(
@@ -108,8 +101,12 @@ def _window_parts(
     return {
         "windows": [{"start_s": start, "end_s": end} for start, end in windows],
         "window": {"start_s": start_s, "end_s": end_s, "manual_percent": round(100 * manual_share)},
-        "warnings": ["closed_loop_data"] if 1.0 - manual_share > CLOSED_LOOP_SHARE else [],
     }
+
+
+def _data_warnings(manual_share: float) -> list[dict[str, object]]:
+    """Data-quality warnings about the window: closed-loop data."""
+    return [{"code": "closed_loop_data"}] if 1.0 - manual_share > CLOSED_LOOP_SHARE else []
 
 
 def _report_for(loop: LoopTags, window: WindowData, request: TuningRequest) -> TuningReport:
@@ -206,11 +203,11 @@ def _fit_parts(model: FopdtModel, window: WindowData) -> dict[str, object]:
     return {
         # `_plain` converts model objects (with numpy/array internals) to plain,
         # JSON-serialisable values for the front end.
-        "model": _plain(model),
+        "model": {"kind": "fopdt", **_plain(model)},
         # `r_squared` is the coefficient of determination, dimensionless, 1.0 = perfect.
         # Rounded to 3 decimals because more digits carry no meaning for the operator.
         "fit": {"verdict": check.verdict, "r_squared": round(check.r_squared, 3)},
-        "check": _comparison(window.t_s, window.process_value, simulated),
+        "check": comparison(window.t_s, window.process_value, simulated),
     }
 
 
@@ -235,36 +232,3 @@ def _settings_parts(report: TuningReport) -> dict[str, object]:
 def _plain(value: object) -> dict[str, float]:
     """Public numeric fields of a small dataclass as a dict."""
     return {name: float(number) for name, number in vars(value).items()}
-
-
-def _comparison(
-    t_s: np.ndarray, measured: np.ndarray, simulated: np.ndarray
-) -> dict[str, JsonSeries]:
-    """Measured and model PV on a common, thinned time axis.
-
-    PV is the process variable: `measured` is what the plant really produced and
-    `simulated` is what the model predicts, both sampled at the same instants.
-    A long record would make the payload sent to the browser large, so the curves are
-    thinned here to at most MAX_CHECK_POINTS points each.
-
-    Returns a JSON-serialisable mapping, not arrays: numpy scalars would not survive the
-    JSON encoder.
-    """
-    # Indices of the samples to keep. np.linspace walks the whole array from
-    # the first index (0) to the last (len(t_s) - 1) in equal steps, so the
-    # thinned curve preserves the shape of the original; astype(int) turns the
-    # floating fractions into valid positions. When the series is shorter than
-    # MAX_CHECK_POINTS nothing is dropped and every index is returned.
-    keep = np.linspace(0, len(t_s) - 1, min(MAX_CHECK_POINTS, len(t_s))).astype(int)
-    return {
-        # Same `keep` positions for all three series, so entry i of each list refers to the
-        # same instant.
-        "t_s": t_s[keep].tolist(),
-        "measured": _json_list(measured[keep]),
-        "simulated": _json_list(simulated[keep]),
-    }
-
-
-def _json_list(values: np.ndarray) -> list[float | None]:
-    """Values as a JSON-safe list: NaN has no JSON form, so it becomes None."""
-    return [None if np.isnan(value) else float(value) for value in values]
