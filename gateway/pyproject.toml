@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crosscut-gateway"
+version = "0.0.1"
+description = "Write gateway design skeleton: simulator-only test suite, no plant connectivity"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+crosscut_gateway = ["py.typed"]
