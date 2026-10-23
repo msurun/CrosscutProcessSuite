@@ -3,7 +3,8 @@
 Usage: python make_step_csv.py <out.csv>
 
 A level (integrating) loop in manual mode as a historian would export it: semicolon
-separated, decimal comma, ISO UTC times, 2 s samples for 80 min, columns timestamp;LIC1.PV;LIC1.OUT;LIC1.MODE.
+separated, decimal comma, ISO UTC times, 2 s samples for 80 min, columns
+timestamp;LIC1.PV;LIC1.OUT;LIC1.MODE.
 OUT is 50 %, steps to 56 % at 30 min and back to 50 % at 50 min (a doublet). PV integrates
 (OUT - 50) with slope SLOPE (PV per second per % OUT) after a dead time of THETA_S, plus a little
 noise (sd 0.02). The spec compares the slope of the wizard dry run with SLOPE.
