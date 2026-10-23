@@ -1,4 +1,4 @@
-"""The bundled example config (the web UI's "Load example") must be valid and use the frozen defaults."""
+"""The bundled example config (web UI "Load example") must be valid with frozen defaults."""
 
 from __future__ import annotations
 
