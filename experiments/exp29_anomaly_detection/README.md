@@ -101,3 +101,19 @@ Reading: PCA on the PV tags finds drift and points at the right tag, but (1) it 
 value stays inside its normal range. Per the decision rule the module ships with a visible "false alarm rate not validated on real data; expect more" label. A round 2 (new frozen protocol, new seeds 29601+) should test three changes:
 a dynamic PCA (lagged variables, Ku, Storer and Georgakis 1995), an explicit stuck-sensor rule (a tag exactly constant over N samples while the others vary) and a longer `min_consecutive`.
 
+## Round 2 protocol (FROZEN 2026-10-23, before any round 2 code change is run and before any round 2 seed)
+Round 1 missed A1 (false alarms from operator setpoint moves) and A3 (frozen sensor stays in its normal range). Changes under test, all in the module and all off by default so that round 1 stays reproducible:
+1. Dynamic PCA (Ku, Storer and Georgakis 1995): `AnomalyConfig.dynamic_lags` = 2, so the model is fitted on each tag at lags 0, 1 and 2 samples (24 columns for 8 tags; rows lacking history are invalid); limits as in round 1 on the augmented matrix; contributions are summed over the lags of each tag.
+2. Stuck-sensor rule: `AnomalyConfig.stuck_samples` = 15. A tag is stuck when its value is exactly unchanged for 15 consecutive valid samples while at least 3 other tags are not constant over the same samples; it gives an event of kind `stuck` naming the tag; rows are never imputed.
+3. `min_consecutive` = 10 (round 1: 5); `close_after` 10, `alpha` 0.99 and `variance_fraction` 0.90 unchanged.
+Same generator and harness code paths; the harness gets a `--round 2` switch changing only seed ranges, config values, the output names (results/dev2.md, test2.md and the *_runs.json) and the criteria below; hashes re-frozen. Seeds: development 29601..29660, quiet test 29701..29760, fault test 29801..29899. Round 1 seeds are spent; seeds 29401-29600 belong to exp30.
+| id | criterion (test seeds) |
+|----|-----------|
+| B1 | false alarm events of any kind on the 60 quiet records: mean <= 1.0 per 24 h and no record above 3.0 per 24 h |
+| B2 | drift detected within 180 min after onset in >= 80 % of drift records |
+| B3 | freeze detected (an event of kind pca or stuck naming or overlapping the fault, starting within 60 min after onset) in >= 80 % of freeze records |
+| B4 | for detected drift and freeze events, the faulty tag is among the top 2 contributors (stuck events name the tag directly) in >= 70 % |
+| B5 | no imputation property as A5 (100 %) |
+| B6 | `stuck` events on the quiet records: mean <= 0.1 per 24 h |
+Reported, no target: detection rate and delay per kind and per rule (pca vs stuck), spike, bad_quality, dropout, number of valid rows lost to the lag history.
+Decision: if B1 misses again the module keeps the visible "false alarm rate not validated on real data" label and its default `min_consecutive` stays 10; if B3 misses the GUI states that frozen sensors are not reliably detected. Development seeds may be used to fix bugs only; the three changes are frozen as written. Never iterate on test seeds.
