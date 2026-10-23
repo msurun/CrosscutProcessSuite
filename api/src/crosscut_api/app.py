@@ -31,6 +31,7 @@ from crosscut_loops.tuning_types import TuningRequest
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
+from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.supervisor_routes import build_supervisor_router
@@ -212,6 +213,13 @@ class DatasetStore:
         # first sample makes the axis start at 0 (seconds elapsed, a float), which is
         # what the plotting clients expect.
         return (ts - ts[0]) / NS_PER_SECOND, values
+
+    def load_quality(self, dataset_id: str) -> dict[str, np.ndarray]:
+        """Return quality codes (0 good, 1 uncertain, 2 bad) per tag, aligned with the values."""
+        table = read_dataset(_dataset_dir(self.root, dataset_id))
+        tag_ids = list(dict.fromkeys(table["tag_id"].to_pylist()))
+        codes = table["quality"].to_numpy().reshape(-1, len(tag_ids))
+        return {tag: codes[:, j].copy() for j, tag in enumerate(tag_ids)}
 
     def tags_of(self, dataset_dir: Path) -> list[dict[str, Any]]:
         """Return the "tags" list stored in ``tags.json`` next to a dataset."""
@@ -530,6 +538,7 @@ def create_app(data_root: Path) -> FastAPI:
     # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
     app.include_router(build_supervisor_router(store.root, store.load_seconds, store.loops_of))
+    app.include_router(build_anomaly_router(store.root, store.load_seconds, store.load_quality))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
