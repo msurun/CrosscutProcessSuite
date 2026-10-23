@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -38,6 +39,7 @@ from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.intake_routes import build_intake_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.softsensor_routes import build_softsensor_router
+from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
 from crosscut_api.supervisor_routes import build_supervisor_router
 from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
 
@@ -441,6 +443,28 @@ def _loop_record_loader(store: DatasetStore) -> LoopRecordLoader:
     return load
 
 
+def _step_record_loader(store: DatasetStore) -> Callable[[str, str], StepRecord]:
+    """A reader of one loop's PV, SP, OUT and MODE with its time origin and test windows."""
+
+    def load(dataset_id: str, loop_name: str) -> StepRecord:
+        dataset_dir = _dataset_dir(store.root, dataset_id)
+        loop = store.find_loop(dataset_dir, loop_name)
+        t_s, values = store.load_seconds(dataset_id)
+        ts_ns, _ = store.load_wide(dataset_id)
+        windows_file = dataset_dir / "test_windows.json"
+        windows = []
+        if windows_file.exists():
+            windows = json.loads(windows_file.read_text(encoding="utf-8"))
+        tags = (loop.pv, loop.sp, loop.out, loop.mode)
+        arrays = [np.asarray(values[tag], dtype=float) for tag in tags]
+        return StepRecord(
+            t_s, *arrays, origin_utc_s=float(ts_ns[0]) / NS_PER_SECOND, unit=loop.unit,
+            process_kind=loop.process_kind, test_windows=windows,
+        )  # fmt: skip
+
+    return load
+
+
 class _KnowledgeEndpoints:
     """Handlers that read and edit the per-loop knowledge kept in a dataset's project.json."""
 
@@ -531,6 +555,7 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     router.add_api_route(path, knowledge.get_knowledge, methods=["GET"])
     router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
     router.include_router(build_valve_router(_loop_record_loader(store)))
+    router.include_router(build_step_analyzer_router(_step_record_loader(store)))
     return router
 
 

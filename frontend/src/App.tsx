@@ -15,6 +15,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdvisoryPage } from "./components/AdvisoryPage";
 import { AnomalyPage } from "./components/AnomalyPage";
 import { SoftSensorPage } from "./components/SoftSensorPage";
+import { StepsPage } from "./components/StepsPage";
 import { ImportPage } from "./components/ImportPage";
 import { recordHours } from "./anomaly";
 import { FuzzyPage } from "./components/FuzzyPage";
@@ -241,7 +242,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "import"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -283,6 +284,9 @@ export function App() {
                 startUtc={dataset ? dataset.time_range.start_utc : ""}
                 t={t}
               />
+            )}
+            {!datasetMissing && view === "steps" && (
+              <StepsPage datasetId={selectedDatasetId} loopNames={loops.map((loop) => loop.name)} initialLoop={route.loop} t={t} />
             )}
             {view === "import" && (
               <ImportPage

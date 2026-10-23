@@ -795,3 +795,29 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   are exploratory, chosen on these records (so not a validation); constants `NOISE_TRAVEL_PER_H`, `NOISE_REVERSALS_PER_H` in overview.py.
 - Open: two suspicious "oscillating" flags (a 13 h period over a 5.5 day record, an 18 min period inside a step test); the per-loop
   table with names is outside the repo (owner's Drive). Tests: 15 new, 1873 pytest, 650 vitest, 47 e2e twice.
+
+## Step analyzer (2026-10-23, step 3)
+- Design `docs/design/step-analyzer.md`. `loops/step_events.py` (OUT steps in manual by two-sided median difference, SP steps in auto,
+  windows clipped by segments, gaps and neighbours), `step_fit.py` (FOPDT and IPDT by variable projection on the grid of dead time and
+  time constant, numpy only; SE of gain/slope from the linear covariance inflated for residual autocorrelation, SE of tau/theta from
+  profile-SSE intervals), `step_consistency.py` (a row whose gain differs from the loop median by > max(3 MAD, 25 %) is downgraded),
+  `step_analyzer.py` (payload with verdicts, test-window label, logbook match, thinned samples), `api/step_analyzer_routes.py`
+  (`POST /datasets/{id}/steps`, one loop per call), Steps view (en/pl/es).
+- Bugs found by running it on the October record: the median-difference peak was shifted by the block length and read size 0; the SNR
+  looked at an empty slice; test labels compared relative with absolute times; a placeholder in the fit left dead code and a nonsense
+  edge flag. First numbers: closed-loop SP steps of the flow loops give a small SE but a gain that varies by up to a factor 8 between
+  steps of one loop, hence the consistency check (SE alone is not honest for closed-loop fits). Level loops: the October SP steps are
+  too small (3 cm against 3-9 cm noise): all weak. Not a validation; no pass/fail criteria were set.
+- Tests: 18 fit, 16 event, 16 payload, 11 API, 19 vitest, 3 e2e (axe).
+
+## Step analyzer (2026-10-23, step 3)
+- New view "Steps": `loops/step_events.py` (OUT steps in manual by two-sided median difference, SP steps in auto), `step_fit.py`
+  (FOPDT / IPDT by variable projection, numpy only, standard errors from the linear covariance with autocorrelation inflation and
+  profile-SSE intervals for tau and theta), `step_consistency.py` (repeated steps must agree: `inconsistent_with_median`),
+  `step_analyzer.py` (payload with test-window and logbook alignment), `POST /datasets/{id}/steps`, GUI + en/pl/es. Design: `docs/design/step-analyzer.md`.
+- Bugs found by running it on the real records: median-difference plateau gave wrong event index and size; SNR window indexing
+  returned 0; test labels compared relative with absolute time. Synthetic recovery: K 0.795 (true 0.8), tau 113 (120).
+- Real finding (October, flow loops, closed-loop SP steps): SE alone is optimistic (gain 0.8 to 9 between steps of one loop), hence
+  the consistency check and the `closed_loop` flag; level loops' SP steps are weak (SNR 2-5). Open-loop OUT steps exist only on
+  one manual loop. Pump-speed steps are not loop records: they need step 4.
+- Tests: 61 Python, 19+ vitest, 3 e2e (axe 1440/390). Whole suite 1934 pytest, 679 vitest, 50 e2e twice.
