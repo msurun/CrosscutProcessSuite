@@ -85,13 +85,17 @@ def detect_delimiter(text: str) -> str:
     return best
 
 
-def _load_rows(path: Path, delimiter: str) -> tuple[list[str], list[list[str]], str]:
-    """Header, data rows of the modal width, and the delimiter used."""
-    raw = path.read_bytes()
+def decode_bytes(raw: bytes) -> str:
+    """Text of a CSV file: UTF-8 (BOM allowed), else Latin-1."""
     try:
-        text = raw.decode("utf-8-sig")
+        return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        text = raw.decode("latin-1")
+        return raw.decode("latin-1")
+
+
+def table_from_text(text: str, delimiter: str) -> tuple[list[str], list[list[str]], str]:
+    """Header, data rows of the modal width, and the delimiter used (detected when 'auto')."""
+    text = text.lstrip("﻿")
     if not text.strip():
         raise ValueError("empty file")
     delim = detect_delimiter(text) if delimiter == "auto" else delimiter
@@ -177,7 +181,7 @@ def parse_mode(cell: str, decimal: str, manual_value: float) -> float:
     return 0.0 if number == manual_value else 1.0
 
 
-def _detect_decimal(mode: str, delimiter: str, cells: list[str]) -> str:
+def detect_decimal(mode: str, delimiter: str, cells: list[str]) -> str:
     """'.' or ',' from the option or, when auto, from the cells (not the delimiter)."""
     if mode in ("comma", "dot"):
         return "," if mode == "comma" else "."
@@ -211,7 +215,7 @@ def _wide(header: list[str], rows: list[list[str]], o: ReadOptions, delim: str) 
         "mode": find_column(header, o.mode_col, (), "MODE") if o.mode_col else None,
     }
     used = {k: i for k, i in index.items() if i is not None}
-    decimal = _detect_decimal(o.decimal, delim, [r[i] for r in rows for i in used.values()])
+    decimal = detect_decimal(o.decimal, delim, [r[i] for r in rows for i in used.values()])
     t, absolute, how = parse_times([r[i_t] for r in rows], o.time_format, decimal)
     cols = [np.array([_converter(k, decimal, o)(r[i]) for r in rows]) for k, i in used.items()]
     t, arrays = _sorted_unique(t, cols)
@@ -266,7 +270,7 @@ def _long(header: list[str], rows: list[list[str]], o: ReadOptions, delim: str) 
     i_tag = find_column(header, o.tag_col, TAG_NAMES, "tag")
     i_val = find_column(header, o.value_col, VALUE_NAMES, "value")
     i_q = find_column(header, o.quality_col, QUALITY_NAMES, "quality") if o.quality_col else None
-    decimal = _detect_decimal(o.decimal, delim, [r[i_val] for r in rows])
+    decimal = detect_decimal(o.decimal, delim, [r[i_val] for r in rows])
     wanted = _wanted_tags(o, {r[i_tag] for r in rows})
     groups = _long_series(rows, (i_t, i_tag, i_val, i_q))
     empty = [n for _, n in wanted if not groups.get(n)]
@@ -282,11 +286,16 @@ def _long(header: list[str], rows: list[list[str]], o: ReadOptions, delim: str) 
 
 
 def read_record(path: Path, options: ReadOptions) -> Record:
-    """Read the CSV at ``path`` into a Record; long layout when --tag-pv and --tag-out are given.
+    """Read the CSV at ``path`` into a Record (see `read_record_text`)."""
+    return read_record_text(decode_bytes(path.read_bytes()), options)
+
+
+def read_record_text(text: str, options: ReadOptions) -> Record:
+    """Read CSV text into a Record; long layout when --tag-pv and --tag-out are given.
 
     Raises ValueError with a readable message for unreadable files, unknown columns or tags.
     """
-    header, rows, delim = _load_rows(path, options.delimiter)
+    header, rows, delim = table_from_text(text, options.delimiter)
     if not rows:
         raise ValueError("the file has a header but no data rows")
     if options.tag_pv or options.tag_out:

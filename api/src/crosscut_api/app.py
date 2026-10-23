@@ -2,7 +2,8 @@
 
 Datasets and loops are read-only. A client can write only configuration kept under the data
 root: a fuzzy rule base (see fuzzy_routes) and the per-loop knowledge in a dataset's
-project.json (see _KnowledgeEndpoints). The valve stroke test (valve_routes) only reads a
+project.json (see _KnowledgeEndpoints), and intake_routes creates one new dataset folder from
+an uploaded step-test CSV. The valve stroke test (valve_routes) only reads a
 record. Nothing here writes to a plant.
 """
 
@@ -34,6 +35,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
+from crosscut_api.intake_routes import build_intake_router
 from crosscut_api.softsensor_routes import build_softsensor_router
 from crosscut_api.supervisor_routes import build_supervisor_router
 from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
@@ -541,6 +543,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_supervisor_router(store.root, store.load_seconds, store.loops_of))
     app.include_router(build_anomaly_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_softsensor_router(store.root, store.load_seconds, store.load_quality))
+    app.include_router(build_intake_router(store.root, store.loops_of))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
