@@ -112,6 +112,7 @@ export function validDatasetId(id: string): boolean {
 const NOTE_PLACEHOLDERS: Record<string, Record<string, string>> = {
   tz_iana: { zone: "zone", first: "offset_first_hours", last: "offset_last_hours" },
   tz_utc: {},
+  out_range_assumed: { loops: "loops" },
   mode_leading_gap: {},
   tz_offset: { hours: "hours" },
   gaps: { count: "count", period: "median_period_s" },

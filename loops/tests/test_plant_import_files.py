@@ -457,3 +457,16 @@ def test_import_plant_uses_the_same_safe_ids_in_data_tags_and_project(
     assert data_ids == tag_ids
     for loop in loops:
         assert {loop["pv"], loop["sp"], loop["out"], loop["mode"]} <= tag_ids
+
+
+def test_import_plant_assumes_a_percent_out_range_when_out_stays_in_0_100(
+    wide_csv: Path, tmp_path: Path
+) -> None:
+    """Valve KPIs need the OUT range: an output inside 0-100 gets 0..100 and a note."""
+    out_dir = tmp_path / "dataset"
+    result = import_plant(wide_csv, DICTIONARY_TEXT, out_dir, UTC_SPEC, scope="process")
+
+    loops = json.loads((out_dir / "project.json").read_text("utf-8"))["loops"]
+    assert loops
+    assert all(loop["out_eng_min"] == 0 and loop["out_eng_max"] == 100 for loop in loops)
+    assert "out_range_assumed" in [note.code for note in result.notes]

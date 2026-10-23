@@ -221,9 +221,11 @@ def _write_import(
     info = DatasetInfo(out_dir.name, {"kind": "file"}, start_utc, tags_document)
     write_dataset(out_dir, samples, info)
     windows = test_windows(table.ts_ns, table.test)
-    _write_project(out_dir, loops, ids)
+    percent_outputs = _percent_output_loops(table, loops)
+    _write_project(out_dir, loops, ids, percent_outputs)
     _write_windows(out_dir, windows)
     notes = _import_notes(table, scope, len(ids), skipped, mode_gap)
+    notes.extend(_range_notes(percent_outputs))
     return PlantImportResult(notes, loops, len(ids), skipped, windows)
 
 
@@ -271,10 +273,40 @@ def _fill_one_mode_column(signal: np.ndarray) -> bool:
     return had_leading_gap
 
 
-def _write_project(out_dir: Path, loops: list[DetectedLoop], ids: list[str]) -> None:
+def _range_notes(percent_outputs: set[str]) -> list[Note]:
+    """The note that OUT 0-100 % was assumed, or nothing when no loop needed it."""
+    if not percent_outputs:
+        return []
+    text = f"OUT range 0-100 % assumed for {len(percent_outputs)} loop(s) (OUT stays in 0-100)"
+    return [Note("out_range_assumed", text, {"loops": len(percent_outputs)})]
+
+
+def _percent_output_loops(table: PlantTable, loops: list[DetectedLoop]) -> set[str]:
+    """Ids of the complete loops whose OUT values all lie in -1..101: read as percent 0-100.
+
+    Valve KPIs (travel, reversals) and saturation need the OUT engineering range; a controller
+    output that never leaves 0-100 is a percent output, so the range is assumed and noted in the
+    import notes. The Knowledge editor can override it per loop.
+    """
+    found: set[str] = set()
+    for loop in loops:
+        values = table.columns.get(str(loop.out))
+        finite = None if values is None else values[np.isfinite(values)]
+        if finite is not None and finite.size and finite.min() >= -1.0 and finite.max() <= 101.0:
+            found.add(loop.id)
+    return found
+
+
+def _write_project(
+    out_dir: Path, loops: list[DetectedLoop], ids: list[str], percent_outputs: set[str]
+) -> None:
     """Write project.json: one entry per complete loop, tag ids as written."""
     written = set(ids)
-    entries = [_project_entry(loop) for loop in loops if _is_written_loop(loop, written)]
+    entries = [
+        _project_entry(loop, loop.id in percent_outputs)
+        for loop in loops
+        if _is_written_loop(loop, written)
+    ]
     (out_dir / "project.json").write_text(
         json.dumps({"loops": entries}, indent=2) + "\n", encoding="utf-8"
     )
@@ -287,9 +319,9 @@ def _is_written_loop(loop: DetectedLoop, written: set[str]) -> bool:
     )
 
 
-def _project_entry(loop: DetectedLoop) -> dict[str, object]:
+def _project_entry(loop: DetectedLoop, percent_output: bool = False) -> dict[str, object]:
     """One project.json loop entry (the four main signals are never None)."""
-    return {
+    entry: dict[str, object] = {
         "id": loop.id,
         "name": loop.name,
         "pv": _tag_id(str(loop.pv)),
@@ -300,6 +332,9 @@ def _project_entry(loop: DetectedLoop) -> dict[str, object]:
         "process_kind": loop.process_kind,
         "cell": loop.cell,
     }
+    if percent_output:
+        entry.update({"out_eng_min": 0, "out_eng_max": 100})
+    return entry
 
 
 def _write_windows(out_dir: Path, windows: list[dict]) -> None:

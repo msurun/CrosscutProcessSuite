@@ -1009,5 +1009,9 @@
   "plant.note.read_plant": "Wczytano dane instalacji: {rows} wierszy, {columns} kolumn.",
   "plant.note.import_scope": "Zakres importu '{scope}': zapisano {written} tagów, pominięto {skipped}.",
   "plant.note.gaps": "Wykryto {count} luk w danych dłuższych niż {period} s.",
-  "plant.note.mode_leading_gap": "Początkowy brak wartości trybu (MODE) uzupełniono pierwszą znaną wartością."
+  "plant.note.mode_leading_gap": "Początkowy brak wartości trybu (MODE) uzupełniono pierwszą znaną wartością.",
+  "finding.noise_driven": "Zawór poruszany szumem: {travel} % przemieszczenia i {reversals} zmian kierunku na godzinę, bez regularnego cyklu",
+  "next.noise_driven": "Sprawdź szum PV i jego filtr, człon różniczkujący i wzmocnienie regulatora, zanim zmienisz nastawy.",
+  "action.review_noise_response": "Zawór przemieszcza się {travel} % na godzinę przy {reversals} zmianach kierunku na godzinę i bez regularnego cyklu; sprawdź szum PV, filtr i wzmocnienie przed ponownym strojeniem.",
+  "plant.note.out_range_assumed": "Przyjęto zakres OUT 0-100 % dla {loops} pętli, których wyjście mieści się w 0-100; zmień w edytorze wiedzy, jeśli zakres zaworu jest inny"
 }

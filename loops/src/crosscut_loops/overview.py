@@ -66,6 +66,7 @@ SATURATED_CODE = "saturated"
 OSCILLATING_CODE = "oscillating"
 POOR_PERFORMANCE_CODE = "poorPerformance"
 STICTION_CODE = "stiction"
+NOISE_DRIVEN_CODE = "noise_driven"
 
 WINDOW_KIND_CAUSE = "cause"
 WINDOW_KIND_EXAMPLE = "example"
@@ -229,6 +230,7 @@ def findings_of(report: LoopReport, settings: LoopSettings) -> list[Finding]:
         _flatline_finding(report, settings),  # PV frozen: often the root cause
         _classify_finding(report),  # manual, saturated, oscillating or poor performance
         _stiction_finding(report),  # valve sticking: fixed by maintenance, not by tuning
+        _noise_driven_finding(report),  # control action driven by measurement noise
     )
     # Drop the None entries and keep the tuple order, most urgent first.
     return [finding for finding in candidates if finding is not None]
@@ -276,6 +278,39 @@ def _stiction_finding(report: LoopReport) -> Finding | None:
     if not _stiction_suspected(report):
         return None
     return Finding(STICTION_CODE, {})
+
+
+# Exploratory thresholds of the noise-driven check (2026-10-23, first real flotation data): a valve
+# that travels this much and reverses this often while no regular cycle exists is moved by
+# measurement noise, not by a disturbance. On the owner's 10 s records level loops showed 55-350 %/h
+# and 37-190 reversals/h, flow loops 1-37 %/h; the values are advice limits, not validated.
+NOISE_TRAVEL_PER_H = 50.0
+NOISE_REVERSALS_PER_H = 30.0
+TRAVEL_PARAM = "travel"
+REVERSALS_PARAM = "reversals"
+
+
+def is_noise_driven(report: LoopReport) -> bool:
+    """True when the valve moves a lot and reverses often but the loop shows no regular cycle.
+
+    Needs the valve KPIs (OUT range known). A manual loop and an oscillating loop have their own
+    findings, so they are excluded here.
+    """
+    travel, reversals = report.valve_travel_per_h, report.valve_reversals_per_h
+    if travel is None or reversals is None:
+        return False
+    if report.classification in (MANUAL_CLASSIFICATION, OSCILLATING_CODE):
+        return False
+    return travel >= NOISE_TRAVEL_PER_H and reversals >= NOISE_REVERSALS_PER_H
+
+
+def _noise_driven_finding(report: LoopReport) -> Finding | None:
+    """The noise-driven finding with the valve travel and reversal rates, or None."""
+    if not is_noise_driven(report):
+        return None
+    travel, reversals = report.valve_travel_per_h or 0.0, report.valve_reversals_per_h or 0.0
+    params = {TRAVEL_PARAM: round(travel), REVERSALS_PARAM: round(reversals)}
+    return Finding(NOISE_DRIVEN_CODE, params)
 
 
 def _harris_share(harris_value: float) -> float:
@@ -415,6 +450,9 @@ def status_level(report: LoopReport, settings: LoopSettings) -> str:
     # the threshold. Each of these is only reached when its knowledge is configured (see
     # monitor.WITHHELD_BY); otherwise the report lists it under not_assessed.
     if report.classification in ("saturated", OSCILLATING_CODE, "poor_performance"):
+        return WARNING_LEVEL
+    # A valve moved by noise wears out and adds noise to the process although no cycle shows.
+    if is_noise_driven(report):
         return WARNING_LEVEL
     # Nothing fired, but if checks were withheld for missing per-loop knowledge, "no problem" would
     # only mean "no problem in the checks that ran": say so instead of showing a green OK.

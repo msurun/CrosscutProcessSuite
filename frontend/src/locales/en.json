@@ -998,5 +998,9 @@
   "plant.note.read_plant": "Read plant data: {rows} rows, {columns} columns",
   "plant.note.import_scope": "Import scope {scope}: written {written}, skipped {skipped}",
   "plant.note.gaps": "Gaps: {count} total, period {period}",
-  "plant.note.mode_leading_gap": "Leading gap in mode data"
+  "plant.note.mode_leading_gap": "Leading gap in mode data",
+  "finding.noise_driven": "Valve moved by noise: {travel} % travel and {reversals} reversals per hour, no regular cycle",
+  "next.noise_driven": "Check the PV noise and its filter, the derivative action and the controller gain before retuning.",
+  "action.review_noise_response": "The valve travels {travel} % per hour with {reversals} reversals per hour and no regular cycle; check the PV noise, filter and gain before retuning.",
+  "plant.note.out_range_assumed": "OUT range 0-100 % assumed for {loops} loop(s) whose output stays in 0-100; change it in the knowledge editor if the valve range differs"
 }

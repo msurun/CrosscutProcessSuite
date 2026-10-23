@@ -1009,5 +1009,9 @@
   "plant.note.read_plant": "Archivo leído: {rows} filas y {columns} columnas procesadas.",
   "plant.note.import_scope": "Alcance aplicado '{scope}': se registraron {written} etiquetas ({skipped} omitidas).",
   "plant.note.gaps": "Se detectaron {count} huecos en el registro que superan {period} s.",
-  "plant.note.mode_leading_gap": "Se detectó un intervalo inicial sin estado de modo; se asume el primer modo válido registrado."
+  "plant.note.mode_leading_gap": "Se detectó un intervalo inicial sin estado de modo; se asume el primer modo válido registrado.",
+  "finding.noise_driven": "Válvula movida por ruido: {travel} % de recorrido y {reversals} inversiones por hora, sin ciclo regular",
+  "next.noise_driven": "Revise el ruido de la PV y su filtro, la acción derivativa y la ganancia del controlador antes de reajustar.",
+  "action.review_noise_response": "La válvula recorre {travel} % por hora con {reversals} inversiones por hora y sin ciclo regular; revise el ruido de la PV, el filtro y la ganancia antes de volver a sintonizar.",
+  "plant.note.out_range_assumed": "Se asumió el rango de OUT 0-100 % en {loops} lazo(s) cuya salida queda en 0-100; cámbielo en el editor de conocimiento si el rango de la válvula es otro"
 }

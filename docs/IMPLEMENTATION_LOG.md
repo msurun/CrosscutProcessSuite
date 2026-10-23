@@ -785,3 +785,13 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   (26 complete) and opens in the Loops view; the June file (47521 x 447) imports in about 30 s. Tests: 50 core, 13 API, 34 vitest, 3 e2e
   (axe at 1440 and 390 px); synthetic fixtures use neutral tag names.
 - Delegation note: the code was written by Foremankit (DeepSeek) in one-file calls; the lead fixed integration bugs by hand.
+
+## Module 1 triage on the first real loops + noise-driven valve warning (2026-10-23, step 2)
+- Exploration, no pass/fail. Both real records (June 17 loops, October 26 loops) imported with the new path; the import now assumes
+  OUT 0-100 % for loops whose OUT never leaves 0-100 and says so in a note (valve KPIs and saturation need the OUT range).
+- Finding: level loops move the valve 55-350 %/h with 37-190 reversals/h, flow loops 1-37 %/h. New finding `noise_driven`
+  (travel >= 50 %/h and reversals >= 30/h and no regular cycle; raises the status to warning) and worklist action
+  `review_noise_response` (before the retuning advice, after manual/flatline/saturation/stiction/cycle/resolution). The thresholds
+  are exploratory, chosen on these records (so not a validation); constants `NOISE_TRAVEL_PER_H`, `NOISE_REVERSALS_PER_H` in overview.py.
+- Open: two suspicious "oscillating" flags (a 13 h period over a 5.5 day record, an 18 min period inside a step test); the per-loop
+  table with names is outside the repo (owner's Drive). Tests: 15 new, 1873 pytest, 650 vitest, 47 e2e twice.

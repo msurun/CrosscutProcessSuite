@@ -23,6 +23,7 @@ FIND_COMMON_SOURCE = "find_common_source"
 TEST_CYCLE_CAUSE = "test_cycle_cause"
 CHECK_OUTPUT_RESOLUTION = "check_output_resolution"
 BUMP_TEST_AND_RETUNE = "bump_test_and_retune"
+REVIEW_NOISE_RESPONSE = "review_noise_response"
 REVIEW_VALVE_SIZING = "review_valve_sizing"
 CONFIGURE_KNOWLEDGE = "configure_knowledge"
 NO_ACTION = "none"
@@ -36,6 +37,9 @@ POOR_PERFORMANCE_CLASSIFICATION = "poor_performance"
 
 FLATLINE_CODE = "flatline"
 STICTION_CODE = "stiction"
+NOISE_DRIVEN_CODE = "noise_driven"
+TRAVEL_PARAM = "travel"
+REVERSALS_PARAM = "reversals"
 STICTION_TEST_ADVICE = "test_valve"
 PERCENT_PARAM = "percent"
 LOOPS_PARAM = "loops"
@@ -141,6 +145,21 @@ def _configure_params(row: Row) -> dict[str, Any]:
     return {MISSING_PARAM: list(row.get("not_assessed") or [])}
 
 
+def _is_noise_driven(row: Row) -> bool:
+    """True when the overview found the valve moved by measurement noise."""
+    return NOISE_DRIVEN_CODE in _finding_codes(row)
+
+
+def _noise_params(row: Row) -> dict[str, Any]:
+    """The valve travel (percent of span per hour) and reversals per hour behind the advice."""
+    travel = _number_or_none(row.get("valve_travel_per_h"))
+    reversals = _number_or_none(row.get("valve_reversals_per_h"))
+    return {
+        TRAVEL_PARAM: None if travel is None else round(travel),
+        REVERSALS_PARAM: None if reversals is None else round(reversals),
+    }
+
+
 def _has_sizing_hint(row: Row) -> bool:
     """True when the valve sizing check produced a hint."""
     return row.get("valve_sizing_hint") is not None
@@ -182,6 +201,8 @@ RULES: tuple[Rule, ...] = (
     (_is_oscillating, TEST_CYCLE_CAUSE, None),
     # Coarse output steps explain a small cycle, so they are checked before calling it poor tuning.
     (_has_coarse_output, CHECK_OUTPUT_RESOLUTION, _resolution_params),
+    # A valve moved by noise is checked before retuning: filtering or detuning may be all it needs.
+    (_is_noise_driven, REVIEW_NOISE_RESPONSE, _noise_params),
     # Poor performance is the retuning case; every mechanical cause above is already excluded.
     (
         lambda row: row.get("classification") == POOR_PERFORMANCE_CLASSIFICATION,
