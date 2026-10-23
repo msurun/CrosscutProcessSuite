@@ -142,3 +142,17 @@ The first round 2 development run (results/dev2.md, dev2_runs.json) found two mo
 2. Lag history bridged time gaps. The lag-augmented rows ignored the time stamps, so once invalid rows were removed a lagged row combined samples about 1 h apart. B5 failed on 1 of 24 records: a PCA event spanning a dropout gap had 107 samples on the full record and 109 on the record with the invalid rows removed. Fix: lagged history breaks when the time step exceeds 1.5 x `sample_period_s`; the affected rows are counted under `skipped_reasons['lag']`.
 
 Development seeds 29601..29660 are spent. The rerun after the fixes reuses them as a bug check only (results/dev2b.md, dev2b_runs.json). No criterion and no seed range changed, and no setting changed apart from the stuck threshold rule above. Round 1 output still reproduces bit-exactly on dev seeds 29001, 29002, 29004 and 29005. The harness only gained `--name` (output base name) and now reports the per-tag longest constant training runs.
+
+## Result round 2 (test seeds 29701..29899, first and only run, 2026-10-23; tables in results/test2.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| B1 | false alarm events on 60 quiet records: mean 1.789 per 24 h (all by the PCA rule), max 4.333 | mean <= 1.0, max <= 3.0 | **no** |
+| B2 | drift detected 19/20 (median delay 116 min) | >= 80 % | yes |
+| B3 | freeze detected 19/20 (19 by the stuck rule, median delay 1.2 min; PCA alone 2) | >= 80 % | yes |
+| B4 | faulty tag in the top 2 (stuck events name it) 0.947 of 38 detected | >= 70 % | yes |
+| B5 | no imputation: 39/39 bad_quality and dropout records (60/60 other kinds) | 100 % | yes |
+| B6 | stuck events on quiet records: mean 0.000 per 24 h | <= 0.1 | yes |
+Reported: spike 0.05; bad_quality and dropout 0.00 (by design: rows skipped, never imputed); SPE limit method empirical on all seeds (the Jackson-Mudholkar h0 is about 0.05 with 24 lagged columns); 84 events started before the fault onset on fault records.
+Reading: the stuck-sensor rule solved freeze detection (0.10 to 0.95) and the false positives of the first attempt were traced to a held signal (ore_hardness_est updates every 30 min), so the stuck threshold is learned per tag from fault-free training data. False alarms of the PCA rule on operator setpoint moves
+fell only from 2.13 to 1.79 per 24 h. The module ships with the visible label "false alarm rate not validated on real data; expect more", default `min_consecutive` 10, dynamic lags 2 and the stuck rule on. A third round would need a new frozen protocol and new seeds (candidates: smoothing statistics, excluding setpoint-move windows, a per-regime model). Line closed for tonight.
+

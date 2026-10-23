@@ -1,0 +1,127 @@
+[exp30] 1/100 seed 29501
+[exp30] 2/100 seed 29502
+[exp30] 3/100 seed 29503
+[exp30] 4/100 seed 29504
+[exp30] 5/100 seed 29505
+[exp30] 6/100 seed 29506
+[exp30] 7/100 seed 29507
+[exp30] 8/100 seed 29508
+[exp30] 9/100 seed 29509
+[exp30] 10/100 seed 29510
+[exp30] 11/100 seed 29511
+[exp30] 12/100 seed 29512
+[exp30] 13/100 seed 29513
+[exp30] 14/100 seed 29514
+[exp30] 15/100 seed 29515
+[exp30] 16/100 seed 29516
+[exp30] 17/100 seed 29517
+[exp30] 18/100 seed 29518
+[exp30] 19/100 seed 29519
+[exp30] 20/100 seed 29520
+[exp30] 21/100 seed 29521
+[exp30] 22/100 seed 29522
+[exp30] 23/100 seed 29523
+[exp30] 24/100 seed 29524
+[exp30] 25/100 seed 29525
+[exp30] 26/100 seed 29526
+[exp30] 27/100 seed 29527
+[exp30] 28/100 seed 29528
+[exp30] 29/100 seed 29529
+[exp30] 30/100 seed 29530
+[exp30] 31/100 seed 29531
+[exp30] 32/100 seed 29532
+[exp30] 33/100 seed 29533
+[exp30] 34/100 seed 29534
+[exp30] 35/100 seed 29535
+[exp30] 36/100 seed 29536
+[exp30] 37/100 seed 29537
+[exp30] 38/100 seed 29538
+[exp30] 39/100 seed 29539
+[exp30] 40/100 seed 29540
+[exp30] 41/100 seed 29541
+[exp30] 42/100 seed 29542
+[exp30] 43/100 seed 29543
+[exp30] 44/100 seed 29544
+[exp30] 45/100 seed 29545
+[exp30] 46/100 seed 29546
+[exp30] 47/100 seed 29547
+[exp30] 48/100 seed 29548
+[exp30] 49/100 seed 29549
+[exp30] 50/100 seed 29550
+[exp30] 51/100 seed 29551
+[exp30] 52/100 seed 29552
+[exp30] 53/100 seed 29553
+[exp30] 54/100 seed 29554
+[exp30] 55/100 seed 29555
+[exp30] 56/100 seed 29556
+[exp30] 57/100 seed 29557
+[exp30] 58/100 seed 29558
+[exp30] 59/100 seed 29559
+[exp30] 60/100 seed 29560
+[exp30] 61/100 seed 29561
+[exp30] 62/100 seed 29562
+[exp30] 63/100 seed 29563
+[exp30] 64/100 seed 29564
+[exp30] 65/100 seed 29565
+[exp30] 66/100 seed 29566
+[exp30] 67/100 seed 29567
+[exp30] 68/100 seed 29568
+[exp30] 69/100 seed 29569
+[exp30] 70/100 seed 29570
+[exp30] 71/100 seed 29571
+[exp30] 72/100 seed 29572
+[exp30] 73/100 seed 29573
+[exp30] 74/100 seed 29574
+[exp30] 75/100 seed 29575
+[exp30] 76/100 seed 29576
+[exp30] 77/100 seed 29577
+[exp30] 78/100 seed 29578
+[exp30] 79/100 seed 29579
+[exp30] 80/100 seed 29580
+[exp30] 81/100 seed 29581
+[exp30] 82/100 seed 29582
+[exp30] 83/100 seed 29583
+[exp30] 84/100 seed 29584
+[exp30] 85/100 seed 29585
+[exp30] 86/100 seed 29586
+[exp30] 87/100 seed 29587
+[exp30] 88/100 seed 29588
+[exp30] 89/100 seed 29589
+[exp30] 90/100 seed 29590
+[exp30] 91/100 seed 29591
+[exp30] 92/100 seed 29592
+[exp30] 93/100 seed 29593
+[exp30] 94/100 seed 29594
+[exp30] 95/100 seed 29595
+[exp30] 96/100 seed 29596
+[exp30] 97/100 seed 29597
+[exp30] 98/100 seed 29598
+[exp30] 99/100 seed 29599
+[exp30] 100/100 seed 29600
+# exp30 results: test seeds
+
+Seeds: 100; runtime 1800 s. Test seeds, run once.
+
+## Criteria
+
+| id | values | verdict |
+| --- | --- | --- |
+| S1 | normal records with RMSE >= 20 % below carry-forward: 31/34 (0.912) | PASS |
+| S2 | regime: 0.988 of 46936 rows outside the training hardness range flagged; normal: 0.975 of 340781 rows inside the range ok | PASS |
+| S3 | drift raised by the deadline 5/33 (0.152); raised on normal records 5/34 (0.147) | MISS |
+| S4 | identical coefficients without post-cut labs 100/100; CV gap = longest lag 100/100 (record truncated at the cut also identical 100/100) | PASS |
+
+## Reported (no target)
+
+| scenario | records | RMSE | RMSE corrected | RMSE carry-forward | R2 | beats baseline | ok | out_of_range | extrapolation | components |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| normal | 34 | 0.857 | 0.834 | 1.384 | 0.195 | 34 | 0.971 | 0.009 | 0.021 | [1, 2, 3, 4] |
+| regime | 33 | 1.485 | 1.391 | 1.883 | 0.330 | 29 | 0.831 | 0.148 | 0.021 | [1, 2, 3] |
+| drift | 33 | 0.861 | 0.842 | 1.416 | 0.252 | 33 | 0.968 | 0.011 | 0.021 | [1, 2, 3, 5] |
+
+- regime window (24 h) RMSE: estimate 3.246, carry-forward 2.616 (mean over records)
+- drift records: first drift flag after onset, delay [h]: [61.0, 97.0, 85.0, 89.0, 121.0, 129.0, 93.0]
+- drift records flagged between the cut and the onset: 0
+- S4 refit model sha256 identical: 100 records
+
+

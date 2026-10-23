@@ -65,3 +65,14 @@ The first development run (results/dev.md) exposed two module design faults; the
 - Drift threshold: the tracker compared the smoothed (EWMA) bias with the raw error sigma (cross-validated RMSE), so the limit did not match the spread of the smoothed statistic. Now threshold = k_sigma * sigma_cv * sqrt(w / (2 - w)) (stationary sd of an EWMA with weight w); with k = 2 that gave 28 % false flags per 60 lab results, k = 3 gives 3.65 %, so k_sigma is 3.0 (EWMA weight 0.3 and 3 consecutive unchanged). The harness sets BIAS_K_SIGMA = 3.0 and reports the tracker's `threshold`.
 - The development seeds 29401..29440 are spent (both runs used them). The S2 and S3 criteria were not changed.
 - Round-0 hashes (results/dev.md): exp30.py 94cb36485aaa2437e69a06192e717d26eb9cd4b9e60a00501b37e1fbd346502a, pls.py 472e5e48aa7821e6c8a6483b68ac38aa0442cb9580d875b317687cc0bb85a639, bias.py 138de693085aaca5cd14e215292d06b2200952dec10ac3419dff927e65897e24; the other files are unchanged. exp30.py also gained a `--name` option for the result file stem.
+
+## Result (test seeds 29501..29600, first and only run, 2026-10-23; tables in results/test.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| S1 | normal records with RMSE at least 20 % below carry-forward: 31/34 (0.912); RMSE 0.857 vs 1.384 (R2 0.195) | >= 0.80 | yes |
+| S2 | regime: 0.988 of 46936 rows outside the training hardness range flagged; normal: 0.975 of 340781 in-range rows ok | >= 0.90, >= 0.90 | yes |
+| S3 | drift raised by the deadline in 5/33 drift records (0.152) and in 5/34 normal records (0.147) | >= 0.80, <= 0.10 | **no** |
+| S4 | identical coefficients without post-cut labs 100/100; CV gap = longest lag 100/100 | 100 % | yes |
+Reported: the model beats carry-forward in every normal and drift record and in 29 of 33 regime records overall, but inside the 24 h regime window it is worse than carry-forward (RMSE 3.25 vs 2.62), which is exactly when the validity flags are raised (regime rows flagged 0.988).
+Reading: validity flags work and must be respected (do not use the estimate where a flag is shown); the bias-based drift flag has no skill in this simulator (it fires as often on stable records as on drifting ones, drift of 0.1 sd per day being about 0.4 sd at the deadline against a noisy model), so the GUI marks it as not validated and shows the smoothed bias for the engineer's judgement. Not validated on any real plant. A better drift detector (CUSUM on lab residuals with larger drift or longer horizon) needs a new frozen protocol and new seeds (29601+ are used by exp29 round 2: take 30801+).
+
