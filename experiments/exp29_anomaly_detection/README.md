@@ -177,3 +177,15 @@ sha256 of the LF-normalised file (`tr -d '\r' < f | sha256sum`), 2026-10-23, aft
 | anomaly/src/crosscut_anomaly/detect.py | b342f3c7a1091e96380d63803db120755c0be34da0a70e28d46d75a49f3463a0 |
 | anomaly/src/crosscut_anomaly/config.py | eb8bed70818011bd180c55ae18284bdd742e3c8b4dd01161cdf18a75fe9bd6b6 |
 | anomaly/src/crosscut_anomaly/distributions.py | 382e28fd8c1890cca8ba8131ecd5fa43144312da3ec6a62f5ebbb841970846fd |
+
+## Result round 3 (test seeds 33001..33060 quiet and 33101..33199 fault, first and only run, 2026-10-23; tables in results/test3.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| B1 | false alarm events on 60 quiet records: mean 0.356 per 24 h, max 1.667 | mean <= 1.0, max <= 3.0 | yes |
+| B2 | drift detected 16/20 (0.800, median delay 132 min) | >= 0.80 | yes (exactly at the limit) |
+| B3 | freeze detected 18/20 (18 by the stuck rule, median delay 1.5 min) | >= 0.80 | yes |
+| B4 | faulty tag in the top 2 (stuck events name it) 1.000 of 34 detected | >= 0.70 | yes |
+| B5 | no imputation 39/39 bad_quality and dropout records (60/60 other kinds) | 100 % | yes |
+| B6 | stuck events on quiet records 0.000 per 24 h | <= 0.1 | yes |
+Reading: the false alarm rate fell from 1.79 (round 2) to 0.36 per 24 h on fresh simulated records by calibrating the alarm limits more conservatively (alpha 0.999) and requiring 15 consecutive samples; the price is slower and slightly less sensitive drift detection (0.95 to 0.80, median delay 117 to 132 min), and drift detection sits exactly on the acceptance limit, so a slower or smaller drift than the injected one (1 sd per hour for 6 h) would be missed more often. Spikes (0.05), bad quality and dropout rows (0) are still not detected; those rows are skipped, never imputed.
+Shipped settings: dynamic lags 2, stuck rule 15 (per-tag threshold learned from training), `min_consecutive` 15, alpha 0.999. Still simulation only; the principled remaining weakness is limits fitted on a short training record (48 h), so on real data use weeks of quiet training data.
