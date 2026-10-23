@@ -15,6 +15,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdvisoryPage } from "./components/AdvisoryPage";
 import { AnomalyPage } from "./components/AnomalyPage";
 import { SoftSensorPage } from "./components/SoftSensorPage";
+import { ImportPage } from "./components/ImportPage";
 import { recordHours } from "./anomaly";
 import { FuzzyPage } from "./components/FuzzyPage";
 import { LoopsPage, type AnalysisInfo } from "./components/LoopsPage";
@@ -34,7 +35,7 @@ interface LanguageState {
 }
 
 /** Loads the dataset catalogue on mount; `retry` loads it again after a failure. */
-function useDatasets(): { datasets: DatasetSummary[]; failed: boolean; loaded: boolean; retry: () => void } {
+function useDatasets(): { datasets: DatasetSummary[]; failed: boolean; loaded: boolean; retry: () => void; refresh: () => void } {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -60,7 +61,8 @@ function useDatasets(): { datasets: DatasetSummary[]; failed: boolean; loaded: b
     };
   }, [attempt]);
 
-  return { datasets, failed, loaded, retry: () => setAttempt((count) => count + 1) };
+  const reload = useCallback(() => setAttempt((count) => count + 1), []);
+  return { datasets, failed, loaded, retry: reload, refresh: reload };
 }
 
 /** Loads the analysed loops of `datasetId` for grouping tags; a failure just means no grouping by loop. */
@@ -134,7 +136,7 @@ function useTags(datasetId: string): TagInfo[] {
 
 /** Root component: wires the data hooks, the layout and the trend panes. */
 export function App() {
-  const { datasets, failed, loaded, retry } = useDatasets();
+  const { datasets, failed, loaded, retry, refresh } = useDatasets();
   const { language, t, setLanguage } = useLanguage();
   const [theme, setTheme] = useTheme();
   const [route, navigate] = useRoute();
@@ -239,7 +241,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "import"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -279,6 +281,13 @@ export function App() {
                 datasetId={selectedDatasetId}
                 recordHours={dataset ? recordHours(dataset.time_range.start_utc, dataset.time_range.end_utc) : null}
                 startUtc={dataset ? dataset.time_range.start_utc : ""}
+                t={t}
+              />
+            )}
+            {view === "import" && (
+              <ImportPage
+                onCreated={refresh}
+                onOpen={(id, loop) => navigate({ dataset: id, view: "loops", loop, sub: "tuning" })}
                 t={t}
               />
             )}

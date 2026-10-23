@@ -46,13 +46,22 @@ export class ApiError extends Error {
   readonly code: string | null;
   /** The request field the error is about, when the server names one. */
   readonly field: string | null;
+  /** Codes of the findings that made the server refuse a record (step-test intake), else empty. */
+  readonly findingCodes: string[];
 
-  constructor(status: number, message: string, code: string | null = null, field: string | null = null) {
+  constructor(
+    status: number,
+    message: string,
+    code: string | null = null,
+    field: string | null = null,
+    findingCodes: string[] = [],
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.field = field;
+    this.findingCodes = findingCodes;
   }
 }
 
@@ -454,20 +463,22 @@ async function sendJson<T>(method: string, url: string, body: unknown): Promise<
     let message = response.statusText;
     let code: string | null = null;
     let field: string | null = null;
+    let findingCodes: string[] = [];
     try {
       const detail = ((await response.json()) as { detail?: unknown }).detail;
       if (typeof detail === "string") message = detail;
       else if (typeof detail === "object" && detail !== null) {
         // Structured input error: {code, message, field}.
-        const info = detail as { code?: unknown; message?: unknown; field?: unknown };
+        const info = detail as { code?: unknown; message?: unknown; field?: unknown; finding_codes?: unknown };
         if (typeof info.message === "string") message = info.message;
+        if (Array.isArray(info.finding_codes)) findingCodes = info.finding_codes.map(String);
         if (typeof info.code === "string") code = info.code;
         if (typeof info.field === "string") field = info.field;
       }
     } catch {
       // keep the status text
     }
-    throw new ApiError(response.status, message, code, field);
+    throw new ApiError(response.status, message, code, field, findingCodes);
   }
   return (await response.json()) as T;
 }
@@ -1153,4 +1164,136 @@ export async function fetchSoftSensorModel(sid: string): Promise<SoftSensorModel
 export async function runSoftSensor(datasetId: string, sid: string, window: AnomalyWindow = {}, maxPoints?: number): Promise<SoftSensorRun> {
   const body = { ...windowBody(window), ...(maxPoints === undefined ? {} : { max_points: maxPoints }) };
   return sendJson<SoftSensorRun>("POST", `${softOnDataset(datasetId, sid)}/run`, body);
+}
+
+// --- Step-test intake (routes in api/src/crosscut_api/intake_routes.py) ---
+
+/** Which columns (wide layout) or tags (long layout) hold the signals; an empty field is left out. */
+export interface IntakeMapping {
+  time_col?: string;
+  pv_col?: string;
+  out_col?: string;
+  sp_col?: string;
+  mode_col?: string;
+  tag_pv?: string;
+  tag_out?: string;
+  tag_sp?: string;
+  tag_mode?: string;
+  tag_col?: string;
+  value_col?: string;
+  quality_col?: string;
+}
+
+/** How the server parses the text; "auto" detects. */
+export interface IntakeOptions {
+  time_format: "auto" | "iso" | "seconds";
+  decimal: "auto" | "comma" | "dot";
+  delimiter: string;
+}
+
+/** Reply of `POST /intake/preview`: the detected layout and format, first rows and mapping guesses. */
+export interface IntakePreview {
+  layout: "wide" | "long";
+  delimiter: string;
+  decimal: "comma" | "dot";
+  time_format: "iso" | "seconds";
+  columns: string[];
+  rows: string[][];
+  n_rows_estimate: number;
+  suggestions: Record<string, string | null>;
+  tags: string[];
+}
+
+/** One problem found in the record; `blocking` ones make it not usable. */
+export interface IntakeFinding {
+  code: string;
+  text: string;
+  what_to_do: string;
+  blocking: boolean;
+}
+
+/** What the tuning wizard would say about the record (identification dry run). */
+export interface IntakeDryRun {
+  verdict: string;
+  reasons: string[];
+  slope_per_s: number | null;
+  delay_s: number | null;
+  delay_lower_s: number | null;
+  delay_upper_s: number | null;
+  r_squared: number | null;
+  error: string;
+}
+
+/** The record on a uniform grid, thinned for the chart. */
+export interface IntakeSample {
+  t_s: number[];
+  pv: (number | null)[];
+  out: (number | null)[];
+}
+
+/** Verdict of the pre-flight check. */
+export type IntakeVerdict = "ready" | "usable_with_warnings" | "not_usable";
+
+/** Reply of `POST /intake/check`. */
+export interface IntakeCheck {
+  n: number;
+  duration_s: number;
+  dt_median_s: number;
+  dt_max_s: number;
+  uneven_sampling: boolean;
+  out_range: number;
+  n_out_moves: number;
+  first_move_s: number | null;
+  lead_share: number | null;
+  post_last_move_s: number | null;
+  pv_range: number;
+  manual_share: number | null;
+  verdict: IntakeVerdict;
+  findings: IntakeFinding[];
+  dry_run: IntakeDryRun | null;
+  read_as: string[];
+  sample: IntakeSample;
+}
+
+/** The dataset to create from a checked record. */
+export interface IntakeDatasetSpec {
+  dataset_id: string;
+  loop_name: string;
+  process_kind: "integrating" | "self_regulating";
+  pv_unit: string;
+  out_unit: string;
+}
+
+/** Reply of `POST /intake/dataset` (201). */
+export interface IntakeCreated {
+  dataset_id: string;
+  assumptions: string[];
+  loops: { name: string }[];
+}
+
+/** Shared body of check and create. */
+export interface IntakeInput {
+  csvText: string;
+  mapping: IntakeMapping;
+  options: IntakeOptions;
+}
+
+const intakeBody = (input: IntakeInput) => ({ csv_text: input.csvText, mapping: input.mapping, options: input.options });
+
+/** Describe a CSV text: layout, delimiter, decimal, time format, columns, first rows and guesses. @throws {ApiError} 413, 422. */
+export async function previewIntake(csvText: string): Promise<IntakePreview> {
+  return sendJson<IntakePreview>("POST", `${API_PREFIX}/intake/preview`, { csv_text: csvText });
+}
+
+/** Check the mapped record (no file is written). @throws {ApiError} 413, 422 with a plain-text detail. */
+export async function checkIntake(input: IntakeInput): Promise<IntakeCheck> {
+  return sendJson<IntakeCheck>("POST", `${API_PREFIX}/intake/check`, intakeBody(input));
+}
+
+/**
+ * Create the dataset folder from a usable record.
+ * @throws {ApiError} 409 when the id exists, 413 when too large, 422 (with `findingCodes` when not usable).
+ */
+export async function createIntakeDataset(input: IntakeInput, spec: IntakeDatasetSpec): Promise<IntakeCreated> {
+  return sendJson<IntakeCreated>("POST", `${API_PREFIX}/intake/dataset`, { ...intakeBody(input), ...spec });
 }

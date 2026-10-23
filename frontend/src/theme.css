@@ -440,3 +440,9 @@ body {
   .bar-row { grid-template-columns: 1fr 64px; }
   .bar-track { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* Import view */
+.import-paste { font-family: monospace; width: 100%; box-sizing: border-box; }
+.import-numbers dt { min-width: 220px; }
+.import-findings { margin: 8px 0; padding-left: 18px; display: grid; gap: 8px; }
+.import-findings .badge { margin-left: 8px; }
