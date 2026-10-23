@@ -17,6 +17,8 @@ const DEFAULT_HEIGHT_PX = 180;
 const DEFAULT_SYNC_KEY = "crosscut";
 /** Stroke width of the value series lines, in pixels. */
 const SERIES_STROKE_WIDTH = 1.5;
+/** Diameter of a marker-only point, in pixels. */
+const MARKER_SIZE_PX = 8;
 
 export interface TrendPaneProps {
   /** uPlot data layout: [timesInSeconds, ...seriesValues]; null values are gaps. */
@@ -47,6 +49,8 @@ export interface TrendPaneProps {
   roles?: SeriesRole[];
   /** MODE tag values aligned with the time column; manual stretches (0) are shaded. */
   mode?: (number | null)[];
+  /** Indices (in `labels`) of series drawn as markers only, without a line (e.g. lab results). */
+  markerSeries?: number[];
   /** Called with the time (seconds) under the cursor, or null when the cursor leaves the plot. */
   onCursor?: (seconds: number | null) => void;
 }
@@ -119,6 +123,14 @@ const TIME_TICK_SPACE_PX = 100;
 const TICK_FORMAT: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
 const CURSOR_FORMAT: Intl.DateTimeFormatOptions = { ...TICK_FORMAT, second: "2-digit" };
 
+/** One value series: a line, or markers only when its index is listed in `markerSeries`. */
+function seriesOptions(props: TrendPaneProps, index: number): uPlot.Series {
+  const stroke = readCssVar(props.colors[index]);
+  const base = { label: legendLabel(props, index), value: legendValue, stroke, width: SERIES_STROKE_WIDTH, spanGaps: false };
+  if (!props.markerSeries?.includes(index)) return base;
+  return { ...base, paths: () => null, points: { show: true, size: MARKER_SIZE_PX, stroke, fill: stroke } };
+}
+
 /** Build the uPlot options: colours are resolved once, series come from labels/colors. */
 function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallbacks): uPlot.Options {
   const textColor = readCssVar("--text-muted");
@@ -128,13 +140,7 @@ function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallb
   const formatCursor = timeFormatter(CURSOR_FORMAT);
   const series: uPlot.Series[] = [
     { label: props.timeLabel ?? (isTime ? "time" : (props.xLabel ?? "x")), ...(isTime ? { value: (_: uPlot, v: number | null) => (v === null ? "--" : formatCursor(v)) } : {}) },
-    ...props.labels.map((_, index) => ({
-      label: legendLabel(props, index),
-      value: legendValue,
-      stroke: readCssVar(props.colors[index]),
-      width: SERIES_STROKE_WIDTH,
-      spanGaps: false,
-    })),
+    ...props.labels.map((_, index) => seriesOptions(props, index)),
   ];
   return {
     width,
@@ -271,7 +277,7 @@ export function TrendPane(props: TrendPaneProps) {
       plotRef.current = null;
     };
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
-  }, [props.labels.join("|"), props.colors.join("|"), props.roles?.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
+  }, [props.labels.join("|"), props.colors.join("|"), props.roles?.join("|"), props.markerSeries?.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
 
   // Push new data into the existing plot without re-creating it.
   useEffect(() => {

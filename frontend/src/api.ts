@@ -1010,3 +1010,138 @@ export async function scanAnomalies(datasetId: string, aid: string, window: Anom
   const body = { ...windowBody(window), ...(maxPoints === undefined ? {} : { max_points: maxPoints }) };
   return sendJson<AnomalyScan>("POST", `${anomalyOnDataset(datasetId, aid)}/scan`, body);
 }
+
+// --- PLS soft sensor (advisory only; routes in api/src/crosscut_api/softsensor_routes.py) ---
+
+/** Soft sensor configuration (`schemas/softsensor.schema.json`); mode can only be "off" or "advisory". */
+export interface SoftSensorConfig {
+  schema_version: string;
+  id: string;
+  description?: string;
+  target_tag: string;
+  input_tags: string[];
+  lags_s?: number[];
+  lab_delay_s?: number;
+  sample_period_s?: number;
+  max_components?: number;
+  cv_blocks?: number;
+  mode: "off" | "advisory";
+}
+
+/** One laboratory result; `t_s` is the sample time in seconds from the first sample of the record. */
+export interface LabRow {
+  t_s: number;
+  value: number;
+}
+
+/** The stored lab results (the answer of an upload and of `GET .../lab`). */
+export interface LabSummary {
+  count: number;
+  first_s: number;
+  last_s: number;
+  rows: LabRow[];
+}
+
+/** Lab CSV text; ISO sample times are made relative to `originIso` (an ISO time, the first sample). */
+export interface LabUpload {
+  csvText: string;
+  originIso?: string;
+}
+
+/** Summary of a fitted soft sensor model (`GET .../model` and the answer of a fit). */
+export interface SoftSensorModelSummary {
+  n_components: number;
+  cv_rmse: (number | null)[];
+  chosen_components: number;
+  cv_sigma: number | null;
+  n_train: number;
+  domain_rows: number;
+  r2_train: number | null;
+  sha256: string;
+  window: { start_s: number; end_s: number };
+  dataset_id: string;
+  created_utc: string;
+}
+
+/** Validity of one estimate: usable, an input was missing, outside the trained range, or an unusual combination. */
+export type SoftSensorValidity = "ok" | "missing_input" | "out_of_range" | "extrapolation";
+
+/** Series of a run (possibly thinned to `max_points`); times in seconds from the first sample. */
+export interface SoftSensorSeries {
+  t_s: number[];
+  estimate: (number | null)[];
+  corrected: (number | null)[];
+  bias: (number | null)[];
+  drift: boolean[];
+  validity: SoftSensorValidity[];
+}
+
+/** A stretch (seconds from the first sample) in which the drift flag was raised. */
+export interface DriftEpisode {
+  start_s: number;
+  end_s: number;
+}
+
+/** Result of a run over a window. */
+export interface SoftSensorRun {
+  series: SoftSensorSeries;
+  validity_counts: Record<SoftSensorValidity, number>;
+  drift_episodes: DriftEpisode[];
+  lab_points: LabRow[];
+  n_lab_used: number;
+  latest: {
+    t_s: number;
+    estimate: number | null;
+    corrected: number | null;
+    bias: number | null;
+    drift: boolean;
+    validity: SoftSensorValidity;
+  };
+}
+
+const softUrl = (sid: string): string => `${API_PREFIX}/softsensor/${encodeURIComponent(sid)}`;
+const softOnDataset = (datasetId: string, sid: string): string =>
+  `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/softsensor/${encodeURIComponent(sid)}`;
+
+/** Ids of the saved soft sensor configurations. */
+export async function fetchSoftSensorIds(): Promise<string[]> {
+  return getJson<string[]>(`${API_PREFIX}/softsensor`);
+}
+
+/** One saved soft sensor configuration. */
+export async function fetchSoftSensorConfig(sid: string): Promise<SoftSensorConfig> {
+  return getJson<SoftSensorConfig>(softUrl(sid));
+}
+
+/** Validate and save a configuration under its own id (a 422 error carries the reason). */
+export async function saveSoftSensorConfig(config: SoftSensorConfig): Promise<SoftSensorConfig> {
+  return sendJson<SoftSensorConfig>("PUT", softUrl(config.id), config);
+}
+
+/** Store lab results from CSV text (columns sample_time and value); a 422 error names the bad line. */
+export async function uploadSoftSensorLab(sid: string, upload: LabUpload): Promise<LabSummary> {
+  const body = { csv_text: upload.csvText, ...(upload.originIso ? { origin_iso: upload.originIso } : {}) };
+  return sendJson<LabSummary>("POST", `${softUrl(sid)}/lab`, body);
+}
+
+/** The stored lab results (404 "no lab results uploaded" when there are none). */
+export async function fetchSoftSensorLab(sid: string): Promise<LabSummary> {
+  return getJson<LabSummary>(`${softUrl(sid)}/lab`);
+}
+
+/** Fit on the lab results that were available before `trainEndS` (default: the end of the record). */
+export async function fitSoftSensor(datasetId: string, sid: string, trainEndS?: number): Promise<SoftSensorModelSummary> {
+  const body = trainEndS === undefined ? {} : { train_end_s: trainEndS };
+  return sendJson<SoftSensorModelSummary>("POST", `${softOnDataset(datasetId, sid)}/fit`, body);
+}
+
+/** Summary of the stored model (404 "model not fitted" when there is none). */
+export async function fetchSoftSensorModel(sid: string): Promise<SoftSensorModelSummary> {
+  return getJson<SoftSensorModelSummary>(`${softUrl(sid)}/model`);
+}
+
+/** Run the stored model over a window with lab bias tracking; `maxPoints` caps the returned series. */
+export async function runSoftSensor(datasetId: string, sid: string, window: AnomalyWindow = {}, maxPoints?: number): Promise<SoftSensorRun> {
+  const body = { ...windowBody(window), ...(maxPoints === undefined ? {} : { max_points: maxPoints }) };
+  return sendJson<SoftSensorRun>("POST", `${softOnDataset(datasetId, sid)}/run`, body);
+}

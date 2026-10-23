@@ -45,6 +45,12 @@ describe("parseHash", () => {
     });
   });
 
+  it("parses the soft sensor view and formats it back", () => {
+    const route = parseHash("#/d/sales/softsensor");
+    expect(route).toEqual({ dataset: "sales", view: "softsensor", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/d/sales/softsensor");
+  });
+
   it("parses a loop without a sub, defaulting sub to detail", () => {
     expect(parseHash("#/d/sales/loops/checkout")).toEqual({
       dataset: "sales",

@@ -424,6 +424,18 @@ body {
 .contrib-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .anomaly-chart { margin: 12px 0; }
 .anomaly-chart figcaption { font-weight: 600; margin-bottom: 4px; }
+.soft-chart { margin: 12px 0; }
+.soft-chart figcaption { font-weight: 600; margin-bottom: 4px; }
+.soft-lab-form { display: grid; gap: 8px; max-width: 640px; }
+.soft-lab-form textarea { font-family: monospace; width: 100%; box-sizing: border-box; }
+.validity-strip { display: flex; height: 12px; margin: 8px 0; border: 1px solid var(--border); border-radius: 2px; overflow: hidden; background: var(--surface-2); }
+.validity-segment { display: block; height: 100%; }
+.validity-ok { background: var(--status-ok); }
+.validity-missing_input { background: var(--status-unused); }
+.validity-out_of_range { background: var(--status-problem); }
+.validity-extrapolation { background: var(--status-warning); }
+.validity-list { margin: 0; padding-left: 16px; display: grid; gap: 6px; }
+.validity-explain { display: block; }
 @media (max-width: 800px) {
   .bar-row { grid-template-columns: 1fr 64px; }
   .bar-track { grid-column: 1 / -1; grid-row: 2; }

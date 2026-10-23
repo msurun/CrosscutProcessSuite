@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "id": "mill_circuit_pls",
+  "description": "Advisory only: PLS soft sensor of a laboratory quality value (lab.quality, supplied as a lab CSV) from the 7 process variables of the simulated mill circuit, without the online P80. Nothing is written to a plant.",
+  "target_tag": "lab.quality",
+  "input_tags": [
+    "sim.mc.hpgr_press",
+    "sim.mc.mill_feed",
+    "sim.mc.cyc_water",
+    "sim.mc.feed_moisture",
+    "sim.mc.mill_power",
+    "sim.mc.hpgr_power",
+    "sim.mc.ore_hardness_est"
+  ],
+  "lags_s": [0, 300, 900, 1800],
+  "lab_delay_s": 3600,
+  "sample_period_s": 60,
+  "mode": "advisory"
+}

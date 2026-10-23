@@ -14,6 +14,7 @@ import { ContextBar } from "./components/ContextBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdvisoryPage } from "./components/AdvisoryPage";
 import { AnomalyPage } from "./components/AnomalyPage";
+import { SoftSensorPage } from "./components/SoftSensorPage";
 import { recordHours } from "./anomaly";
 import { FuzzyPage } from "./components/FuzzyPage";
 import { LoopsPage, type AnalysisInfo } from "./components/LoopsPage";
@@ -238,7 +239,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory", "anomalies"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -270,6 +271,14 @@ export function App() {
               <AnomalyPage
                 datasetId={selectedDatasetId}
                 recordHours={dataset ? recordHours(dataset.time_range.start_utc, dataset.time_range.end_utc) : null}
+                t={t}
+              />
+            )}
+            {!datasetMissing && view === "softsensor" && (
+              <SoftSensorPage
+                datasetId={selectedDatasetId}
+                recordHours={dataset ? recordHours(dataset.time_range.start_utc, dataset.time_range.end_utc) : null}
+                startUtc={dataset ? dataset.time_range.start_utc : ""}
                 t={t}
               />
             )}

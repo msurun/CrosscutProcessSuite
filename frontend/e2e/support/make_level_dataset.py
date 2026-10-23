@@ -14,7 +14,7 @@ import csv
 import json
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +27,7 @@ SLOPE = 0.002
 THETA_S = 30
 TAU_S = 200.0
 GAIN = 1.5
-START = datetime(2026, 1, 5, 6, 0, tzinfo=timezone.utc)
+START = datetime(2026, 1, 5, 6, 0, tzinfo=UTC)
 LOOPS = ("LIC1", "LIC2")
 
 
