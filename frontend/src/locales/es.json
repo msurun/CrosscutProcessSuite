@@ -89,6 +89,7 @@
   "tuning.window.none": "No se encontró una ventana de prueba: el lazo nunca estuvo en manual con cambios de salida. Se usa todo el registro; el resultado puede no ser fiable.",
   "tuning.window.range": "{start} – {end} min",
   "tuning.window.current": "Ventana actual: {start} – {end} min, {manual} % en manual",
+  "tuning.window.padded": "Ventana ampliada {before} s antes y {after} s después del movimiento de la salida para incluir el inicio en reposo y el asentamiento",
   "tuning.fit.good": "El modelo se ajusta bien a los datos (R² {r2}).",
   "tuning.fit.fair": "El modelo se ajusta moderadamente (R² {r2}); use los ajustes con cuidado.",
   "tuning.fit.poor": "El modelo se ajusta mal (R² {r2}); no confíe en estos ajustes.",

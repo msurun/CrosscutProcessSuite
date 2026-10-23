@@ -305,7 +305,11 @@ export interface TuningSettings {
 export interface TuningPayload {
   loop: string;
   windows: TimeWindow[];
-  window: TimeWindow & { manual_percent: number };
+  window: TimeWindow & {
+    manual_percent: number;
+    /** Seconds added before and after the suggested window (0 when nothing was added). */
+    padded: { before_s: number; after_s: number };
+  };
   warnings: TuningWarning[];
   robustness: number;
   blocked_code: "stiction" | "model_failed" | "poor_fit" | "ipdt_refused" | null;

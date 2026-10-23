@@ -89,6 +89,7 @@
   "tuning.window.none": "No test window found: the loop was never in manual with output moves. The whole record is used; the result may be unreliable.",
   "tuning.window.range": "{start} – {end} min",
   "tuning.window.current": "Current window: {start} – {end} min, {manual} % in manual",
+  "tuning.window.padded": "Window extended by {before} s before and {after} s after the output moves so the quiet start and the settling are included",
   "tuning.fit.good": "The model fits the data well (R² {r2}).",
   "tuning.fit.fair": "The model fits moderately (R² {r2}); treat the settings with care.",
   "tuning.fit.poor": "The model fits poorly (R² {r2}); do not rely on these settings.",

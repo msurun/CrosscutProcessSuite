@@ -197,6 +197,14 @@ function WindowStep({
           manual: current.manual_percent,
         })}
       </p>
+      {current.padded.before_s + current.padded.after_s > 0 && (
+        <p className="hint">
+          {t("tuning.window.padded", {
+            before: Math.round(current.padded.before_s),
+            after: Math.round(current.padded.after_s),
+          })}
+        </p>
+      )}
       <WindowPicker
         datasetId={datasetId}
         loop={loop}

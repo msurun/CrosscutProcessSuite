@@ -89,6 +89,7 @@
   "tuning.window.none": "Nie znaleziono okna testu: pętla nigdy nie była w trybie ręcznym ze zmianami sterowania. Użyto całego zapisu; wynik może być niewiarygodny.",
   "tuning.window.range": "{start} – {end} min",
   "tuning.window.current": "Bieżące okno: {start} – {end} min, {manual} % w trybie ręcznym",
+  "tuning.window.padded": "Okno poszerzono o {before} s przed i {after} s po ruchu wyjścia, aby objąć spokojny początek i ustalanie się odpowiedzi",
   "tuning.fit.good": "Model dobrze pasuje do danych (R² {r2}).",
   "tuning.fit.fair": "Model pasuje umiarkowanie (R² {r2}); traktuj nastawy ostrożnie.",
   "tuning.fit.poor": "Model pasuje słabo (R² {r2}); nie polegaj na tych nastawach.",

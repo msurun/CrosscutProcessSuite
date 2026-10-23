@@ -40,9 +40,8 @@ for (const width of [1440, 390]) {
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
     await openTuning(page, "LIC1", width);
-    // The suggested window starts only 5 minutes before the first move: refused with a reason.
-    await expect(page.getByText("przed pierwszym ruchem jest mniej niż jedna piąta okna")).toBeVisible();
-    await applyWindow(page, "0", "119");
+    // The suggested window is extended to include the quiet lead, so the model is shown at once.
+    await expect(page.getByText(/Okno poszerzono o \d+ s przed/)).toBeVisible();
     await expect(page.getByText("Nachylenie rampy")).toBeVisible();
     await expect(page.getByText(/Propozycja \(reguła SIMC dla procesu całkującego\)/)).toBeVisible();
     await expect(page.getByText(/Czas martwy/).first()).toBeVisible();

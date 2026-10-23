@@ -50,7 +50,7 @@ function ipdtPayload(overrides: Partial<TuningPayload> = {}): TuningPayload {
   return {
     loop: "Loop A",
     windows: [],
-    window: { start_s: 0, end_s: 1200, manual_percent: 100 },
+    window: { start_s: 0, end_s: 1200, manual_percent: 100, padded: { before_s: 0, after_s: 0 } },
     warnings: [],
     robustness: 0.5,
     blocked_code: null,
@@ -167,6 +167,17 @@ describe("refusal view", () => {
     const payload = ipdtPayload({ blocked_code: "ipdt_refused", blocked_reasons: ["brand_new"], settings: null, step: null });
     await show(payload);
     expect(screen.getByText("tuning.ipdt.reason.unknown")).toBeInTheDocument();
+  });
+});
+
+describe("padded window", () => {
+  it("notes the added seconds only when the window was extended", async () => {
+    const padded = { start_s: 300, end_s: 3300, manual_percent: 100, padded: { before_s: 598, after_s: 0 } };
+    await show(ipdtPayload({ window: padded }));
+    expect(screen.getByText(/tuning\.window\.padded.*598/)).toBeInTheDocument();
+    cleanup();
+    await show(ipdtPayload());
+    expect(screen.queryByText(/tuning\.window\.padded/)).toBeNull();
   });
 });
 

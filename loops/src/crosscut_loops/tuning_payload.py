@@ -12,6 +12,7 @@ from collections.abc import Mapping
 import numpy as np
 
 from crosscut_loops.overview import LoopTags
+from crosscut_loops.tuning_padding import pad_integrating_window
 from crosscut_loops.tuning_payload_ipdt import ipdt_body, looks_integrating
 from crosscut_loops.tuning_report import (
     MODEL_FAILURE_PREFIX,
@@ -53,6 +54,13 @@ def tuning_payload(
     windows = suggest_windows(t_s, columns[loop.mode], columns[loop.out], MIN_WINDOW_S)
     # Pick the one window to show, either the caller's explicit start/end or the best suggestion.
     start_s, end_s = _chosen_window(t_s, windows, request)
+    padded = (0.0, 0.0)
+    asked = request.start_s is not None and request.end_s is not None
+    if loop.process_kind == INTEGRATING and windows and not asked:
+        # A suggested window of a level loop gets the quiet lead and settling it needs.
+        wide = pad_integrating_window(t_s, columns[loop.mode], columns[loop.out], (start_s, end_s))
+        padded = (start_s - wide[0], wide[1] - end_s)
+        start_s, end_s = wide
     # Boolean mask selecting the samples inside [start_s, end_s]; kept as a mask so all columns
     # stay aligned sample by sample.
     keep = (t_s >= start_s) & (t_s <= end_s)
@@ -71,7 +79,7 @@ def tuning_payload(
     return {
         "loop": loop.name,
         # Window-level fields: the suggested windows, the chosen span and the manual share.
-        **_window_parts(windows, start_s, end_s, manual_share),
+        **_window_parts(windows, start_s, end_s, manual_share, padded),
         # Model-level fields: model, fit, settings and the model-related warnings.
         **body,
         "warnings": [*_data_warnings(manual_share), *model_warnings],
@@ -95,12 +103,21 @@ def _model_body(
 
 
 def _window_parts(
-    windows: list[tuple[float, float]], start_s: float, end_s: float, manual_share: float
+    windows: list[tuple[float, float]],
+    start_s: float,
+    end_s: float,
+    manual_share: float,
+    padded: tuple[float, float] = (0.0, 0.0),
 ) -> dict[str, object]:
-    """Suggested windows, the chosen window and the data-quality warnings about it."""
+    """Suggested windows, the chosen window (with the seconds added before/after) and its share."""
     return {
         "windows": [{"start_s": start, "end_s": end} for start, end in windows],
-        "window": {"start_s": start_s, "end_s": end_s, "manual_percent": round(100 * manual_share)},
+        "window": {
+            "start_s": start_s,
+            "end_s": end_s,
+            "manual_percent": round(100 * manual_share),
+            "padded": {"before_s": padded[0], "after_s": padded[1]},
+        },
     }
 
 
