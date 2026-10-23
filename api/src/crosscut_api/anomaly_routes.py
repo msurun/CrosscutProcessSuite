@@ -234,6 +234,7 @@ def _summary(model: PcaModel, manifest: dict[str, Any]) -> dict[str, Any]:
         "cumulative_variance": np.cumsum(shares).tolist(),
         "t2_limit": model.t2_limit,
         "spe_limit": model.spe_limit,
+        "spe_limit_method": model.spe_limit_method,
         "sha256": manifest["model_sha256"],
         "window": manifest["window"],
         "dataset_id": manifest["dataset_id"],

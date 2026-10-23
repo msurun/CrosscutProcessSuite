@@ -3,6 +3,7 @@
 Fits a standardised PCA, derives the T2 limit (Tracy, Young and Mason 1992;
 MacGregor and Kourti 1995) and the SPE limit (Jackson and Mudholkar 1979).
 Provides per-tag contributions and a JSON-ready, hashable representation.
+Optional dynamic PCA (Ku, Storer and Georgakis 1995): lagged copies of each tag.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from crosscut_anomaly.config import AnomalyConfig
 from crosscut_anomaly.distributions import f_ppf, normal_ppf
 
 SCHEMA_VERSION = "1.0.0"
+JM_MIN_H0 = 0.1
 
 
 class PcaModelError(ValueError):
@@ -43,6 +45,55 @@ def spe_limit(eigenvalues: Sequence[float], k: int, alpha: float) -> float:
         + th2 * h0 * (h0 - 1.0) / th1**2
     )
     return float(th1 * inner ** (1.0 / h0))
+
+
+def augment_lags(x: np.ndarray, lags: int) -> np.ndarray:
+    """Build [x(t), x(t-1), ..., x(t-lags)] (lag-major columns) from raw rows (n x p).
+
+    The first ``lags`` rows have no full history and become all-NaN rows (invalid,
+    never imputed); a NaN in a source row propagates to every row that uses it.
+    """
+    x = np.asarray(x, dtype=float)
+    n = x.shape[0]
+    out = np.full((n, x.shape[1] * (lags + 1)), np.nan)
+    for lag in range(lags + 1):
+        out[lags:, lag * x.shape[1] : (lag + 1) * x.shape[1]] = x[lags - lag : n - lag]
+    return out
+
+
+def lagged_tags(tags: Sequence[str], lags: int) -> tuple[str, ...]:
+    """Column names of the augmented matrix: ``tag@lag`` (plain names if lags is 0)."""
+    if lags == 0:
+        return tuple(tags)
+    return tuple(f"{tag}@{lag}" for lag in range(lags + 1) for tag in tags)
+
+
+def _jm_h0(eigenvalues: Sequence[float], k: int) -> float:
+    """The h0 of Jackson-Mudholkar (must be well above 0 for the limit to be usable)."""
+    resid = [float(v) for v in eigenvalues[k:]]
+    th1, th2, th3 = (sum(v**i for v in resid) for i in (1, 2, 3))
+    return 1.0 - 2.0 * th1 * th3 / (3.0 * th2**2)
+
+
+def _choose_spe_limit(
+    z: np.ndarray, vectors: np.ndarray, values: np.ndarray, alpha: float
+) -> tuple[float, str]:
+    """SPE limit and its method: Jackson-Mudholkar if well-defined and sane, else empirical.
+
+    Sane means h0 > 0.1 and a limit not below the median training SPE; otherwise the
+    ``alpha`` quantile ('higher') of the training SPE is used.
+    """
+    k = vectors.shape[1]
+    resid = z - (z @ vectors) @ vectors.T
+    train_spe = np.sum(resid**2, axis=1)
+    try:
+        jm = spe_limit(values.tolist(), k, alpha)
+        ok = _jm_h0(values.tolist(), k) > JM_MIN_H0 and jm >= float(np.median(train_spe))
+    except (ZeroDivisionError, ValueError, OverflowError):
+        ok = False
+    if ok:
+        return jm, "jackson_mudholkar"
+    return float(np.quantile(train_spe, alpha, method="higher")), "empirical"
 
 
 def _choose_k(eigenvalues: np.ndarray, fraction: float) -> int:
@@ -80,32 +131,43 @@ def fit_pca(
     tags: Sequence[str],
     variance_fraction: float = 0.90,
     alpha: float = 0.99,
+    dynamic_lags: int = 0,
 ) -> PcaModel:
     """Fit a PCA monitoring model on samples-by-tags data.
 
     The signature is ``fit_pca(x, tags, variance_fraction, alpha)``; to fit from an
     ``AnomalyConfig`` use ``fit_from_config(x, config)``. Rows with a non-finite value
-    (NaN or +-inf) are dropped, never imputed.
+    (NaN or +-inf) are dropped, never imputed. With ``dynamic_lags`` > 0 the model is
+    fitted on the lag-augmented matrix (``x`` stays raw, samples by ``tags``); a row
+    needs all its lagged source rows finite.
     """
-    tags = tuple(tags)
-    if len(tags) < 2:
+    base = tuple(tags)
+    if len(base) < 2:
         raise PcaModelError("at least two tags are required")
-    valid = _clean_rows(np.asarray(x, dtype=float), len(tags))
+    tags = lagged_tags(base, dynamic_lags)
+    raw = np.asarray(x, dtype=float)
+    if raw.ndim != 2 or raw.shape[1] != len(base):
+        raise PcaModelError("x must be samples by tags")
+    valid = _clean_rows(augment_lags(raw, dynamic_lags), len(tags))
     mean, scale = valid.mean(axis=0), valid.std(axis=0, ddof=1)
     z = (valid - mean) / scale
     values, vectors = _eigen_sorted(np.atleast_2d(np.corrcoef(z, rowvar=False)))
     k = _choose_k(values, variance_fraction)
     n = len(valid)
+    spe_lim, method = _choose_spe_limit(z, vectors[:, :k], values, alpha)
     return PcaModel(
         tags=tags, mean=mean, scale=scale, loadings=vectors[:, :k],
         eigenvalues=values, k=k, n_train=n, alpha=alpha,
-        t2_limit=t2_limit(n, k, alpha), spe_limit=spe_limit(values.tolist(), k, alpha),
+        t2_limit=t2_limit(n, k, alpha), spe_limit=spe_lim,
+        base_tags=base, dynamic_lags=dynamic_lags, spe_limit_method=method,
     )
 
 
 def fit_from_config(x: np.ndarray, config: AnomalyConfig) -> PcaModel:
     """Thin helper: ``fit_pca`` with the tags, variance_fraction and alpha of ``config``."""
-    return fit_pca(x, config.tags, config.variance_fraction, config.alpha)
+    return fit_pca(
+        x, config.tags, config.variance_fraction, config.alpha, config.dynamic_lags
+    )
 
 
 @dataclass(frozen=True)
@@ -122,6 +184,14 @@ class PcaModel:
     alpha: float
     t2_limit: float
     spe_limit: float
+    base_tags: tuple[str, ...] = ()
+    dynamic_lags: int = 0
+    spe_limit_method: str = "jackson_mudholkar"
+
+    @property
+    def monitored_tags(self) -> tuple[str, ...]:
+        """The tags the caller passes in (``tags`` are the augmented column names)."""
+        return self.base_tags or self.tags
 
     def _standardise(self, x: np.ndarray) -> np.ndarray:
         """Standardise rows; rows with a non-finite value become all-NaN (no warnings)."""
@@ -152,7 +222,9 @@ class PcaModel:
         return out
 
     def contributions(self, row: np.ndarray) -> dict[str, dict[str, float]]:
-        """Per-tag shares of SPE and T2 for one row, each summing to 1.
+        """Per-tag shares of SPE and T2 for one (augmented) row, each summing to 1.
+
+        With dynamic lags the per-column values are summed over the lags of each tag.
 
         SPE: squared residual per tag over its total. T2: c_j = sum_i
         (t_i / lambda_i) p_ji x_j over the k components, truncated at 0 and
@@ -164,14 +236,22 @@ class PcaModel:
         res2 = self._residual(z)[0] ** 2
         t = z @ self.loadings
         c = np.clip(((t / self.eigenvalues[: self.k]) @ self.loadings.T)[0] * z[0], 0, None)
+        names = self.monitored_tags
         return {
-            "spe": dict(zip(self.tags, _normalise(res2).tolist(), strict=True)),
-            "t2": dict(zip(self.tags, _normalise(c).tolist(), strict=True)),
+            "spe": dict(zip(names, _normalise(self._per_tag(res2)).tolist(), strict=True)),
+            "t2": dict(zip(names, _normalise(self._per_tag(c)).tolist(), strict=True)),
         }
+
+    def _per_tag(self, per_column: np.ndarray) -> np.ndarray:
+        """Sum per-column values over the lags of each tag (identity for lags 0)."""
+        if self.dynamic_lags == 0:
+            return per_column
+        p = len(self.monitored_tags)
+        return np.asarray(per_column.reshape(self.dynamic_lags + 1, p).sum(axis=0))
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-ready dictionary (lists and floats only)."""
-        return {
+        out: dict[str, Any] = {
             "kind": "pca", "schema_version": SCHEMA_VERSION,
             "tags": list(self.tags), "mean": self.mean.tolist(),
             "scale": self.scale.tolist(), "loadings": self.loadings.tolist(),
@@ -179,6 +259,12 @@ class PcaModel:
             "n_train": self.n_train, "alpha": self.alpha,
             "t2_limit": self.t2_limit, "spe_limit": self.spe_limit,
         }
+        if self.dynamic_lags:
+            out["base_tags"] = list(self.base_tags)
+            out["dynamic_lags"] = self.dynamic_lags
+        if self.spe_limit_method != "jackson_mudholkar":
+            out["spe_limit_method"] = self.spe_limit_method
+        return out
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PcaModel:
@@ -192,6 +278,9 @@ class PcaModel:
             eigenvalues=np.array(d["eigenvalues"], dtype=float),
             k=int(d["k"]), n_train=int(d["n_train"]), alpha=float(d["alpha"]),
             t2_limit=float(d["t2_limit"]), spe_limit=float(d["spe_limit"]),
+            base_tags=tuple(d.get("base_tags", d["tags"])),
+            dynamic_lags=int(d.get("dynamic_lags", 0)),
+            spe_limit_method=str(d.get("spe_limit_method", "jackson_mudholkar")),
         )
 
     def sha256(self) -> str:

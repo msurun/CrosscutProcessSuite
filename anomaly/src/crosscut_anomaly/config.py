@@ -15,7 +15,7 @@ MODES = ("off", "advisory")
 _REQUIRED = ("schema_version", "id", "tags", "mode")
 _OPTIONAL = (
     "description", "variance_fraction", "alpha", "min_consecutive", "close_after",
-    "sample_period_s",
+    "sample_period_s", "dynamic_lags", "stuck_samples",
 )
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -39,6 +39,8 @@ class AnomalyConfig:
     min_consecutive: int = 5
     close_after: int = 10
     sample_period_s: float = 60.0
+    dynamic_lags: int = 0
+    stuck_samples: int = 0
 
 
 def load_config(doc: Mapping[str, Any]) -> AnomalyConfig:
@@ -62,6 +64,8 @@ def load_config(doc: Mapping[str, Any]) -> AnomalyConfig:
         min_consecutive=_integer(doc, "min_consecutive", 5),
         close_after=_integer(doc, "close_after", 10),
         sample_period_s=_period(doc),
+        dynamic_lags=_lags(doc),
+        stuck_samples=_stuck(doc),
     )
 
 
@@ -133,3 +137,27 @@ def _period(doc: Mapping[str, Any]) -> float:
     if not value > 0:
         raise AnomalyConfigError(f"sample_period_s: {value} must be above 0")
     return float(value)
+
+
+def _int_value(doc: Mapping[str, Any], key: str) -> int:
+    """An integer (not a bool) field; 0 if absent."""
+    value = doc.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise AnomalyConfigError(f"{key}: must be an integer")
+    return value
+
+
+def _lags(doc: Mapping[str, Any]) -> int:
+    """Dynamic PCA lags: an integer in 0..10 (0 = static PCA)."""
+    value = _int_value(doc, "dynamic_lags")
+    if not 0 <= value <= 10:
+        raise AnomalyConfigError(f"dynamic_lags: {value} is outside [0, 10]")
+    return value
+
+
+def _stuck(doc: Mapping[str, Any]) -> int:
+    """Stuck-sensor run length: 0 (off) or at least 3 samples."""
+    value = _int_value(doc, "stuck_samples")
+    if value != 0 and value < 3:
+        raise AnomalyConfigError(f"stuck_samples: {value} must be 0 (off) or at least 3")
+    return value

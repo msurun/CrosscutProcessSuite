@@ -2,6 +2,7 @@
 
 The scan works on the sequence of valid rows only (finite values, quality 0).
 Invalid rows are counted, never imputed, and neither extend nor break a run.
+A second rule flags a sensor that is exactly constant while others move (stuck).
 Advisory only: no plant writes.
 """
 
@@ -13,9 +14,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from crosscut_anomaly.config import AnomalyConfig, AnomalyConfigError
-from crosscut_anomaly.pca_model import PcaModel
+from crosscut_anomaly.pca_model import PcaModel, augment_lags
 
 TOP_TAGS = 3
+MIN_MOVING_OTHERS = 3
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ class AnomalyEvent:
     top_t2_tags: tuple[str, ...]
     exceeded: str
     n_samples: int
+    kind: str = "pca"
+    stuck_tag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,17 @@ class ScanResult:
     n_valid: int
     n_skipped: int
     skipped_reasons: dict[str, int] = field(default_factory=dict)
+    limit_methods: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def n_pca_events(self) -> int:
+        """Number of events of kind ``pca``."""
+        return sum(e.kind == "pca" for e in self.events)
+
+    @property
+    def n_stuck_events(self) -> int:
+        """Number of events of kind ``stuck``."""
+        return sum(e.kind == "stuck" for e in self.events)
 
 
 class _Runs:
@@ -164,6 +179,60 @@ def _spans(exceed: np.ndarray, config: AnomalyConfig) -> list[tuple[int, int, bo
     return spans + [last] if last else spans
 
 
+def _stuck_runs(col: np.ndarray, min_len: int) -> list[tuple[int, int]]:
+    """(first, last) positions of runs of exactly equal values of at least ``min_len``."""
+    cuts = np.flatnonzero(col[1:] != col[:-1]) + 1
+    starts = np.concatenate(([0], cuts))
+    ends = np.concatenate((cuts - 1, [len(col) - 1]))
+    return [(int(a), int(b)) for a, b in zip(starts, ends, strict=True) if b - a + 1 >= min_len]
+
+
+def _others_moving(rows: np.ndarray, tag: int, first: int, count: int) -> bool:
+    """True if at least 3 other tags are not constant over ``count`` samples from ``first``."""
+    window = rows[first : first + count]
+    moving = np.ptp(window, axis=0) > 0
+    return int(moving.sum() - bool(moving[tag])) >= MIN_MOVING_OTHERS
+
+
+def _stuck_event(
+    name: str, span: tuple[int, int], rows_n: int, orig: tuple[np.ndarray, np.ndarray]
+) -> AnomalyEvent:
+    """Event for a stuck run over valid positions ``span``; open if the data ends in it."""
+    first, last = span
+    index, t_valid = orig
+    return AnomalyEvent(
+        start_index=int(index[first]), end_index=int(index[last]),
+        start_s=float(t_valid[first]), end_s=float(t_valid[last]),
+        closed=last < rows_n - 1, peak_t2=float("nan"), peak_spe=float("nan"),
+        peak_index=int(index[first]), top_spe_tags=(name,), top_t2_tags=(name,),
+        exceeded="stuck", n_samples=last - first + 1, kind="stuck", stuck_tag=name,
+    )
+
+
+def _stuck_events(
+    tags: Sequence[str], rows: np.ndarray, orig: tuple[np.ndarray, np.ndarray], count: int
+) -> list[AnomalyEvent]:
+    """Stuck-sensor events on the valid rows (finite, quality 0); ``count`` >= 3 samples."""
+    events: list[AnomalyEvent] = []
+    if len(rows) < count:
+        return events
+    for j, name in enumerate(tags):
+        for span in _stuck_runs(rows[:, j], count):
+            if _others_moving(rows, j, span[0], count):
+                events.append(_stuck_event(name, span, len(rows), orig))
+    return events
+
+
+def _pca_events(
+    model: PcaModel, rows: np.ndarray, orig: tuple[np.ndarray, np.ndarray],
+    config: AnomalyConfig,
+) -> tuple[AnomalyEvent, ...]:
+    """PCA events on the valid rows of the (lag-augmented) matrix."""
+    t2, spe = model.t2(rows), model.spe(rows)
+    exceed = (t2 > model.t2_limit) | (spe > model.spe_limit)
+    return tuple(_event(model, span, rows, (t2, spe), orig) for span in _spans(exceed, config))
+
+
 def scan(
     model: PcaModel,
     t_s: Sequence[float] | np.ndarray,
@@ -171,11 +240,16 @@ def scan(
     quality: Sequence[float] | np.ndarray | None = None,
     config: AnomalyConfig | None = None,
 ) -> ScanResult:
-    """Scan a record (samples by tags) and return its anomaly events.
+    """Scan a raw record (samples by tags) and return its anomaly events.
 
     ``quality`` is one value per row (n,) or one per tag (n, p); a row is invalid if any
     value != 0. Rows with NaN or +-inf are invalid too and counted under
-    ``skipped_reasons['nan']`` (the key means non-finite).
+    ``skipped_reasons['nan']`` (the key means non-finite). With a dynamic model
+    (``model.dynamic_lags`` > 0) the lag-augmented matrix is built here and a row is
+    valid only if all its lagged source rows are; rows lost to missing history or to
+    an invalid lagged row are counted under ``skipped_reasons['lag']``. If
+    ``config.stuck_samples`` > 0 the stuck-sensor rule adds events of kind ``stuck``;
+    events are sorted by start (PCA first on ties).
 
     Raises:
         AnomalyConfigError: if ``config`` is missing.
@@ -187,14 +261,17 @@ def scan(
     t = np.asarray(t_s, dtype=float)
     valid, n_nan, n_quality = _validity(x, quality)
     index = np.flatnonzero(valid)
-    rows = x[index]
-    t2, spe = model.t2(rows), model.spe(rows)
-    exceed = (t2 > model.t2_limit) | (spe > model.spe_limit)
-    events = tuple(
-        _event(model, span, rows, (t2, spe), (index, t[index]))
-        for span in _spans(exceed, config)
-    )
+    aug = augment_lags(np.where(valid[:, None], x, np.nan), model.dynamic_lags)
+    a_index = np.flatnonzero(np.isfinite(aug).all(axis=1))
+    events = list(_pca_events(model, aug[a_index], (a_index, t[a_index]), config))
+    if config.stuck_samples:
+        events += _stuck_events(model.monitored_tags, x[index], (index, t[index]),
+                                config.stuck_samples)
+    events.sort(key=lambda e: e.start_index)
+    n_lag = len(index) - len(a_index)
+    reasons = {"nan": n_nan, "quality": n_quality, **({"lag": n_lag} if model.dynamic_lags else {})}
     return ScanResult(
-        events=events, n_valid=len(index), n_skipped=n_nan + n_quality,
-        skipped_reasons={"nan": n_nan, "quality": n_quality},
+        events=tuple(events), n_valid=len(a_index), n_skipped=n_nan + n_quality + n_lag,
+        skipped_reasons=reasons,
+        limit_methods={"t2": "hotelling_f", "spe": model.spe_limit_method},
     )

@@ -102,6 +102,7 @@ def test_fit_stores_model_and_manifest_and_the_summary_matches(
     assert 1 <= summary["k"] <= len(TAGS) and summary["n_train"] > 50
     assert summary["cumulative_variance"][-1] == pytest.approx(1.0)
     assert summary["t2_limit"] > 0 and summary["spe_limit"] > 0
+    assert summary["spe_limit_method"] in ("jackson_mudholkar", "empirical")
     assert summary["dataset_id"] == dataset and len(summary["sha256"]) == 64
     manifest = json.loads((root / "_anomaly" / "mc.manifest.json").read_text(encoding="utf-8"))
     assert manifest["kind"] == "anomaly_pca" and manifest["model_sha256"] == summary["sha256"]
