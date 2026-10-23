@@ -770,3 +770,18 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
 ### Anomaly round 3
 
 Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms were slow moisture and hardness excursions, so the limits fitted on a short training record were too tight out of sample. Masking setpoint moves cut nothing. The change is config only: alpha 0.999 and min_consecutive 15 (defaults in Python unchanged), tested once on new seeds 33001-33060 (quiet) and 33101-33199 (fault). The harness author found a seed collision (plant seeds of the new quiet records matched round 2 fault records) and fixed it by Amendment 1 before the first seed was run. Result: B1-B6 met (drift 16/20, freeze 18/20, false alarms 0.36 per 24 h); spikes, bad-quality and dropout rows are still not detected; limits fitted on a short training record remain the weakness. Simulation only.
+
+## Plant import: whole PI wide files with a tag dictionary (2026-10-23, step 1 of the real-data plan)
+- New path next to the single-loop intake: `loops/plant_import*.py` (dictionary + loop detection, local-time to UTC with
+  `utc` / IANA zone (DST by zoneinfo) / fixed offset, reading with pyarrow, preview, dataset writer), `api/plant_import_routes.py`
+  (raw-body upload up to 300 MB, preview, import, delete), Import view tab "Whole PI file" (en/pl/es), design in
+  `docs/design/plant-import.md` and `plant-import-gui.md`.
+- Original timestamps are kept (no resampling; gaps between test windows stay gaps); numeric 1/0 `#state` modes; test windows from the
+  `test` column in `test_windows.json`; tag ids made schema-safe (`#` becomes `_`) identically in data, tags.json and project.json
+  (a regression found by importing the real file: the first version wrote unsafe ids to project.json and the Loops view showed no loops).
+- Bugs found on the real file and fixed: pyarrow column types, empty-label runs merged into test windows, DST changes at 24:00 local
+  missed by the per-date offset cache, name-based detection mixing `.mv` with `.out`.
+- Verified on the owner's files (outside the repo): the October file (7203 rows, 714 columns) imports in about 5 s into 28 detected loops
+  (26 complete) and opens in the Loops view; the June file (47521 x 447) imports in about 30 s. Tests: 50 core, 13 API, 34 vitest, 3 e2e
+  (axe at 1440 and 390 px); synthetic fixtures use neutral tag names.
+- Delegation note: the code was written by Foremankit (DeepSeek) in one-file calls; the lead fixed integration bugs by hand.

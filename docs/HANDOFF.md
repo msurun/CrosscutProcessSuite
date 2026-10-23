@@ -1,4 +1,4 @@
-# Handoff (2026-10-23, afternoon): modules 1-4 built, first real plant data received
+# Handoff (2026-10-23, evening): modules 1-4 built, first real plant data received
 
 Written for the next session (Claude or the owner). Per-step details: `docs/IMPLEMENTATION_LOG.md` (last section), the
 experiment READMEs `experiments/exp27..exp30` and the owner tasks in `docs/OWNER_TASKS.md`. Nothing in the repository
@@ -64,8 +64,8 @@ README, tag dictionaries and `POTRZEBY_DANYCH_Crosscut.txt` listing what is stil
 
 ## Next steps (the owner approved: work without stops, push to main after each verified step, never force)
 
-1. **Import of whole PI wide files with the tag dictionary** (units, descriptions, loop and cell), timezone choice (local with
-   offset), loop detection, numeric `#state` modes; GUI in the Import view; tests; e2e with axe.
+1. **DONE 2026-10-23** Import of whole PI wide files with the tag dictionary (Import view tab "Whole PI file", `docs/design/plant-import.md`). Datasets can be
+   made from the owner's Drive files; the loops open in the Loops view.
 2. **Triage of module 1 on the real loops** (June and October): table of what the tool says against what the data shows; add a
    "control action driven by noise" warning (many valve reversals without regular oscillation) and review the worklist order.
    Exploration, no pass/fail.

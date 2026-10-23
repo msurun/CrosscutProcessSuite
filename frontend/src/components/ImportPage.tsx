@@ -1,11 +1,13 @@
 // Import view: bring a step-test CSV from a historian into the application in four steps (choose the
 // file, check the preview and mapping, check the record, create a dataset) and open it in the tuning
 // wizard. The file is read in the browser; only the new dataset folder is written, nothing reaches a plant.
+import { useState } from "react";
 import type { Translate } from "../findings";
 import { mappingComplete } from "../intake";
 import { ImportCheck } from "./ImportCheck";
 import { ImportCreate, ImportDone } from "./ImportCreate";
 import { ImportFile } from "./ImportFile";
+import { ImportPlant } from "./ImportPlant";
 import { ImportPreview } from "./ImportPreview";
 import { useImport } from "./ImportState";
 
@@ -27,13 +29,27 @@ interface PageProps {
   t: Translate;
 }
 
-/** The Import view. */
+/** The Import view: a tab for one step-test CSV and a tab for a whole PI file. */
 export function ImportPage({ onCreated, onOpen, t }: PageProps) {
+  const [tab, setTab] = useState<"single" | "plant">("single");
+  return (
+    <section>
+      <div className="toolbar" role="group" aria-label={t("import.title")}>
+        <button type="button" aria-pressed={tab === "single"} onClick={() => setTab("single")}>{t("plant.tab.single")}</button>
+        <button type="button" aria-pressed={tab === "plant"} onClick={() => setTab("plant")}>{t("plant.tab.plant")}</button>
+      </div>
+      {tab === "single" ? <ImportSingle onCreated={onCreated} onOpen={onOpen} t={t} /> : <ImportPlant onCreated={onCreated} onOpen={onOpen} t={t} />}
+    </section>
+  );
+}
+
+/** The single-loop step-test import. */
+function ImportSingle({ onCreated, onOpen, t }: PageProps) {
   const state = useImport(t, onCreated);
   const { preview, mapping, options, check, created, busy } = state;
   const ready = preview !== null && mapping !== null && options !== null;
   return (
-    <section>
+    <div>
       <header className="toolbar"><h2>{t("import.title")}</h2></header>
       <ImportNotes t={t} />
       <ImportFile source={state.source} busy={busy !== null} onFile={state.loadFile} onPasted={state.loadPasted} t={t} />
@@ -52,6 +68,6 @@ export function ImportPage({ onCreated, onOpen, t }: PageProps) {
       {check !== null && <ImportCheck check={check} t={t} />}
       {ready && created === null && <ImportCreate check={check} busy={busy === "create"} onCreate={state.create} t={t} />}
       {created !== null && <ImportDone created={created} onOpen={onOpen} onReset={state.reset} t={t} />}
-    </section>
+    </div>
   );
 }
