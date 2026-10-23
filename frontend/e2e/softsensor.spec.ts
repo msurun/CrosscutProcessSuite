@@ -74,6 +74,8 @@ test("load example, upload lab results, fit, run and read the result", async ({ 
   await expect(page.getByTestId("validity-ok")).toContainText(/w porządku: \d+ \(/);
   await expect(page.getByTestId("soft-scores")).toContainText("Po końcu uczenia");
   await expect(page.getByTestId("soft-drift")).toBeVisible();
+  await expect(page.getByTestId("soft-drift-badge")).toHaveText("niesprawdzone");
+  await expect(page.getByTestId("soft-drift")).toContainText("Flaga dryfu jest zawodna");
 });
 
 test("a bad lab CSV shows the API message with the line", async ({ page }) => {

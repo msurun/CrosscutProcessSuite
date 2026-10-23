@@ -75,7 +75,10 @@ export function SoftSensorDrift({ episodes, model, t }: DriftProps) {
   const hours = (seconds: number) => formatFixed(toHours(seconds), HOUR_DECIMALS);
   return (
     <section aria-label={t("soft.drift.title")} data-testid="soft-drift">
-      <h3>{t("soft.drift.title")}</h3>
+      <h3>
+        {t("soft.drift.title")} <span className="badge badge-partial" data-testid="soft-drift-badge">{t("soft.drift.badge")}</span>
+      </h3>
+      <p className="notice" role="note">{t("soft.drift.notValidated")}</p>
       <p className="hint">{t("soft.drift.rule", { limit })}</p>
       {episodes.length === 0 ? (
         <p className="status">{t("soft.drift.none")}</p>

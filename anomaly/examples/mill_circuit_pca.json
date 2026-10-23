@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "id": "mill_circuit_pca",
-  "description": "Advisory only: PCA anomaly detector (Hotelling T2 and SPE) on the 8 process variables of the simulated mill circuit, with the frozen exp29 settings. Nothing is written to a plant.",
+  "description": "Advisory only: PCA anomaly detector (Hotelling T2 and SPE) on the 8 process variables of the simulated mill circuit, with the shipped exp29 round 2 settings (2 dynamic lags, stuck-sensor rule). Nothing is written to a plant.",
   "tags": [
     "sim.mc.hpgr_press",
     "sim.mc.mill_feed",
@@ -14,7 +14,9 @@
   ],
   "variance_fraction": 0.9,
   "alpha": 0.99,
-  "min_consecutive": 5,
+  "dynamic_lags": 2,
+  "stuck_samples": 15,
+  "min_consecutive": 10,
   "close_after": 10,
   "sample_period_s": 60,
   "mode": "advisory"

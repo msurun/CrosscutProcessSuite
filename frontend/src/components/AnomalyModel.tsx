@@ -11,6 +11,12 @@ const HOUR_DECIMALS = 2;
 const LIMIT_DECIMALS = 2;
 const PERCENT_DECIMALS = 1;
 
+/** Name of the SPE limit method; an unknown method is shown as sent. */
+function speMethod(method: string, t: Translate): string {
+  if (method === "jackson_mudholkar") return t("anomaly.model.speMethod.jackson_mudholkar");
+  return method === "empirical" ? t("anomaly.model.speMethod.empirical") : method;
+}
+
 /** The fitted model, or the "not fitted" text. */
 export function AnomalyModel({ model, t }: { model: AnomalyModelSummary | null; t: Translate }) {
   if (model === null) return <p className="status" data-testid="anomaly-no-model">{t("anomaly.model.none")}</p>;
@@ -32,6 +38,9 @@ export function AnomalyModel({ model, t }: { model: AnomalyModelSummary | null; 
         <div><dt>{t("anomaly.model.components")}</dt><dd>{model.k}</dd></div>
         <div><dt>{t("anomaly.model.t2Limit")}</dt><dd>{formatFixed(model.t2_limit, LIMIT_DECIMALS)}</dd></div>
         <div><dt>{t("anomaly.model.speLimit")}</dt><dd>{formatFixed(model.spe_limit, LIMIT_DECIMALS)}</dd></div>
+        {model.spe_limit_method !== undefined && (
+          <div><dt>{t("anomaly.model.speMethod")}</dt><dd>{speMethod(model.spe_limit_method, t)}</dd></div>
+        )}
       </dl>
       <BarList label={t("anomaly.model.cumulative")} rows={bars} />
       <p className="hint">{trained}</p>

@@ -908,6 +908,8 @@ export interface AnomalyConfig {
   tags: string[];
   variance_fraction?: number;
   alpha?: number;
+  dynamic_lags?: number;
+  stuck_samples?: number;
   min_consecutive?: number;
   close_after?: number;
   sample_period_s?: number;
@@ -928,6 +930,7 @@ export interface AnomalyModelSummary {
   cumulative_variance: number[];
   t2_limit: number;
   spe_limit: number;
+  spe_limit_method?: string;
   sha256: string;
   window: { start_s: number; end_s: number };
   dataset_id: string;
@@ -947,13 +950,15 @@ export interface AnomalyEvent {
   start_s: number;
   end_s: number;
   closed: boolean;
-  peak_t2: number;
-  peak_spe: number;
+  peak_t2: number | null;
+  peak_spe: number | null;
   peak_index: number;
   top_spe_tags: string[];
   top_t2_tags: string[];
-  exceeded: "t2" | "spe" | "both";
+  exceeded: "t2" | "spe" | "both" | "stuck";
   n_samples: number;
+  kind?: "pca" | "stuck";
+  stuck_tag?: string | null;
   contributions: AnomalyContributions;
 }
 

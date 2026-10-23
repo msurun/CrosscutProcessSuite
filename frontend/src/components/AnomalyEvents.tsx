@@ -9,7 +9,8 @@ import { eventRows, toHours } from "../anomaly";
 const HOUR_DECIMALS = 2;
 const RATIO_DECIMALS = 2;
 const SECONDS_PER_MINUTE = 60;
-const COLUMNS = ["n", "start", "end", "duration", "t2", "spe", "exceeded", "state"];
+const COLUMNS = ["n", "start", "end", "kind", "tag", "duration", "t2", "spe", "exceeded", "state"];
+const NO_VALUE = "–";
 
 interface EventsTableProps {
   events: readonly AnomalyEvent[];
@@ -47,9 +48,11 @@ export function AnomalyEventsTable({ events, t2Limit, speLimit, selected, onSele
               </th>
               <td>{formatFixed(toHours(row.startS), HOUR_DECIMALS)}</td>
               <td>{formatFixed(toHours(row.endS), HOUR_DECIMALS)}</td>
+              <td>{row.kind === "stuck" ? t("anomaly.events.kind.stuck") : t("anomaly.events.kind.pca")}</td>
+              <td>{row.tag ?? NO_VALUE}</td>
               <td>{formatFixed(row.durationS / SECONDS_PER_MINUTE, 0)}</td>
-              <td>{formatFixed(row.t2Ratio, RATIO_DECIMALS)}</td>
-              <td>{formatFixed(row.speRatio, RATIO_DECIMALS)}</td>
+              <td>{row.t2Ratio === null ? NO_VALUE : formatFixed(row.t2Ratio, RATIO_DECIMALS)}</td>
+              <td>{row.speRatio === null ? NO_VALUE : formatFixed(row.speRatio, RATIO_DECIMALS)}</td>
               <td>{t(`anomaly.events.exceeded.${row.exceeded}`)}</td>
               <td>{row.closed ? t("anomaly.events.state.closed") : t("anomaly.events.state.open")}</td>
             </tr>

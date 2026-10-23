@@ -37,6 +37,10 @@ async function loadFitAndScan(page: Page): Promise<void> {
 
 test("load example, fit, scan and read the result", async ({ page }) => {
   await loadFitAndScan(page);
+  await expect(page.getByRole("note").nth(1)).toContainText("19 z 20");
+  await expect(page.getByRole("note").nth(1)).toContainText("Nie sprawdzono na rzeczywistej instalacji");
+  await expect(page.getByText("Opóźnienia dynamiczne")).toBeVisible();
+  await expect(page.getByText("Metoda limitu SPE")).toBeVisible();
   await expect(page.getByText(/Wiersze nieużyte: \d+ nieskończonych/)).toBeVisible();
   await expect(page.getByText("nigdy nie są uzupełniane")).toBeVisible();
   await expect(page.locator(".anomaly-chart")).toHaveCount(2);

@@ -91,3 +91,17 @@ Each item lists why it matters and what to bring back. Tick a box when the item 
 - [ ] **Whether the first customer needs MPC.**
   - Why: MPC has no write path yet, so it is ruled out for now.
   - Bring back: yes or no, with the customer's reason.
+
+## What I need back for the new modules
+
+- [ ] **Try the Anomalies view with your own tags.**
+  - Needs: the tag ids and two weeks of quiet operation (CSV with columns `t_utc, tag, value, quality`).
+  - Bring back: the tag list and what the view showed. Mark internal.
+- [ ] **Try the Soft sensor view with a lab CSV.**
+  - Needs: a lab CSV with columns `sample_time, value`, the process tags and the lab sample delay in minutes.
+  - Bring back: the files (marked internal) and the delay used.
+- [ ] **Native review of the Polish and Spanish texts of the new views** (Anomalies and Soft sensor).
+  - Bring back: a list of corrections, or a note that the texts are acceptable.
+- [ ] **Decide the open points of ADR 011 (write path).**
+  - Why: the design stays a proposal until these are decided; nothing may write before that.
+  - Bring back: a decision on each open point listed in `docs/adr/011-write-path.md`.

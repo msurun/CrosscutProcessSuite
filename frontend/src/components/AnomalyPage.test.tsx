@@ -45,7 +45,9 @@ describe("notes", () => {
     render(<AnomalyNotes t={t} />);
     const notes = screen.getAllByRole("note");
     expect(notes[0]).toHaveTextContent("Advisory only: nothing is written to the plant.");
-    expect(notes[1]).toHaveTextContent("tested on simulated data only; expect to tune the number of consecutive samples on real data.");
+    expect(notes[1]).toHaveTextContent("19 of 20");
+    expect(notes[1]).toHaveTextContent("about 1.8 false alarms per day");
+    expect(notes[1]).toHaveTextContent("Not validated on a real plant: expect to tune consecutive samples.");
   });
 });
 
@@ -65,9 +67,15 @@ describe("events table", () => {
     const onSelect = vi.fn();
     render(<AnomalyEventsTable events={[EVENT]} t2Limit={15} speLimit={2.5} selected={0} onSelect={onSelect} t={t} />);
     const cells = screen.getAllByRole("cell").map((cell) => cell.textContent);
-    expect(cells).toEqual(["1.00", "1.33", "20", "2.00", "2.00", "SPE", "still open"]);
+    expect(cells).toEqual(["1.00", "1.33", "PCA", "–", "20", "2.00", "2.00", "SPE", "still open"]);
     fireEvent.click(screen.getByRole("button", { name: "Show contributions of event 1" }));
     expect(onSelect).toHaveBeenCalledWith(0);
+  });
+  it("shows a stuck-sensor event with its tag and no peak ratios", () => {
+    const stuck: AnomalyEvent = { ...EVENT, kind: "stuck", stuck_tag: "sim.mc.p80", exceeded: "stuck", peak_t2: null, peak_spe: null };
+    render(<AnomalyEventsTable events={[stuck]} t2Limit={15} speLimit={2.5} selected={0} onSelect={vi.fn()} t={t} />);
+    const cells = screen.getAllByRole("cell").map((cell) => cell.textContent);
+    expect(cells).toEqual(["1.00", "1.33", "stuck sensor", "sim.mc.p80", "20", "–", "–", "stuck", "still open"]);
   });
   it("says there are no events", () => {
     render(<AnomalyEventsTable events={[]} t2Limit={1} speLimit={1} selected={0} onSelect={vi.fn()} t={t} />);
@@ -111,6 +119,13 @@ describe("fit form", () => {
   });
 });
 
+describe("model", () => {
+  it("shows the SPE limit method when the API sends it", () => {
+    render(<AnomalyModel model={{ ...MODEL, spe_limit_method: "empirical" }} t={t} />);
+    expect(screen.getByText("SPE limit method").nextSibling).toHaveTextContent("empirical");
+  });
+});
+
 describe("page", () => {
   it("offers Load example when no detector exists and saves the bundled config", async () => {
     const mock = respond({
@@ -120,6 +135,17 @@ describe("page", () => {
     render(<AnomalyPage datasetId="ds" recordHours={8} t={t} />);
     fireEvent.click(await screen.findByRole("button", { name: "Load example" }));
     await waitFor(() => expect(mock.mock.calls.some(([url, init]) => url === "/api/anomaly/mill_circuit_pca" && init?.method === "PUT")).toBe(true));
+  });
+  it("shows dynamic lags and the stuck rule of the config", async () => {
+    const config = { schema_version: "1.0.0", id: "mc", tags: ["a", "b", "c"], mode: "advisory", dynamic_lags: 2, stuck_samples: 15 };
+    respond({
+      "GET /api/anomaly": { body: ["mc"] },
+      "GET /api/anomaly/mc": { body: config },
+      "GET /api/anomaly/mc/model": { status: 404, body: { detail: "model not fitted: mc" } },
+    });
+    render(<AnomalyPage datasetId="ds" recordHours={8} t={t} />);
+    expect(await screen.findByText("Dynamic lags")).toBeInTheDocument();
+    expect(screen.getByText("Stuck rule (samples)").nextSibling).toHaveTextContent("15");
   });
   it("shows the config as advisory only and the not-fitted state", async () => {
     respond({

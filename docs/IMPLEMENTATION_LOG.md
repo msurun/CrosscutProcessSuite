@@ -737,3 +737,32 @@ the PID vendor tags are built. exp06 P3 (IAE ratio 0.70) stays reported as faile
   a hold record without magnitude, replay logs blocked records only on gate transitions, replay_to_log is idempotent on advice_id.
 - exp27: harness by an Opus subagent (different from the Sonnet authors of the package); first harness run exposed that the loop needs `delay_s` and
   `ultimate_period_s` or module 1 returns not_assessed and every gate closes (recorded in the README). Test seeds run once: E1-E5 met.
+
+## Night 2026-10-22/23: integrating loops, anomaly detection, soft sensor, write-path skeleton
+
+- Built: exp28 round 2 change in module 1 (IPDT reads OUT as a zero-order hold; dead-time interval from the SSE profile
+  with an effective sample size; tuning uses the upper bound; experimental label). Module 3 `anomaly/` (PCA T2 and SPE,
+  dynamic lags, stuck rule, CI guard test), Anomalies view, `anomaly_routes.py`, schema and example. Module 4 `softsensor/`
+  (PLS on lagged tags, CV with gap = longest lag, validity flags, bias tracker, CI guard test), Soft sensor view,
+  `softsensor_routes.py`, schema and example. ADR 011 (proposed) and the `gateway/` skeleton (12 strict xfail scenarios).
+- exp28 (frozen; test seeds run once): round 1 I2 and I4 met; I1 accuracy 0.815 and I3 3 of 270 unsafe missed. Round 2
+  (30101-30788): J1 0 of 276 unsafe, J3 and J4 met; J2 dead-time coverage 0.866 vs 0.90 missed.
+- exp29 (frozen; test seeds run once): round 1 (quiet 29201-29260, faults 29301-29399) A2 drift 20/20, A4 0.864, A5 met;
+  A1 2.13 false alarms per 24 h and A3 freeze 2/20 missed. Round 2 (29701-29899) B2 drift 19/20, B3 freeze 19/20,
+  B4-B6 met; B1 1.79 per 24 h (max 4.33) missed.
+- exp30 (frozen; test seeds 29501-29600): S1 31/34 normal records beat the last lab value (RMSE 0.857 vs 1.384), S2 validity
+  0.988 and 0.975, S4 no leakage met; S3 drift flag 5/33 vs 5/34 normal missed.
+- Bugs found by development seeds, fixed before any test seed:
+  - an unquoted heredoc dropped a backslash in a schema;
+  - two test files with the same name in different packages clashed in CI;
+  - exp28: linear interpolation of OUT made a held step look like a ramp, so dead time came out too long (ZOH fixed it);
+  - exp29: the SPE limit degenerated with lagged columns (Jackson-Mudholkar h0 about 0.05), so the limit is taken empirically;
+  - exp29: a held signal (ore_hardness_est, updated every 30 min) was flagged as stuck; the threshold is now per tag,
+    learned from fault-free training runs;
+  - exp29: lagged history bridged time gaps of about 1 h; lags now break at gaps above 1.5 sample periods;
+  - exp30: the validity domain came from the ~83 labelled rows and flagged about 20 % of in-range rows; it now uses all
+    valid lagged training rows; the drift threshold was scaled to the stationary spread of the EWMA (k = 3).
+- Lessons: development seeds found real library bugs in every module, so they were used for bugs only; test seeds ran
+  once against frozen criteria; the misses are recorded as misses (exp28 J2, exp29 A1, A3 and B1, exp30 S3) and the UI and
+  READMEs say what is not validated. No threshold was moved after a test run.
+- Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-29600, 29601-29899, 30001-30788.

@@ -108,7 +108,7 @@ const EVENT: AnomalyEvent = {
 
 describe("events", () => {
   it("computes duration and ratios of the limits", () => {
-    expect(eventRows([EVENT], 15, 10)[0]).toMatchObject({ durationS: 600, t2Ratio: 2, speRatio: 0.5, closed: true });
+    expect(eventRows([EVENT], 15, 10)[0]).toMatchObject({ durationS: 600, t2Ratio: 2, speRatio: 0.5, closed: true, kind: "pca", tag: null });
   });
   it("masks event times with 0 and the rest with 1", () => {
     expect(eventMask([0, 600, 900, 1300], [EVENT])).toEqual([1, 0, 0, 1]);

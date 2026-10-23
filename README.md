@@ -40,6 +40,12 @@ passive data, time-constant and delay estimates are poor at full noise, the slug
 and dropped, and the OPC UA server was tested with a Python client only. Tuning and advice are advisory: nothing in
 this repository writes to a DCS.
 
+**Level (integrating) loops, experimental.** A level loop is modelled as a pure integrator with dead time (IPDT)
+from an OUT step test. The settings use the upper bound of the dead-time interval, not the point estimate, and the
+screen labels them experimental. In simulation, 0 of 276 accepted fits gave an unsafe controller in round 2 (3 of 270
+in round 1, before the upper bound was used). The dead-time interval covered the true dead time in 86.6 % of cases
+(target 90 %, missed). Not validated on any real loop ([exp28](experiments/exp28_integrating_step_test/README.md)).
+
 ## Module 2: advisory supervisor
 
 Status: proposed design ([ADR 010](docs/adr/010-advisory-supervisor.md)), tested on simulated data only.
@@ -65,6 +71,47 @@ Status: proposed design ([ADR 010](docs/adr/010-advisory-supervisor.md)), tested
   - Acceptance of advice (0.8) and the 300 s delay are assumptions of the simulated operator, not measurements.
   - No plant data has been used.
   - `who` on an acknowledgement is free text and is not authenticated.
+
+## Module 3: anomaly detection
+
+Status: advisory, simulated data only.
+
+- **What it is**: PCA with Hotelling T2 and SPE limits, lagged columns and a stuck-sensor rule. It flags drift, freeze
+  and out-of-model events and names the contributing tags. Bad-quality and missing rows are skipped, never imputed.
+- **No writes to a plant**: `anomaly/` never imports write code; a CI guard test checks this.
+- **Where**: `anomaly/`, `api/src/crosscut_api/anomaly_routes.py`, the Anomalies view (`frontend/src/components/AnomalyPage.tsx`),
+  `schemas/anomaly.schema.json`, example `anomaly/examples/mill_circuit_pca.json`.
+- **Try it**: in the Anomalies view press "Load example", then scan a simulated dataset. Read the T2 and SPE charts against
+  their limits and the contribution bars of the flagged events.
+- **Claim limits** (exp29, test seeds run once, [results](experiments/exp29_anomaly_detection/README.md)):
+  - Simulation only. Drift detected in 19/20 fault records; frozen sensor in 19/20, by the stuck rule.
+  - False alarms 1.79 per 24 h on quiet records (target 1.0, missed), mostly from operator setpoint moves; the view says so.
+  - Spikes (0.05), bad-quality rows and dropouts are not detected; the last two are skipped by design.
+  - Not validated on real plant data.
+
+## Module 4: soft sensor
+
+Status: advisory, simulated data only.
+
+- **What it is**: PLS on lagged process tags that estimates a quality variable between sparse, delayed lab results. Each row
+  has a validity flag (`ok`, `missing_input`, `out_of_range`, `extrapolation`); a bias tracker compares the estimate with lab results.
+- **No writes to a plant**: `softsensor/` writes to no system; mode is `off` or `advisory` only, and a CI guard test checks this.
+- **Where**: `softsensor/`, `api/src/crosscut_api/softsensor_routes.py`, the Soft sensor view (`frontend/src/components/SoftSensorPage.tsx`),
+  `schemas/softsensor.schema.json`, example `softsensor/examples/mill_circuit_pls.json`.
+- **Try it**: in the Soft sensor view press "Load example", pick a simulated dataset with lab results, set the train end and
+  run the fit. Compare the estimate with the lab points and read the validity flags.
+- **Claim limits** (exp30, test seeds run once, [results](experiments/exp30_soft_sensor/README.md)):
+  - Simulation only; the hidden quality variable was generated for the test, so it is not a plant result.
+  - Beats the last lab value in 31/34 normal records (RMSE 0.857 vs 1.384).
+  - Validity flags work: 0.988 of out-of-range rows are flagged. Do not use the estimate where a flag is shown.
+  - The drift flag is not reliable (5/33 drift records vs 5/34 normal); the view marks it as not validated.
+  - Not validated on a real plant.
+
+## Write path (design only)
+
+[ADR 011](docs/adr/011-write-path.md) is a proposed design for one write gateway, the only component that could ever write
+to a control system. It is not accepted, and nothing in this repository can write to a plant. The `gateway/` package holds
+12 strict expected-failure scenarios that state the required safety behaviour before any such code exists.
 
 ## Foundations (stage 0)
 

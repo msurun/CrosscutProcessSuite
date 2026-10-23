@@ -235,6 +235,8 @@ describe("run on the page", () => {
     expect(screen.getByTestId("soft-scores")).toHaveTextContent("Laboratory results used for bias tracking: 1");
     expect(screen.getByTestId("soft-drift")).toHaveTextContent("beyond ±1");
     expect(screen.getByTestId("soft-drift")).toHaveTextContent("Drift episodes: 1");
+    expect(screen.getByTestId("soft-drift-badge")).toHaveTextContent("not validated");
+    expect(screen.getByTestId("soft-drift")).toHaveTextContent("The drift flag is not reliable");
   });
 
   it("explains a stale model", async () => {

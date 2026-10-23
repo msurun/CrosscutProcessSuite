@@ -63,10 +63,12 @@ export interface EventRow {
   startS: number;
   endS: number;
   durationS: number;
-  t2Ratio: number;
-  speRatio: number;
+  t2Ratio: number | null;
+  speRatio: number | null;
   exceeded: AnomalyEvent["exceeded"];
   closed: boolean;
+  kind: "pca" | "stuck";
+  tag: string | null;
 }
 
 /** Table rows of the events of a scan, in time order. */
@@ -76,11 +78,18 @@ export function eventRows(events: readonly AnomalyEvent[], t2Limit: number, speL
     startS: event.start_s,
     endS: event.end_s,
     durationS: event.end_s - event.start_s,
-    t2Ratio: event.peak_t2 / t2Limit,
-    speRatio: event.peak_spe / speLimit,
+    t2Ratio: ratio(event.peak_t2, t2Limit),
+    speRatio: ratio(event.peak_spe, speLimit),
     exceeded: event.exceeded,
     closed: event.closed,
+    kind: event.kind ?? "pca",
+    tag: event.stuck_tag ?? null,
   }));
+}
+
+/** Peak divided by its limit; null when the event has no peak (a stuck-sensor event). */
+function ratio(peak: number | null, limit: number): number | null {
+  return peak === null || !Number.isFinite(peak) ? null : peak / limit;
 }
 
 /** Shading mask for the charts: 0 (drawn as a band) while an event is open at that time, 1 elsewhere. */

@@ -1,92 +1,72 @@
-# Handoff (2026-10-19, after the night session): module 1 polished and closed for now
+# Handoff (2026-10-23): state after the night of 2026-10-22/23
 
-Written for the next session (Claude or the owner). Per-step details are in `docs/IMPLEMENTATION_LOG.md` (last
-section) and in `experiments/exp21..exp26`. Everything is pushed to `main`; CI was green after 5e43ff1.
+Written for the next session (Claude or the owner). Per-step details: `docs/IMPLEMENTATION_LOG.md` (last section), the
+experiment READMEs `experiments/exp27..exp30` and the owner tasks in `docs/OWNER_TASKS.md`. Nothing in the repository
+writes to a plant.
 
-## State of module 1 (loop monitoring and tuning) in one table
+## State of the modules
 
-| Area | What ships | Evidence | Claim limit |
+| Module | What ships | Evidence | Claim limit |
 | --- | --- | --- | --- |
-| KPI triage | service factor, saturation, flatline, Harris (needs delay), valve travel / reversals / quantisation / sizing, "not assessed" when knowledge is missing | exp18, exp19 (real SACAC/ISDB, exploratory) | thresholds other than quantisation >= 1 and 15/85 % sizing not validated on real loops |
-| Oscillation without limits | ACF regularity (Thornhill 2003) + our noise band and 7-crossing rule (detector A) | exp20-24 synthetic | misses records with < 8 cycles; up to 9 % false alarms on fast noise with 1000+ samples; the finding says so |
-| Stiction | frozen weak hint (C4a) asking for a valve test | exp15/16 | never a diagnosis |
-| Valve stroke test | plan, operator procedure, analysis of a recorded test, CLI | exp25 simulated: deadband within 0.25 % in 100 % (no load) | no real test record yet |
-| Worklist | next action + priority rank per loop | rule only | needs the blind engineer review |
-| Tuning | SIMC/AMIGO from bump tests, vendor forms (Siemens verified, ABB TI unit open), tuning from history | exp03-08, exp17, exp26 | history tuning rarely applies on real data (exp17); level loops: confident advice safe in simulation (exp26, 12/12), low confidence now gives no settings |
-| Sluggish loops | nothing (idle index tried and stopped, exp22) | exp22 design exploration | |
+| 1 Loop monitoring and tuning | KPI triage, ACF oscillation test, valve checks and stroke test, worklist, SIMC/AMIGO tuning, history tuning, integrating-loop tuning (experimental) | exp18-26, exp28 | simulation; thresholds not validated on real loops; worklist needs blind review; integrating tuning simulated only |
+| 2 Advisory supervisor | fuzzy gates from module 1, advice, hash-chained log, Advisor view | exp27 E1-E5 met | ADR 010 proposed; simulated operator; no plant data; `who` not authenticated |
+| 3 Anomaly detection | PCA T2 and SPE, lagged columns, stuck-sensor rule, Anomalies view | exp29 round 2: drift 19/20, freeze 19/20, false alarms 1.79 per 24 h (missed) | simulation only; spikes and bad-quality rows not detected; not validated on real data |
+| 4 Soft sensor | PLS on lagged tags, validity flags, bias tracker, Soft sensor view | exp30: beats last lab value 31/34; validity 0.988; drift flag missed | simulation only; drift flag not reliable (5/33 vs 5/34); not validated on a real plant |
+| ADR 011 write path | proposed design, `gateway/` skeleton with 12 strict-xfail scenarios | design only | not accepted; nothing can write to a plant; owner review pending |
 
-## Decisions made tonight (and why)
+## Experiments of the night (frozen protocols, test seeds run once)
 
-1. **ACF-variant line closed.** Three frozen rounds; the best variant (I: biased ACF + peak gate 3 sigma) is better
-   than the shipped A on false alarms (worst cell 5/400 vs 36/400) and on short records (S 79 % vs 50 %), but
-   missed the long-record tolerance by 2 runs of 3600 in the last, announced-final round (exp24). Rule kept,
-   nothing shipped. If the owner wants I anyway, that is an owner decision against a documented miss, not a
-   result: the change would be `AcfConfig` defaults (min_crossings 5, max_lag_fraction 0.75, peak_z 3.0).
-2. **Idle index not shipped** (exp22): it did not separate sluggish loops in simulation.
-3. **Valve stroke test is the stiction answer**: a procedure for the operator, nothing writes to a DCS.
+| Experiment | Round | Met | Missed |
+| --- | --- | --- | --- |
+| exp28 integrating step test | 1 | I2 blocking, I4 looks_integrating | I1 accuracy 0.815 among accepted; I3 3 of 270 unsafe |
+| exp28 | 2 | J1 0 of 276 unsafe, J3, J4 | J2 dead-time interval covers 0.866 (target 0.90) |
+| exp29 anomaly detection | 1 | A2 drift 20/20, A4 tag in top 2 0.864, A5 no imputation | A1 2.13 false alarms per 24 h; A3 freeze 2/20 |
+| exp29 | 2 | B2 drift 19/20, B3 freeze 19/20, B4, B5, B6 | B1 1.79 false alarms per 24 h (max 4.33) |
+| exp30 soft sensor | 1 | S1 31/34 beat last lab value, S2 validity, S4 no leakage | S3 drift flag 5/33 vs 5/34 normal |
+
+Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-29600, 29601-29899, 30001-30788.
+Next unused: 29900 and up (exp29), 30801 and up (exp30). A new round needs a new frozen protocol first.
+
+## Decisions
+
+1. Integrating (level) loops: the settings use the upper bound of the dead-time interval and carry the experimental label.
+   In simulation 0 of 276 accepted fits were unsafe in round 2. Not validated on a real loop.
+2. Misses ship visibly, thresholds are not moved: the anomaly view says false alarms are not validated; the soft sensor
+   marks the drift flag as not validated.
+3. ADR 011 is a design only. No write code and no connection to a control system until the owner accepts it.
+4. Module 1 decisions still stand: the ACF-variant line is closed (the rule is kept; the better variant would be an owner
+   decision against a documented miss, see `AcfConfig` defaults in the log); the idle index is not shipped; the valve
+   stroke test is the stiction answer.
 
 ## Next steps, in the order I would take them
 
-1. **One real valve stroke test** on a flow loop (owner): `python -m crosscut_loops.valve_test_cli plan
-   --op-start <current OP> --dwell-s <4-6 x (tau + theta)>`, log t_s, op, pv to CSV, then `... analyze file.csv`
-   with the same arguments. This is the first real evidence for anything stiction-related.
-2. **Blind review of the worklist** by an independent control engineer on about 20 loops (Kendall tau >= 0.5, >= 80 %
-   agreement on the next action). The owner is the domain expert but not independent (the rules' intent came from them).
-3. **Frontend** (UI remediation plan P0-P7 done 2026-10-20/21, 459 vitest, 24 Playwright e2e with axe, all pushed): worklist,
-   loop detail with trends (range buttons, MODE band for manual mode), knowledge editor with range overrides, tuning wizard,
-   valve stroke test wizard, Trends tab (loop/unit grouping, 3-pane cap, cursor readout), Fuzzy Studio tabs with backtest.
-   Open (cosmetic/data): PL page shows English text from the backend example rule base; fuzzy terms are raw ids; 26 ESLint
-   size warnings; print CSS not checked visually; pl/es texts are machine-written and need a native read; per-tag range editing UI.
-4. Sluggish-loop detection, if wanted: Hagglund's load-episode detection or Visioli's area index on setpoint steps
-   (exp22 has a generator and harness ready).
-5. Module 2 planning can start: module 1 has no open blocking item on the assistant side.
+1. Review ADR 011 with the owner before any implementation; its open points are listed in the ADR.
+2. If the owner supplies the flotation cell level step test (`docs/OWNER_TASKS.md`), run it through the tuning wizard as
+   exploration. No pass/fail.
+3. Candidate follow-ups, each only with a new frozen protocol and new seeds: anomaly round 3 (smoothing the statistics,
+   excluding setpoint-move windows); soft sensor drift detector round (CUSUM on lab residuals, longer horizon); UI polish.
+4. Native review of the machine-written pl/es strings, including the new views.
+5. Module 1 items still open: one real valve stroke test and the blind worklist review (owner); sluggish-loop detection
+   if wanted (exp22 harness ready). UI cosmetics: the PL page shows English text from the backend example rule base;
+   fuzzy terms are raw ids; 26 ESLint size warnings; print CSS not checked visually; per-tag range editing UI.
 
-## Owner to-do (still open)
+## Owner to-do
+
+The full list, with what to bring back for each item, is in [docs/OWNER_TASKS.md](docs/OWNER_TASKS.md). Still open from the
+earlier list:
 
 1. UaExpert check (`python opcua/examples/live_demo.py`, `docs/LIVE_DEMO.md`), one line in the log.
-2. ADR 008 review (AGPL-3.0, `docs/adr/`).
+2. ADR 008 review (AGPL-3.0) and ADR 010 and 011 reviews (`docs/adr/`).
 3. ABB TI/TD unit: one real PidCC loop export (optional).
-4. Install Node.js LTS (`winget install OpenJS.NodeJS.LTS`, then `npm ci` in `frontend/`). `gh` is installed now.
-5. Whether to ask SACAC / ISDB providers about publishing derived tables.
+4. Whether to ask SACAC / ISDB providers about publishing derived tables.
 
 ## Working rules that held
 
 - Every experiment: protocol frozen and committed before any run, generator written by a different model than the
-  detector, one run, amendments only before the first dev/test seed and written down. Spent seed ranges are listed
-  in each README; exp24 lists all ACF ones.
+  detector, one run on test seeds, amendments only before the first development seed and written down. Development
+  seeds are for bugs only; the misses are recorded as misses.
 - Delegation: `delegate` output lands in `<Python Scripts>/.agent-out/`; `verify` runs the system Python without
-  pytest, so install by hand and test in `.venv`. Generators went to Sonnet subagents (different family from the
-  DeepSeek-written detectors). Every delegated file was read before commit; bugs found this way tonight: first-leg
-  deadband bracket, resolution order, idle-index gain sign, exp26 judgement window, test helper iteration.
+  pytest, so install by hand and test in `.venv`. Every delegated file was read before commit.
 - Gates before every commit: `.venv\Scripts\python -m ruff check .`, `-m mypy sim loops/src api/src connectors/src`,
-  `-m pytest`. Files in `loops/` use CRLF in the working tree; PowerShell `.Replace` with `\n` silently misses them,
-  use the Edit tool.
+  `-m pytest`. Files in `loops/` use CRLF in the working tree; PowerShell `.Replace` with `\n` silently misses them, use the Edit tool.
 - Third-party data (SACAC, ISDB): never committed; see `docs/PROVENANCE.md`.
-
-## Issues found by the 2026-10-19 code review: all fixed
-
-Found while cleaning the code, then fixed with a test that fails on the old code (except the renames).
-
-| Where | Issue | Fix |
-| --- | --- | --- |
-| `api/downsample.py` | One NaN in a bucket gave NaN for min, max and mean of the whole bucket | NaN and infinite samples are skipped; only a bucket with no finite sample is a gap |
-| `sim/pid.py` | In MAN `_d` was updated but `_prev_pv` not: a phantom derivative released as a jump (+33 output units in the test) on the second AUTO step | The measurement is remembered in both modes. All 12 simulator scenarios keep their dataset hashes, so recorded data is unaffected |
-| `fuzzy/backtest.py` | A jump directly followed by a jump the other way was summed to one move of delta ~0 | Runs are split at sign changes |
-| `sim/faults.py` | A second freeze of the same tag reused the first frozen value | Freeze memory is keyed by the fault |
-| `opcua/server.py` | Unreachable Int64 branch in `_write` | Removed |
-| `fuzzy/library.py`, `versions.py` | `$` accepted a trailing newline in system ids (file names) and version ids | `fullmatch` |
-| `loops/monitor.py` | Oscillation sentence was built for every loop; ACF method without a period would raise TypeError for any class | Sentences are built lazily |
-| `mill_circuit._init_paths` | Misleading names `gain_initial`, `variance` | `base_gain`, `hardness_slope` |
-| `api/fuzzy_routes.BacktestRequest` | Repeated the `BacktestSettings` defaults | Defaults read from `BacktestSettings` |
-| `csv_import`, `sim/run.py` | Broad `except Exception`; missing git executable not handled | Narrowed, with tests |
-
-Not touched on purpose: `experiments/` (about 830 `codecheck` findings; frozen records of runs, hashes in the READMEs).
-Tests were cleaned too (0 findings, no test or assertion removed, vacuous tests strengthened).
-
-## Module 2 (advisory supervisor), 2026-10-21: built and evidence-tested in simulation
-
-Plan `docs/design/module2-plan.md`, decisions `docs/adr/010-advisory-supervisor.md` (proposed, owner review pending). Package `supervisor/`
-(config, gates from module 1 rows, fail-closed advice with explanation, hash-chained audit log, rolling replay), API `api/.../supervisor_routes.py`,
-UI view Advisor, schemas `supervisor.schema.json` and `advisory-record.schema.json`. Nothing writes to a plant (guard test in CI).
-exp27 (frozen protocol, one test run): E1-E5 all met; fuzzy v2 beat a crisp rule (on-target 0.65 vs 0.49) but not the scripted operator (0.79).
-Open: owner review of ADR 010; real acknowledgement data (A18); no authentication of `who`; a write path needs its own ADR; advice times of simulated data show as 1970 in the UI.
