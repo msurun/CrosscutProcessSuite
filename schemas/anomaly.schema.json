@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/anomaly.schema.json",
+  "title": "PCA anomaly detection configuration",
+  "description": "Data-only configuration of the advisory PCA anomaly detector (Hotelling T2 and SPE). mode can only be off or advisory: no write path exists (ADR 010).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "tags", "mode"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "description": {"type": "string"},
+    "tags": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "variance_fraction": {"type": "number", "minimum": 0.5, "maximum": 0.999, "default": 0.90},
+    "alpha": {"type": "number", "minimum": 0.9, "maximum": 0.9999, "default": 0.99},
+    "min_consecutive": {"type": "integer", "minimum": 1, "default": 5},
+    "close_after": {"type": "integer", "minimum": 1, "default": 10},
+    "sample_period_s": {"type": "number", "exclusiveMinimum": 0, "default": 60},
+    "mode": {"enum": ["off", "advisory"]}
+  }
+}
