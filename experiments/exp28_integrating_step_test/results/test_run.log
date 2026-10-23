@@ -1,0 +1,79 @@
+[exp28] 1/676 good seed 28101
+[exp28] 13/676 good seed 28113
+[exp28] 25/676 good seed 28125
+[exp28] 37/676 good seed 28137
+[exp28] 49/676 good seed 28149
+[exp28] 61/676 good seed 28161
+[exp28] 73/676 good seed 28173
+[exp28] 85/676 good seed 28185
+[exp28] 97/676 good seed 28197
+[exp28] 109/676 good seed 28209
+[exp28] 121/676 good seed 28221
+[exp28] 133/676 good seed 28233
+[exp28] 145/676 good seed 28245
+[exp28] 157/676 good seed 28257
+[exp28] 169/676 good seed 28269
+[exp28] 181/676 good seed 28281
+[exp28] 193/676 good seed 28293
+[exp28] 205/676 good seed 28305
+[exp28] 217/676 good seed 28317
+[exp28] 229/676 good seed 28329
+[exp28] 241/676 good seed 28341
+[exp28] 253/676 good seed 28353
+[exp28] 265/676 good seed 28365
+[exp28] 277/676 good seed 28377
+[exp28] 289/676 B1 seed 28401
+[exp28] 301/676 B1 seed 28413
+[exp28] 313/676 B1 seed 28425
+[exp28] 325/676 B2 seed 28437
+[exp28] 337/676 B2 seed 28449
+[exp28] 349/676 B3 seed 28461
+[exp28] 361/676 B3 seed 28473
+[exp28] 373/676 B4 seed 28485
+[exp28] 385/676 B4 seed 28497
+[exp28] 397/676 valve seed 28509
+[exp28] 409/676 valve seed 28521
+[exp28] 421/676 valve seed 28533
+[exp28] 433/676 valve seed 28545
+[exp28] 445/676 valve seed 28557
+[exp28] 457/676 valve seed 28569
+[exp28] 469/676 valve seed 28581
+[exp28] 481/676 valve seed 28593
+[exp28] 493/676 valve seed 28605
+[exp28] 505/676 valve seed 28617
+[exp28] 517/676 valve seed 28629
+[exp28] 529/676 valve seed 28641
+[exp28] 541/676 valve seed 28653
+[exp28] 553/676 valve seed 28665
+[exp28] 565/676 valve seed 28677
+[exp28] 577/676 valve seed 28689
+[exp28] 589/676 valve seed 28701
+[exp28] 601/676 valve seed 28713
+[exp28] 613/676 valve seed 28725
+[exp28] 625/676 valve seed 28737
+[exp28] 637/676 valve seed 28749
+[exp28] 649/676 valve seed 28761
+[exp28] 661/676 valve seed 28773
+[exp28] 673/676 valve seed 28785
+# exp28 results: test seeds
+
+Runs: 676; runtime 344 s. Dev seeds are a harness check only (one run per good cell); the frozen criteria apply to the test seeds.
+
+## Criteria
+
+| id | values | verdict |
+| --- | --- | --- |
+| I1 | accepted 0.938 (270/288); accurate among accepted 0.815 | MISS |
+| I2 | blocked B1 1.000, B2 1.000, B3 1.000, B4 1.000; ok over all bad 0.000 | PASS |
+| I3 | judged 270, unsafe 3 | MISS |
+| I4 | fires on good 0.958; false on B1+B2 0.000 | PASS |
+
+I4 false warnings are pooled over B1 and B2; per kind: B1 0.000, B2 0.000
+
+### I3 unsafe runs
+
+- k0.002_th5_single_N0.2_L0 seed 28112
+- k0.002_th30_doublet_N0.05_L0.5 seed 28171
+- k0.002_th30_train_N0.05_L0.5 seed 28185
+
+

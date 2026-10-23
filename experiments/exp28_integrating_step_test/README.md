@@ -88,3 +88,27 @@ R2_ipdt >= R2_fopdt - 0.02), 0/50 false warnings on FOPDT scratch records (tau 6
 Dev rerun: I3 72/72 safe, `looks_integrating` 1.000, I1 accuracy unchanged at 0.764 (13 of 17 inaccurate runs are dead-time errors or slope errors of 9-15 % that nothing flags),
 low_confidence 4/72. Thresholds were not tuned against these seeds beyond the changes above. Expectation recorded before the test run: I1 is likely to miss again.
 Development seeds 28001..28072 and scratch seeds 28901..28950 are spent.
+
+## Result round 1 (test seeds, first and only run, 2026-10-22; tables in results/test.md)
+| id | value | criterion | met |
+|----|-------|-----------|-----|
+| I1 | accepted 0.938 (270/288); accurate among accepted 0.815 | >= 0.70 accepted, >= 0.90 accurate | **no (accuracy)** |
+| I2 | blocked B1 1.000, B2 1.000, B3 1.000, B4 1.000; verdict ok on bad records 0.000 | >= 0.90 each, <= 0.05 | yes |
+| I3 | 270 judged, 3 unsafe | 100 % safe | **no** |
+| I4 | `looks_integrating` fires on 0.958 of good runs; false warnings on B1+B2 0.000 | >= 0.90, <= 0.10 | yes |
+
+The three unsafe runs (seeds 28112, 28171, 28185) are all slow integrators (k = 0.002) with the dead time badly underestimated while k' was right (theta 5 s read as 0.85 s; 30 s read as 2.5 s and 4.7 s), verdict `ok`, R2 >= 0.98. A too small dead time gives Kc = 1 / (k' (tau_c + theta)) that is too large.
+Per the decision rule, nothing from round 1 ships as validated level-loop tuning: the screen labels integrating-loop settings experimental. Dead time is poorly identifiable when the ramp starts slowly against the noise; the fit does not know its own uncertainty in theta.
+Round 2 (new frozen protocol on new seeds, below) tunes with an upper bound of the dead time from the profile of the fit error instead of the point estimate.
+
+## Round 2 protocol (FROZEN 2026-10-22, before any round 2 seed and before the code that implements it is run)
+Change under test: `IpdtFit` gains `delay_lower_s` and `delay_upper_s` (profile of the sum of squared errors over theta, with the other coefficients re-fitted at each theta; the interval is the set of theta whose SSE <= SSE_min * (1 + F_{0.95}(1, n - p) / (n - p)), clipped to the delay grid) and the tuning rules use `delay_upper_s` as the dead time (conservative: a larger theta gives a smaller Kc and a longer Ti). The point estimate is still reported.
+Same generator, same cells, same harness code paths (the harness gets a `--round 2` switch that changes only seed ranges and the criteria below; its hashes are re-frozen). Seeds: development 30001..30072, test good cells 30101..30388, valve 30501..30788, bad kinds 30401..30500. Round 1 seeds are spent.
+| id | criterion (test seeds) |
+|----|-----------|
+| J1 | every accepted fit gives a PI that is settled and not oscillating on the true plant: 100 % (a single unsafe case fails J1) |
+| J2 | the true dead time lies inside [delay_lower_s, delay_upper_s] in >= 90 % of accepted good runs |
+| J3 | bad records: blocked in >= 90 % of runs of each kind (as I2); accepted share of good runs >= 70 % |
+| J4 | median overshoot of the proposed PI on good runs <= 0.35 (conservative tuning must not become useless) |
+Decision: if J1 fails again the integrating tuning stays labelled experimental, the settings are shown only as a range of Kc and Ti, and the line is closed. Never iterate on the test seeds.
+Development round (seeds 30001..30072) may be used to fix bugs only; the interval rule above is frozen as written.
