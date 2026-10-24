@@ -339,7 +339,7 @@ describe("procedureSentence", () => {
 
 describe("valveErrorMessage", () => {
   it("uses the code-specific template for an ApiError with a code", () => {
-    const error = new ApiError(400, "bad", "some_code");
+    const error = new ApiError(400, "bad", { code: "some_code" });
     expect(valveErrorMessage(translate, error)).toBe('valve.error.code.some_code{"message":"bad"}');
   });
 

@@ -39,6 +39,13 @@ export interface SeriesResponse {
   series: Series[];
 }
 
+/** Optional structured details of an {@link ApiError}; every field defaults to null (or [] for findingCodes). */
+export interface ApiErrorDetails {
+  code?: string | null;
+  field?: string | null;
+  findingCodes?: string[];
+}
+
 /** Error raised for any non-2xx response; `status` is the HTTP status code. */
 export class ApiError extends Error {
   readonly status: number;
@@ -49,19 +56,18 @@ export class ApiError extends Error {
   /** Codes of the findings that made the server refuse a record (step-test intake), else empty. */
   readonly findingCodes: string[];
 
-  constructor(
-    status: number,
-    message: string,
-    code: string | null = null,
-    field: string | null = null,
-    findingCodes: string[] = [],
-  ) {
+  /**
+   * @param status HTTP status code of the failed response.
+   * @param message Human-readable message, usually the server `detail`.
+   * @param details Optional structured fields: `code`, `field`, `findingCodes`.
+   */
+  constructor(status: number, message: string, details: ApiErrorDetails = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.code = code;
-    this.field = field;
-    this.findingCodes = findingCodes;
+    this.code = details.code ?? null;
+    this.field = details.field ?? null;
+    this.findingCodes = details.findingCodes ?? [];
   }
 }
 
@@ -478,7 +484,7 @@ async function sendJson<T>(method: string, url: string, body: unknown): Promise<
     } catch {
       // keep the status text
     }
-    throw new ApiError(response.status, message, code, field, findingCodes);
+    throw new ApiError(response.status, message, { code, field, findingCodes });
   }
   return (await response.json()) as T;
 }

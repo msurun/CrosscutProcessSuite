@@ -79,7 +79,7 @@ function errorInfo(error: unknown): { code: string | null; field: string | null;
 /** The sentence for a stored error, translated. */
 function errorText(t: Translate, error: { code: string | null; field: string | null; message: string }): string {
   if (error.code === NETWORK_CODE) return t("valve.error.network");
-  return valveErrorMessage(t, new ApiError(0, error.message, error.code, error.field));
+  return valveErrorMessage(t, new ApiError(0, error.message, { code: error.code, field: error.field }));
 }
 
 /** Runs an API call and reports its outcome to the reducer. */

@@ -60,7 +60,7 @@ describe("verdicts and errors", () => {
   it("translates 409, 413 and a refused record, and shows other texts", () => {
     expect(describeIntakeError(new ApiError(409, "x"), t)).toBe("A dataset with this id exists: choose another id.");
     expect(describeIntakeError(new ApiError(413, "x"), t)).toContain("25 MB");
-    expect(describeIntakeError(new ApiError(422, "m", null, null, ["no_out_move"]), t)).toContain("no_out_move");
+    expect(describeIntakeError(new ApiError(422, "m", { findingCodes: ["no_out_move"] }), t)).toContain("no_out_move");
     expect(describeIntakeError(new ApiError(422, "unknown column NOPE"), t)).toContain("unknown column NOPE");
     expect(describeIntakeError(new TypeError("Failed to fetch"), t)).toContain("Failed to fetch");
   });
