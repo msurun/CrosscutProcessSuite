@@ -101,8 +101,10 @@ Open, in suggested order:
 a. Confirm the lab stamp meaning in STARLIMS (end of the composite plus up to 1 h?) and the Courier -9999 meaning; the analyser
    latency is still unmeasured (assumed 0).
 b. Level loops in closed loop (setpoint steps) only after the controller tunings arrive (A2 in the owner's list).
-c. Review of ADR 008, 010, 011 with the owner; native review of the machine-written pl/es strings (now also plant import and Steps); one real valve
-   stroke test; the blind worklist review; UI cosmetics (ESLint size warnings, print CSS).
+c. Review of ADR 008, 010, 011 with the owner; one real valve stroke test; the blind worklist review. Native pl/es review is DONE (commit
+   `42d00c4`, pl+es real changes, terminology corrected by hand); the ESLint `max-params` warning is cleared (`ApiError` takes a details
+   object); print CSS already exists. The 23 `max-lines-per-function` warnings are deliberately kept as warnings and deferred (internal
+   refactor, e2e regression risk, not visible cosmetics): the owner decides whether to do them in batches later.
 d. The possible-ramp warning is exploratory: precision against real archive gaps is unknown. Ask the owner for a list of tags with
    PI archive gaps in those weeks to measure it; counters/timers also draw straight lines.
 
