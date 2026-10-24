@@ -17,13 +17,15 @@ original plan and list what was lost or changed; differences go into section 10.
 
 ## 1. Vision and users
 
-**Who.** The primary user is a process engineer in mineral processing (the first target is a grinding/flotation
-circuit) who configures the toolkit **without programming**. A secondary user is the plant controls engineer who
+**Who.** The primary user is any process engineer who configures the toolkit **without programming**, with their own
+tags, laboratory results, analysers and loops. Crosscut is a generic framework, not a set of ready-made cases. Plant 1
+(a grinding/flotation circuit) is only the validation domain: plant data validates features and never defines
+features, defaults or titles. Every module-4 feature works on any tag. A secondary user is the plant controls engineer who
 must supervise anything that could touch a controller.
 
 **What problem.** Process loops are often in manual, saturated, flatlining or oscillating, and tuning is done by
 rule of thumb. Lab assays arrive late and sparse, so quality is not known between lab results. Operator decisions on
-setpoints (for example mill feed) are not logged or gated by loop health. The suite aims to turn historian and OPC UA
+setpoints (for example a feed rate) are not logged or gated by loop health. The suite aims to turn historian and OPC UA
 data into findings, tuning reports, advice and quality estimates, with the evidence and the limits written next to
 each number.
 
@@ -183,7 +185,7 @@ because there was no clean open-loop step). The ABB TI/TD unit from one real `Pi
 
 ### 4.2 Module 2 — Advisory supervisor
 
-**Purpose.** Advise on a process-level setpoint (first target: mill feed) with advice gated by module 1 loop state,
+**Purpose.** Advise on a process-level setpoint (first validation case: a feed rate) with advice gated by module 1 loop state,
 explained by its dominant rules, logged, and acknowledged by an operator.
 
 **What ships** (`supervisor/`, `api/src/crosscut_api/supervisor_routes.py`, Advisor view, `supervisor.schema.json`,
@@ -239,8 +241,10 @@ the tails.
 
 **Claim limits.** Simulation only for exp30; the hidden quality variable was generated for the test. The drift flag is
 not reliable (5/33 drift vs 5/34 normal) and the view marks it not validated. exp31 is not blind (data seen in
-exploration); a true test needs the next delivery. A process-only PLS soft sensor of lab grades was **not achievable**
-from four weeks (negative blocked-CV R²); a useful soft sensor must feed the Courier analyser with lab bias correction.
+exploration); a true test needs the next delivery. On plant 1 a process-only PLS soft sensor of lab grades was **not
+achievable** from four weeks (negative blocked-CV R²), while an online analyser as a configured reference input worked;
+this is a result of that validation run, not a product requirement. The engine takes any tag as reference input, with a
+validity flag and an optional lab bias correction (off by default, checked on the user's data).
 
 **Missing for real use.** Confirmation of the lab stamp meaning (end of 6 h composite plus up to about 1 h) and the
 Courier −9999 meaning from the LIMS owner; the analyser latency is assumed 0 and still unmeasured. The next data
