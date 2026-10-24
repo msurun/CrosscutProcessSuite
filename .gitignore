@@ -33,3 +33,6 @@ Thumbs.db
 experiments/exp10_sacac_stiction/results/
 experiments/exp16_stiction_generalise/isdb_labels.csv
 experiments/exp19_triage_no_knowledge/results19.md
+
+# Generated code-graph output (graphify), 30 MB, never committed
+graphify-out/
