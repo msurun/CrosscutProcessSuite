@@ -81,8 +81,10 @@ updating through TEST; M0 and M3 must see the labs of unusable composites too). 
 TEST RMSE (R2 in brackets): Cu M0 1.274, M1 0.661, M2 0.648, M3 0.696 (0.65); Mo M0 0.0306, M1 0.0120, M2 0.0130, M3 0.0116.
 Reading: the Courier estimate halves the error of the last lab value on both concentrate grades. Calibration on TRAIN adds nothing over the raw
 Courier (slopes 1.06 and 0.95, offsets near 0): M1 is as good as M2. The EWMA lab correction hurts Cu (7 %) and helps Mo (11 %), so it is not
-a default for Cu (decision rule). R3 is missed: 22 % of the composites have fewer than half valid Courier minutes in the window (cause not
-analysed here; the sentinel and its interpolation blend are removed with MIN_VALID = 0), so the validity flag is mandatory.
+a default for Cu (decision rule). R3 is missed as measured (22 %), but a diagnosis after the run (no number changed) shows the cause is not Courier validity: 34 of the 144 lab
+stamps lie outside the 4 weeks of A4 (no analyser rows at all), and of the 110 stamps inside, none has less than 50 % valid minutes (median
+coverage 1.0). The criterion definition ("unusable for Courier coverage") mixed the two; the verdict stays MISS and the finding is that
+R3 should have counted only stamps inside the A4 span. A future protocol must say so.
 Secondary, no criteria: Fe concentrate behaves like Cu (M2/M0 0.53). For the tails the calibrated M2 is worse than raw M1 on all three
 (Cu 0.0149 vs 0.0108, Fe 0.453 vs 0.359, Mo 0.0009 vs 0.0005) and the tail M2/M0 ratios are 0.80, 0.94 and 1.28: with low grades the
 train-fitted line does not transfer; do not use the calibrated tail estimate.

@@ -97,6 +97,10 @@ Done 2026-10-23 night (details in `docs/IMPLEMENTATION_LOG.md`, last section; co
    and the responding flow) in addition to a control loop.
 9. CI fix: the PCA limits test compares to numerical precision (float JSON hash was not portable across platforms; CI green again).
 
+10. exp31 (real data, frozen protocol, `experiments/exp31_courier_softsensor/`): Courier halves the error of the last lab value on Cu and Mo
+    concentrate (R1, R4, R5 met); EWMA lab correction hurts Cu (R2 miss 1.074), R3 miss is a protocol wording issue (stamps outside A4), the
+    calibrated line is worse than the raw Courier for the tails. Not blind (data seen in exploration): a true test needs the next delivery.
+
 Open, in suggested order:
 a. Confirm the lab stamp meaning in STARLIMS (end of the composite plus up to 1 h?) and the Courier -9999 meaning; the analyser
    latency is still unmeasured (assumed 0).
