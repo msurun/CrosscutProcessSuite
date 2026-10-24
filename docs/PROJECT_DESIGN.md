@@ -6,12 +6,14 @@ sources are silent, they say **not decided**.
 
 Companion documents: `README.md` (status and per-module limits), `docs/HANDOFF.md` (state of work, real-data notes),
 `docs/NEXT_MODULE_OPTIONS.md` (why module 2 came next), `docs/TESTING_STRATEGY.md` (L0–L7 ladder), and the ADRs in
-`docs/adr/` (decision records). The ADRs override this document where they conflict.
+`docs/adr/` (decision records). The ADRs override this document where they conflict. Polish version:
+`docs/PROJECT_DESIGN.pl.md` (same content, kept in step by hand; the English text wins on conflict).
 
-**Provenance of this document (2026-10-24).** The owner's original planning documents (Polish: strategy, plan, stage specs;
-`OpenExpert/docs/` on the owner's machine) are not available in this repository or to the assistant. This design is reconstructed
-from the public repository (README, ADRs, testing strategy, implementation log, handoff). The owner should compare it with the
-original plan and list what was lost or changed; differences go into section 10.
+**Provenance of this document (2026-10-24).** There is no written original plan. The project was shaped in conversation and no
+Polish strategy, plan or stage-specification file was ever produced; `docs/design/` holds feature-level plans written during the
+work, not an upstream master plan. This design record is therefore reconstructed from the public repository (README, ADRs, testing
+strategy, implementation log, handoff). The owner is still asked to read it against his own memory of the plan and list anything
+missing or changed; differences go into section 10.
 
 ---
 
@@ -419,6 +421,9 @@ The README states five goals. Where each stands on 2026-10-24:
 | ML operating-range recommendation and economic optimisation | not started | none | objective and real historian data |
 | Native OPC UA connectivity | test server, collector, read import | Python client only | UaExpert check; write path (ADR 011) |
 
-**Differences from the original plan: to be filled by the owner after comparing with `OpenExpert/docs/`.** Known drift worth
-checking: the licence changed from Apache-2.0 to AGPL-3.0-only (ADR 008); module order was decided by evidence availability
-(`NEXT_MODULE_OPTIONS.md`), not by the original stage order; the C++ runtime has not grown beyond a smoke test because nothing writes yet.
+**Differences from the original plan: there is no written original to compare with** (see the provenance note). The owner's earlier
+intent is known only from the conversation in which the project started, so what follows is what has visibly drifted from the goals in
+section 1 and from the order those goals were pursued in. Known drift worth checking: the licence changed from Apache-2.0 to
+AGPL-3.0-only (ADR 008); module order was decided by evidence availability (`NEXT_MODULE_OPTIONS.md`), not by a stage order; the C++
+runtime has not grown beyond a smoke test because nothing writes yet; the generic engine came after a first version that was too close
+to one plant's data (issue #42 records the remaining cleanup).

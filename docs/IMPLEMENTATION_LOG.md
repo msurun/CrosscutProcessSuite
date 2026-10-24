@@ -18,8 +18,9 @@ KPI triage, exploratory on two public datasets; nothing in the suite writes to a
 - Rules: code, comments, commit messages and docs in English; all data synthetic; no code, data or parameters
   from any employer; every method listed in `docs/PROVENANCE.md` before it is implemented; do not publish to PyPI
   until the trademark registers have been checked.
-- Planning documents (Polish: strategy, plan, stage specs) are private and live outside this repository
-  (owner's machine, `OpenExpert/docs/`). They are not available in clones of this repo.
+- There is no written original plan: the project was shaped in conversation, and `docs/design/` holds feature-level plans
+  written while the work was done. The assistant has only the repository to reconstruct intent from
+  (`docs/PROJECT_DESIGN.md`, provenance note).
 - Repository is public under AGPL-3.0-only with a commercial licence offered (`LICENSING.md`, ADR 008, ADR 009).
   Never force-push. Commit at natural milestones.
 

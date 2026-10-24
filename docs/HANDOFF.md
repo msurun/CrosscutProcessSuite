@@ -4,8 +4,11 @@ Written for the next session (Claude or the owner). Per-step details: `docs/IMPL
 experiment READMEs `experiments/exp27..exp30` and the owner tasks in `docs/OWNER_TASKS.md`. Nothing in the repository
 writes to a plant.
 
-Where things stand overall: `docs/PROJECT_DESIGN.md` (what is being built, phases A-F, goal versus state). Work items live as GitHub issues
-(milestones A-F, labels `owner`, `needs-data`, `blocked`); the board view is a GitHub Project once the token has the `project` scope.
+Where things stand overall: `docs/PROJECT_DESIGN.md` (what is being built, phases A-F, goal versus state) and its Polish
+companion `docs/PROJECT_DESIGN.pl.md` (same content; the English one wins on conflict). Work items live as GitHub issues
+(milestones A-F, labels `owner`, `needs-data`, `blocked`); the board is https://github.com/users/msurun/projects/1
+(Backlog / Ready / In progress / Blocked / Done). There is no written original plan: the design record is reconstructed from
+this repository, and its section 10 lists what visibly drifted from the goals.
 
 ## State of the modules
 

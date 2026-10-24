@@ -12,6 +12,10 @@ The goal is a toolkit that a process engineer can configure without programming:
 
 Every module is optional; a plant picks what it needs.
 
+Where to read more: [docs/PROJECT_DESIGN.md](docs/PROJECT_DESIGN.md) (what is built and what is not, phases A-F,
+goal versus state; Polish: [docs/PROJECT_DESIGN.pl.md](docs/PROJECT_DESIGN.pl.md)), [docs/HANDOFF.md](docs/HANDOFF.md)
+(current state and limits), and the work board https://github.com/users/msurun/projects/1.
+
 ## Module 1: loop monitoring and PID tuning
 
 What a process engineer can do today, on simulator data or on a CSV / SQL export (details, evidence and limits per
