@@ -65,3 +65,25 @@ method over months is not covered. Nothing here writes to or advises on a plant.
 Harness: written by a delegated model (foremankit) that did not write the soft-sensor module; the lead reads it and re-derives the
 metrics by hand on a few composites. The harness reads the data from paths given on the command line and prints only aggregate
 numbers; no data is stored in the repository.
+
+## Result (first and only run, 2026-10-24; tables in results/test.md, aggregate numbers only)
+The harness was read by the lead before the run and two deviations from this protocol were fixed before any number existed (M3 bias must keep
+updating through TEST; M0 and M3 must see the labs of unusable composites too). 67 train and 45 test composites per primary target.
+
+| id | T1 Cu concentrate | T2 Mo concentrate |
+|----|-------------------|-------------------|
+| R1 M2/M0 RMSE <= 0.75 | PASS 0.508 | PASS 0.426 |
+| R2 M3/M2 RMSE <= 1.05 | **MISS 1.074** | PASS 0.886 |
+| R3 unusable share <= 10 % | **MISS 0.222** | **MISS 0.222** |
+| R4 no leakage | PASS | PASS |
+| R5 TEST/CV <= 1.25 | PASS 0.829 | PASS 0.310 |
+
+TEST RMSE (R2 in brackets): Cu M0 1.274, M1 0.661, M2 0.648, M3 0.696 (0.65); Mo M0 0.0306, M1 0.0120, M2 0.0130, M3 0.0116.
+Reading: the Courier estimate halves the error of the last lab value on both concentrate grades. Calibration on TRAIN adds nothing over the raw
+Courier (slopes 1.06 and 0.95, offsets near 0): M1 is as good as M2. The EWMA lab correction hurts Cu (7 %) and helps Mo (11 %), so it is not
+a default for Cu (decision rule). R3 is missed: 22 % of the composites have fewer than half valid Courier minutes in the window (cause not
+analysed here; the sentinel and its interpolation blend are removed with MIN_VALID = 0), so the validity flag is mandatory.
+Secondary, no criteria: Fe concentrate behaves like Cu (M2/M0 0.53). For the tails the calibrated M2 is worse than raw M1 on all three
+(Cu 0.0149 vs 0.0108, Fe 0.453 vs 0.359, Mo 0.0009 vs 0.0005) and the tail M2/M0 ratios are 0.80, 0.94 and 1.28: with low grades the
+train-fitted line does not transfer; do not use the calibrated tail estimate.
+Not a blind result (see the limit above). A true test needs the next delivery of weeks the assistant has not looked at.
