@@ -62,10 +62,13 @@ optional; a plant picks what it needs (`README.md`).
    review).
 4. **A GUI slice for every feature.** Each shipping module has a web view and an example: Loops, Fuzzy, Advisor,
    Anomalies, Soft sensor, Import (plus the Steps view) — `docs/HANDOFF.md`, `README.md` try-it instructions.
-5. **Real data stays outside the repository.** The owner's plant data is confidential, never committed, and never
+5. **A generic tool, validated on plant data.** Every feature works on any tag, lab, analyser and loop the user
+   configures; no tag name, unit, missing-value code, window or threshold of one plant may be a constant in `*/src`.
+   Plant data validates and never defines features, defaults or titles.
+6. **Real data stays outside the repository.** The owner's plant data is confidential, never committed, and never
    sent to external services; reports may quote numbers, not bulk data. Third-party data follows
    `docs/PROVENANCE.md` (`docs/HANDOFF.md`, decision 5).
-6. **Honest claim limits.** Findings say "not assessed" rather than guessing; the strongest firing strength is called
+7. **Honest claim limits.** Findings say "not assessed" rather than guessing; the strongest firing strength is called
    *activation*, never *confidence*; the strongest evidence claims are "in our simulator, with our operator model"
    (`README.md`, ADR 010).
 
@@ -235,9 +238,9 @@ archive gaps to measure ramp-warning precision.
 `extrapolation`); bias tracker. The plant import masks an exact −9999 sentinel as missing.
 
 **Evidence.** exp30: beats the last lab value in 31/34 normal records (RMSE 0.857 vs 1.384); 0.988 of out-of-range
-rows flagged. exp31 (real data, frozen protocol, not blind): the Courier analyser halves the error of the last lab
-value on Cu and Mo concentrate; EWMA lab bias correction hurt Cu; the calibrated line is worse than the raw Courier for
-the tails.
+rows flagged. exp31 (plant-1 validation run, frozen protocol, not blind): an online analyser configured as a reference input halves
+the error of the last lab value on two grades; EWMA lab bias correction hurt one of them; a train-fitted line was worse
+than the raw analyser at low grades. Details stay in the experiment record.
 
 **Claim limits.** Simulation only for exp30; the hidden quality variable was generated for the test. The drift flag is
 not reliable (5/33 drift vs 5/34 normal) and the view marks it not validated. exp31 is not blind (data seen in
@@ -246,8 +249,8 @@ achievable** from four weeks (negative blocked-CV R²), while an online analyser
 this is a result of that validation run, not a product requirement. The engine takes any tag as reference input, with a
 validity flag and an optional lab bias correction (off by default, checked on the user's data).
 
-**Missing for real use.** Confirmation of the lab stamp meaning (end of 6 h composite plus up to about 1 h) and the
-Courier −9999 meaning from the LIMS owner; the analyser latency is assumed 0 and still unmeasured. The next data
+**Missing for real use.** For the plant-1 validation: confirmation of the lab stamp meaning and of the historian's missing-value code from the
+data owner; the analyser latency is assumed 0 and still unmeasured. Both must be user configuration, not constants. The next data
 delivery for a blind test; months of data.
 
 ### 4.5 Fuzzy Studio
@@ -321,12 +324,12 @@ Done; misses shipped visibly (exp30 drift flag, exp31 protocol-worded miss R3).
 
 ### Phase D — Real-data phase (in progress)
 
-**Goal.** Move evidence from synthetic to real, using the confidential flotation-line PI extract (kept outside the
-repository), the lab and Courier analyser package, and a proper exp31 blind test on the next delivery. **Exit
-criteria.** exp31 reproduced blind; lab-stamp and −9999 meanings confirmed; analyser latency measured; a real
+**Goal.** Move evidence from synthetic to real, using the confidential plant-1 historian extract (kept outside the
+repository), its lab and analyser package, and a proper exp31 blind test on the next delivery. **Exit
+criteria.** exp31 reproduced blind; lab-stamp and missing-value-code meanings confirmed; analyser latency measured; a real
 level-loop model when the DCS tunings and an open-loop step test arrive. **Status.** In progress. The generic exp31
-finding: the Courier analyser halves the error of the last lab value on Cu and Mo concentrate, lab bias correction
-hurts Cu, and the test is not blind.
+finding: an analyser as reference input halves the error of the last lab value, lab bias correction can hurt (so it
+is off by default), and the test is not blind.
 
 ### Phase E — Pilot readiness
 
@@ -352,16 +355,16 @@ Blocked on ADR 011 acceptance and V5. Nothing may write before this.
 | 1 | ADR 008 (AGPL) review | decides what a customer may run and publish | accept or changes |
 | 2 | ADR 010 (advisory supervisor) review | defines what is recommended and how advice is acknowledged | accept or changes |
 | 3 | ADR 011 (write path) review + open points | only place a write to a live system would be allowed | authority model, vendor conventions, watchdog periods, hold-off times, regulatory/MoC approval, whether closed loop is wanted |
-| 4 | Real level step test (flotation cell) | the integrating-loop model needs a real step response | CSV + mode/units/sample period, cell and valve |
+| 4 | Real level step test (integrating loop) | the integrating-loop model needs a real step response | CSV + mode/units/sample period, cell and valve |
 | 5 | Real valve stroke test on a flow loop | the simulated stroke model is unverified | record + filled results table |
 | 6 | Blind worklist review (~20 loops) | the ranking has no outside check | reviewer's ranking and next actions |
 | 7 | Anomaly real data (≥ 2 weeks quiet + labelled events) | detector limits are only meaningful against real quiet data | CSV + event list |
 | 8 | Soft-sensor real data (lab timestamps, delay, tags) | the quality variable is only real with lab timing | lab CSV + delay + tag list |
-| 9 | Lab-stamp and Courier sentinel meaning; analyser latency | exp31 alignment rests on assumptions | confirmation from the LIMS/analyser owner |
+| 9 | Lab-stamp and missing-value code meaning; analyser latency | exp31 alignment rests on assumptions | confirmation from the lab/analyser data owner |
 | 10 | UaExpert check; ABB `PidCC` TI/TD export | OPC UA demo and ABB unit conversion are assumed today | notes / export |
 | 11 | Optimisation objective (economic value per PV unit, limits) | no optimisation module without it | value per unit, operating limits |
 | 12 | UI authentication; whether first customer needs MPC | deployment design, security scope, ranking of Phase F | yes/no and reasons |
-| 13 | Ramp-warning precision against real archive gaps; PI gap list | the warning is exploratory | list of tags/weeks with PI archive gaps |
+| 13 | Ramp-warning precision against real archive gaps; historian gap list | the warning is exploratory | list of tags/weeks with historian archive gaps |
 | 14 | Level sensor range and clip, valve behaviour in manual, windup questions | needed to judge real level tuning | answers in writing |
 | 15 | Next A4/A5 delivery kept untouched for a blind exp31 test | exp31 was not blind | new weeks of data, not opened by the assistant |
 
@@ -385,7 +388,7 @@ conventions at the relevant sites.
 | `docs/OWNER_TASKS.md` | what only the owner can do; what to bring back |
 | `docs/VALVE_STROKE_TEST.md` | guided valve stroke test procedure |
 | `docs/LIVE_DEMO.md` | live OPC UA demos and UaExpert procedure |
-| `docs/design/plant-import.md` | whole PI file import |
+| `docs/design/plant-import.md` | whole historian file import |
 | `docs/design/step-analyzer.md` | Steps view design |
 | `docs/design/fuzzy-studio.md` | Fuzzy Studio editor design |
 | `docs/adr/001` | C++ runtime, Python offline tooling (accepted) |
@@ -401,7 +404,7 @@ conventions at the relevant sites.
 | `experiments/exp28_integrating_step_test/` | integrating-loop tuning |
 | `experiments/exp29_anomaly_detection/` | anomaly evidence |
 | `experiments/exp30_soft_sensor/` | soft-sensor evidence |
-| `experiments/exp31_courier_softsensor/` | Courier vs lab (real data, not blind) |
+| `experiments/exp31_courier_softsensor/` | analyser vs lab on plant-1 data (not blind) |
 ---
 
 ## 10. Goal versus state (the one-page view) and differences from the original plan
@@ -411,7 +414,7 @@ The README states five goals. Where each stands on 2026-10-24:
 | Goal | State | Evidence level | Next real step |
 |---|---|---|---|
 | Loop monitoring and PID tuning | usable advisory tool, GUI, level loops experimental | simulation + exploratory public/real data | blind worklist review, valve stroke test, DCS tunings |
-| Soft sensors and anomaly detection | modules 3 and 4 shipped, advisory | simulation; real data explored (Courier input works, process-only PLS does not) | blind exp31 on a new delivery; real quiet weeks for anomaly limits |
+| Soft sensors and anomaly detection | modules 3 and 4 shipped, advisory | simulation; plant-1 data explored (analyser as input works, process-only PLS does not) | blind exp31 on a new delivery; real quiet weeks for anomaly limits |
 | MPC and fuzzy / expert rules | fuzzy + advisory supervisor shipped; MPC not started | simulation | MPC waits for the write path |
 | ML operating-range recommendation and economic optimisation | not started | none | objective and real historian data |
 | Native OPC UA connectivity | test server, collector, read import | Python client only | UaExpert check; write path (ADR 011) |
