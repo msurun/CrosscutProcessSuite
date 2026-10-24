@@ -853,5 +853,10 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   tags straight over 90 % of the window skipped as counters), the Anomalies scan shows a "possibly unreliable" warning (en/pl/es). Warning, not a verdict.
 - CI had failed since the step-analyzer push: `test_static_limits_and_sha_are_bit_identical_to_before` compared floats to 1e-16 and a hash of float JSON,
   which differ by 1e-14 between platforms. Now a relative 1e-9 comparison (CI green again at f3a3be6).
+- Native review of the Spanish and Polish UI strings (commit 42d00c4): delegated to foremankit (DeepSeek v4-pro) as a patch of changed
+  keys, merged with a JSON key/placeholder guard; about 128 es and 39 pl real changes. Terminology unified (PV = wielkość regulowana /
+  variable de proceso; OUT = sygnał sterujący / señal de control; tuning = strojenie / sintonización). The lead corrected one wrong term:
+  self-regulating must be "samowyrównujący" (an object property), not "samopoziomująca" (self-leveling). ESLint size limits are 24 warnings
+  (0 errors) and are deliberately warnings; the 23 max-lines refactors are deferred (low visible value, e2e regression risk).
 - B4 raw events (LV-10201 A/B): command-to-position latency median 2-3 s (limited by the 3 s record resolution), position stops 0.4-0.7 % short of the command
   in the direction of motion on valve A; same order as the 0.4 % PI compression deviation, so it is not a backlash measurement.
