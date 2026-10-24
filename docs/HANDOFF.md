@@ -1,4 +1,4 @@
-# Handoff (2026-10-23, evening): modules 1-4 built, first real plant data received
+# Handoff (2026-10-23, night): modules 1-4 built, lab/Courier data analysed, sentinel + ramp traps handled
 
 Written for the next session (Claude or the owner). Per-step details: `docs/IMPLEMENTATION_LOG.md` (last section), the
 experiment READMEs `experiments/exp27..exp30` and the owner tasks in `docs/OWNER_TASKS.md`. Nothing in the repository
@@ -53,6 +53,23 @@ README, tag dictionaries and `POTRZEBY_DANYCH_Crosscut.txt` listing what is stil
 - A logbook of the tests (9 and 11 October, local time) matches the data except two events (a different pair of cells at one
   time, one event 14 minutes later); 10 October (second session, air and level) has no logbook.
 
+## Lab / Courier package (A4/A5/B4, analysed 2026-10-23 night; numbers only, detail in the owner's Drive report `SOFTSENSOR_lab_courier_2026-10-23.txt`)
+
+- Data traps found and handled: Courier analyser tags write -9999 for "no result" and the 1-min A4 interpolation blended it into
+  window means and ramps (read as numbers, one Courier column had mean -180, sd 1300). The plant import now reads exactly -9999 as
+  missing; blended values need a floor (tools take `--min-valid`).
+- Lab composite stamp is the END of the 6 h window plus up to about 1 h: the analyser-vs-lab window correlation peaks at -0.5 to -1 h
+  (r 0.87-0.90, flat optimum). Courier vs lab one-feature calibration, 107 composites, blocked CV: R2 0.76 (Cu conc.), 0.78 (Mo conc.),
+  0.46-0.72 for the low-grade tails; slopes near 1 for the Cu/Mo concentrate grades.
+- PLS on 808 process columns has NEGATIVE blocked-CV R2 at every alignment (110 samples, 4 weeks): no process-only soft sensor; a useful
+  soft sensor must feed the Courier analyser with lab bias correction. Exploration, no pass/fail criteria.
+- "Long exact linear ramp" detector run on A4 found 152 tags with a straight stretch >= 2 h, 78 >= 6 h; many are counters, timers, hour
+  meters and slow PI-compressed signals, so precision against real archive gaps is unknown. Shipped as a "possibly unreliable" warning in
+  the Anomalies scan (ramp >= 6 h; tags straight over 90 % of the window are skipped as counters), not a verdict.
+- B4 raw events (valve LV-10201 A/B): command-to-position latency median 2-3 s (capped by the 3 s record resolution); the position stops
+  0.4-0.7 % short of the command in the direction of motion on valve A, the same order as the 0.4 % PI compression deviation, so it is
+  not a backlash measurement. A real valve stroke test is still needed.
+
 ## Decisions
 
 1. Integrating (level) loops: settings use the upper bound of the dead-time interval and carry the experimental label.
@@ -72,16 +89,25 @@ Done 2026-10-23 evening (details in `docs/IMPLEMENTATION_LOG.md`, last four sect
 5. Anomaly smoke test on four weeks of real normal operation: 3 weeks of training gives about 0.3 events/24 h; 1 week gives 94 % flagged; a tag
    linearly interpolated over an archive gap fooled the detector (not a false-alarm estimate).
 
-Open, in suggested order:
-a. New owner package (`crosscut_data_package`, see the memory note): feed the logbook (`bitacora_transcripcion.csv`, `B1_logbook_check.csv`)
-   into the Steps view; look at the A5 lab/Courier data for a soft-sensor feasibility check (needs a long-format loader; sample time is one stamp).
-b. Detect "long exact linear ramp" tags (archive gap interpolation) and mark them unreliable in the anomaly and import views.
-c. Level loops in closed loop (setpoint steps) only after the controller tunings arrive (A2 in the owner's list).
-d. Review of ADR 008, 010, 011 with the owner; native review of the machine-written pl/es strings (now also plant import and Steps); one real valve
-   stroke test; the blind worklist review; UI cosmetics (ESLint size warnings, print CSS).
-e. Pump-speed (non-loop) tags are not selectable in the Steps view yet; the CLI covers them.
+Done 2026-10-23 night (details in `docs/IMPLEMENTATION_LOG.md`, last section; commit `87cabf0`):
+6. Lab/Courier data: `softsensor/long_format.py` (long-format loader) + `tools/lab_extract.py` and `tools/analyzer_vs_lab.py`
+   (alignment scan + one-feature blocked-CV calibration); `-9999` sentinel masked in the plant import. Findings above.
+7. Possible-ramp warning: `anomaly/ramp_detect.py`, `unreliable_tags` in the anomaly fit/scan responses, warning in the Anomalies scan (en/pl/es).
+8. Steps view: load the logbook from a CSV (the `dia,hora,...` transcription) and a driver/output tag-pair target (a stepped pump speed
+   and the responding flow) in addition to a control loop.
+9. CI fix: the PCA limits test compares to numerical precision (float JSON hash was not portable across platforms; CI green again).
 
-Not possible yet (missing data): advisor on real operator behaviour, MPC identification of quality variables, any write path.
+Open, in suggested order:
+a. Confirm the lab stamp meaning in STARLIMS (end of the composite plus up to 1 h?) and the Courier -9999 meaning; the analyser
+   latency is still unmeasured (assumed 0).
+b. Level loops in closed loop (setpoint steps) only after the controller tunings arrive (A2 in the owner's list).
+c. Review of ADR 008, 010, 011 with the owner; native review of the machine-written pl/es strings (now also plant import and Steps); one real valve
+   stroke test; the blind worklist review; UI cosmetics (ESLint size warnings, print CSS).
+d. The possible-ramp warning is exploratory: precision against real archive gaps is unknown. Ask the owner for a list of tags with
+   PI archive gaps in those weeks to measure it; counters/timers also draw straight lines.
+
+Not possible yet (missing data): advisor on real operator behaviour, MPC identification of quality variables, any write path. A process-only
+soft sensor of lab grades is not achievable from four weeks (110 samples); it needs the Courier analyser as input plus months of data.
 
 ## Owner to-do
 
