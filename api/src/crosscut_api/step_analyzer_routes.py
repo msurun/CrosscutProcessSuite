@@ -1,4 +1,4 @@
-"""HTTP route of the step analyzer: detect, fit and judge the step tests of one loop of a dataset.
+"""HTTP route of the step analyzer: detect, fit and judge the step tests of a loop or a driver tag.
 
 The route only reads a recorded dataset and returns the analysis payload of the design
 ``docs/design/step-analyzer.md``; nothing here writes to a plant. Input mistakes come back as 422.
@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 
 #: (dataset id, loop name) -> StepRecord; raises HTTPException(404) for an unknown dataset/loop.
 RecordLoader = Callable[[str, str], "StepRecord"]
+#: (dataset id, driver tag, output tag) -> StepRecord with the driver as OUT and the output as PV.
+DriverLoader = Callable[[str, str, str], "StepRecord"]
 
 #: A step test analysis needs at most a few dozen logbook lines; more is a client mistake.
 MAX_LOGBOOK_ENTRIES = 500
@@ -54,7 +56,9 @@ class LogbookEntry(BaseModel):
 class StepsBody(BaseModel):
     """Request body of ``POST /datasets/{dataset_id}/steps``."""
 
-    loop: str = Field(min_length=1)  # loop name as the dataset knows it
+    loop: str | None = Field(default=None, min_length=1)  # loop name as the dataset knows it
+    driver: str | None = Field(default=None, min_length=1)  # a stepped non-loop tag (pump speed)
+    output: str | None = Field(default=None, min_length=1)  # the tag that responds to the driver
     model: Literal["auto", "fopdt", "ipdt"] = "auto"  # "auto" picks the better of FOPDT/IPDT by BIC
     logbook: list[LogbookEntry] = Field(default_factory=list, max_length=MAX_LOGBOOK_ENTRIES)
 
@@ -65,8 +69,26 @@ def _bad_value(error: ValueError) -> HTTPException:
     return HTTPException(status_code=422, detail=detail)
 
 
-def build_step_analyzer_router(load: RecordLoader) -> APIRouter:
-    """Route of the step analyzer; ``load`` reads the sample arrays of one loop of a dataset."""
+def _record_for(
+    body: StepsBody, dataset_id: str, load: RecordLoader, load_driver: DriverLoader | None
+):
+    """The record of a loop, or of a driver/output tag pair; 422 unless exactly one is given."""
+    has_pair = body.driver is not None and body.output is not None
+    if (body.loop is None) == (not has_pair) or (body.driver is None) != (body.output is None):
+        detail = {"code": "steps_target", "message": "give either loop, or driver and output"}
+        raise HTTPException(status_code=422, detail=detail)
+    if body.loop is not None:
+        return body.loop, load(dataset_id, body.loop)
+    if load_driver is None or body.driver is None or body.output is None:
+        detail = {"code": "steps_target", "message": "driver mode is not available"}
+        raise HTTPException(status_code=422, detail=detail)
+    return f"{body.driver} -> {body.output}", load_driver(dataset_id, body.driver, body.output)
+
+
+def build_step_analyzer_router(
+    load: RecordLoader, load_driver: DriverLoader | None = None
+) -> APIRouter:
+    """Route of the step analyzer; the loaders read the sample arrays of a loop or a tag pair."""
     router = APIRouter()
 
     @router.post("/datasets/{dataset_id}/steps")
@@ -74,7 +96,7 @@ def build_step_analyzer_router(load: RecordLoader) -> APIRouter:
         dataset_id: str, body: Annotated[StepsBody, Body()]
     ) -> dict[str, Any]:
         """Detect, fit and judge the step tests of one loop; returns the JSON-safe payload."""
-        record = load(dataset_id, body.loop)
+        name, record = _record_for(body, dataset_id, load, load_driver)
         try:
             return analyze_steps(
                 record.t_s,
@@ -82,7 +104,7 @@ def build_step_analyzer_router(load: RecordLoader) -> APIRouter:
                 record.sp,
                 record.out,
                 record.mode,
-                loop_id=body.loop,
+                loop_id=name,
                 process_kind=record.process_kind,
                 unit=record.unit,
                 origin_utc_s=record.origin_utc_s,

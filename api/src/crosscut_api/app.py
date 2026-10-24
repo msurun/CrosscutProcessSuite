@@ -465,6 +465,28 @@ def _step_record_loader(store: DatasetStore) -> Callable[[str, str], StepRecord]
     return load
 
 
+def _driver_record_loader(store: DatasetStore) -> Callable[[str, str, str], StepRecord]:
+    """A reader that treats a stepped tag (a pump speed) as OUT and a responding tag as PV.
+
+    SP is zero and the mode is manual all along, so every step of the driver becomes an OUT step.
+    """
+
+    def load(dataset_id: str, driver: str, output: str) -> StepRecord:
+        t_s, values = store.load_seconds(dataset_id)
+        for tag in (driver, output):
+            if tag not in values:
+                raise HTTPException(status_code=404, detail=f"No tag named {tag!r}")
+        ts_ns, _ = store.load_wide(dataset_id)
+        zeros = np.zeros_like(t_s)
+        pv, out = (np.asarray(values[tag], dtype=float) for tag in (output, driver))
+        return StepRecord(
+            t_s, pv, zeros, out, zeros.copy(), origin_utc_s=float(ts_ns[0]) / NS_PER_SECOND,
+            unit="", process_kind="auto", test_windows=[],
+        )  # fmt: skip
+
+    return load
+
+
 class _KnowledgeEndpoints:
     """Handlers that read and edit the per-loop knowledge kept in a dataset's project.json."""
 
@@ -555,7 +577,9 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     router.add_api_route(path, knowledge.get_knowledge, methods=["GET"])
     router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
     router.include_router(build_valve_router(_loop_record_loader(store)))
-    router.include_router(build_step_analyzer_router(_step_record_loader(store)))
+    router.include_router(
+        build_step_analyzer_router(_step_record_loader(store), _driver_record_loader(store))
+    )
     return router
 
 

@@ -104,9 +104,14 @@ export interface StepsPayload {
   summary?: StepSummary[];
 }
 
-/** Body of the analyze request; `model` defaults to "auto" on the server. */
+/**
+ * Body of the analyze request: either a `loop`, or a `driver` tag (stepped) and an `output`
+ * tag (response). `model` defaults to "auto" on the server.
+ */
 export interface StepsRequest {
-  loop: string;
+  loop?: string;
+  driver?: string;
+  output?: string;
   model?: "auto" | "fopdt" | "ipdt";
   logbook?: LogbookEntry[];
 }
@@ -163,6 +168,84 @@ function parseLogbookLine(line: string, offsetHours: number): LogbookEntry | nul
   if (Number.isNaN(local.getTime())) return null;
   const utc = new Date(local.getTime() - offsetHours * MS_PER_HOUR_S);
   return { time_utc: utc.toISOString(), text: description };
+}
+
+/** Roles of the logbook CSV columns; each role accepts its Spanish and English header names. */
+type CsvRole = "day" | "time" | "change" | "unit" | "cells" | "notes";
+
+const CSV_HEADERS: Record<CsvRole, readonly string[]> = {
+  day: ["dia", "day"],
+  time: ["hora", "log_time"],
+  change: ["zmiana", "change"],
+  unit: ["jednostka", "unit"],
+  cells: ["cele", "cells_logbook"],
+  notes: ["uwagi", "notes", "text"],
+};
+
+/** Column position of each role in the CSV header; missing roles are absent. */
+type ColumnIndex = Partial<Record<CsvRole, number>>;
+
+/**
+ * Convert a logbook CSV (`dia,hora,zmiana,jednostka,cele,uwagi` or the English header)
+ * into textarea lines `YYYY-MM-DD HH:MM description`, one per readable data row.
+ * Rows without a valid date and time are skipped.
+ */
+export function logbookFromCsv(csv: string): string {
+  const [header = [], ...dataRows] = splitCsv(csv.replace(/^﻿/, ""));
+  const index = columnIndex(header.map((name) => name.trim().toLowerCase()));
+  const lines = dataRows.map((cells) => logbookLineFromCells(cells, index));
+  return lines.filter((line): line is string => line !== null).join("\n");
+}
+
+/** Map each role to the position of its header name, using the first matching column. */
+function columnIndex(names: string[]): ColumnIndex {
+  const index: ColumnIndex = {};
+  for (const role of Object.keys(CSV_HEADERS) as CsvRole[]) {
+    const position = names.findIndex((name) => CSV_HEADERS[role].includes(name));
+    if (position >= 0) index[role] = position;
+  }
+  return index;
+}
+
+/** Build one textarea line from a data row, or return null when its date or time is unreadable. */
+function logbookLineFromCells(cells: string[], index: ColumnIndex): string | null {
+  const field = (role: CsvRole) => (index[role] === undefined ? "" : (cells[index[role]] ?? "").trim());
+  const notes = field("notes");
+  const description = `${field("change")} ${field("unit")}, cells ${field("cells")}${notes === "" ? "" : ` - ${notes}`}`;
+  const line = `${field("day")} ${field("time")} ${description}`.replace(/[\r\n]+/g, " ");
+  return parseLogbookLine(line, 0) === null ? null : line;
+}
+
+/**
+ * Split CSV text into rows of cells (RFC 4180: quoted cells may hold commas, newlines and
+ * doubled quotes; rows end at CRLF or LF).
+ */
+function splitCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let pos = 0;
+  while (pos < text.length) {
+    CSV_CELL.lastIndex = pos;
+    const match = CSV_CELL.exec(text);
+    if (match === null) break;
+    row.push(unquoteCell(match[1]));
+    pos = CSV_CELL.lastIndex;
+    if (match[2] !== undefined && match[2] !== ",") {
+      rows.push(row);
+      row = [];
+    }
+  }
+  if (row.length > 0) rows.push(row);
+  return rows;
+}
+
+/** One CSV cell (quoted or bare) and the delimiter after it; sticky so cells are read in order. */
+const CSV_CELL = /("(?:[^"]|"")*"|[^,\r\n]*)(,|\r\n|\r|\n)?/y;
+
+/** Strip the enclosing quotes of a quoted cell and un-double its inner quotes. */
+function unquoteCell(raw: string): string {
+  const quoted = raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"');
+  return quoted ? raw.slice(1, -1).replace(/""/g, '"') : raw;
 }
 
 /**

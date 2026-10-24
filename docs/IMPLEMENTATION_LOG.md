@@ -836,3 +836,22 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   consistent in 11 of 15 steps. Sump level and level-loop OUTs respond through closed loops, so no process model comes out of them
   (they need an open-loop test or known controller tunings). Plant tag names stay in the owner's Drive report.
 - The plant import tag cap was raised to 1200 because the first cap (file order) dropped the pump speed tag.
+
+## Lab/Courier data, sentinel masking, possible-ramp warning (2026-10-23 evening, handoff items a and b)
+- Owner package A4/A5/B1/B4 read in full (all files of the Drive folder `L1_step_tests_2026` were listed first; the weekly report PDF on the
+  Drive root is context only). New library code: `softsensor/long_format.py` (long-format lab/analyser CSV loader, zero-order-hold resample,
+  `LabResults` adapter), `anomaly/ramp_detect.py` (exact linear ramps), tools `tools/lab_extract.py` (one tag to the lab-upload CSV) and
+  `tools/analyzer_vs_lab.py` (alignment scan + one-feature calibration with blocked CV). Tests for all of them.
+- Data trap found: Courier tags write -9999 for "no result"; read as numbers it ruined window means (mean -180, sd 1300) and the A4 interpolation
+  blended it into ramps. The plant import now reads exactly -9999 as missing (`HISTORIAN_SENTINEL`); blended values need a validity floor (tools: `--min-valid`).
+- Findings (numbers only; detail in the owner's Drive report `SOFTSENSOR_lab_courier_2026-10-23.txt`): the lab composite stamp is the END of the
+  6 h window plus up to about 1 h (best window end -0.5 to -1 h before the stamp, r 0.87-0.90, flat optimum); Courier vs lab calibration CV R2 0.76 (Cu conc.),
+  0.78 (Mo conc.), 0.46-0.72 for tails; PLS on 808 process columns has NEGATIVE blocked-CV R2 at every alignment (110 samples, persistence also negative): no
+  process-only soft sensor from four weeks; useful soft sensor needs the analyser as input. Exploration, no pass/fail criteria.
+- Possible-ramp warning: detector run on A4 found 152 tags with a straight stretch of 2 h or more, 78 with 6 h or more; many are counters, timers, hour meters
+  and slow PI-compressed signals, so precision against real archive gaps is unknown. The anomaly fit/scan responses carry `unreliable_tags` (ramp of 6 h or more,
+  tags straight over 90 % of the window skipped as counters), the Anomalies scan shows a "possibly unreliable" warning (en/pl/es). Warning, not a verdict.
+- CI had failed since the step-analyzer push: `test_static_limits_and_sha_are_bit_identical_to_before` compared floats to 1e-16 and a hash of float JSON,
+  which differ by 1e-14 between platforms. Now a relative 1e-9 comparison (CI green again at f3a3be6).
+- B4 raw events (LV-10201 A/B): command-to-position latency median 2-3 s (limited by the 3 s record resolution), position stops 0.4-0.7 % short of the command
+  in the direction of motion on valve A; same order as the 0.4 % PI compression deviation, so it is not a backlash measurement.

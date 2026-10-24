@@ -950,6 +950,8 @@ export interface AnomalyModelSummary {
   window: { start_s: number; end_s: number };
   dataset_id: string;
   created_utc: string;
+  /** Tags whose window is mostly an interpolated archive gap (share 0..1 of the window). */
+  unreliable_tags?: Record<string, number>;
 }
 
 /** Share of each tag in one statistic at the event peak; each map sums to 1. */
@@ -993,6 +995,8 @@ export interface AnomalyScan {
   n_skipped: number;
   skipped_reasons: { nan?: number; quality?: number };
   series: AnomalySeries;
+  /** Tags whose window is mostly an interpolated archive gap (share 0..1 of the window). */
+  unreliable_tags?: Record<string, number>;
 }
 
 const anomalyUrl = (aid: string): string => `${API_PREFIX}/anomaly/${encodeURIComponent(aid)}`;

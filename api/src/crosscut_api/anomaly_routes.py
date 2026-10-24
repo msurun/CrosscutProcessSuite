@@ -19,6 +19,7 @@ import numpy as np
 from crosscut_anomaly.config import AnomalyConfig, AnomalyConfigError, load_config
 from crosscut_anomaly.detect import AnomalyEvent, scan
 from crosscut_anomaly.pca_model import PcaModel, PcaModelError, fit_pca
+from crosscut_anomaly.ramp_detect import unreliable_tags
 from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
@@ -27,6 +28,11 @@ DIR_NAME = "_anomaly"
 AID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 DEFAULT_MAX_POINTS = 1500
 MODEL_KIND = "anomaly_pca"
+# A linear stretch at least this long (and 30 bins) is read as an interpolated archive gap.
+RAMP_MIN_HOURS = 6.0
+# A tag that is one straight line over almost the whole window is a counter or timer, not a gap.
+COUNTER_LIKE_SHARE = 0.9
+MIN_RAMP_BINS = 30
 Aid = Annotated[str, PathParam(pattern=AID_PATTERN)]
 SecondsLoader = Callable[[str], tuple[np.ndarray, dict[str, Any]]]
 QualityLoader = Callable[[str], dict[str, np.ndarray]]
@@ -89,7 +95,7 @@ class _AnomalyEndpoints:
         self._write(self._path(aid, ".model.json"), model.to_dict())
         manifest = _manifest(config, model, dataset_id, window)
         self._write(self._path(aid, ".manifest.json"), manifest)
-        return _summary(model, manifest)
+        return {**_summary(model, manifest), "unreliable_tags": _ramp_tags(x, config)}
 
     def get_model(self, aid: Aid) -> dict[str, Any]:
         """Summary of the fitted model (404 when not fitted)."""
@@ -109,6 +115,7 @@ class _AnomalyEndpoints:
             "n_valid": result.n_valid,
             "n_skipped": result.n_skipped,
             "skipped_reasons": result.skipped_reasons,
+            "unreliable_tags": _ramp_tags(x, config),
             "series": _series(model, t_s, x, request.max_points),
         }
 
@@ -208,6 +215,19 @@ def _bin_means(bins: np.ndarray, values: np.ndarray, good: np.ndarray, n_bins: i
     counts = np.bincount(bins, weights=good.astype(float), minlength=n_bins)
     means: np.ndarray = np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
     return means
+
+
+def _ramp_tags(x: np.ndarray, config: AnomalyConfig) -> dict[str, float]:
+    """Tags with a long exact linear ramp (an interpolated archive gap) and their ramp share.
+
+    A ramp must last RAMP_MIN_HOURS. Such a stretch may carry no measurement, so the model and its
+    alarms for that tag may not be trustworthy. Exploratory: on real data counters, timers and slow
+    compressed signals also draw straight lines, so this is a warning to look at, not a verdict.
+    """
+    min_len = max(MIN_RAMP_BINS, int(RAMP_MIN_HOURS * 3600.0 / config.sample_period_s))
+    columns = {tag: x[:, j] for j, tag in enumerate(config.tags)}
+    flagged = unreliable_tags(columns, min_len=min_len)
+    return {tag: share for tag, share in flagged.items() if share < COUNTER_LIKE_SHARE}
 
 
 def _manifest(

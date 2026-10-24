@@ -7,6 +7,7 @@ import type { Translate } from "../findings";
 import { validateWindow } from "../anomaly";
 import { AnomalyCharts } from "./AnomalyCharts";
 import { AnomalyContributions } from "./AnomalyContributions";
+import { AnomalyRamp } from "./AnomalyRamp";
 import { AnomalyEventsTable } from "./AnomalyEvents";
 import { describeAnomalyError } from "./AnomalyState";
 import { AnomalyWindowFields } from "./AnomalyWindowFields";
@@ -28,6 +29,7 @@ function ScanResultView({ result, t }: { result: ScanResult; t: Translate }) {
   return (
     <div data-testid="anomaly-result">
       <p className="status" role="status">{t("anomaly.rows", { nan: skipped.nan ?? 0, quality: skipped.quality ?? 0, valid: result.n_valid })}</p>
+      <AnomalyRamp tags={result.unreliable_tags} t={t} />
       <AnomalyCharts series={result.series} events={result.events} t={t} />
       <h3>{t("anomaly.events.title")}</h3>
       <AnomalyEventsTable events={result.events} t2Limit={result.series.t2_limit} speLimit={result.series.spe_limit} selected={selected} onSelect={setSelected} t={t} />

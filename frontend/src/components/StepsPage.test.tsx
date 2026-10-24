@@ -225,12 +225,27 @@ describe("busy state", () => {
   it("disables the run button while a request is pending and shows its result afterwards", async () => {
     let resolveFirst: (value: Response) => void = () => {};
     const pending = new Promise<Response>((resolve) => { resolveFirst = resolve; });
-    vi.stubGlobal("fetch", vi.fn(() => pending));
+    vi.stubGlobal("fetch", vi.fn((url: string) =>
+      (url.endsWith("/tags") ? Promise.resolve(new Response("[]", { status: 200 })) : pending)));
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Run analysis" }));
     expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
     resolveFirst(new Response(JSON.stringify(EMPTY_PAYLOAD), { status: 200 }));
     expect(await screen.findByText("No steps found.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run analysis" })).toBeEnabled();
+  });
+});
+
+describe("logbook file", () => {
+  it("fills the logbook textarea with one line per row of a chosen CSV file", async () => {
+    renderPage();
+    const csv = "dia,hora,zmiana,jednostka,cele,uwagi\n2026-03-01,09:05,5,%,1,a\n2026-03-01,10:00,-2,%,4,\n";
+    const file = new File([csv], "logbook.csv", { type: "text/csv" });
+    // jsdom's File has no text() method; the component reads the file with it.
+    Object.assign(file, { text: () => Promise.resolve(csv) });
+    fireEvent.change(screen.getByLabelText("Load logbook from CSV"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByLabelText("Logbook")).toHaveValue(
+      "2026-03-01 09:05 5 %, cells 1 - a\n2026-03-01 10:00 -2 %, cells 4",
+    ));
   });
 });

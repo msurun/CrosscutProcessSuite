@@ -3,7 +3,7 @@
 // No network is touched; replies are built as Response objects, errors as thrown Errors.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  analyzeSteps, paramText, parseLogbook, verdictClass,
+  analyzeSteps, logbookFromCsv, paramText, parseLogbook, verdictClass,
   type StepRow,
 } from "./stepAnalyzer";
 
@@ -125,3 +125,30 @@ describe("analyzeSteps", () => {
 // Keep the StepRow import used: the type is part of the module's public surface.
 const verdictOfRow: StepRow["verdict"] = "ok";
 void verdictOfRow;
+
+describe("logbookFromCsv", () => {
+  it("logbookFromCsv_keeps_commas_inside_quoted_cells_and_skips_empty_rows", () => {
+    const csv = [
+      "dia,hora,zmiana,jednostka,cele,uwagi",
+      '2026-03-01,09:05,5,%,"1,2 y 3",valvula',
+      "2026-03-01,10:00,-2,%,4,",
+      ",,,,,",
+    ].join("\n");
+    expect(logbookFromCsv(csv)).toBe(
+      "2026-03-01 09:05 5 %, cells 1,2 y 3 - valvula\n2026-03-01 10:00 -2 %, cells 4",
+    );
+  });
+
+  it("logbookFromCsv_accepts_a_BOM_and_CRLF_line_endings", () => {
+    const csv = "﻿dia,hora,zmiana,jednostka,cele,uwagi\r\n2026-03-01,09:05,5,%,1,nota\r\n";
+    expect(logbookFromCsv(csv)).toBe("2026-03-01 09:05 5 %, cells 1 - nota");
+  });
+
+  it("logbookFromCsv_reads_the_English_header_and_unescapes_doubled_quotes", () => {
+    const csv = [
+      "day,log_time,change,unit,cells_logbook,notes",
+      '2026-03-02,14:30,3,%,"a ""b""",ok',
+    ].join("\n");
+    expect(logbookFromCsv(csv)).toBe('2026-03-02 14:30 3 %, cells a "b" - ok');
+  });
+});

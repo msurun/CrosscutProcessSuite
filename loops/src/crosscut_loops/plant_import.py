@@ -37,6 +37,8 @@ from crosscut_loops.step_test_io import Note
 
 # Column names accepted as the time column when the first column is not named 'timestamp'.
 TIME_COLUMN_NAMES = frozenset({"timestamp", "time", "datetime"})
+# Value some analyser tags write for "no result"; read as a missing cell.
+HISTORIAN_SENTINEL = -9999.0
 TEST_COLUMN_NAME = "test"
 
 # A step larger than this multiple of the median sampling period is reported as a gap.
@@ -165,9 +167,15 @@ def _time_parts(match: re.Match[str]) -> tuple[int, int, int, int, int, int]:
 
 
 def _numeric_values(texts: np.ndarray | pa.Array) -> np.ndarray:
-    """Convert a text column to float64, NaN where the cell is empty or not a number."""
+    """Convert a text column to float64, NaN where the cell is empty, not a number or the sentinel.
+
+    Some analyser tags write -9999 for "no result"; read as a number it would pull window means and
+    limits far off, so it is treated like a missing cell.
+    """
     values = texts.to_pylist()
-    return np.array([_to_float(cell) for cell in values], dtype=np.float64)
+    out = np.array([_to_float(cell) for cell in values], dtype=np.float64)
+    out[out == HISTORIAN_SENTINEL] = np.nan
+    return out
 
 
 def _to_float(value: Any) -> float:

@@ -29,7 +29,7 @@ async function openStepsPage(page: Page): Promise<void> {
 
 /** Chooses the target loop and runs the analysis, waiting for the first OUT step row. */
 async function runAnalysisForTargetLoop(page: Page): Promise<void> {
-  await page.getByLabel(LOOP_LABEL).selectOption(TARGET_LOOP);
+  await page.getByLabel(LOOP_LABEL, { exact: true }).selectOption(TARGET_LOOP);
   await page.getByRole("button", { name: RUN_BUTTON_TEXT }).click();
   const resultsTable = page.locator("table.steps-table");
   await expect(resultsTable).toContainText(OUT_STEP_TEXT, { timeout: ANALYSIS_TIMEOUT_MS });

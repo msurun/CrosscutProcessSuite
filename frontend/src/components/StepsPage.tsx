@@ -1,11 +1,14 @@
 // Steps view: analyze the steps of one loop of a dataset, show a table of fits with their
 // uncertainties and verdicts, and a chart of the selected step's samples.
 // Calls the backend one loop at a time (see docs/design/step-analyzer.md); nothing reaches a plant.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fetchTags } from "../api";
 import type { Translate } from "../findings";
-import { analyzeSteps, parseLogbook } from "../stepAnalyzer";
-import type { StepsPayload, StepRow, StepSummary } from "../stepAnalyzer";
+import { analyzeSteps, logbookFromCsv, parseLogbook } from "../stepAnalyzer";
+import type { StepsPayload, StepRow, StepsRequest, StepSummary } from "../stepAnalyzer";
 import { StepDetail, StepsTable } from "./StepsTable";
+import { TargetFields, sortedTagNames } from "./StepsTarget";
+import type { TargetChoice, TargetFieldsProps } from "./StepsTarget";
 
 /** Offset of the plant local time east of UTC used when parsing the logbook by default. */
 const DEFAULT_OFFSET_HOURS = "-3";
@@ -26,16 +29,23 @@ interface PageProps {
   t: Translate;
 }
 
-/** The loop select, the model select and the logbook textarea with its offset input. */
-function StepsForm({ loop, loopNames, model, logbookText, offsetHours, busy, onRun, onLoop, onModel, onLogbook, onOffset, t }: {
-  loop: string;
-  loopNames: string[];
+/** Read the CSV chosen in a logbook file input and hand its lines to `onLogbook`. */
+async function loadLogbookFile(input: HTMLInputElement, onLogbook: (text: string) => void) {
+  const file = input.files?.[0];
+  input.value = "";
+  if (file === undefined) return;
+  onLogbook(logbookFromCsv(await file.text()));
+}
+
+/** The target choice, the model select, the logbook textarea with its offset input and Run. */
+function StepsForm({ target, model, logbookText, offsetHours, busy, canRun, onRun, onModel, onLogbook, onOffset, t }: {
+  target: TargetFieldsProps;
   model: ModelChoice;
   logbookText: string;
   offsetHours: string;
   busy: boolean;
+  canRun: boolean;
   onRun: () => void;
-  onLoop: (loop: string) => void;
   onModel: (model: ModelChoice) => void;
   onLogbook: (text: string) => void;
   onOffset: (hours: string) => void;
@@ -43,13 +53,7 @@ function StepsForm({ loop, loopNames, model, logbookText, offsetHours, busy, onR
 }) {
   return (
     <div className="knowledge-fields">
-      <div className="field">
-        <label className="field-label" htmlFor="steps-loop">{t("steps.loop")}</label>
-        <select id="steps-loop" className="field-input" value={loop}
-          onChange={(event) => onLoop(event.target.value)}>
-          {loopNames.map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-      </div>
+      <TargetFields {...target} />
       <div className="field">
         <label className="field-label" htmlFor="steps-model">{t("steps.model")}</label>
         <select id="steps-model" className="field-input" value={model}
@@ -65,6 +69,10 @@ function StepsForm({ loop, loopNames, model, logbookText, offsetHours, busy, onR
           aria-describedby="steps-logbook-hint"
           onChange={(event) => onLogbook(event.target.value)} />
         <span id="steps-logbook-hint" className="field-help hint">{t("steps.logbook.hint")}</span>
+        <label className="field-label" htmlFor="steps-logbook-file">{t("steps.logbook.load")}</label>
+        <input id="steps-logbook-file" className="field-input" type="file" accept=".csv,text/csv"
+          aria-describedby="steps-logbook-hint"
+          onChange={(event) => void loadLogbookFile(event.target, onLogbook)} />
       </div>
       <div className="field">
         <label className="field-label" htmlFor="steps-offset">{t("steps.logbook.offset")}</label>
@@ -72,7 +80,7 @@ function StepsForm({ loop, loopNames, model, logbookText, offsetHours, busy, onR
           value={offsetHours} onChange={(event) => onOffset(event.target.value)} />
       </div>
       <div className="toolbar">
-        <button type="button" disabled={busy || loopNames.length === 0} onClick={onRun}>
+        <button type="button" disabled={busy || !canRun} onClick={onRun}>
           {busy ? t("steps.running") : t("steps.run")}
         </button>
       </div>
@@ -141,9 +149,18 @@ function findRow(rows: StepRow[], id: string | null): StepRow | null {
   return rows.find((row) => row.id === id) ?? rows[0];
 }
 
+/** Target part of the request: the tag pair in tags mode, the loop otherwise. */
+function targetBody(choice: TargetChoice, loop: string, driver: string, output: string): StepsRequest {
+  return choice === "tags" ? { driver, output } : { loop };
+}
+
 /** The steps section: choose loop and model, paste the logbook, then analyze and inspect steps. */
 export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
+  const [choice, setChoice] = useState<TargetChoice>("loop");
   const [loop, setLoop] = useState(initialLoop ?? loopNames[0] ?? "");
+  const [driver, setDriver] = useState("");
+  const [output, setOutput] = useState("");
+  const [tagNames, setTagNames] = useState<string[]>([]);
   const [model, setModel] = useState<ModelChoice>("auto");
   const [logbookText, setLogbookText] = useState("");
   const [offsetHours, setOffsetHours] = useState(DEFAULT_OFFSET_HOURS);
@@ -153,6 +170,22 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const latestRequest = useRef(0);
 
+  useEffect(() => {
+    let ignore = false;
+    setDriver("");
+    setOutput("");
+    fetchTags(datasetId)
+      .then((tags) => { if (!ignore) setTagNames(sortedTagNames(tags)); })
+      .catch(() => { if (!ignore) setTagNames([]); });
+    return () => { ignore = true; };
+  }, [datasetId]);
+
+  const canRun = choice === "tags" ? driver !== "" && output !== "" : loopNames.length > 0;
+  const target: TargetFieldsProps = {
+    choice, onChoice: setChoice, loop, loopNames, onLoop: setLoop,
+    tagNames, driver, output, onDriver: setDriver, onOutput: setOutput, t,
+  };
+
   async function runAnalysis() {
     const requestNumber = latestRequest.current + 1;
     latestRequest.current = requestNumber;
@@ -160,7 +193,9 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
     setError(null);
     try {
       const entries = parseLogbook(logbookText, Number(offsetHours));
-      const result = await analyzeSteps(datasetId, { loop, model, logbook: entries });
+      const result = await analyzeSteps(datasetId, {
+        ...targetBody(choice, loop, driver, output), model, logbook: entries,
+      });
       if (requestNumber !== latestRequest.current) return;
       setPayload(result);
       setSelectedId(result.rows[0]?.id ?? null);
@@ -175,8 +210,8 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
     <section>
       <header className="toolbar"><h2>{t("steps.title")}</h2></header>
       <p className="notice banner-warning" role="note">{t("steps.note")}</p>
-      <StepsForm loop={loop} loopNames={loopNames} model={model} logbookText={logbookText}
-        offsetHours={offsetHours} busy={busy} onRun={runAnalysis} onLoop={setLoop}
+      <StepsForm target={target} model={model} logbookText={logbookText}
+        offsetHours={offsetHours} busy={busy} canRun={canRun} onRun={runAnalysis}
         onModel={setModel} onLogbook={setLogbookText} onOffset={setOffsetHours} t={t} />
       {error !== null && <p className="status status-error" role="alert">{error}</p>}
       {payload !== null && (
