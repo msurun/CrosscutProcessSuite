@@ -4,6 +4,9 @@ Written for the next session (Claude or the owner). Per-step details: `docs/IMPL
 experiment READMEs `experiments/exp27..exp30` and the owner tasks in `docs/OWNER_TASKS.md`. Nothing in the repository
 writes to a plant.
 
+Where things stand overall: `docs/PROJECT_DESIGN.md` (what is being built, phases A-F, goal versus state). Work items live as GitHub issues
+(milestones A-F, labels `owner`, `needs-data`, `blocked`); the board view is a GitHub Project once the token has the `project` scope.
+
 ## State of the modules
 
 | Module | What ships | Evidence | Claim limit |
