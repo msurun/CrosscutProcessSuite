@@ -37,9 +37,28 @@ from crosscut_loops.step_test_io import Note
 
 # Column names accepted as the time column when the first column is not named 'timestamp'.
 TIME_COLUMN_NAMES = frozenset({"timestamp", "time", "datetime"})
-# Value some analyser tags write for "no result"; read as a missing cell.
+# Value some analyser tags write for "no result"; read as a missing cell by default.
 HISTORIAN_SENTINEL = -9999.0
 TEST_COLUMN_NAME = "test"
+
+
+@dataclass(frozen=True)
+class ReadSettings:
+    """How a plant file spells its missing values, numbers and time column.
+
+    missing_codes: numbers that mean "no result" and are read as missing (NaN).
+    decimal_comma: read '1,5' as 1.5 (needs a delimiter other than ',').
+    delimiter: the field separator of the file.
+    time_names: lower-case column names accepted as the time column.
+    """
+
+    missing_codes: tuple[float, ...] = (HISTORIAN_SENTINEL,)
+    decimal_comma: bool = False
+    delimiter: str = ","
+    time_names: frozenset[str] = TIME_COLUMN_NAMES
+
+
+DEFAULT_SETTINGS = ReadSettings()
 
 # A step larger than this multiple of the median sampling period is reported as a gap.
 GAP_FACTOR = 5.0
@@ -48,15 +67,14 @@ MAX_LISTED_GAPS = 20
 # pyarrow reads every value as text first so a cell like 'Bad' cannot break the read;
 # the strings are then converted to numbers with a null on failure (missing value).
 READ_OPTIONS = pa_csv.ReadOptions(block_size=1 << 20)
-PARSE_OPTIONS = pa_csv.ParseOptions(delimiter=",")
 
 NS_PER_SECOND = 1_000_000_000
 
 
-def _text_options(path: Path) -> pa_csv.ConvertOptions:
+def _text_options(path: Path, delimiter: str = ",") -> pa_csv.ConvertOptions:
     """Convert options that read every column as text (the header names come from line 1)."""
     with open(path, encoding="utf-8-sig") as handle:
-        names = handle.readline().rstrip("\r\n").split(",")
+        names = handle.readline().rstrip("\r\n").split(delimiter)
     return pa_csv.ConvertOptions(column_types={n.strip().strip('"'): pa.string() for n in names})
 
 # Leading date part of a time cell: 'YYYY-MM-DD' or 'YYYY/MM/DD' separated by space or 'T'.
@@ -92,7 +110,7 @@ def iso_utc(ns: int) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _time_column_name(header: list[str]) -> str:
+def _time_column_name(header: list[str], time_names: frozenset[str] = TIME_COLUMN_NAMES) -> str:
     """Return the name of the time column: the first column or a known time name.
 
     Raises:
@@ -101,10 +119,10 @@ def _time_column_name(header: list[str]) -> str:
     if not header:
         raise ValueError("data file has no columns; export it with a 'timestamp' column")
     first = header[0]
-    if first.strip().lower() in TIME_COLUMN_NAMES:
+    if first.strip().lower() in time_names:
         return first
     for name in header:
-        if name.strip().lower() in TIME_COLUMN_NAMES:
+        if name.strip().lower() in time_names:
             return name
     raise ValueError(
         "data file has no time column; name it 'timestamp' (or 'time'/'datetime'), "
@@ -166,24 +184,29 @@ def _time_parts(match: re.Match[str]) -> tuple[int, int, int, int, int, int]:
     )
 
 
-def _numeric_values(texts: np.ndarray | pa.Array) -> np.ndarray:
-    """Convert a text column to float64, NaN where the cell is empty, not a number or the sentinel.
+def _numeric_values(
+    texts: np.ndarray | pa.Array, settings: ReadSettings = DEFAULT_SETTINGS
+) -> np.ndarray:
+    """Convert a text column to float64, NaN where the cell is empty, not a number or a missing code.
 
-    Some analyser tags write -9999 for "no result"; read as a number it would pull window means and
-    limits far off, so it is treated like a missing cell.
+    Some tags write a code such as -9999 for "no result"; read as a number it would pull window
+    means and limits far off, so it is treated like a missing cell.
     """
     values = texts.to_pylist()
-    out = np.array([_to_float(cell) for cell in values], dtype=np.float64)
-    out[out == HISTORIAN_SENTINEL] = np.nan
+    out = np.array([_to_float(cell, settings.decimal_comma) for cell in values], dtype=np.float64)
+    out[np.isin(out, settings.missing_codes)] = np.nan
     return out
 
 
-def _to_float(value: Any) -> float:
+def _to_float(value: Any, decimal_comma: bool = False) -> float:
     """Parse one cell as a number, or NaN when it is empty or non-numeric."""
     if value is None:
         return float("nan")
+    text = str(value).strip()
+    if decimal_comma:
+        text = text.replace(",", ".")
     try:
-        return float(str(value).strip())
+        return float(text)
     except ValueError:
         return float("nan")
 
@@ -230,12 +253,15 @@ def _sorted_ascending(
     return sorted_ns, {tag: col[order] for tag, col in columns.items()}, test[order], notes
 
 
-def read_plant_table(path: Path, tz: TimeZoneSpec) -> PlantTable:
-    """Read a wide PI CSV into UTC times, numeric tag columns and test labels.
+def read_plant_table(
+    path: Path, tz: TimeZoneSpec, settings: ReadSettings = DEFAULT_SETTINGS
+) -> PlantTable:
+    """Read a wide plant CSV into UTC times, numeric tag columns and test labels.
 
     Args:
         path: the CSV file to read.
         tz: how to read the naive local times in the file.
+        settings: missing-value codes, decimal comma, delimiter and time column names.
 
     Returns:
         A PlantTable with strictly increasing UTC times, one float64 column per tag, the
@@ -244,14 +270,15 @@ def read_plant_table(path: Path, tz: TimeZoneSpec) -> PlantTable:
     Raises:
         ValueError: when the file is empty, has no time column or no readable rows.
     """
-    table = pa_csv.read_csv(path, read_options=READ_OPTIONS, parse_options=PARSE_OPTIONS,
-                            convert_options=_text_options(path))
+    table = pa_csv.read_csv(path, read_options=READ_OPTIONS,
+                            parse_options=pa_csv.ParseOptions(delimiter=settings.delimiter),
+                            convert_options=_text_options(path, settings.delimiter))
     if table.num_rows == 0:
         raise ValueError("data file has no rows; export at least one timed record")
-    time_name = _time_column_name(table.column_names)
+    time_name = _time_column_name(table.column_names, settings.time_names)
     local_times = _parse_local_times(table.column(time_name))
     ts_ns, time_notes = to_utc_ns(local_times, tz)
-    columns, test = _split_tag_columns(table, time_name)
+    columns, test = _split_tag_columns(table, time_name, settings)
     notes = [*time_notes, _read_note(table, len(columns))]
     sorted_ns, sorted_columns, sorted_test, change_notes = _sorted_ascending(
         ts_ns, columns, test
@@ -267,7 +294,7 @@ def read_plant_table(path: Path, tz: TimeZoneSpec) -> PlantTable:
 
 
 def _split_tag_columns(
-    table: pa.Table, time_name: str
+    table: pa.Table, time_name: str, settings: ReadSettings = DEFAULT_SETTINGS
 ) -> tuple[dict[str, np.ndarray], np.ndarray]:
     """Return the numeric tag columns and the test labels of a text table."""
     columns: dict[str, np.ndarray] = {}
@@ -279,7 +306,7 @@ def _split_tag_columns(
             test = np.array([_text_cell(cell) for cell in table.column(name).to_pylist()],
                             dtype=object)
         else:
-            columns[name] = _numeric_values(table.column(name))
+            columns[name] = _numeric_values(table.column(name), settings)
     return columns, test
 
 
