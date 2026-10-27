@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
+import { DcsForms, PiSettingsTable, VendorBlock, formatNumber } from "./SettingsTables";
 
 // The components take a translator function; tests only need the key back.
 const t = (key: string) => key;
@@ -84,5 +84,38 @@ describe("DcsForms", () => {
     const { container } = render(<DcsForms forms={{}} t={t} />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("VendorBlock", () => {
+  const vendorForms = {
+    abb_pidcc: {
+      block: "PidCC",
+      evidence: "partly_verified" as const,
+      source: "s",
+      tags: { Gain: 1.5, TI: 30 },
+      caveats: ["check units"],
+    },
+  };
+
+  it("renders nothing when the loop has no vendor", () => {
+    const { container } = render(<VendorBlock payload={{ vendor: null, vendor_forms: vendorForms }} t={t} />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders nothing when the payload has no vendor block", () => {
+    const { container } = render(<VendorBlock payload={{}} t={t} />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders the parameter names, values and caveats of the vendor block", () => {
+    render(<VendorBlock payload={{ vendor: "abb_pidcc", vendor_forms: vendorForms }} t={t} />);
+
+    expect(screen.getByText("Gain")).toBeInTheDocument();
+    expect(screen.getByText("TI")).toBeInTheDocument();
+    expect(screen.getByText("1.5")).toBeInTheDocument();
+    expect(screen.getByText("check units")).toBeInTheDocument();
   });
 });

@@ -18,7 +18,7 @@ import {
 import type { Translate } from "../findings";
 import { formatFixed } from "../format";
 import { isIpdtModel, parseSwing } from "../tuningIpdt";
-import { DcsForms, PiSettingsTable, formatNumber } from "./SettingsTables";
+import { DcsForms, PiSettingsTable, VendorBlock, formatNumber } from "./SettingsTables";
 import { CurrentSettingsCompare } from "./CurrentSettingsCompare";
 import { StatusChip } from "./StatusChip";
 import { Stepper, type StepInfo } from "./Stepper";
@@ -420,6 +420,7 @@ function SettingsStep({
       )}
       <h4>{t("tuning.dcs")}</h4>
       <DcsForms forms={payload.dcs_forms} t={t} />
+      <VendorBlock payload={payload} t={t} />
       <button
         type="button"
         className="filter-chip"

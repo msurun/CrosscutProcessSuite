@@ -21,6 +21,8 @@ export type DraftFieldName = NumericFieldName | RangeFieldName;
 /** The fields the user edits, all as text so a decimal comma can be typed. */
 export type KnowledgeDraft = Record<DraftFieldName, string> & {
   process_kind: LoopKnowledgeValues["process_kind"];
+  /** "" = not set. */
+  vendor: "" | NonNullable<LoopKnowledgeValues["vendor"]>;
 };
 
 /** One changed field: its key, the old and new value (null = not given / cleared). */
@@ -87,13 +89,14 @@ export function buildUpdate(loaded: LoopKnowledgeValues, draft: KnowledgeDraft):
     if (parsed !== "invalid" && parsed !== loaded[name]) update[name] = parsed;
   }
   if (draft.process_kind !== loaded.process_kind) update.process_kind = draft.process_kind;
+  if ((draft.vendor || null) !== loaded.vendor) update.vendor = draft.vendor || null;
   return update as LoopKnowledgeUpdate;
 }
 
 /** The text shown in the inputs for the loaded values; null becomes a blank input. */
 export function draftFromValues(values: LoopKnowledgeValues): KnowledgeDraft {
   const text = (value: number | null): string => (value === null ? "" : String(value));
-  const draft = { process_kind: values.process_kind } as KnowledgeDraft;
+  const draft = { process_kind: values.process_kind, vendor: values.vendor ?? "" } as KnowledgeDraft;
   for (const name of [...NUMERIC_FIELDS, ...RANGE_FIELDS]) draft[name] = text(values[name]);
   return draft;
 }
@@ -105,7 +108,7 @@ export function hasChanges(loaded: LoopKnowledgeValues, draft: KnowledgeDraft): 
 
 /** The fields whose value differs between two saved states, in display order. */
 export function diffValues(before: LoopKnowledgeValues, after: LoopKnowledgeValues): FieldChange[] {
-  const names = [...NUMERIC_FIELDS, ...RANGE_FIELDS, "process_kind"] as const;
+  const names = [...NUMERIC_FIELDS, ...RANGE_FIELDS, "process_kind", "vendor"] as const;
   return names
     .filter((name) => before[name] !== after[name])
     .map((name) => ({ name, before: before[name], after: after[name] }));

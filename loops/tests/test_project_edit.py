@@ -378,3 +378,30 @@ def test_tag_range_defaults_come_from_the_tag_rows() -> None:
     defaults = tag_range_defaults(edited, ENG_LOOP, tags)
     assert defaults["pv_eng_default"] == {"min": 0.0, "max": 100.0}
     assert defaults["out_eng_default"] == {"min": 0.0, "max": 100.0}
+
+
+# --- vendor key (#41) -------------------------------------------------------
+
+
+@pytest.mark.parametrize("vendor", ["siemens_pid_compact", "abb_pidcc"])
+def test_vendor_key_accepts_each_vendor_form(vendor: str) -> None:
+    assert validate_knowledge({"vendor": vendor})["vendor"] == vendor
+
+
+@pytest.mark.parametrize("vendor", ["honeywell", "", 3])
+def test_vendor_key_rejects_an_unknown_form(vendor: object) -> None:
+    with pytest.raises(KnowledgeError):
+        validate_knowledge({"vendor": vendor})
+
+
+def test_vendor_can_be_cleared() -> None:
+    assert validate_knowledge({"vendor": None})["vendor"] is None
+
+
+def test_schema_vendor_enum_matches_the_vendor_forms() -> None:
+    from crosscut_loops.vendor_forms import VENDOR_FORMS
+
+    schema_path = Path(__file__).resolve().parents[2] / "schemas" / "project.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    loop_props = schema["properties"]["loops"]["items"]["properties"]
+    assert set(loop_props["vendor"]["enum"]) == set(VENDOR_FORMS)

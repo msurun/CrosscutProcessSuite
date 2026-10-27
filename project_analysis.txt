@@ -1,0 +1,145 @@
+CROSSCUT PROCESS SUITE - ANALYSIS
+==================================
+
+PROJECT STATUS: early development (per README)
+
+CORE GOALS:
+------------
+The overarching goal is to create a no-code toolkit for mineral processing process engineers that can be configured without programming. Specific capabilities include:
+
+1. Loop monitoring and PID tuning
+2. Soft sensors and anomaly detection
+3. Model predictive control and fuzzy/expert rules
+4. ML-based recommendation of operating ranges and economic optimization
+5. Native OPC UA connectivity
+
+Key design principles:
+- Every module is optional; a plant picks what it needs
+- Configuration is data, not code (ADR 009)
+- All methods implemented from public literature
+- Synthetic data only - real plant data stays outside repository
+- Write gateway pattern for any control system writes
+
+PRODUCT ROADMAP (Phases 0-8):
+------------------------------
+Phase 0 - Cleanup, no new features
+Phase 1 - Online foundation (connectors, catalogue, runtime)
+Phase 1a - DCS simulator (separate RougherSim project)
+Phase 2 - Write Gateway v1 (off, advisory, dry_run, confirm, supervised modes)
+Phase 3 - Module 1 as complete product (loop monitoring + PID tuning)
+Phase 4 - Universal virtual-sensor engine
+Phase 5 - Connectors (PI, SQL/ODBC, OPC DA/HDA)
+Phase 6 - Fuzzy closed loop
+Phase 7 - MPC
+Phase 8 - ML and optimization
+
+DEGREE OF ADVANCEMENT BY MODULE:
+---------------------------------
+
+MODULE 1: Loop monitoring and PID tuning
+  STATUS: Usable as advisory tool - MOST DEVELOPED MODULE
+  Validated on: Simulated loops; two public datasets (SACAC, ISDB) - not redistributed
+  Real plant testing: Nothing tested on real plant
+  
+  Key features:
+  - Loop overview and worklist with findings (manual, saturated, flatline, oscillating, valve hints)
+  - ACF oscillation test (parameter-free, Thornhill et al. 2003)
+  - Valve analysis (travel, reversals, output resolution, sizing hints)
+  - Guided valve stroke test (deadband and resolution from deliberate test)
+  - Tuning report (FOPDT model, SIMC/AMIGO PI/PID settings, vendor forms)
+  - Benefit estimate with assumptions
+  - Fuzzy Studio (advisory rule bases with what-if and replay)
+  - Live OPC UA demos
+  
+  Known limitations/experimental notes:
+  - Level loops (integrating) modelled as IPDT; experimental
+  - In simulation: 0 of 276 accepted fits gave unsafe controller (round 2)
+  - Dead-time interval covered true dead time in 86.6% of cases (target 90%, missed)
+  - Stiction cannot be diagnosed from passive data
+  - Time-constant and delay estimates poor at full noise
+  - OPC UA server tested with Python client only
+  - Nothing writes to DCS yet (writes will go through Write Gateway ADR 012)
+
+MODULE 2: Advisory supervisor
+  STATUS: Proposed design (ADR 010), tested on simulated data only
+  
+  Function: Process-level setpoint advisor (mill feed setpoint) gated by module 1 loop state
+  Advice features: Explained by dominant rules, written to hash-chained audit log, operator acknowledgement
+  
+  Validation (exp27, 20 test seeds):
+  - Fuzzy v2 rule base kept P80 on target more often than crisp threshold (median 0.65 vs 0.49)
+  - Scripted operator with ore hardness estimate reached 0.79, so advisor does not replace that information
+  
+  Limits: Simulation only; acceptance of advice (0.8) and 300s delay are assumptions; no plant data; free-text who on acknowledgement not authenticated
+
+MODULE 3: Anomaly detection
+  STATUS: Advisory, simulated data only
+  
+  Method: PCA with Hotelling T2 and SPE limits, lagged columns, stuck-sensor rule
+  Flags: Drift, freeze and out-of-model events; contributing tags named
+  
+  Validation (exp29):
+  - Drift detected in 16/20 fault records; frozen sensor in 18/20 (by stuck rule)
+  - False alarms 0.36 per 24h on quiet records (target 1.0 met)
+  - Settings: alpha 0.999, min_consecutive 15
+  
+  Known weaknesses:
+  - Spikes (0.05), bad-quality rows and dropouts not detected (by design)
+  - Limits fitted on short training record (use weeks of quiet data)
+  - Not validated on real plant data
+
+MODULE 4: Soft sensor
+  STATUS: Advisory, simulated data only
+  
+  Method: PLS on lagged process tags estimating quality variable between sparse delayed lab results
+  Validity flags per row: ok, missing_input, out_of_range, extrapolation; bias tracker compares estimate with lab results
+  
+  Validation (exp30):
+  - Beats last lab value in 31/34 normal records (RMSE 0.857 vs 1.384)
+  - Validity flags work: 0.988 of out-of-range rows flagged
+  - Do not use the estimate where a flag is shown
+  
+  Known weakness:
+  - Drift flag not reliable (5/33 drift records vs 5/34 normal)
+  - Not validated on real plant
+
+FOUNDATIONS (Stage 0) - Well implemented:
+- Simulators with known ground truth (Wood-Berry distillation column, grinding circuit with HPGR, mill, cyclone)
+- Reproducible Parquet datasets, named scenarios
+- OPC UA test server and data collector
+- Artifact manifests with integrity checks
+- JSON Schema data contracts
+- C++20 core smoke test with pybind11 parity test
+- CI on Linux and Windows
+
+WRITE PATH STATUS:
+------------------
+ADR 012 accepted in principle by owner (2026-10-27)
+Gateway implemented: No - gateway has 12 strict expected-failure scenarios but no production code
+Modes: Planned: off, advisory, dry_run, confirm, supervised (v1 implements all five)
+Restrictions: Only Write Gateway writes; analysis packages never import write code; write proposals schema-validated
+
+Allowed write targets:
+- Setpoints of PID loops in externally settable mode, PID tuning parameters (confirm only), virtual sensor output tags
+
+Never: controller output, mode, valve/drive directly, tags not in write policy
+
+CONCLUSION:
+-----------
+The Crosscut Process Suite is at an EARLY DEVELOPMENT / PRE-ALPHA stage.
+
+Strengths:
+- Strong architectural foundation (schemas, simulators, CI, ADRs)
+- Clear roadmap with phased goals (0-8)
+- Most advanced module (Module 1) is usable as advisory tool on simulator data
+- Excellent documentation and design records (ADRs, PRODUCT.md, HANDOFF.md)
+- Good separation of concerns and no-code configuration principle
+
+Limiters:
+- All data in repository is synthetic - no real plant validation
+- Write path not yet implemented (ADR 012 accepted in principle but no code)
+- Many features in proposed/advisory status only (Modules 2-4)
+- Most capabilities unvalidated on real plant data
+- OPC UA connectivity limited to test server/Python client
+
+Overall assessment: The project has solid fundamentals and a clear vision, but is still in the early stages where core functionality works on simulated data with the goal of eventually serving real mineral processing plants. The transition from "advisory on simulators" to "validated on real plants" and from "no writes" to "Write Gateway implementation" represents the main remaining development challenges.

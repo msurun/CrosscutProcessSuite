@@ -111,6 +111,7 @@ class LoopTags:
     out_low: float | None = None  # engineering minimum of the OUT tag; None = OUT_LOW
     out_high: float | None = None  # engineering maximum of the OUT tag; None = OUT_HIGH
     process_kind: str = "self_regulating"  # or "integrating" (level loop)
+    vendor: str | None = None  # key of vendor_forms.VENDOR_FORMS; None = not configured
 
 
 @dataclass(frozen=True)

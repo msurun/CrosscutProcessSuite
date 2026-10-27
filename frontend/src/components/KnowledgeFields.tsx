@@ -86,6 +86,37 @@ export function ProcessKindField({
   );
 }
 
+/** The PID vendor selector: the Tuning tab then shows that block's parameter names. */
+export function VendorField({
+  value,
+  t,
+  onChange,
+}: {
+  value: KnowledgeDraft["vendor"];
+  t: Translate;
+  onChange: (vendor: KnowledgeDraft["vendor"]) => void;
+}) {
+  return (
+    <div className="field">
+      <label className="field-label" htmlFor="knowledge-vendor">
+        {t("knowledge.vendor")}
+      </label>
+      <select
+        id="knowledge-vendor"
+        className="field-input"
+        value={value}
+        aria-describedby="knowledge-vendor-help"
+        onChange={(event) => onChange(event.target.value as KnowledgeDraft["vendor"])}
+      >
+        <option value="">{t("knowledge.vendor.none")}</option>
+        <option value="siemens_pid_compact">{t("knowledge.vendor.siemens_pid_compact")}</option>
+        <option value="abb_pidcc">{t("knowledge.vendor.abb_pidcc")}</option>
+      </select>
+      <small className="field-help" id="knowledge-vendor-help">{t("knowledge.vendorHelp")}</small>
+    </div>
+  );
+}
+
 /** Placeholder of a range field: the tag-row default when there is one. */
 function rangePlaceholder(value: number | null, t: Translate): string {
   return value === null ? t("knowledge.leaveBlank") : t("knowledge.tagDefault", { value });
@@ -166,6 +197,7 @@ function changeLabel(name: FieldChange["name"], unit: string, t: Translate): str
     ultimate_period_s: "knowledge.ultimate",
     amplitude_limit: "knowledge.amplitude",
     process_kind: "knowledge.processKind",
+    vendor: "knowledge.vendor",
     pv_eng_min: "knowledge.pvMin",
     pv_eng_max: "knowledge.pvMax",
     out_eng_min: "knowledge.outMin",
@@ -175,9 +207,9 @@ function changeLabel(name: FieldChange["name"], unit: string, t: Translate): str
 }
 
 /** A value in the change list: "not set" before, "cleared" after, kind names translated. */
-function changeValue(value: FieldChange["after"], isAfter: boolean, t: Translate): string {
+function changeValue(name: FieldChange["name"], value: FieldChange["after"], isAfter: boolean, t: Translate): string {
   if (value === null) return t(isAfter ? "knowledge.cleared" : "knowledge.notSet");
-  if (typeof value === "string") return t(`knowledge.kind.${value}`);
+  if (typeof value === "string") return t(name === "vendor" ? `knowledge.vendor.${value}` : `knowledge.kind.${value}`);
   return String(value);
 }
 
@@ -200,7 +232,7 @@ export function SaveDiff({
         <ul>
           {changes.map((c) => (
             <li key={c.name}>
-              {changeLabel(c.name, unit, t)}: {changeValue(c.before, false, t)} {"->"} {changeValue(c.after, true, t)}
+              {changeLabel(c.name, unit, t)}: {changeValue(c.name, c.before, false, t)} {"->"} {changeValue(c.name, c.after, true, t)}
             </li>
           ))}
         </ul>

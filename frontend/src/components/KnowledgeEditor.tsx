@@ -9,7 +9,7 @@ import type { LoopKnowledge, LoopSummary } from "../api";
 import { fetchKnowledge, saveKnowledge } from "../api";
 import type { Translate } from "../findings";
 import { isPartiallyAssessed } from "../worklist";
-import { HowTo, NumberInput, ProcessKindField, RangeGroup, SaveDiff } from "./KnowledgeFields";
+import { HowTo, NumberInput, ProcessKindField, RangeGroup, SaveDiff, VendorField } from "./KnowledgeFields";
 import type { DraftFieldName, FieldChange, KnowledgeDraft } from "./knowledgeDraft";
 import {
   buildUpdate,
@@ -141,6 +141,7 @@ function BasicFields({ draft, unit, t, edit }: {
       {field("ultimate_period_s", "knowledge-ultimate", t("knowledge.ultimate"), ["knowledge.ultimateHelp", "knowledge.howToUltimate"])}
       {field("amplitude_limit", "knowledge-amplitude", t("knowledge.amplitude", { unit }), ["knowledge.amplitudeHelp", "knowledge.howToAmplitude"])}
       <ProcessKindField value={draft.process_kind} t={t} onChange={(kind) => edit({ process_kind: kind })} />
+      <VendorField value={draft.vendor} t={t} onChange={(vendor) => edit({ vendor })} />
     </div>
   );
 }

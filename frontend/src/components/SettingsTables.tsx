@@ -1,6 +1,6 @@
 // src/components/SettingsTables.tsx
 
-import type { TuningSettings } from "../api";
+import type { TuningPayload, TuningSettings } from "../api";
 import type { Translate } from "../findings";
 import { formatDcs, formatSignificant } from "../format";
 
@@ -90,6 +90,35 @@ export function DcsForms({ forms, t }: { forms: Record<string, Record<string, nu
       {formEntries.map(([formName, values]) => (
         <DcsForm key={formName} formName={formName} values={values} t={t} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Render the parameter names of the loop's PID vendor block with the values to type in.
+ *
+ * Returns null when the loop has no vendor set or the payload has no block for it.
+ */
+export function VendorBlock({ payload, t }: { payload: Partial<Pick<TuningPayload, "vendor" | "vendor_forms">>; t: Translate }) {
+  const spec = payload.vendor ? payload.vendor_forms?.[payload.vendor] : undefined;
+  if (!spec) return null;
+  return (
+    <div className="vendor-block">
+      <h4>{t("tuning.vendor.title", { block: spec.block })}</h4>
+      <p className="field-help">{t(`tuning.vendor.evidence.${spec.evidence}`)}</p>
+      <dl className="dcs-form">
+        {Object.entries(spec.tags).map(([tag, value]) => (
+          <div key={tag}>
+            <dt>{tag}</dt>
+            <dd>{typeof value === "number" ? formatNumber(value) : String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      <ul>
+        {spec.caveats.map((caveat) => (
+          <li key={caveat}>{caveat}</li>
+        ))}
+      </ul>
     </div>
   );
 }

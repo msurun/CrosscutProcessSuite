@@ -36,6 +36,7 @@ DELAY_KEY = "delay_s"
 ULTIMATE_PERIOD_KEY = "ultimate_period_s"
 AMPLITUDE_LIMIT_KEY = "amplitude_limit"
 PROCESS_KIND_KEY = "process_kind"
+VENDOR_KEY = "vendor"
 DEFAULT_PROCESS_KIND = "self_regulating"
 
 # The four tag ids a loop must reference to be analysable.
@@ -137,6 +138,7 @@ def _build_loop(entry: Mapping[str, Any], tag_rows: Mapping[str, Mapping[str, An
         out_low=out_low,
         out_high=out_high,
         process_kind=entry.get(PROCESS_KIND_KEY, DEFAULT_PROCESS_KIND),
+        vendor=entry.get(VENDOR_KEY),
     )
 
 

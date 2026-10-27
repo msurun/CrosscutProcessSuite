@@ -338,6 +338,9 @@ export interface TuningPayload {
   fit_curve?: FitCurve | null;
   settings: TuningSettings | null;
   dcs_forms: Record<string, Record<string, number>>;
+  /** Vendor form chosen for the loop; the Tuning tab shows that block of `vendor_forms`. */
+  vendor?: VendorKey | null;
+  vendor_forms?: Record<string, VendorSummary>;
   /** Integral-controller time constant used for the settings (integrating loops only), seconds. */
   tau_c_s?: number;
   /** True when the loop needs a direct-acting controller (negative slope; integrating loops only). */
@@ -599,6 +602,18 @@ export async function diffFuzzy(oldDocument: FuzzyDocument, newDocument: FuzzyDo
 }
 
 /** Per-loop knowledge kept in the dataset's project.json; null means "not given". */
+/** Keys of the PID vendor forms the backend knows (loops/vendor_forms.py). */
+export type VendorKey = "siemens_pid_compact" | "abb_pidcc";
+
+/** One vendor block as the tuning payload reports it: named tags, evidence level, caveats. */
+export interface VendorSummary {
+  block: string;
+  evidence: "verified" | "partly_verified" | "unverified";
+  source: string;
+  tags: Record<string, number | boolean>;
+  caveats: string[];
+}
+
 export interface LoopKnowledgeValues {
   /** Process dead time in seconds (unlocks the Harris index). */
   delay_s: number | null;
@@ -607,6 +622,8 @@ export interface LoopKnowledgeValues {
   /** Acceptable oscillation amplitude in PV units. */
   amplitude_limit: number | null;
   process_kind: "self_regulating" | "integrating";
+  /** PID block of the loop's controller (picks the parameter names on the Tuning tab); null = not set. */
+  vendor: VendorKey | null;
   /** Engineering range of the measurement, any sign; overrides the tag dictionary row. */
   pv_eng_min: number | null;
   pv_eng_max: number | null;

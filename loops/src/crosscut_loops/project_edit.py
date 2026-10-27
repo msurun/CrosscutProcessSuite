@@ -37,7 +37,9 @@ from crosscut_loops.project_loops import (
     PV_KEY,
     SP_KEY,
     ULTIMATE_PERIOD_KEY,
+    VENDOR_KEY,
 )
+from crosscut_loops.vendor_forms import VENDOR_FORMS
 
 # The per-loop keys that carry the user's tuning knowledge.
 # The four engineering-range overrides (PV and OUT, min and max) are knowledge keys too.
@@ -47,6 +49,7 @@ KNOWLEDGE_KEYS = (
     ULTIMATE_PERIOD_KEY,
     AMPLITUDE_LIMIT_KEY,
     PROCESS_KIND_KEY,
+    VENDOR_KEY,
     *ENG_OVERRIDE_KEYS,
 )
 # Per signal: (loop-entry role key, override min key, override max key).
@@ -216,6 +219,8 @@ def _clean_value(key: str, value: Any) -> Any:
         return None
     if key == PROCESS_KIND_KEY:
         return _clean_process_kind(value)
+    if key == VENDOR_KEY:
+        return _clean_vendor(value)
     if key in ENG_OVERRIDE_KEYS:
         return _clean_finite_number(key, value)
     return _clean_positive_number(key, value)
@@ -225,6 +230,13 @@ def _clean_process_kind(value: Any) -> str:
     """The process kind as text, checked against PROCESS_KINDS."""
     if not isinstance(value, str) or value not in PROCESS_KINDS:
         raise KnowledgeError(f"process_kind must be one of {PROCESS_KINDS}, got {value!r}")
+    return value
+
+
+def _clean_vendor(value: Any) -> str:
+    """The vendor form key as text, checked against the keys of VENDOR_FORMS."""
+    if not isinstance(value, str) or value not in VENDOR_FORMS:
+        raise KnowledgeError(f"vendor must be one of {tuple(VENDOR_FORMS)}, got {value!r}")
     return value
 
 
@@ -317,6 +329,8 @@ def _add_defined_knowledge(entry: dict[str, Any], loop: LoopTags) -> None:
     # Only a non-default process kind is written; the default would just add noise.
     if loop.process_kind != DEFAULT_PROCESS_KIND:
         entry[PROCESS_KIND_KEY] = loop.process_kind
+    if loop.vendor is not None:
+        entry[VENDOR_KEY] = loop.vendor
 
 
 def _remove_quietly(path_name: str) -> None:

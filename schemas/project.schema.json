@@ -105,6 +105,14 @@
               "integrating"
             ],
             "description": "Process type; integrating (for example a level loop) changes the stiction test."
+          },
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "siemens_pid_compact",
+              "abb_pidcc"
+            ],
+            "description": "PID block of the loop's controller; the Tuning tab shows its parameter names."
           }
         }
       }

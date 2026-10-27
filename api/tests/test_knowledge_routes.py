@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 DATASET = "mill_circuit_nominal_seed42"
 PROJECT_FILE = "project.json"
 ENG_KEYS = {"pv_eng_min", "pv_eng_max", "out_eng_min", "out_eng_max"}
-KNOWLEDGE_KEYS = {"delay_s", "ultimate_period_s", "amplitude_limit", "process_kind"} | ENG_KEYS
+KNOWLEDGE_KEYS = {"delay_s", "ultimate_period_s", "amplitude_limit", "process_kind", "vendor"} | ENG_KEYS
 
 
 @pytest.fixture(scope="module")

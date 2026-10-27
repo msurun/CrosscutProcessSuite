@@ -78,6 +78,8 @@ def tuning_payload(
     manual_share = float(np.mean(columns[loop.mode][keep] == MANUAL_MODE))
     return {
         "loop": loop.name,
+        # Vendor form key chosen for the loop (None = not configured); the screen shows that block.
+        "vendor": loop.vendor,
         # Window-level fields: the suggested windows, the chosen span and the manual share.
         **_window_parts(windows, start_s, end_s, manual_share, padded),
         # Model-level fields: model, fit, settings and the model-related warnings.

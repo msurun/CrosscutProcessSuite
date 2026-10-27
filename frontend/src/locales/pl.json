@@ -1069,5 +1069,14 @@
   "steps.chart.out": "Wyjście",
   "steps.chart.axis": "Czas (min)",
   "nav.steps": "Kroki",
-  "steps.alt_model": "Model alternatywny {model} (BIC {bic}) dopasował się gorzej"
+  "steps.alt_model": "Model alternatywny {model} (BIC {bic}) dopasował się gorzej",
+  "knowledge.vendor": "Blok PID (producent regulatora)",
+  "knowledge.vendor.none": "Nie ustawiono",
+  "knowledge.vendor.siemens_pid_compact": "Siemens PID_Compact",
+  "knowledge.vendor.abb_pidcc": "ABB PidCC (AC 800M)",
+  "knowledge.vendorHelp": "Zakładka Strojenie wypisze wtedy nazwy parametrów tego bloku z wartościami do wpisania. Nic nie jest zapisywane do regulatora.",
+  "tuning.vendor.title": "Parametry bloku {block}",
+  "tuning.vendor.evidence.verified": "Postać potwierdzona publicznym dokumentem producenta.",
+  "tuning.vendor.evidence.partly_verified": "Postać częściowo potwierdzona publicznym dokumentem producenta; sprawdź uwagi.",
+  "tuning.vendor.evidence.unverified": "Postać niepotwierdzona publicznym dokumentem; sprawdź na prawdziwym systemie."
 }

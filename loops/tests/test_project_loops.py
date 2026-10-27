@@ -149,3 +149,9 @@ def test_override_supplies_a_range_the_tag_row_lacks():
     entry = loop_entry(out_eng_min=0.0, out_eng_max=10.0)
     loop = loops_from_project(project_with(entry), full_tags())[0]
     assert (loop.out_low, loop.out_high) == (0.0, 10.0)
+
+
+def test_vendor_is_copied_from_the_entry_and_defaults_to_none():
+    with_vendor = loops_from_project(project_with(loop_entry(vendor="abb_pidcc")), full_tags())
+    without = loops_from_project(project_with(loop_entry()), full_tags())
+    assert (with_vendor[0].vendor, without[0].vendor) == ("abb_pidcc", None)

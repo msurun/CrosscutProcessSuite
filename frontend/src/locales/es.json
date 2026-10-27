@@ -1069,5 +1069,14 @@
   "steps.chart.out": "Señal de control",
   "steps.chart.axis": "Tiempo (min)",
   "nav.steps": "Pasos",
-  "steps.alt_model": "El modelo alternativo {model} (BIC {bic}) ajustó peor"
+  "steps.alt_model": "El modelo alternativo {model} (BIC {bic}) ajustó peor",
+  "knowledge.vendor": "Bloque PID (fabricante del controlador)",
+  "knowledge.vendor.none": "Sin definir",
+  "knowledge.vendor.siemens_pid_compact": "Siemens PID_Compact",
+  "knowledge.vendor.abb_pidcc": "ABB PidCC (AC 800M)",
+  "knowledge.vendorHelp": "La pestaña Sintonía listará entonces los nombres de parámetros de este bloque con los valores a introducir. No se escribe nada en el controlador.",
+  "tuning.vendor.title": "Parámetros de {block}",
+  "tuning.vendor.evidence.verified": "Forma confirmada por un documento público del fabricante.",
+  "tuning.vendor.evidence.partly_verified": "Forma confirmada en parte por un documento público del fabricante; revise las advertencias.",
+  "tuning.vendor.evidence.unverified": "Forma no confirmada por un documento público; verifíquela en el sistema real."
 }

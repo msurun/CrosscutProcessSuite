@@ -1058,5 +1058,14 @@
   "steps.chart.out": "Output",
   "steps.chart.axis": "Time (min)",
   "nav.steps": "Steps",
-  "steps.alt_model": "Alternative model {model} (BIC {bic}) fitted less well"
+  "steps.alt_model": "Alternative model {model} (BIC {bic}) fitted less well",
+  "knowledge.vendor": "PID block (controller vendor)",
+  "knowledge.vendor.none": "Not set",
+  "knowledge.vendor.siemens_pid_compact": "Siemens PID_Compact",
+  "knowledge.vendor.abb_pidcc": "ABB PidCC (AC 800M)",
+  "knowledge.vendorHelp": "The Tuning tab then lists the parameter names of this block, with the values to type in. Nothing is written to the controller.",
+  "tuning.vendor.title": "Parameters of {block}",
+  "tuning.vendor.evidence.verified": "Form confirmed by a public vendor document.",
+  "tuning.vendor.evidence.partly_verified": "Form partly confirmed by a public vendor document; check the caveats.",
+  "tuning.vendor.evidence.unverified": "Form not confirmed by a public document; check on the real system."
 }

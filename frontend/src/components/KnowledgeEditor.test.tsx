@@ -33,6 +33,7 @@ const EMPTY_VALUES: LoopKnowledgeValues = {
   ultimate_period_s: null,
   amplitude_limit: null,
   process_kind: "self_regulating",
+  vendor: null,
   pv_eng_min: null,
   pv_eng_max: null,
   out_eng_min: null,
@@ -49,6 +50,7 @@ const BLANK_DRAFT = {
   out_eng_min: "",
   out_eng_max: "",
   process_kind: "self_regulating" as const,
+  vendor: "" as const,
 };
 
 /** Builds a knowledge payload; pass overrides for the parts a test is about. */
@@ -127,6 +129,16 @@ describe("buildUpdate", () => {
   it("includes a changed process kind", () => {
     const update = buildUpdate(loaded, { ...same, delay_s: "10", ultimate_period_s: "60", amplitude_limit: "5", process_kind: "integrating" });
     expect(update).toEqual({ process_kind: "integrating" });
+  });
+
+  it("includes a vendor chosen where none was loaded", () => {
+    const update = buildUpdate(loaded, { ...same, vendor: "abb_pidcc", process_kind: "self_regulating" });
+    expect(update).toEqual({ vendor: "abb_pidcc" });
+  });
+
+  it("sends null when the vendor is cleared", () => {
+    const update = buildUpdate({ ...loaded, vendor: "abb_pidcc" }, { ...same, vendor: "", process_kind: "self_regulating" });
+    expect(update).toEqual({ vendor: null });
   });
 });
 
@@ -236,6 +248,23 @@ describe("KnowledgeEditor saving", () => {
     expect(saveKnowledge).toHaveBeenCalledWith("ds-1", "Loop A", { ultimate_period_s: 60 });
     expect(onSaved).toHaveBeenCalledOnce();
     expect(screen.getByText("knowledge.saved")).toBeInTheDocument();
+  });
+
+  it("saves a vendor picked in the vendor select", async () => {
+    vi.mocked(fetchKnowledge).mockResolvedValue(makeKnowledge());
+    vi.mocked(saveKnowledge).mockResolvedValue(
+      makeKnowledge({ knowledge: { ...EMPTY_VALUES, vendor: "siemens_pid_compact" } }),
+    );
+
+    renderEditor();
+    fireEvent.change(await screen.findByLabelText("knowledge.vendor"), {
+      target: { value: "siemens_pid_compact" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "knowledge.save" }));
+
+    await waitFor(() =>
+      expect(saveKnowledge).toHaveBeenLastCalledWith("ds-1", "Loop A", { vendor: "siemens_pid_compact" }),
+    );
   });
 
   it("shows the error alert and does not call onSaved when the save fails", async () => {
