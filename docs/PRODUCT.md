@@ -120,12 +120,16 @@ ADR 012 ("Writes are a product capability", `docs/adr/012-writes-are-a-product-c
 
 A separate project that Crosscut sees only as a black box through OPC UA and historian export. Ground truth is exposed on a separate channel. It is the base for a future simplified flowsheet-modelling tool for metallurgists.
 
+The repository is RougherSim (github.com/msurun/RougherSim, private, no licence yet); its plan is `docs/IMPLEMENTATION_PLAN.md` there, milestones M0-M7.
+
 - **Process model as data.** Flowsheet JSON plus a unit library: feeder and conveyor with transport delay, ball mill, sump with pump, hydrocyclone, flotation bank of 3–4 cells with level and air (kinetic model), a simple cleaner, a concentrate thickener. Valves with deadband and stiction. Transmitters with noise, quantisation and historian compression. Separate mass balance for solids, water and minerals. Realistic couplings: integrating levels, inter-cell interaction, ore hardness and feed disturbances. About 20–30 PID loops including cascades. Starting point is the existing grinding model in `sim/`.
 - **Vendor profile as a replaceable layer.** First ABB 800xA / AC 800M: OPC UA address space and 800xA-style naming; PID block semantics (Man/Auto/Cascade/Remote SP, tracking, bumpless, Gain/Ti/Td names and units); alarms and events; historian export format. We do not imitate Operator Workplace or Aspect Objects. Second profile: Siemens (PCS 7 / S7 PID).
 - **Operating modes.** Real time and accelerated. Scripted operator actions. Fault injection. Scenario recording.
 - **Limitation to state openly.** The imitation proves our understanding of 800xA, not conformance with a real 800xA. Real-stack checks: Siemens PLCSIM Advanced trial (cheap check of the Siemens profile); ABB SoftController only with a legal ABB licence, in a legal environment, done by the owner. No unofficial downloads.
 
 The DCS simulator replaces the "soft PLC" for the gateway scenarios in Phase 2 and for the tuning cycle in Phase 3.
+
+Tests of Crosscut against RougherSim are a product deliverable, not an afterthought: every phase exit that names the simulator maps to a row of the L5 acceptance matrix in `docs/TESTING_STRATEGY.md` (scenario, seed, pass criterion), run through the harness `tests/integration_roughersim/` against a pinned RougherSim version. Ground truth is read only by tests.
 
 ## 7. Phases
 
@@ -167,7 +171,7 @@ Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 |---|---|---|
 | 1 | First pilot DCS (ABB or Siemens) for PID-parameter writes and CAS conventions | Phase 3 pilot |
 | 2 | Whether the step-test assistant may propose OUT writes in manual (`confirm` mode) | Phase 3 exit criteria |
-| 3 | Name and licence of the separate DCS simulator project; whether Siemens PLCSIM Advanced (trial) is the second check | Phase 1a |
+| 3 | Licence of the separate DCS simulator project RougherSim (name decided); whether Siemens PLCSIM Advanced (trial) is the second check | Phase 1a |
 | 4 | Whether there is legal access to ABB SoftController (Compact Control Builder) to check the ABB profile on a real stack | Phase 1a ABB verification |
 | 5 | ADR 008 licence (AGPL-3.0-only) review | Release terms |
 | 6 | Blind worklist review (≈20 loops) | Module 1 evidence |

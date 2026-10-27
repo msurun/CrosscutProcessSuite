@@ -1,6 +1,6 @@
 # Testing strategy without access to a real installation
 
-Last updated: 2026-10-10
+Last updated: 2026-10-27
 
 ## Problem
 
@@ -13,7 +13,7 @@ and to make the first contact with a real installation as small and safe as poss
 1. **Climb a ladder of realism.** Every level proves something specific and leaves something unproven; the unproven
    part is written down in [ASSUMPTIONS.md](ASSUMPTIONS.md) with a plan to retire it.
 2. **Test the write path against something we did not write.** Our own OPC UA test server only checks our own
-   assumptions; a soft PLC or a third-party OPC UA server checks real protocol behaviour.
+   assumptions; RougherSim or a third-party OPC UA server checks real protocol behaviour.
 3. **Make failure modes first-class test inputs.** Real data is messy; the simulators must be able to produce the mess.
 4. **Reduce what a first customer has to do.** A read-only product that the customer runs on exported data is the
    cheapest way to meet real data without touching a live plant.
@@ -29,7 +29,7 @@ and to make the first contact with a real installation as small and safe as poss
 | L2 | Fault injection and a messy-data corpus | robustness to bad data, dropouts, stiction, odd export formats | real statistics of these faults | 1 |
 | L3 | Public real datasets | behaviour on real measurements for soft sensors, anomaly detection, degradation | closed-loop behaviour | 1 to 2 |
 | L4 | Physical lab testbed (e.g. a Temperature Control Lab kit) | real sensor noise, actuator limits, real-time behaviour on actual hardware | industrial scale, DCS semantics | 2 |
-| L5 | Virtual DCS: soft PLC with PID blocks, CAS/RSP handshake and watchdog, over OPC UA | write-path semantics against a real PLC runtime | vendor-specific DCS behaviour | 2 to 3 |
+| L5 | Virtual DCS: RougherSim (separate repo), ABB 800xA profile over OPC UA with PID block modes, heartbeat watchdog, ground-truth channel and test hooks | write-path semantics, online runtime and tuning cycle against a DCS-like black box; closed-loop behaviour with known ground truth | conformance with a real 800xA; real plant dynamics | 1 to 3 |
 | L6 | Customer-run read-only validation on exported data | real data formats and quality, real loop performance | closed-loop control, operator acceptance | 1 to 3 |
 | L7 | Pilot under agreement: shadow, then advisor, then one closed loop | everything, for one site | other sites | 3 to 4 |
 
@@ -70,11 +70,36 @@ chain: data collection, identification, PID tuning report, and later a supervise
 
 ## L5: virtual DCS
 
-A soft PLC (a free IEC 61131-3 runtime or a vendor's free development edition) runs PID blocks with MAN/AUTO/CAS
-modes, tracking and the watchdog logic that the suite will ask customers to install. A process model sits behind
-it. It checks the CAS/remote-setpoint handshake, bumpless transfer, heartbeat loss and reconnect behaviour with a
-third-party OPC UA stack, plus a free third-party OPC UA simulation server for browse/read/subscribe behaviour.
-This level must pass before any write to a real system.
+(a) RougherSim replaces the soft PLC. It is a separate private repository (msurun/RougherSim, local clone at
+..\RougherSim) that imitates an ABB 800xA DCS over OPC UA: PID blocks with modes, heartbeat watchdog, a
+process model behind them, a ground-truth channel and test hooks (comm loss, write reject, read-back mismatch,
+scripted operator actions, mode-change race).
+
+(b) Crosscut treats RougherSim as a black box. It is tested only through OPC UA and the historian export. Ground
+truth is read only by the test, never by product code.
+
+(c) Harness: directory `tests/integration_roughersim/`, pytest marker `roughersim`, skipped when RougherSim is not
+installed. The RougherSim version is pinned in a lock file (git tag) and bumped deliberately. The suite runs in a
+nightly CI job and before each phase exit, not in the fast per-commit gate.
+
+(d) Every test states its scenario, seed, speed factor and pass criterion.
+
+(e) Honest limit: success means "in our simulator, with our operator model", not a plant claim.
+
+Scenarios: nominal, hardness_shift, step_test, stiction, sensor_faults, operator_actions. Milestones in RougherSim:
+M5 scenarios and recording (Crosscut-format Parquet plus ground truth), M6 ABB OPC UA profile, M7 gateway test hooks.
+
+### L5 acceptance matrix
+
+| Crosscut phase | RougherSim milestone needed | Scenario | Pass criterion |
+|---|---|---|---|
+| P1 (connector, catalogue, runtime) | M5 then M6 | nominal | before M6: Crosscut loader reads the recording unchanged and loop triage works; after M6: catalogue built in the GUI, live loop KPI within tolerance of the ground-truth KPI, no file edited by hand (e2e) |
+| P1 data quality | M5 | sensor_faults | onboarding data-quality report flags injected faults with agreed precision and recall |
+| P2 Write Gateway | M7 | all 12 gateway scenarios | 12 strict-xfail scenarios in gateway/tests pass without manual intervention; e2e proposal -> confirm -> write -> read-back -> audit entry; kill switch stops writes within one cycle |
+| P3 tuning release | M4+M6 | step_test, stiction, nominal | weak loop detected -> step test -> tuning -> write after confirmation -> KPI improves vs ground truth -> rollback restores the old parameters |
+| P4 virtual-sensor engine | post-MVP (lab samples) | hardness_shift | generic engine reproduces ground-truth quality within stated error; validity flag trips on injected analyser fault |
+| P6 fuzzy closed loop | M7 | operator_actions, hardness_shift | proposals flow through the gateway in confirm then supervised; operator action always wins |
+| P7 MPC | after MVP | step_test, hardness_shift | MPC writes setpoints through the gateway in supervised mode and respects constraints |
 
 ## L6 and L7: customer-run validation and pilot
 
@@ -90,8 +115,8 @@ This level must pass before any write to a real system.
 - L2: loop monitoring and data cleaning flag the injected faults with agreed precision and recall; no crash on any
   corpus file.
 - L3: soft sensors and anomaly detection reproduce published baselines on the public datasets.
-- L5: all write-path scenarios (CAS handover, watchdog loss, reconnect, mode flips, rejected writes) pass against
-  the soft PLC without manual intervention.
+- L5: all rows of the L5 acceptance matrix for the current phase pass against the pinned RougherSim version without
+  manual intervention.
 - L6/L7: defined per partner agreement.
 
 ## Backlog
@@ -102,7 +127,9 @@ This level must pass before any write to a real system.
 | V2 | Messy-export corpus generator and importer robustness tests | 1 |
 | V3 | Public dataset benchmarks (flotation quality, anomaly, degradation) | 1 to 2 |
 | V4 | Lab testbed bridge via OPC UA | 2 |
-| V5 | Virtual DCS with a soft PLC and write-path test suite | 2 to 3 |
+| V5 | Virtual DCS = RougherSim (separate repo, plan in its docs/IMPLEMENTATION_PLAN.md); replaces the soft PLC | 2 to 3 |
 | V6 | Customer-run validation kit (export guide, checklist, anonymizer, report) | 1 |
 | V7 | Pilot partner package (agreement outline, security checklist) | 3 |
 | V8 | Keep [ASSUMPTIONS.md](ASSUMPTIONS.md) current at every stage review | continuous |
+| V9 | Integration harness tests/integration_roughersim/ with pinned version and `roughersim` marker | 1 |
+| V10 | Nightly CI job running the L5 acceptance matrix | 2 |

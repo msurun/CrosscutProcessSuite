@@ -8,7 +8,7 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 - ADR 012 ("Writes are a product capability") replaces the earlier no-write position; the safety rules of ADR 011 remain in force. All writing goes through one separate Write Gateway, in modes `advisory` → `confirm` → `supervised`; `confirm` and `supervised` are in v1. Nothing writes to a plant yet: `gateway/` is still a skeleton with strict-xfail scenarios.
 - First complete product: loop monitoring plus PID tuning, from data intake to online work with writes (Phase 3).
 - Connector order: OPC UA → PI → SQL/ODBC → the rest. Deployment: on-prem server plus browser, no cloud.
-- A DCS simulator imitating ABB 800xA is a separate project, Phase 1a; Crosscut sees it as a black box.
+- A DCS simulator imitating ABB 800xA is a separate project, Phase 1a; Crosscut sees it as a black box. It is called RougherSim.
 - The virtual-sensor and analyser work on plant 1 is a validation case, to be absorbed into a generic configurable engine in Phase 4, not a feature in itself.
 - Closed experiment lines stay where they are and are indexed in `experiments/README.md`; one-off plans moved to `docs/archive/`; developer tools moved to `dev/`.
 - The anti-drift rule (every task names its module and phase; no plant constants in code; no new top-level element without owner approval) is item 11 in `CLAUDE.md`.
@@ -29,7 +29,7 @@ Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Ste
 
 1. Phase 0 remainder: create GitHub milestones P0-P8 and re-map existing issues onto them; owner review of the Polish companion `docs/PRODUCT.pl.md`.
 2. Phase 1 detailed plan (write it before coding): one connector interface (browse, metadata, history, live, write-through-gateway only); project catalogue built on existing issues #36 site schema, #37 tag-to-role mapping, #39 onboarding, #41 PID vendor convention, #42 sentinel constants moved out of code into configuration; runtime as an on-prem service; generic configuration editor generated from `schemas/*.schema.json`. Exit: simulated OPC UA server → catalogue built in the GUI → live loop KPI in the console, no file edited by hand.
-3. Phase 1a detailed plan: simulator repository (process model as data, unit library, ABB 800xA profile as a replaceable layer, real-time and accelerated modes, fault injection). Name and licence of that repository are owner decisions.
+3. Phase 1a: RougherSim exists as a private repo with an approved plan (M0-M7). Work it milestone by milestone in its own sessions; licence is still an owner decision. Crosscut side: build the integration harness `tests/integration_roughersim/` (issue on the board, milestone P1a) and keep the L5 acceptance matrix in docs/TESTING_STRATEGY.md current.
 
 ## Real plant data
 
@@ -42,7 +42,7 @@ Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-296
 
 ## Owner to-do
 
-Full list and open decisions: `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`. Short form: first pilot DCS choice; whether the step-test assistant may propose OUT writes in `confirm`; who may enable `confirm`/`supervised` and change policy; simulator repository name and licence; ADR 008 licence review; blind worklist review; one real valve stroke test; controller tunings and one open-loop level step test; lab-stamp and analyser-latency answers; real anomaly data (≥ 2 weeks quiet plus labelled events).
+Full list and open decisions: `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`. Short form: first pilot DCS choice; whether the step-test assistant may propose OUT writes in `confirm`; who may enable `confirm`/`supervised` and change policy; simulator licence; ADR 008 licence review; blind worklist review; one real valve stroke test; controller tunings and one open-loop level step test; lab-stamp and analyser-latency answers; real anomaly data (≥ 2 weeks quiet plus labelled events).
 
 ## Working rules that held
 
