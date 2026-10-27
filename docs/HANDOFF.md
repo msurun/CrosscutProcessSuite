@@ -28,7 +28,7 @@ Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Ste
 ## Next steps
 
 1. Phase 0 remainder: create GitHub milestones P0-P8 and re-map existing issues onto them; owner review of the Polish companion `docs/PRODUCT.pl.md`.
-2. Phase 1 detailed plan (write it before coding): one connector interface (browse, metadata, history, live, write-through-gateway only); project catalogue built on existing issues #36 site schema, #37 tag-to-role mapping, #39 onboarding, #41 PID vendor convention, #42 sentinel constants moved out of code into configuration; runtime as an on-prem service; generic configuration editor generated from `schemas/*.schema.json`. Exit: simulated OPC UA server → catalogue built in the GUI → live loop KPI in the console, no file edited by hand.
+2. Phase 1 detailed plan (write it before coding). Detailed plan: docs/PHASE1_PLAN.md (approved decisions listed there).
 3. Phase 1a: RougherSim exists as a private repo with an approved plan (M0-M7). Work it milestone by milestone in its own sessions; licence is still an owner decision. Crosscut side: build the integration harness `tests/integration_roughersim/` (issue on the board, milestone P1a) and keep the L5 acceptance matrix in docs/TESTING_STRATEGY.md current.
 
 ## Real plant data

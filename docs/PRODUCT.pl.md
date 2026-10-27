@@ -122,12 +122,16 @@ ADR 012 („Writes are a product capability”, `docs/adr/012-writes-are-a-produ
 
 Osobny projekt, który Crosscut widzi wyłącznie jako czarną skrzynkę przez OPC UA i eksport z historian. Wartość odniesienia (ground truth) jest udostępniana osobnym kanałem. Stanowi bazę dla przyszłego uproszczonego narzędzia do modelowania schematów technologicznych dla metalurgów.
 
+Repozytorium to RougherSim (github.com/msurun/RougherSim, prywatne, licencja jeszcze nieustalona); jego plan znajduje się w `docs/IMPLEMENTATION_PLAN.md` w tamtym repozytorium, kamienie milowe M0–M7.
+
 - **Model procesu jako dane.** Plik JSON schematu technologicznego plus biblioteka jednostek: podajnik i przenośnik z opóźnieniem transportu, młyn kulowy, zbiornik z pompą, hydrocyklon, bateria flotacji 3–4 ogniw z poziomem i powietrzem (model kinetyczny), prosty cleaner, zagęszczacz koncentratu. Zawory z martwą strefą i tarcie statyczne (stiction). Przetworniki z szumem, kwantyzacją i kompresją historian. Osobny bilans masy dla ciał stałych, wody i minerałów. Realistyczne sprzężenia: poziomy integrujące, interakcja między ogniwami, twardość rudy i zakłócenia zasilania. Około 20–30 pętli PID, w tym kaskady. Punktem wyjścia jest istniejący model mielenia w `sim/`.
 - **Profil dostawcy jako wymienna warstwa.** Najpierw ABB 800xA / AC 800M: przestrzeń adresowa OPC UA i nazewnictwo w stylu 800xA; semantyka bloku PID (Man/Auto/Cascade/Remote SP, tracking, bumpless, nazwy i jednostki Gain/Ti/Td); alarmy i zdarzenia; format eksportu z historian. Nie imitujemy Operator Workplace ani Aspect Objects. Drugi profil: Siemens (PCS 7 / S7 PID).
 - **Tryby pracy.** Czas rzeczywisty i przyspieszony. Skryptowe akcje operatora. Wstrzykiwanie awarii. Nagrywanie scenariuszy.
 - **Ograniczenie do jawnego stwierdzenia.** Imitacja dowodzi naszego rozumienia 800xA, a nie zgodności z rzeczywistym 800xA. Kontrole na rzeczywistym stosie: Siemens PLCSIM Advanced (wersja próbna; tani test profilu Siemens); ABB SoftController tylko z legalną licencją ABB, w legalnym środowisku, wykonane przez właściciela. Żadnych nieoficjalnych pobrań.
 
 Symulator DCS zastępuje „soft PLC” dla scenariuszy gateway w Fazie 2 oraz dla cyklu strojenia w Fazie 3.
+
+Testy Crosscut względem RougherSim są elementem produktu, a nie dodatkiem na koniec: każde wyjście z fazy, które wskazuje symulator, odpowiada wierszowi macierzy akceptacyjnej L5 w `docs/TESTING_STRATEGY.md` (scenariusz, ziarno, kryterium zaliczenia), uruchamianemu przez harness `tests/integration_roughersim/` względem przypiętej wersji RougherSim. Wartość odniesienia (ground truth) czytają wyłącznie testy.
 
 ## 7. Fazy
 
@@ -169,7 +173,7 @@ Egzekwowana przy każdym zadaniu i zapisana do repozytoryjnego `CLAUDE.md` w Faz
 |---|---|---|
 | 1 | Pierwszy DCS pilotażowy (ABB lub Siemens) dla zapisów parametrów PID i konwencji CAS | Pilotaż w Fazie 3 |
 | 2 | Czy asystent testu skoku może proponować zapisy OUT w trybie manual (`confirm`) | Kryteria wyjścia Fazy 3 |
-| 3 | Nazwa i licencja osobnego projektu symulatora DCS; czy Siemens PLCSIM Advanced (wersja próbna) jest drugą kontrolą | Faza 1a |
+| 3 | Licencja osobnego projektu symulatora DCS RougherSim (nazwa ustalona); czy Siemens PLCSIM Advanced (wersja próbna) jest drugą kontrolą | Faza 1a |
 | 4 | Czy istnieje legalny dostęp do ABB SoftController (Compact Control Builder) do sprawdzenia profilu ABB na rzeczywistym stosie | Weryfikacja ABB w Fazie 1a |
 | 5 | Przegląd licencji ADR 008 (AGPL-3.0-only) | Warunki wydania |
 | 6 | Przegląd listy roboczej „na ślepo” (≈20 pętli) | Dowody dla modułu 1 |
