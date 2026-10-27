@@ -12,8 +12,7 @@ The goal is a toolkit that a process engineer can configure without programming:
 
 Every module is optional; a plant picks what it needs.
 
-Where to read more: [docs/PROJECT_DESIGN.md](docs/PROJECT_DESIGN.md) (what is built and what is not, phases A-F,
-goal versus state; Polish: [docs/PROJECT_DESIGN.pl.md](docs/PROJECT_DESIGN.pl.md)), [docs/HANDOFF.md](docs/HANDOFF.md)
+Where to read more: [docs/PRODUCT.md](docs/PRODUCT.md) (product definition, phases 0-8; Polish: [docs/PRODUCT.pl.md](docs/PRODUCT.pl.md)), [docs/HANDOFF.md](docs/HANDOFF.md)
 (current state and limits), and the work board https://github.com/users/msurun/projects/1.
 
 ## Module 1: loop monitoring and PID tuning
@@ -42,7 +41,7 @@ Limits you should know: all data in this repository is synthetic and all validat
 exploratory runs on two public loop datasets (SACAC, ISDB; not redistributed). Stiction cannot be diagnosed from
 passive data, time-constant and delay estimates are poor at full noise, the sluggish-loop (idle index) idea was tried
 and dropped, and the OPC UA server was tested with a Python client only. Tuning and advice are advisory: nothing in
-this repository writes to a DCS.
+this repository writes to a DCS yet; writes will go only through the Write Gateway ([ADR 012](docs/adr/012-writes-are-a-product-capability.md)).
 
 **Level (integrating) loops, experimental.** A level loop is modelled as a pure integrator with dead time (IPDT)
 from an OUT step test. The settings use the upper bound of the dead-time interval, not the point estimate, and the
@@ -58,7 +57,7 @@ Status: proposed design ([ADR 010](docs/adr/010-advisory-supervisor.md)), tested
   module 1 loop state (manual, saturated and flatline block; oscillating only warns), explained by its dominant rules,
   and written to an append-only, hash-chained log. An operator records a decision (accepted, rejected or deferred) with
   a reason code.
-- **No writes to a plant**: the package never imports OPC UA or connector code and writes only under `_advisory/` and
+- **Writes only through the gateway**: the package never imports OPC UA or connector code and writes only under `_advisory/` and
   `_supervisor/` in the data root. Mode can only be `off` or `advisory`; a closed-loop mode needs a future ADR.
 - **Where**: `supervisor/` (package `crosscut_supervisor`), `api/src/crosscut_api/supervisor_routes.py`, the Advisor view
   in `frontend/` (`src/advisory.ts`, `src/components/AckForm.tsx`), and the schemas `schemas/supervisor.schema.json`
@@ -82,7 +81,7 @@ Status: advisory, simulated data only.
 
 - **What it is**: PCA with Hotelling T2 and SPE limits, lagged columns and a stuck-sensor rule. It flags drift, freeze
   and out-of-model events and names the contributing tags. Bad-quality and missing rows are skipped, never imputed.
-- **No writes to a plant**: `anomaly/` never imports write code; a CI guard test checks this.
+- **Writes only through the gateway**: `anomaly/` never imports write code; a CI guard test checks this.
 - **Where**: `anomaly/`, `api/src/crosscut_api/anomaly_routes.py`, the Anomalies view (`frontend/src/components/AnomalyPage.tsx`),
   `schemas/anomaly.schema.json`, example `anomaly/examples/mill_circuit_pca.json`.
 - **Try it**: in the Anomalies view press "Load example", then scan a simulated dataset. Read the T2 and SPE charts against
@@ -99,7 +98,7 @@ Status: advisory, simulated data only.
 
 - **What it is**: PLS on lagged process tags that estimates a quality variable between sparse, delayed lab results. Each row
   has a validity flag (`ok`, `missing_input`, `out_of_range`, `extrapolation`); a bias tracker compares the estimate with lab results.
-- **No writes to a plant**: `softsensor/` writes to no system; mode is `off` or `advisory` only, and a CI guard test checks this.
+- **Writes only through the gateway**: `softsensor/` writes to no system; mode is `off` or `advisory` only, and a CI guard test checks this.
 - **Where**: `softsensor/`, `api/src/crosscut_api/softsensor_routes.py`, the Soft sensor view (`frontend/src/components/SoftSensorPage.tsx`),
   `schemas/softsensor.schema.json`, example `softsensor/examples/mill_circuit_pls.json`.
 - **Try it**: in the Soft sensor view press "Load example", pick a simulated dataset with lab results, set the train end and
@@ -111,10 +110,12 @@ Status: advisory, simulated data only.
   - The drift flag is not reliable (5/33 drift records vs 5/34 normal); the view marks it as not validated.
   - Not validated on a real plant.
 
-## Write path (design only)
+## Write path (Write Gateway, not yet implemented)
 
-[ADR 011](docs/adr/011-write-path.md) is a proposed design for one write gateway, the only component that could ever write
-to a control system. It is not accepted, and nothing in this repository can write to a plant. The `gateway/` package holds
+[ADR 012](docs/adr/012-writes-are-a-product-capability.md) makes writing to the control system a product capability: one
+Write Gateway, the only component that writes, with modes off, advisory, dry_run, confirm and supervised.
+[ADR 011](docs/adr/011-write-path.md) gives its safety design. The gateway is not implemented yet, so nothing in this
+repository can write to a plant today. The `gateway/` package holds
 12 strict expected-failure scenarios that state the required safety behaviour before any such code exists.
 
 ## Foundations (stage 0)

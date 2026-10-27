@@ -7,7 +7,7 @@ restored and the finding is skipped after ``MAX_ATTEMPTS`` tries.
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<ForemanKit dir> python tools/refactor_loop.py \
+    PYTHONPATH=<ForemanKit dir> python dev/refactor_loop.py \
         --tests "python -m pytest sim -q" FILE...
 """
 

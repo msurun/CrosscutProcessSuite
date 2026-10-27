@@ -1,4 +1,5 @@
-"""Behaviour tests: ReadSettings controls how the plant import reads missing codes, numbers and times.
+"""Behaviour tests: ReadSettings controls how the plant import reads missing codes, numbers
+and times.
 
 Each test writes a tiny wide CSV (one time column plus tag columns) to tmp_path and reads it
 back with read_plant_table and an explicit ReadSettings, so the real reader runs end to end.

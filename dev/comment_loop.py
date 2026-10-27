@@ -10,7 +10,7 @@ model, the formula or the data structure behind the code. A result is kept only 
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<ForemanKit dir> python tools/comment_loop.py \
+    PYTHONPATH=<ForemanKit dir> python dev/comment_loop.py \
         --tests "python -m pytest sim -q" FILE...
 """
 

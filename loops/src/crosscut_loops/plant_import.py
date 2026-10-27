@@ -187,7 +187,8 @@ def _time_parts(match: re.Match[str]) -> tuple[int, int, int, int, int, int]:
 def _numeric_values(
     texts: np.ndarray | pa.Array, settings: ReadSettings = DEFAULT_SETTINGS
 ) -> np.ndarray:
-    """Convert a text column to float64, NaN where the cell is empty, not a number or a missing code.
+    """Convert a text column to float64, NaN where the cell is empty, not a number
+    or a missing code.
 
     Some tags write a code such as -9999 for "no result"; read as a number it would pull window
     means and limits far off, so it is treated like a missing cell.

@@ -1,5 +1,7 @@
 # exp31: Courier analyser as soft-sensor input with lab bias correction, on real plant data
 
+**Status: validation case, not a product feature.** This experiment checks one plant's online analyser against its laboratory composites. Its findings (stamp meaning, composite window, analyser latency, missing-value code, reference input, bias correction) become user configuration of the generic virtual-sensor engine in Phase 4 of docs/PRODUCT.md; nothing here is a default of the engine.
+
 Protocol FROZEN 2026-10-24 BEFORE the harness exists and before any number of this experiment is computed. A miss is logged,
 thresholds are not moved. The test composites are scored once.
 

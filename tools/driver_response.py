@@ -1,5 +1,7 @@
 """Response of chosen output tags to the steps of one driver tag (e.g. a pump speed), per step.
 
+Interim tool; to be absorbed into model identification for MPC in Phase 7 of docs/PRODUCT.md.
+
 Analysis only (no plant access): finds the driver's steps with step_events (the driver is treated
 like a manual OUT) and fits each output with step_fit (FOPDT or IPDT, standard errors), then prints
 the median and spread per output. Used for the feed-disturbance identification of a future MPC.

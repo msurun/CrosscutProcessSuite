@@ -1,11 +1,12 @@
 # Crosscut Process Suite — Project Design
+> **Historical record (superseded 2026-10-27).** The product definition is now [PRODUCT.md](PRODUCT.md); writes are a product capability per [ADR 012](adr/012-writes-are-a-product-capability.md). This file is no longer maintained.
 
 Detailed design record for the owner and for future assistant sessions. It states what is being built, why,
 and what is explicitly not being built. Every claim below is drawn from the repository documents cited; where the
 sources are silent, they say **not decided**.
 
 Companion documents: `README.md` (status and per-module limits), `docs/HANDOFF.md` (state of work, real-data notes),
-`docs/NEXT_MODULE_OPTIONS.md` (why module 2 came next), `docs/TESTING_STRATEGY.md` (L0–L7 ladder), and the ADRs in
+`docs/archive/NEXT_MODULE_OPTIONS.md` (why module 2 came next), `docs/TESTING_STRATEGY.md` (L0–L7 ladder), and the ADRs in
 `docs/adr/` (decision records). The ADRs override this document where they conflict. Polish version:
 `docs/PROJECT_DESIGN.pl.md` (same content, kept in step by hand; the English text wins on conflict).
 
@@ -383,7 +384,7 @@ conventions at the relevant sites.
 | `README.md` | status, per-module claim limits, quick start, repository layout |
 | `docs/HANDOFF.md` | state of the modules, experiment rounds, real-data notes, working rules |
 | `docs/IMPLEMENTATION_LOG.md` | per-step implementation detail |
-| `docs/NEXT_MODULE_OPTIONS.md` | how a candidate module is judged; why module 2 came next |
+| `docs/archive/NEXT_MODULE_OPTIONS.md` | how a candidate module is judged; why module 2 came next |
 | `docs/TESTING_STRATEGY.md` | L0–L7 ladder, fault-injection catalogue, backlog V1–V8 |
 | `docs/ASSUMPTIONS.md` | unproven assumptions and retirement plans (keep current) |
 | `docs/PROVENANCE.md` | public sources and third-party datasets (licences) |
@@ -424,6 +425,6 @@ The README states five goals. Where each stands on 2026-10-24:
 **Differences from the original plan: there is no written original to compare with** (see the provenance note). The owner's earlier
 intent is known only from the conversation in which the project started, so what follows is what has visibly drifted from the goals in
 section 1 and from the order those goals were pursued in. Known drift worth checking: the licence changed from Apache-2.0 to
-AGPL-3.0-only (ADR 008); module order was decided by evidence availability (`NEXT_MODULE_OPTIONS.md`), not by a stage order; the C++
+AGPL-3.0-only (ADR 008); module order was decided by evidence availability (`docs/archive/NEXT_MODULE_OPTIONS.md`), not by a stage order; the C++
 runtime has not grown beyond a smoke test because nothing writes yet; the generic engine came after a first version that was too close
 to one plant's data (issue #42 records the remaining cleanup).

@@ -1,13 +1,14 @@
 # ADR 010: Module 2 is an advisory supervisor that cannot write to a plant
 
 Status: **proposed** (2026-10-21), written by the assistant for the owner's review. Work proceeds on the proposal.
-Builds on ADR 009 (configuration is data) and `docs/NEXT_MODULE_OPTIONS.md`.
+Superseded in part by [ADR 012](012-writes-are-a-product-capability.md) (2026-10-27): writing is a product capability through the Write Gateway; the safety design here still applies.
+Builds on ADR 009 (configuration is data) and `docs/archive/NEXT_MODULE_OPTIONS.md`.
 
 ## Context
 
 Module 1 (loop monitoring and tuning) is closed. The fuzzy engine, backtest, versions and API already exist, but nothing
 turns a rule-base output into advice that is gated by loop health, explained, logged and acknowledged by an operator.
-The main risk, stated in `NEXT_MODULE_OPTIONS.md`, is that a fuzzy supervisor is easy to build and hard to show better
+The main risk, stated in `docs/archive/NEXT_MODULE_OPTIONS.md`, is that a fuzzy supervisor is easy to build and hard to show better
 than a simple crisp rule. The earlier backtest (exp09) also left 43 % of operator moves facing a silent rule base.
 
 ## Decision

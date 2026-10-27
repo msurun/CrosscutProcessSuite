@@ -1,4 +1,7 @@
-"""Static guards for the write path (ADR 011): analysis packages and the API cannot write.
+"""Static guards for the write path (ADR 012).
+
+Only the Write Gateway (gateway/) may write to a control system; analysis packages must
+never import write capability.
 
 Scope: loops, fuzzy, supervisor, anomaly, softsensor and the API. The ``opcua`` and
 ``connectors`` packages are excluded on purpose: they are the connectivity layer and may

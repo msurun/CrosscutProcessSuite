@@ -1,5 +1,8 @@
 """No-write guard for the PLS soft sensor.
 
+Only the Write Gateway (gateway/) may write to a control system (ADR 012); analysis packages
+must never import write capability.
+
 Static checks (import graph, forbidden calls) and a dynamic check (filesystem writes stay in
 tmp_path) that make a plant write path or hidden side channel visible in CI.
 """

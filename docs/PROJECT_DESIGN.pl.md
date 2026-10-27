@@ -1,4 +1,5 @@
 # Crosscut Process Suite — Projekt (dokument projektowy)
+> **Zapis historyczny (zastąpiony 2026-10-27).** Definicja produktu jest teraz w [PRODUCT.pl.md](PRODUCT.pl.md); zapis do systemu sterowania jest funkcją produktu według [ADR 012](adr/012-writes-are-a-product-capability.md). Ten plik nie jest już aktualizowany.
 
 *Wersja polska dokumentu `docs/PROJECT_DESIGN.md`. W razie rozbieżności obowiązuje wersja angielska.*
 
@@ -7,7 +8,7 @@ i co świadomie nie jest budowane. Każde twierdzenie poniżej pochodzi z przywo
 źródła milczą, zaznaczono **niezdecydowane**.
 
 Dokumenty towarzyszące: `README.md` (status i ograniczenia poszczególnych modułów), `docs/HANDOFF.md` (stan prac, uwagi o danych rzeczywistych),
-`docs/NEXT_MODULE_OPTIONS.md` (dlaczego moduł 2 był następny), `docs/TESTING_STRATEGY.md` (drabinka L0–L7) oraz ADR-y w
+`docs/archive/NEXT_MODULE_OPTIONS.md` (dlaczego moduł 2 był następny), `docs/TESTING_STRATEGY.md` (drabinka L0–L7) oraz ADR-y w
 `docs/adr/` (zapisy decyzji). W razie sprzeczności ADR-y mają pierwszeństwo przed tym dokumentem.
 
 **Pochodzenie tego dokumentu (2026-10-24).** Nie istnieje pisemny plan pierwotny. Projekt był kształtowany w rozmowie i nigdy nie powstał żaden
@@ -382,7 +383,7 @@ uwierzytelnianie w UI; model uprawnień; cel optymalizacji; konwencje producent�
 | `README.md` | status, granice twierdzeń poszczególnych modułów, szybki start, układ repozytorium |
 | `docs/HANDOFF.md` | stan modułów, rundy eksperymentów, uwagi o danych rzeczywistych, zasady pracy |
 | `docs/IMPLEMENTATION_LOG.md` | szczegóły implementacji krok po kroku |
-| `docs/NEXT_MODULE_OPTIONS.md` | jak oceniany jest kandydat na moduł; dlaczego moduł 2 był następny |
+| `docs/archive/NEXT_MODULE_OPTIONS.md` | jak oceniany jest kandydat na moduł; dlaczego moduł 2 był następny |
 | `docs/TESTING_STRATEGY.md` | drabinka L0–L7, katalog wstrzykiwania błędów, backlog V1–V8 |
 | `docs/ASSUMPTIONS.md` | nieudowodnione założenia i plany ich wycofania (utrzymywać aktualne) |
 | `docs/PROVENANCE.md` | źródła publiczne i zbiory danych firm trzecich (licencje) |
@@ -423,6 +424,6 @@ README wymienia pięć celów. Gdzie każdy z nich stoi na dzień 2026-10-24:
 **Różnice od planu pierwotnego: nie ma pisemnego oryginału, z którym można by porównać** (patrz uwaga o pochodzeniu). Wcześniejsze
 zamiary właściciela są znane wyłącznie z rozmowy, w której projekt się rozpoczął, więc poniżej opisano to, co w widoczny sposób odbiegło od celów
 w sekcji 1 i od kolejności, w jakiej te cele realizowano. Znane odchylenia warte sprawdzenia: licencja zmieniła się z Apache-2.0 na
-AGPL-3.0-only (ADR 008); kolejność modułów została wyznaczona przez dostępność dowodów (`NEXT_MODULE_OPTIONS.md`), a nie przez kolejność etapów; rdzeń
+AGPL-3.0-only (ADR 008); kolejność modułów została wyznaczona przez dostępność dowodów (`docs/archive/NEXT_MODULE_OPTIONS.md`), a nie przez kolejność etapów; rdzeń
 C++ nie wyrósł poza test dymny, ponieważ nic jeszcze nie zapisuje; ogólny silnik powstał po pierwszej wersji, która była zbyt blisko
 danych jednego zakładu (zgłoszenie #42 odnotowuje pozostałe porządki).

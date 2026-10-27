@@ -8,7 +8,7 @@ touched. Accepted edits are appended to a JSON-lines log.
 
 Usage (from the repository root)::
 
-    PYTHONPATH=<ForemanKit dir> python tools/comment_review.py \
+    PYTHONPATH=<ForemanKit dir> python dev/comment_review.py \
         --tests "python -m pytest sim -q" --log review.jsonl FILE...
 """
 

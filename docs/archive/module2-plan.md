@@ -7,7 +7,7 @@ Every step must end with ruff, mypy and pytest green, and the lead reads every d
 
 The fuzzy engine, backtest, versions and API exist (`fuzzy/`, `api/.../fuzzy_routes.py`). Missing is the supervisor: a rule-base
 output turned into gated, explained, logged advice that an operator acknowledges. Risk: easy to build, hard to beat a crisp rule
-(`NEXT_MODULE_OPTIONS.md`); exp09 left 43 % of operator moves facing a silent rule base.
+(`docs/archive/NEXT_MODULE_OPTIONS.md`); exp09 left 43 % of operator moves facing a silent rule base.
 
 ## Contracts
 
