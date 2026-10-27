@@ -1,0 +1,826 @@
+{
+  "schema_version": 1,
+  "site": {
+    "name": "Generic Concentrator",
+    "timezone": "UTC"
+  },
+  "defaults": {
+    "sample_period_s": 10
+  },
+  "import": {
+    "missing_codes": [],
+    "decimal_comma": false,
+    "delimiter": ",",
+    "time_names": [
+      "timestamp",
+      "time"
+    ]
+  },
+  "quality": {
+    "good_codes": [
+      192
+    ],
+    "bad_codes": [
+      0,
+      64
+    ]
+  },
+  "naming": {
+    "valve_pattern": "{loop}.OUT",
+    "mode_suffix": ".MODE"
+  },
+  "sources": [
+    {
+      "id": "sim",
+      "driver": "opcua",
+      "endpoint": "opc.tcp://localhost:4840",
+      "options": {}
+    }
+  ],
+  "tags": [
+    {
+      "id": "CR1.FEED.PV",
+      "name": "Crusher feed rate PV",
+      "unit": "t/h",
+      "area": "CR1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "CR1.FEED",
+      "min": 0,
+      "max": 900
+    },
+    {
+      "id": "CR1.FEED.SP",
+      "name": "Crusher feed rate SP",
+      "unit": "t/h",
+      "area": "CR1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "CR1.FEED",
+      "min": 0,
+      "max": 900
+    },
+    {
+      "id": "CR1.FEED.OUT",
+      "name": "Crusher feed rate OUT",
+      "unit": "t/h",
+      "area": "CR1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "CR1.FEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "CR1.FEED.MODE",
+      "name": "Crusher feed rate MODE",
+      "unit": "",
+      "area": "CR1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "CR1.FEED"
+    },
+    {
+      "id": "CR1.CSS.PV",
+      "name": "Crusher closed-side setting PV",
+      "unit": "mm",
+      "area": "CR1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "CR1.CSS",
+      "min": 8,
+      "max": 60
+    },
+    {
+      "id": "CR1.CSS.SP",
+      "name": "Crusher closed-side setting SP",
+      "unit": "mm",
+      "area": "CR1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "CR1.CSS",
+      "min": 8,
+      "max": 60
+    },
+    {
+      "id": "CR1.CSS.OUT",
+      "name": "Crusher closed-side setting OUT",
+      "unit": "mm",
+      "area": "CR1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "CR1.CSS",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "CR1.CSS.MODE",
+      "name": "Crusher closed-side setting MODE",
+      "unit": "",
+      "area": "CR1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "CR1.CSS"
+    },
+    {
+      "id": "CR1.POWER.PV",
+      "name": "Crusher motor power PV",
+      "unit": "kW",
+      "area": "CR1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "CR1.POWER",
+      "min": 0,
+      "max": 450
+    },
+    {
+      "id": "CR1.POWER.SP",
+      "name": "Crusher motor power SP",
+      "unit": "kW",
+      "area": "CR1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "CR1.POWER",
+      "min": 0,
+      "max": 450
+    },
+    {
+      "id": "CR1.POWER.OUT",
+      "name": "Crusher motor power OUT",
+      "unit": "kW",
+      "area": "CR1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "CR1.POWER",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "CR1.POWER.MODE",
+      "name": "Crusher motor power MODE",
+      "unit": "",
+      "area": "CR1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "CR1.POWER"
+    },
+    {
+      "id": "SCR1.FEED.PV",
+      "name": "Screen feed rate PV",
+      "unit": "t/h",
+      "area": "SCR1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "SCR1.FEED",
+      "min": 0,
+      "max": 1200
+    },
+    {
+      "id": "SCR1.FEED.SP",
+      "name": "Screen feed rate SP",
+      "unit": "t/h",
+      "area": "SCR1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "SCR1.FEED",
+      "min": 0,
+      "max": 1200
+    },
+    {
+      "id": "SCR1.FEED.OUT",
+      "name": "Screen feed rate OUT",
+      "unit": "t/h",
+      "area": "SCR1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "SCR1.FEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "SCR1.FEED.MODE",
+      "name": "Screen feed rate MODE",
+      "unit": "",
+      "area": "SCR1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "SCR1.FEED"
+    },
+    {
+      "id": "ML1.FEED.PV",
+      "name": "Mill feed rate PV",
+      "unit": "t/h",
+      "area": "ML1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "ML1.FEED",
+      "min": 0,
+      "max": 800
+    },
+    {
+      "id": "ML1.FEED.SP",
+      "name": "Mill feed rate SP",
+      "unit": "t/h",
+      "area": "ML1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "ML1.FEED",
+      "min": 0,
+      "max": 800
+    },
+    {
+      "id": "ML1.FEED.OUT",
+      "name": "Mill feed rate OUT",
+      "unit": "t/h",
+      "area": "ML1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "ML1.FEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "ML1.FEED.MODE",
+      "name": "Mill feed rate MODE",
+      "unit": "",
+      "area": "ML1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "ML1.FEED"
+    },
+    {
+      "id": "ML1.WATER.PV",
+      "name": "Mill water ratio PV",
+      "unit": "%",
+      "area": "ML1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "ML1.WATER",
+      "min": 0,
+      "max": 150
+    },
+    {
+      "id": "ML1.WATER.SP",
+      "name": "Mill water ratio SP",
+      "unit": "%",
+      "area": "ML1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "ML1.WATER",
+      "min": 0,
+      "max": 150
+    },
+    {
+      "id": "ML1.WATER.OUT",
+      "name": "Mill water ratio OUT",
+      "unit": "%",
+      "area": "ML1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "ML1.WATER",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "ML1.WATER.MODE",
+      "name": "Mill water ratio MODE",
+      "unit": "",
+      "area": "ML1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "ML1.WATER"
+    },
+    {
+      "id": "ML1.LOAD.PV",
+      "name": "Mill load PV",
+      "unit": "%",
+      "area": "ML1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "ML1.LOAD",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "ML1.LOAD.SP",
+      "name": "Mill load SP",
+      "unit": "%",
+      "area": "ML1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "ML1.LOAD",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "ML1.LOAD.OUT",
+      "name": "Mill load OUT",
+      "unit": "%",
+      "area": "ML1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "ML1.LOAD",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "ML1.LOAD.MODE",
+      "name": "Mill load MODE",
+      "unit": "",
+      "area": "ML1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "ML1.LOAD"
+    },
+    {
+      "id": "SMP1.LEVEL.PV",
+      "name": "Sump level PV",
+      "unit": "%",
+      "area": "SMP1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "SMP1.LEVEL",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "SMP1.LEVEL.SP",
+      "name": "Sump level SP",
+      "unit": "%",
+      "area": "SMP1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "SMP1.LEVEL",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "SMP1.LEVEL.OUT",
+      "name": "Sump level OUT",
+      "unit": "%",
+      "area": "SMP1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "SMP1.LEVEL",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "SMP1.LEVEL.MODE",
+      "name": "Sump level MODE",
+      "unit": "",
+      "area": "SMP1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "SMP1.LEVEL"
+    },
+    {
+      "id": "PMP1.SPEED.PV",
+      "name": "Pump speed PV",
+      "unit": "%",
+      "area": "PMP1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "PMP1.SPEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "PMP1.SPEED.SP",
+      "name": "Pump speed SP",
+      "unit": "%",
+      "area": "PMP1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "PMP1.SPEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "PMP1.SPEED.OUT",
+      "name": "Pump speed OUT",
+      "unit": "%",
+      "area": "PMP1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "PMP1.SPEED",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "PMP1.SPEED.MODE",
+      "name": "Pump speed MODE",
+      "unit": "",
+      "area": "PMP1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "PMP1.SPEED"
+    },
+    {
+      "id": "HC1.DENSITY.PV",
+      "name": "Cyclone feed density PV",
+      "unit": "%",
+      "area": "HC1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "HC1.DENSITY",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "HC1.DENSITY.SP",
+      "name": "Cyclone feed density SP",
+      "unit": "%",
+      "area": "HC1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "HC1.DENSITY",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "HC1.DENSITY.OUT",
+      "name": "Cyclone feed density OUT",
+      "unit": "%",
+      "area": "HC1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "HC1.DENSITY",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "HC1.DENSITY.MODE",
+      "name": "Cyclone feed density MODE",
+      "unit": "",
+      "area": "HC1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "HC1.DENSITY"
+    },
+    {
+      "id": "HC1.PRESSURE.PV",
+      "name": "Cyclone feed pressure PV",
+      "unit": "kPa",
+      "area": "HC1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "HC1.PRESSURE",
+      "min": 0,
+      "max": 300
+    },
+    {
+      "id": "HC1.PRESSURE.SP",
+      "name": "Cyclone feed pressure SP",
+      "unit": "kPa",
+      "area": "HC1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "HC1.PRESSURE",
+      "min": 0,
+      "max": 300
+    },
+    {
+      "id": "HC1.PRESSURE.OUT",
+      "name": "Cyclone feed pressure OUT",
+      "unit": "kPa",
+      "area": "HC1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "HC1.PRESSURE",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "HC1.PRESSURE.MODE",
+      "name": "Cyclone feed pressure MODE",
+      "unit": "",
+      "area": "HC1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "HC1.PRESSURE"
+    },
+    {
+      "id": "FL1.LEVEL_A.PV",
+      "name": "Rougher cell A level PV",
+      "unit": "%",
+      "area": "FL1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "FL1.LEVEL_A",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_A.SP",
+      "name": "Rougher cell A level SP",
+      "unit": "%",
+      "area": "FL1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "FL1.LEVEL_A",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_A.OUT",
+      "name": "Rougher cell A level OUT",
+      "unit": "%",
+      "area": "FL1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "FL1.LEVEL_A",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_A.MODE",
+      "name": "Rougher cell A level MODE",
+      "unit": "",
+      "area": "FL1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "FL1.LEVEL_A"
+    },
+    {
+      "id": "FL1.LEVEL_B.PV",
+      "name": "Rougher cell B level PV",
+      "unit": "%",
+      "area": "FL1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "FL1.LEVEL_B",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_B.SP",
+      "name": "Rougher cell B level SP",
+      "unit": "%",
+      "area": "FL1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "FL1.LEVEL_B",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_B.OUT",
+      "name": "Rougher cell B level OUT",
+      "unit": "%",
+      "area": "FL1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "FL1.LEVEL_B",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.LEVEL_B.MODE",
+      "name": "Rougher cell B level MODE",
+      "unit": "",
+      "area": "FL1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "FL1.LEVEL_B"
+    },
+    {
+      "id": "FL1.AIR.PV",
+      "name": "Rougher air flow PV",
+      "unit": "m3/h",
+      "area": "FL1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "FL1.AIR",
+      "min": 0,
+      "max": 5000
+    },
+    {
+      "id": "FL1.AIR.SP",
+      "name": "Rougher air flow SP",
+      "unit": "m3/h",
+      "area": "FL1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "FL1.AIR",
+      "min": 0,
+      "max": 5000
+    },
+    {
+      "id": "FL1.AIR.OUT",
+      "name": "Rougher air flow OUT",
+      "unit": "m3/h",
+      "area": "FL1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "FL1.AIR",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "FL1.AIR.MODE",
+      "name": "Rougher air flow MODE",
+      "unit": "",
+      "area": "FL1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "FL1.AIR"
+    },
+    {
+      "id": "RX1.COLLECTOR.PV",
+      "name": "Rougher collector dosing PV",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "RX1.COLLECTOR",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.COLLECTOR.SP",
+      "name": "Rougher collector dosing SP",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "RX1.COLLECTOR",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.COLLECTOR.OUT",
+      "name": "Rougher collector dosing OUT",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "RX1.COLLECTOR",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.COLLECTOR.MODE",
+      "name": "Rougher collector dosing MODE",
+      "unit": "",
+      "area": "RX1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "RX1.COLLECTOR"
+    },
+    {
+      "id": "RX1.FROTHER.PV",
+      "name": "Rougher frother dosing PV",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "RX1.FROTHER",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.FROTHER.SP",
+      "name": "Rougher frother dosing SP",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "RX1.FROTHER",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.FROTHER.OUT",
+      "name": "Rougher frother dosing OUT",
+      "unit": "m3/h",
+      "area": "RX1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "RX1.FROTHER",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.FROTHER.MODE",
+      "name": "Rougher frother dosing MODE",
+      "unit": "",
+      "area": "RX1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "RX1.FROTHER"
+    },
+    {
+      "id": "COND1.PH.PV",
+      "name": "Conditioner pH PV",
+      "unit": "pH",
+      "area": "COND1",
+      "role": "PV",
+      "source": "sim",
+      "loop": "COND1.PH",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "COND1.PH.SP",
+      "name": "Conditioner pH SP",
+      "unit": "pH",
+      "area": "COND1",
+      "role": "SP",
+      "source": "sim",
+      "loop": "COND1.PH",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "COND1.PH.OUT",
+      "name": "Conditioner pH OUT",
+      "unit": "pH",
+      "area": "COND1",
+      "role": "OUT",
+      "source": "sim",
+      "loop": "COND1.PH",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "COND1.PH.MODE",
+      "name": "Conditioner pH MODE",
+      "unit": "",
+      "area": "COND1",
+      "role": "MODE",
+      "source": "sim",
+      "loop": "COND1.PH"
+    },
+    {
+      "id": "FL1.CONC_FLOW.MEAS",
+      "name": "Rougher concentrate flow",
+      "unit": "t/h",
+      "area": "FL1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 200
+    },
+    {
+      "id": "FL1.TAIL_FLOW.MEAS",
+      "name": "Rougher tailings flow",
+      "unit": "t/h",
+      "area": "FL1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 900
+    },
+    {
+      "id": "HC1.P80.MEAS",
+      "name": "Cyclone overflow P80",
+      "unit": "mm",
+      "area": "HC1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 0.5
+    },
+    {
+      "id": "CR1.BIN_LEVEL.MEAS",
+      "name": "Coarse ore bin level",
+      "unit": "%",
+      "area": "CR1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "SCR1.BIN_LEVEL.MEAS",
+      "name": "Screen undersize bin level",
+      "unit": "%",
+      "area": "SCR1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "RX1.TANK_LEVEL.MEAS",
+      "name": "Reagent tank level",
+      "unit": "%",
+      "area": "RX1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "CONC1.TANK_LEVEL.MEAS",
+      "name": "Concentrate thickener level",
+      "unit": "%",
+      "area": "CONC1",
+      "role": "MEAS",
+      "source": "sim",
+      "min": 0,
+      "max": 100
+    }
+  ]
+}

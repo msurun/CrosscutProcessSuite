@@ -872,3 +872,9 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Plant-derived tools are labelled for absorption into the product (Phase 4 and Phase 7).
 - CLAUDE.md item 11: the anti-drift rule (every task names its module and phase in `docs/PRODUCT.md`; a new top-level element needs owner approval).
 - Two pre-existing ruff E501 errors fixed (`plant_import.py`, `test_plant_import_settings.py`), no logic change.
+
+## 2026-10-27: example site file for the generic concentrator
+
+- Added `docs/examples/generic_concentrator/_site/site.json`: synthetic generic concentrator site file (primary crusher, screen, secondary crusher with recycle, ball mill, sump + pump, hydrocyclone with recycle, rougher flotation; 75 tags, 17 PID loops).
+- Preliminary: written before `schemas/site.schema.json` (#36) exists; tags carry min/max fields not in the #36 plan, to be decided when the schema is written. Use as the example root for the #36 site loader tests and as the flowsheet reference for the RougherSim profile.
+- Phase 1 (`docs/PHASE1_PLAN.md`), module: online foundation.
