@@ -8,7 +8,10 @@ version = "0.0.1"
 description = "Read-only data connectors (CSV export import) for the Crosscut Process Suite"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
-dependencies = ["crosscut-sim", "pyarrow>=15", "numpy>=1.26", "tzdata"]
+dependencies = ["crosscut-sim", "pyarrow>=15", "numpy>=1.26", "tzdata", "jsonschema>=4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+crosscut_connectors = ["py.typed"]
