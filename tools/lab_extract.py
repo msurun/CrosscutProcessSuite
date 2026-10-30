@@ -1,7 +1,7 @@
 """Cut one tag out of a long-format historian CSV and write a lab-upload CSV.
 
 Interim tool from the plant-1 validation work; to be absorbed into the generic
-virtual-sensor engine in Phase 4 of docs/PRODUCT.md.
+virtual-sensor engine in Phase 4a of docs/PRODUCT.md.
 
 The soft sensor lab upload expects a two-column file (`sample_time,value`). The historian
 exports one row per result, so this tool filters a single tag, optionally shifts its stamps

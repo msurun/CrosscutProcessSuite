@@ -9,7 +9,7 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 - First complete product: loop monitoring plus PID tuning, from data intake to online work with writes (Phase 3).
 - Connector order: OPC UA → PI → SQL/ODBC → the rest. Deployment: on-prem server plus browser, no cloud.
 - A DCS simulator imitating ABB 800xA is a separate project, Phase 1a; Crosscut sees it as a black box. It is called RougherSim.
-- The virtual-sensor and analyser work on plant 1 is a validation case, to be absorbed into a generic configurable engine in Phase 4, not a feature in itself.
+- The virtual-sensor and analyser work on plant 1 is a validation case, to be absorbed into a generic configurable engine in Phase 4a, not a feature in itself.
 - Closed experiment lines stay where they are and are indexed in `experiments/README.md`; one-off plans moved to `docs/archive/`; developer tools moved to `dev/`.
 - The anti-drift rule (every task names its module and phase; no plant constants in code; no new top-level element without owner approval) is item 11 in `CLAUDE.md`.
 

@@ -1,7 +1,7 @@
 """Compare an online analyser with a lab composite tag and report their time alignment.
 
 Interim tool from the plant-1 validation work; to be absorbed into the generic
-virtual-sensor engine in Phase 4 of docs/PRODUCT.md.
+virtual-sensor engine in Phase 4a of docs/PRODUCT.md.
 
 Loads the 1-minute analyser series from one or more wide CSVs and the lab composite stamps
 from a long-format historian export, slides a fixed-length window over the analyser to
