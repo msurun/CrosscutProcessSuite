@@ -29,8 +29,8 @@ Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Ste
 
 State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 36a/36b). Done: plant-word CI guard, PID vendor field (#41, closed), #42 constants moved to configuration, default missing-value code empty. CI is green again after the E501 fix (a768210). Full pytest: no failures (gateway xfails expected).
 
-1. 36b: equipment hierarchy with criticality, loops, labs and analysers, operating modes, added to `schemas/site.schema.json` and `connectors/site.py` (cross-reference: tag ids, hierarchy cycles, convertible units). Agree the role table with #37 first (tag `role`/`loop` are provisional). 36a is done and pushed (66d7a57, bbbb550).
-2. Then #45 generic form renderer (also packages `schemas/` and gives the site GUI slice), #37, #43, #39, #44 in the order of the plan.
+1. 36b is DONE and pushed (bfd66e2): signals table (role table in `docs/PHASE1_PLAN.md` #37), equipment, loops, labs, modes in `schemas/site.schema.json`; `connectors/site_refs.py` does the cross-reference checks; example site file converted (tag `role`/`loop` removed). Gap: `connectors/tests/test_site_refs.py` is NOT written (the bulk-supervisor failed with setup errors twice; write it by hand or via Haiku, check `Path(__file__).parents[n]` for the example file). Schema coverage exists in `tests/test_site_schema_catalogue.py` (4 parametrised tests), API round trip in `api/tests/test_site_routes_catalogue.py`.
+2. Next in order: test_site_refs.py, then #45 generic form renderer (api/schema_routes.py, package `schemas/` with the API, schemaForm.ts + vitest, SchemaForm/SchemaField, ConfigEditorPage), then the `catalogue` view for site, then #37 implementation, #43, #39, #44.
 3. Open: `catalogue` GUI view for site, strings en/pl/es, e2e (exit criteria of #36).
 4. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
 5. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
