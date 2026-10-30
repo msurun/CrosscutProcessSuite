@@ -878,3 +878,12 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Added `docs/examples/generic_concentrator/_site/site.json`: synthetic generic concentrator site file (primary crusher, screen, secondary crusher with recycle, ball mill, sump + pump, hydrocyclone with recycle, rougher flotation; 75 tags, 17 PID loops).
 - Preliminary: written before `schemas/site.schema.json` (#36) exists; tags carry min/max fields not in the #36 plan, to be decided when the schema is written. Use as the example root for the #36 site loader tests and as the flowsheet reference for the RougherSim profile.
 - Phase 1 (`docs/PHASE1_PLAN.md`), module: online foundation.
+
+## 2026-10-30 (part 2): Phase 1 steps 3b, plan and kanban
+
+- `docs/PHASE1_PLAN.md`: #36 widened to the PRODUCT.md 3.1 catalogue and split. 36a = site, import, quality, naming, sources, units, tags. 36b = equipment hierarchy (ISA-95 levels, criticality, asset template), loops, labs and analysers, operating modes. Cross-reference check (dangling tag ids, hierarchy cycles) lives in `connectors/site.py`. Commit 1f0da08.
+- GitHub: #41 closed (953cc12), #42 commented, milestone "P4" renamed "P4a Virtual-sensor engine and presets" (holds #13, #15, #38 and the owner items), new milestone "P4b Asset templates and predictive maintenance" (no issues yet), #53 Ready.
+- CI had been red on every run since 27.10 because of one ruff E501 (`api/tests/test_knowledge_routes.py:21`); fixed in a768210. mypy debt in `plant_import.py` is untouched.
+- #42 finished (51596a9): `ramp_min_hours` and `counter_like_share` are anomaly config fields (config.py, schema, `anomaly_routes._ramp_tags`); `tools/analyzer_vs_lab.py` takes `--min-rows` and `--min-finite-fraction`; `tools/driver_response.py` takes `--pre-s`, `--post-s`, `--min-step`; `flotation_public.py` and its test moved to `experiments/exp04_public_flotation/`, allow-list entry removed. Tests use non-default values. Note: `find_step_events` does not detect steps of about 0.8 driver units at 10 s sampling; tests use 1.2 and 3.0.
+- Two bulk-supervisor test tasks for the tools failed (one truncated an existing test file, restored from git); tests written by hand.
+- Next: `schemas/site.schema.json` 36a with tests, then `connectors/site.py` and `api/site_routes.py`; example file `docs/examples/generic_concentrator/_site/site.json` is the fixture.
