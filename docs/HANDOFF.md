@@ -35,7 +35,7 @@ State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 
 4. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
 5. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
 
-Kanban: milestones P4a (virtual-sensor engine, #13 #15 #38) and P4b (asset templates and PdM, empty) exist. Close #42 after the green CI run on 51596a9 or later.
+Kanban: milestones P4a (virtual-sensor engine, #13 #15 #38) and P4b (asset templates and PdM, empty) exist. 
 
 ## Real plant data
 
