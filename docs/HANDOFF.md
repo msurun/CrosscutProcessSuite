@@ -1,4 +1,4 @@
-# Handoff (2026-10-27): product reset, Phase 0 cleanup
+# Handoff (updated 2026-10-30): product reset, Phase 1 in progress
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md` (product definition, phases 0-8, owner decisions), then this file, then `docs/IMPLEMENTATION_LOG.md` for per-step detail.
 
@@ -25,11 +25,17 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 
 Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps. Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (44 Playwright tests with axe). All green.
 
-## Next steps
+## Next steps (updated 2026-10-30)
 
-1. Phase 0 remainder: create GitHub milestones P0-P8 and re-map existing issues onto them; owner review of the Polish companion `docs/PRODUCT.pl.md`.
-2. Phase 1 detailed plan (write it before coding). Detailed plan: docs/PHASE1_PLAN.md (approved decisions listed there).
-3. Phase 1a: RougherSim exists as a private repo with an approved plan (M0-M7). Work it milestone by milestone in its own sessions; licence is still an owner decision. Crosscut side: build the integration harness `tests/integration_roughersim/` (issue on the board, milestone P1a) and keep the L5 acceptance matrix in docs/TESTING_STRATEGY.md current.
+State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 36a/36b). Done: plant-word CI guard, PID vendor field (#41, closed), #42 constants moved to configuration, default missing-value code empty. CI is green again after the E501 fix (a768210). Full pytest: no failures (gateway xfails expected).
+
+1. `schemas/site.schema.json` 36a (site, import, quality, naming, sources, units, tags) with `tests/test_schemas.py` cases; fixture `docs/examples/generic_concentrator/_site/site.json` (adjust its tag min/max fields to the schema).
+2. `connectors/site.py` (load_site, validate_site with cross-reference check, read_settings_from_site) and `api/site_routes.py` (GET/PUT /site, GET /site/import-settings).
+3. 36b: equipment hierarchy with criticality, loops, labs and analysers, operating modes (after the #37 role table is agreed). Then #45 generic form renderer, #37, #43, #39, #44 in the order of the plan.
+4. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
+5. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
+
+Kanban: milestones P4a (virtual-sensor engine, #13 #15 #38) and P4b (asset templates and PdM, empty) exist. Close #42 after the green CI run on 51596a9 or later.
 
 ## Real plant data
 
