@@ -62,6 +62,32 @@ Scope follows PRODUCT.md 3.1 (project catalogue): not only tags and loops.
 - Tests: connectors/tests/test_role_mapping.py with a non-plant-1 naming convention, api/tests/test_catalogue_routes.py, e2e catalogue.spec.ts.
 - Exit: one mapping drives a loop in Loops, an input in Anomalies, a target in Soft sensor.
 
+#### Role table (design, agreed 2026-10-30)
+
+One vocabulary for `signals[{tag, role, loop?, module?}]`. `tag` is a tag id of the site file. The three older vocabularies map onto it; the old strings stay only as import aliases (suggestion and dictionary input), never in stored data.
+
+| Role | Meaning | `loop` | site.schema `role` (provisional) | `plant_import_loops` dictionary `signal` | `intake_routes` category |
+|---|---|---|---|---|---|
+| `pv` | measured value of a controller | required | PV | `PV (measured)` | `pv` |
+| `sp` | controller setpoint | required | SP | `SP` | `sp` |
+| `out` | controller output (what the gateway would write) | required | OUT | `OUT (controller output)` | `out` |
+| `mode` | controller mode flag (auto/manual/cascade) | required | MODE | `mode flag` | `mode` |
+| `fb` | actuator position feedback, valve AI/AO (stroke test, diagnosis) | required | none | `feedback (actuator position)`, `valve position (AI)`, `valve reference (AO)` | none |
+| `input` | measurement used by a module, no loop (anomaly input, soft-sensor feature) | none | MEAS | none | none |
+| `target` | quantity a module predicts (soft-sensor target, virtual sensor output) | none | none | none | none |
+| `lab` | laboratory or analyser result tag, described by an entry in `labs` | none | none | none | none |
+| `dv` | disturbance or feed-forward variable of a loop | optional | none | none | none |
+
+Rules:
+
+- `time` and tag/value columns are file-layout kinds of the intake step, not signal roles; they stay in `intake_routes`.
+- `fb` is added to the planned list because `plant_import_loops` and the valve stroke test already need the actuator position; `valve` pairs map to `fb` too (AI and AO told apart by `address`, not by role).
+- `module` (optional) restricts a signal to one module (`loops`, `anomaly`, `softsensor`); absent means every module may use it. A tag may have several signals (for example `input` for anomaly and `dv` for a loop).
+- A loop is defined once, in `loops[]` (id, type, pv, sp, out, mode, ...). A signal with role `pv|sp|out|mode|fb` and `loop: L` must name the same tag as `loops[L]` for that slot; `connectors/site.py` reports a mismatch. `signals` is what the wizard proposes and the engineer accepts; `loops[]` is what modules read.
+- Mapping from the provisional tag fields: `role` PV/SP/OUT/MODE with `loop` becomes `signals` pv/sp/out/mode with the same loop; MEAS becomes `input`. The tag fields `role` and `loop` are dropped from `tag` in 36b and the example file is converted.
+- Suggestion: one pure function maps a tag name to a role using the site `naming` block (and the vendor profile patterns later); `intake_routes.suggestions` and `plant_import_loops.detect_loops` become callers of it in #37. Until then they are untouched.
+
+
 ### #43 (L)
 
 - Files: connectors/base.py Protocol Connector (capabilities, browse, metadata, history, read_live, subscribe; NO write method, gateway owns writing); registry.py driver->factory from site.sources; adapters opcua_connector.py (persistent session, reuse resolve_node_id/_read_one/_quality_of), csv_connector.py, sql_connector.py; history raises NotSupported for OPC UA; api/connector_routes.py POST /sources/{id}/test, GET /sources/{id}/browse; SourcesPanel.tsx.
