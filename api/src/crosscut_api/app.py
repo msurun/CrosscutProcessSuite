@@ -38,6 +38,7 @@ from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.intake_routes import build_intake_router
 from crosscut_api.plant_import_routes import build_plant_import_router
+from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
@@ -597,6 +598,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_intake_router(store.root, store.loops_of))
     app.include_router(build_plant_import_router(store.root))
     app.include_router(build_site_router(store.root))
+    app.include_router(build_schema_router(store.root))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
