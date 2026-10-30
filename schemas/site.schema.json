@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/site.schema.json",
+  "title": "Site catalogue",
+  "description": "One site file per project: <data root>/_site/site.json. Step 36a: site, import, quality, naming, sources, units and tags. Equipment, loops, labs and operating modes (36b) are added later. No plant-specific defaults: every code and pattern is stated in the file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "site", "tags"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Version of this file layout."
+    },
+    "site": {"$ref": "#/$defs/site"},
+    "defaults": {"$ref": "#/$defs/defaults"},
+    "import": {"$ref": "#/$defs/import"},
+    "quality": {"$ref": "#/$defs/quality"},
+    "naming": {"$ref": "#/$defs/naming"},
+    "sources": {
+      "type": "array",
+      "description": "Where the tags come from. No credentials: secrets are kept outside this file.",
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "units": {"$ref": "#/$defs/units"},
+    "tags": {
+      "type": "array",
+      "description": "The signals of the site.",
+      "items": {"$ref": "#/$defs/tag"}
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]+$",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "number_list": {
+      "type": "array",
+      "items": {"type": "number"},
+      "uniqueItems": true
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {"type": "number"},
+        "max": {"type": "number"}
+      },
+      "minProperties": 1
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "description": "Name of the site."},
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "description": "IANA zone name of the plant clock, or UTC. Timestamps in files are read in this zone."
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sample_period_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sampling period in seconds used when a tag does not state its own."
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the site's exported files are read.",
+      "properties": {
+        "missing_codes": {
+          "$ref": "#/$defs/number_list",
+          "description": "Numbers that mean no result and are read as missing. Empty when the site has none."
+        },
+        "decimal_comma": {
+          "type": "boolean",
+          "description": "Read 1,5 as 1.5 (needs a delimiter other than a comma)."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Field separator of the files."
+        },
+        "time_names": {
+          "type": "array",
+          "description": "Column names accepted as the time column.",
+          "items": {"type": "string", "minLength": 1},
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Status codes of the historian or OPC UA quality column.",
+      "properties": {
+        "good_codes": {"$ref": "#/$defs/number_list", "description": "Codes of trustworthy values."},
+        "bad_codes": {"$ref": "#/$defs/number_list", "description": "Codes of values that are not used."}
+      }
+    },
+    "naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Naming convention of the site, used to suggest roles and loops.",
+      "properties": {
+        "valve_pattern": {
+          "type": "string",
+          "description": "Name of a loop's output tag; {loop} stands for the loop name."
+        },
+        "mode_suffix": {"type": "string", "description": "Suffix of a loop's mode tag."}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "driver"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "driver": {"enum": ["opcua", "pi", "sql", "csv"]},
+        "endpoint": {"type": "string", "description": "Address of the server or folder; no passwords."},
+        "options": {"type": "object", "description": "Driver options without credentials."}
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conversions": {
+          "type": "array",
+          "description": "Linear conversions: to = from * factor + offset.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to", "factor"],
+            "properties": {
+              "from": {"type": "string", "minLength": 1},
+              "to": {"type": "string", "minLength": 1},
+              "factor": {"type": "number", "not": {"const": 0}},
+              "offset": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string", "description": "Display name."},
+        "description": {"type": "string"},
+        "unit": {"type": "string", "description": "Engineering unit; empty for a dimensionless signal."},
+        "area": {"type": "string", "description": "Plant area label."},
+        "source": {"$ref": "#/$defs/identifier", "description": "Id of an entry in sources."},
+        "address": {"type": "string", "description": "Address within the source (node id, point name, column)."},
+        "role": {
+          "enum": ["PV", "SP", "OUT", "MODE", "MEAS"],
+          "description": "Provisional role of the signal; replaced by the signals table of the mapping wizard."
+        },
+        "loop": {"type": "string", "description": "Loop the signal belongs to (provisional, see role)."},
+        "dtype": {"enum": ["float", "int", "bool", "string"]},
+        "range": {
+          "$ref": "#/$defs/limits",
+          "description": "Valid range of values; readings outside it are treated as bad data."
+        },
+        "eng_limits": {
+          "$ref": "#/$defs/limits",
+          "description": "Engineering limits of the instrument or equipment."
+        },
+        "sampling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "period_s": {"type": "number", "exclusiveMinimum": 0},
+            "on_change": {"type": "boolean", "description": "The source stores values on change only."}
+          }
+        },
+        "compression": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Historian compression that shrinks small moves.",
+          "properties": {
+            "deadband": {"type": "number", "minimum": 0},
+            "deadband_unit": {"enum": ["engineering", "percent_of_span"]}
+          }
+        },
+        "missing_codes": {
+          "$ref": "#/$defs/number_list",
+          "description": "Missing-value codes of this tag; replace the site's import codes."
+        },
+        "quality_map": {
+          "type": "object",
+          "description": "Maps a source status code (as text) to good, bad or uncertain.",
+          "additionalProperties": {"enum": ["good", "bad", "uncertain"]}
+        }
+      }
+    }
+  }
+}

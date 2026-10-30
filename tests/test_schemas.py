@@ -247,3 +247,83 @@ def test_manifest_accepts_string_signature() -> None:
 def test_dataset_accepts_ground_truth_of_injected_faults() -> None:
     doc = mutated(DATASET_DOC, ["source", "ground_truth"], {"hpgr_press": {"stiction_band": 2.0}})
     assert list(validator("dataset.schema.json").iter_errors(doc)) == []
+
+
+SITE_EXAMPLE = SCHEMAS.parents[0] / "docs/examples/generic_concentrator/_site/site.json"
+SITE_DOC: dict[str, Any] = json.loads(SITE_EXAMPLE.read_text("utf8"))
+
+
+def site_errors(doc: dict[str, Any]) -> list[Any]:
+    return list(validator("site.schema.json").iter_errors(doc))
+
+
+def test_site_schema_metadata() -> None:
+    Draft202012Validator.check_schema(load("site.schema.json"))
+
+
+def test_site_example_validates() -> None:
+    assert site_errors(SITE_DOC) == []
+
+
+def test_site_has_no_plant_defaults() -> None:
+    """The schema states no default values, so no plant's convention is built in."""
+    assert '"default"' not in (SCHEMAS / "site.schema.json").read_text("utf8")
+
+
+@pytest.mark.parametrize("code", [-999, -9999, 1e30, 65535, 0])
+def test_site_accepts_any_missing_code(code: float) -> None:
+    doc = mutated(SITE_DOC, ["import", "missing_codes"], [code])
+    doc["tags"][0]["missing_codes"] = [code, -1]
+    assert site_errors(doc) == []
+
+
+def test_site_accepts_minimal_document() -> None:
+    doc = {"schema_version": 1, "site": {"name": "x"}, "tags": [{"id": "A.B"}]}
+    assert site_errors(doc) == []
+
+
+def test_site_accepts_full_tag() -> None:
+    tag = {
+        "id": "T1",
+        "unit": "%",
+        "source": "sim",
+        "address": "ns=2;s=T1",
+        "dtype": "float",
+        "range": {"min": 0, "max": 100},
+        "eng_limits": {"max": 90},
+        "sampling": {"period_s": 5, "on_change": True},
+        "compression": {"deadband": 0.5, "deadband_unit": "percent_of_span"},
+        "quality_map": {"192": "good", "0": "bad"},
+    }
+    assert site_errors({**SITE_DOC, "tags": [tag]}) == []
+
+
+SITE_INVALID = [
+    mutated(SITE_DOC, ["schema_version"], 2),
+    mutated(SITE_DOC, ["site"], "__delete__"),
+    mutated(SITE_DOC, ["tags"], "__delete__"),
+    mutated(SITE_DOC, ["unexpected"], 1),
+    mutated(SITE_DOC, ["import", "missing_codes"], ["-9999"]),
+    mutated(SITE_DOC, ["import", "missing_codes"], [-1, -1]),
+    mutated(SITE_DOC, ["import", "delimiter"], ";;"),
+    mutated(SITE_DOC, ["import", "time_names"], []),
+    mutated(SITE_DOC, ["defaults", "sample_period_s"], 0),
+    mutated(SITE_DOC, ["sources", 0, "driver"], "ftp"),
+    mutated(SITE_DOC, ["sources", 0, "password"], "secret"),
+    mutated(SITE_DOC, ["tags", 0, "id"], "has space"),
+    mutated(SITE_DOC, ["tags", 0, "role"], "XX"),
+    mutated(SITE_DOC, ["tags", 0, "eng_limits"], {}),
+    mutated(SITE_DOC, ["tags", 0, "min"], 0),
+    mutated(SITE_DOC, ["tags", 0, "quality_map"], {"192": "fine"}),
+    mutated(SITE_DOC, ["tags", 0, "compression"], {"deadband": -1}),
+]
+
+
+@pytest.mark.parametrize("doc", SITE_INVALID)
+def test_site_rejects_invalid(doc: dict[str, Any]) -> None:
+    assert site_errors(doc)
+
+
+def test_site_rejects_zero_conversion_factor() -> None:
+    conversion = {"from": "a", "to": "b", "factor": 0}
+    assert site_errors({**SITE_DOC, "units": {"conversions": [conversion]}})

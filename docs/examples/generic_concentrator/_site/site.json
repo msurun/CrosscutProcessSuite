@@ -46,8 +46,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "CR1.FEED",
-      "min": 0,
-      "max": 900
+      "eng_limits": {
+        "min": 0,
+        "max": 900
+      }
     },
     {
       "id": "CR1.FEED.SP",
@@ -57,8 +59,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "CR1.FEED",
-      "min": 0,
-      "max": 900
+      "eng_limits": {
+        "min": 0,
+        "max": 900
+      }
     },
     {
       "id": "CR1.FEED.OUT",
@@ -68,8 +72,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "CR1.FEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "CR1.FEED.MODE",
@@ -88,8 +94,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "CR1.CSS",
-      "min": 8,
-      "max": 60
+      "eng_limits": {
+        "min": 8,
+        "max": 60
+      }
     },
     {
       "id": "CR1.CSS.SP",
@@ -99,8 +107,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "CR1.CSS",
-      "min": 8,
-      "max": 60
+      "eng_limits": {
+        "min": 8,
+        "max": 60
+      }
     },
     {
       "id": "CR1.CSS.OUT",
@@ -110,8 +120,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "CR1.CSS",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "CR1.CSS.MODE",
@@ -130,8 +142,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "CR1.POWER",
-      "min": 0,
-      "max": 450
+      "eng_limits": {
+        "min": 0,
+        "max": 450
+      }
     },
     {
       "id": "CR1.POWER.SP",
@@ -141,8 +155,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "CR1.POWER",
-      "min": 0,
-      "max": 450
+      "eng_limits": {
+        "min": 0,
+        "max": 450
+      }
     },
     {
       "id": "CR1.POWER.OUT",
@@ -152,8 +168,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "CR1.POWER",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "CR1.POWER.MODE",
@@ -172,8 +190,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "SCR1.FEED",
-      "min": 0,
-      "max": 1200
+      "eng_limits": {
+        "min": 0,
+        "max": 1200
+      }
     },
     {
       "id": "SCR1.FEED.SP",
@@ -183,8 +203,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "SCR1.FEED",
-      "min": 0,
-      "max": 1200
+      "eng_limits": {
+        "min": 0,
+        "max": 1200
+      }
     },
     {
       "id": "SCR1.FEED.OUT",
@@ -194,8 +216,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "SCR1.FEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "SCR1.FEED.MODE",
@@ -214,8 +238,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "ML1.FEED",
-      "min": 0,
-      "max": 800
+      "eng_limits": {
+        "min": 0,
+        "max": 800
+      }
     },
     {
       "id": "ML1.FEED.SP",
@@ -225,8 +251,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "ML1.FEED",
-      "min": 0,
-      "max": 800
+      "eng_limits": {
+        "min": 0,
+        "max": 800
+      }
     },
     {
       "id": "ML1.FEED.OUT",
@@ -236,8 +264,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "ML1.FEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "ML1.FEED.MODE",
@@ -256,8 +286,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "ML1.WATER",
-      "min": 0,
-      "max": 150
+      "eng_limits": {
+        "min": 0,
+        "max": 150
+      }
     },
     {
       "id": "ML1.WATER.SP",
@@ -267,8 +299,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "ML1.WATER",
-      "min": 0,
-      "max": 150
+      "eng_limits": {
+        "min": 0,
+        "max": 150
+      }
     },
     {
       "id": "ML1.WATER.OUT",
@@ -278,8 +312,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "ML1.WATER",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "ML1.WATER.MODE",
@@ -298,8 +334,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "ML1.LOAD",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "ML1.LOAD.SP",
@@ -309,8 +347,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "ML1.LOAD",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "ML1.LOAD.OUT",
@@ -320,8 +360,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "ML1.LOAD",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "ML1.LOAD.MODE",
@@ -340,8 +382,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "SMP1.LEVEL",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "SMP1.LEVEL.SP",
@@ -351,8 +395,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "SMP1.LEVEL",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "SMP1.LEVEL.OUT",
@@ -362,8 +408,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "SMP1.LEVEL",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "SMP1.LEVEL.MODE",
@@ -382,8 +430,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "PMP1.SPEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "PMP1.SPEED.SP",
@@ -393,8 +443,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "PMP1.SPEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "PMP1.SPEED.OUT",
@@ -404,8 +456,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "PMP1.SPEED",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "PMP1.SPEED.MODE",
@@ -424,8 +478,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "HC1.DENSITY",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "HC1.DENSITY.SP",
@@ -435,8 +491,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "HC1.DENSITY",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "HC1.DENSITY.OUT",
@@ -446,8 +504,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "HC1.DENSITY",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "HC1.DENSITY.MODE",
@@ -466,8 +526,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "HC1.PRESSURE",
-      "min": 0,
-      "max": 300
+      "eng_limits": {
+        "min": 0,
+        "max": 300
+      }
     },
     {
       "id": "HC1.PRESSURE.SP",
@@ -477,8 +539,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "HC1.PRESSURE",
-      "min": 0,
-      "max": 300
+      "eng_limits": {
+        "min": 0,
+        "max": 300
+      }
     },
     {
       "id": "HC1.PRESSURE.OUT",
@@ -488,8 +552,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "HC1.PRESSURE",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "HC1.PRESSURE.MODE",
@@ -508,8 +574,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "FL1.LEVEL_A",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_A.SP",
@@ -519,8 +587,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "FL1.LEVEL_A",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_A.OUT",
@@ -530,8 +600,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "FL1.LEVEL_A",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_A.MODE",
@@ -550,8 +622,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "FL1.LEVEL_B",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_B.SP",
@@ -561,8 +635,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "FL1.LEVEL_B",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_B.OUT",
@@ -572,8 +648,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "FL1.LEVEL_B",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.LEVEL_B.MODE",
@@ -592,8 +670,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "FL1.AIR",
-      "min": 0,
-      "max": 5000
+      "eng_limits": {
+        "min": 0,
+        "max": 5000
+      }
     },
     {
       "id": "FL1.AIR.SP",
@@ -603,8 +683,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "FL1.AIR",
-      "min": 0,
-      "max": 5000
+      "eng_limits": {
+        "min": 0,
+        "max": 5000
+      }
     },
     {
       "id": "FL1.AIR.OUT",
@@ -614,8 +696,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "FL1.AIR",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "FL1.AIR.MODE",
@@ -634,8 +718,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "RX1.COLLECTOR",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.COLLECTOR.SP",
@@ -645,8 +731,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "RX1.COLLECTOR",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.COLLECTOR.OUT",
@@ -656,8 +744,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "RX1.COLLECTOR",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.COLLECTOR.MODE",
@@ -676,8 +766,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "RX1.FROTHER",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.FROTHER.SP",
@@ -687,8 +779,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "RX1.FROTHER",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.FROTHER.OUT",
@@ -698,8 +792,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "RX1.FROTHER",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.FROTHER.MODE",
@@ -718,8 +814,10 @@
       "role": "PV",
       "source": "sim",
       "loop": "COND1.PH",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "COND1.PH.SP",
@@ -729,8 +827,10 @@
       "role": "SP",
       "source": "sim",
       "loop": "COND1.PH",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "COND1.PH.OUT",
@@ -740,8 +840,10 @@
       "role": "OUT",
       "source": "sim",
       "loop": "COND1.PH",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "COND1.PH.MODE",
@@ -759,8 +861,10 @@
       "area": "FL1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 200
+      "eng_limits": {
+        "min": 0,
+        "max": 200
+      }
     },
     {
       "id": "FL1.TAIL_FLOW.MEAS",
@@ -769,8 +873,10 @@
       "area": "FL1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 900
+      "eng_limits": {
+        "min": 0,
+        "max": 900
+      }
     },
     {
       "id": "HC1.P80.MEAS",
@@ -779,8 +885,10 @@
       "area": "HC1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 0.5
+      "eng_limits": {
+        "min": 0,
+        "max": 0.5
+      }
     },
     {
       "id": "CR1.BIN_LEVEL.MEAS",
@@ -789,8 +897,10 @@
       "area": "CR1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "SCR1.BIN_LEVEL.MEAS",
@@ -799,8 +909,10 @@
       "area": "SCR1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "RX1.TANK_LEVEL.MEAS",
@@ -809,8 +921,10 @@
       "area": "RX1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     },
     {
       "id": "CONC1.TANK_LEVEL.MEAS",
@@ -819,8 +933,10 @@
       "area": "CONC1",
       "role": "MEAS",
       "source": "sim",
-      "min": 0,
-      "max": 100
+      "eng_limits": {
+        "min": 0,
+        "max": 100
+      }
     }
   ]
 }
