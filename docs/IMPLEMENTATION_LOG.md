@@ -904,3 +904,7 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Example site file converted by a one-off script (3 areas, 10 units, one equipment below the mill, mode `mill_running`, lab `hc1_p80` with um->mm conversion).
 - Tests: 145 pass over the five site test files. API round-trip tests and schema tests came from bulk-supervisor (the schema one was stopped mid-run but its 4 parametrised tests pass); `test_site_refs.py` failed twice with setup errors and is still missing. Three older tests that mutated tag `role` now mutate `dtype`.
 - Module: online foundation, Phase 1. Not run this part: full pytest, mypy on site_refs (the two edited modules were clean), frontend gates, `graphify update .` (hook rebuilds in the background).
+
+## 2026-10-30 (part 5): test_site_refs.py closes the 36b gap
+
+- `connectors/tests/test_site_refs.py` (0cec67e): 18 broken-reference cases, one per 36b check (each breaks one reference of the example site and expects one readable problem line), plus lab unit through a chain and direct `convertible` cases. Two corrections to the failed bulk-supervisor draft: the "not convertible" case must change the lab unit to `mm` with empty conversions (`um`->`um` is always convertible), and the chain test routes through the lab unit so it really exercises the chain. 24 tests, ruff and mypy clean. Module: online foundation, Phase 1.
