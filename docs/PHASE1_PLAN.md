@@ -25,7 +25,7 @@ Purpose: detailed plan required by docs/HANDOFF.md before Phase 1 coding; source
 
 ## Order
 
-#42 guard+constants -> #41 vendor field -> #45 generic renderer -> #36 site schema -> #37 mapping wizard -> #43 connector interface -> #39 onboarding -> #44 runtime. #53 harness skeleton in parallel (real rows need RougherSim M5/M6).
+#42 guard+constants -> #41 vendor field -> #45 generic renderer -> #36a site schema -> #36b hierarchy/loops/labs/modes -> #37 mapping wizard -> #43 connector interface -> #39 onboarding -> #44 runtime. #53 harness skeleton in parallel (real rows need RougherSim M5/M6).
 
 ## Per issue (files, tests, GUI slice, exit test, size)
 
@@ -46,11 +46,15 @@ Purpose: detailed plan required by docs/HANDOFF.md before Phase 1 coding; source
 - First consumers: supervisor, anomaly, softsensor config, site.
 - Exit: e2e edits anomaly config via form, scan uses it, axe clean.
 
-### #36 (M)
+### #36 (L, split 36a/36b)
 
-- Files: schemas/site.schema.json (hand-written): schema_version, site{name,timezone}, defaults{sample_period_s}, import{missing_codes,decimal_comma,delimiter,time_names}, quality{good_codes,bad_codes}, naming{valve_pattern,mode_suffix,...}, sources[{id,driver,endpoint,options}], tags; no plant-naming defaults. connectors/site.py (load_site, validate_site, read_settings_from_site); api/site_routes.py GET/PUT /site, GET /site/import-settings; frontend SitePage.tsx using SchemaForm, new `catalogue` view (route.ts, App.tsx, TopBar.tsx), en/pl/es.
-- Tests: tests/test_schemas.py (incl. missing code other than -9999), connectors/tests/test_site.py, api/tests/test_site_routes.py, vitest.
-- Exit: e2e site with missing code -999, import uses it.
+Scope follows PRODUCT.md 3.1 (project catalogue): not only tags and loops.
+
+- Files: schemas/site.schema.json (hand-written, `$defs` per element, schema_version). 36a: site{name,timezone}, defaults{sample_period_s}, import{missing_codes,decimal_comma,delimiter,time_names}, quality{good_codes,bad_codes}, naming{valve_pattern,mode_suffix,...}, sources[{id,driver,endpoint,options; no credentials}], units{conversions}, tags[{id,source,address,description,unit,range,eng_limits,dtype,sampling,compression,missing_codes,quality_map}]. 36b: equipment[{id,level site|area|unit|equipment,parent,tags,criticality,asset_template}], loops[{id,type,pv,sp,out,mode,action,out_limits,links,vendor}], labs[{id,sample_point,variable,stamp start|end|middle+offset,composite_window,latency,missing_codes,valid_range}], modes[{id,name,scope,condition}]. No plant-naming defaults.
+- connectors/site.py: load_site, validate_site (JSON Schema + cross-reference check: every tag id used by equipment/loops/labs/modes exists, hierarchy has no cycles, units convertible), read_settings_from_site. api/site_routes.py GET/PUT /site, GET /site/import-settings. Frontend SitePage.tsx via SchemaForm, new `catalogue` view (route.ts, App.tsx, TopBar.tsx), en/pl/es.
+- Out of scope here: role detection and mapping wizard (#37), CSV bulk edit and versions with diff (later P1 issue), vendor profile files (#41 follow-up).
+- Tests: tests/test_schemas.py (incl. missing code other than -9999, hierarchy with criticality, mode condition, lab stamp), connectors/tests/test_site.py (dangling tag id, cycle), api/tests/test_site_routes.py, vitest.
+- Exit: e2e site with missing code -999, import uses it; site with 2-level hierarchy, mode and lab validates and round-trips through the GUI.
 
 ### #37 (L)
 
@@ -86,8 +90,8 @@ Purpose: detailed plan required by docs/HANDOFF.md before Phase 1 coding; source
 1. test_no_plant_words guard (hard_code).
 2. #41 (hard_code schema/loader, bulk_code GUI/locales/tests).
 3. #42 constants (bulk_code; quick for tools/ CLI args).
-4. site.schema.json + schema tests (hard_code design, bulk_code tests).
-5. connectors/site.py + site_routes.py (bulk_code).
+4. site.schema.json 36a (core) + schema tests (hard_code design, bulk_code tests).
+5. connectors/site.py + site_routes.py (bulk_code); 36b follows after #37 role table is agreed.
 6. #45 backend, then schemaForm.ts + vitest (hard_code logic).
 
 Next day:
