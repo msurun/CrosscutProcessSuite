@@ -28,10 +28,6 @@ DIR_NAME = "_anomaly"
 AID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 DEFAULT_MAX_POINTS = 1500
 MODEL_KIND = "anomaly_pca"
-# A linear stretch at least this long (and 30 bins) is read as an interpolated archive gap.
-RAMP_MIN_HOURS = 6.0
-# A tag that is one straight line over almost the whole window is a counter or timer, not a gap.
-COUNTER_LIKE_SHARE = 0.9
 MIN_RAMP_BINS = 30
 Aid = Annotated[str, PathParam(pattern=AID_PATTERN)]
 SecondsLoader = Callable[[str], tuple[np.ndarray, dict[str, Any]]]
@@ -220,14 +216,16 @@ def _bin_means(bins: np.ndarray, values: np.ndarray, good: np.ndarray, n_bins: i
 def _ramp_tags(x: np.ndarray, config: AnomalyConfig) -> dict[str, float]:
     """Tags with a long exact linear ramp (an interpolated archive gap) and their ramp share.
 
-    A ramp must last RAMP_MIN_HOURS. Such a stretch may carry no measurement, so the model and its
-    alarms for that tag may not be trustworthy. Exploratory: on real data counters, timers and slow
-    compressed signals also draw straight lines, so this is a warning to look at, not a verdict.
+    A ramp must last config.ramp_min_hours (and MIN_RAMP_BINS bins). A tag that is one straight
+    line over config.counter_like_share of the window is a counter or timer, not a gap. Such a
+    stretch may carry no measurement, so the model and its alarms for that tag may not be
+    trustworthy. Exploratory: on real data counters, timers and slow compressed signals also draw
+    straight lines, so this is a warning to look at, not a verdict.
     """
-    min_len = max(MIN_RAMP_BINS, int(RAMP_MIN_HOURS * 3600.0 / config.sample_period_s))
+    min_len = max(MIN_RAMP_BINS, int(config.ramp_min_hours * 3600.0 / config.sample_period_s))
     columns = {tag: x[:, j] for j, tag in enumerate(config.tags)}
     flagged = unreliable_tags(columns, min_len=min_len)
-    return {tag: share for tag, share in flagged.items() if share < COUNTER_LIKE_SHARE}
+    return {tag: share for tag, share in flagged.items() if share < config.counter_like_share}
 
 
 def _manifest(

@@ -229,3 +229,21 @@ def test_tool_analyzer_vs_lab_ignores_values_below_min_valid(
     summary = parse_summary(capsys.readouterr().out)
     assert exit_code == 0
     assert summary["shift"] == -1.0
+
+
+def test_tool_analyzer_vs_lab_min_rows_option_sets_the_row_limit(
+    dataset: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--min-rows raises the limit above the aligned rows (exit 2) or lowers it (exit 0)."""
+    assert run_tool(dataset["wide"], dataset["lab"], ["--min-rows", "100000"]) == 2
+    assert "need at least 100000" in capsys.readouterr().err
+    assert run_tool(dataset["wide"], dataset["lab"], ["--min-rows", "5"]) == 0
+
+
+def test_window_mean_uses_the_finite_fraction_argument() -> None:
+    """A window with 60 % finite samples passes at 0.5 and gives NaN at 0.9."""
+    t_s = np.arange(10, dtype=float)
+    values = np.array([1.0] * 6 + [np.nan] * 4)
+    series = TOOL.TagSeries(tag="x", t_s=t_s, values=values)
+    assert TOOL.window_mean(series, 0.0, 9.0, 0.0, 0.5) == pytest.approx(1.0)
+    assert np.isnan(TOOL.window_mean(series, 0.0, 9.0, 0.0, 0.9))

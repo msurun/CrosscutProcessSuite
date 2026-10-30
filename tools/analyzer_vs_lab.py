@@ -24,8 +24,8 @@ from crosscut_softsensor.long_format import TagSeries, load_long_csv
 
 TIMESTAMP_COLUMN = "timestamp"
 SECONDS_PER_HOUR = 3600.0
-MIN_FINITE_FRACTION = 0.5
-MIN_ROWS = 20
+DEFAULT_MIN_FINITE_FRACTION = 0.5
+DEFAULT_MIN_ROWS = 20
 NAN = float("nan")
 
 
@@ -45,6 +45,8 @@ class Arguments:
     shifts_h: np.ndarray
     min_valid: float
     folds: int
+    min_finite_fraction: float
+    min_rows: int
 
 
 @dataclass(frozen=True)
@@ -79,9 +81,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except AnalyzerLabError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    if len(best.features) < MIN_ROWS:
+    if len(best.features) < arguments.min_rows:
         print(
-            f"error: only {len(best.features)} aligned rows, need at least {MIN_ROWS}.",
+            f"error: only {len(best.features)} aligned rows, need at least {arguments.min_rows}.",
             file=sys.stderr,
         )
         return 2
@@ -103,6 +105,8 @@ def parse_arguments(argv: Sequence[str] | None) -> Arguments:
         shifts_h=parse_shifts(namespace.shifts_h),
         min_valid=namespace.min_valid,
         folds=namespace.folds,
+        min_finite_fraction=namespace.min_finite_fraction,
+        min_rows=namespace.min_rows,
     )
 
 
@@ -117,6 +121,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shifts-h", default="-3,3,0.5", metavar="TEXT")
     parser.add_argument("--min-valid", type=float, default=0.0, metavar="FLOAT")
     parser.add_argument("--folds", type=int, default=5, metavar="INT")
+    parser.add_argument(
+        "--min-finite-fraction", type=float, default=DEFAULT_MIN_FINITE_FRACTION, metavar="FLOAT"
+    )
+    parser.add_argument("--min-rows", type=int, default=DEFAULT_MIN_ROWS, metavar="INT")
     return parser
 
 
@@ -213,7 +221,9 @@ def align_shift(
             continue
         start_s = stamp_s + (shift_h - window_h) * SECONDS_PER_HOUR
         stop_s = stamp_s + shift_h * SECONDS_PER_HOUR
-        feature = window_mean(analyser, start_s, stop_s, arguments.min_valid)
+        feature = window_mean(
+            analyser, start_s, stop_s, arguments.min_valid, arguments.min_finite_fraction
+        )
         if np.isfinite(feature):
             features.append(feature)
             labs.append(lab_value)
@@ -228,12 +238,14 @@ def analyser_records_cover(analyser: TagSeries, stamp_s: float, half_span_h: flo
     return analyser.t_s[0] <= stamp_s - span_s and stamp_s + span_s <= analyser.t_s[-1]
 
 
-def window_mean(analyser: TagSeries, start_s: float, stop_s: float, min_valid: float) -> float:
+def window_mean(
+    analyser: TagSeries, start_s: float, stop_s: float, min_valid: float, min_finite_fraction: float
+) -> float:
     """Mean of finite analyser values in [start_s, stop_s]; NaN if too few are valid."""
     mask = (analyser.t_s >= start_s) & (analyser.t_s <= stop_s)
     values = analyser.values[mask]
     valid = values[np.isfinite(values) & (values >= min_valid)]
-    if len(values) == 0 or len(valid) < MIN_FINITE_FRACTION * len(values):
+    if len(values) == 0 or len(valid) < min_finite_fraction * len(values):
         return NAN
     return float(np.mean(valid))
 

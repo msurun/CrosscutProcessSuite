@@ -74,3 +74,32 @@ def test_anomaly_ramp_routes_report_nothing_without_a_ramp(tmp_path: Path, route
     assert client.post(f"/datasets/{dataset}/anomaly/mc/fit", json={}).status_code == 200
     body = client.post(f"/datasets/{dataset}/anomaly/mc/{route}", json={}).json()
     assert body["unreliable_tags"] == {}
+
+def test_anomaly_ramp_routes_report_nothing_with_long_ramp_min_hours(tmp_path: Path) -> None:
+    """Test that the ramp tag is not reported when ramp_min_hours is set to 12."""
+    config = CONFIG.copy()
+    config["ramp_min_hours"] = 12
+    client, dataset = _client(tmp_path, ramp=True)
+    assert client.put("/anomaly/mc", json=config).status_code == 200
+    assert client.post(f"/datasets/{dataset}/anomaly/mc/fit", json={}).status_code == 200
+    body = client.post(f"/datasets/{dataset}/anomaly/mc/scan", json={}).json()
+    assert body["unreliable_tags"] == {}
+
+def test_anomaly_ramp_routes_report_nothing_with_counter_like_share(tmp_path: Path) -> None:
+    """Test that the ramp tag is not reported when counter_like_share is set to 0.5."""
+    config = CONFIG.copy()
+    config["counter_like_share"] = 0.5
+    client, dataset = _client(tmp_path, ramp=True)
+    assert client.put("/anomaly/mc", json=config).status_code == 200
+    assert client.post(f"/datasets/{dataset}/anomaly/mc/fit", json={}).status_code == 200
+    body = client.post(f"/datasets/{dataset}/anomaly/mc/scan", json={}).json()
+    assert body["unreliable_tags"] == {}
+
+def test_anomaly_ramp_routes_report_ramp_tag_with_defaults(tmp_path: Path) -> None:
+    """Test that the ramp tag is reported with default configuration."""
+    client, dataset = _client(tmp_path, ramp=True)
+    assert client.put("/anomaly/mc", json=CONFIG).status_code == 200
+    assert client.post(f"/datasets/{dataset}/anomaly/mc/fit", json={}).status_code == 200
+    body = client.post(f"/datasets/{dataset}/anomaly/mc/scan", json={}).json()
+    assert list(body["unreliable_tags"]) == [RAMP_TAG]
+    assert 0.35 < body["unreliable_tags"][RAMP_TAG] < 0.65

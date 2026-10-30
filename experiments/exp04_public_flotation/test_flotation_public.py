@@ -7,10 +7,14 @@ behaviour on tiny hand-written CSV files, so no real dataset is needed.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
-from crosscut_connectors.flotation_public import load_flotation_csv
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from flotation_public import load_flotation_csv  # noqa: E402
 
 HEADER = "date,% Iron Feed,Ore Pulp pH"
 

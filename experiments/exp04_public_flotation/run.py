@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from crosscut_connectors.flotation_public import LAB_COLUMNS, SAMPLE_PERIOD_S, load_flotation_csv
 from crosscut_loops.metrics import flatline_fraction, hagglund_oscillation
+from flotation_public import LAB_COLUMNS, SAMPLE_PERIOD_S, load_flotation_csv
 
 MAX_GAP_S = 60.0  # a longer gap ends a segment
 MIN_SEGMENT_SAMPLES = 1080  # 6 h at 20 s

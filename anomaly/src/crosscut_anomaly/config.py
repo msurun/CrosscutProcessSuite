@@ -15,7 +15,7 @@ MODES = ("off", "advisory")
 _REQUIRED = ("schema_version", "id", "tags", "mode")
 _OPTIONAL = (
     "description", "variance_fraction", "alpha", "min_consecutive", "close_after",
-    "sample_period_s", "dynamic_lags", "stuck_samples",
+    "sample_period_s", "dynamic_lags", "stuck_samples", "ramp_min_hours", "counter_like_share",
 )
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -41,6 +41,8 @@ class AnomalyConfig:
     sample_period_s: float = 60.0
     dynamic_lags: int = 0
     stuck_samples: int = 0
+    ramp_min_hours: float = 6.0
+    counter_like_share: float = 0.9
 
 
 def load_config(doc: Mapping[str, Any]) -> AnomalyConfig:
@@ -66,6 +68,8 @@ def load_config(doc: Mapping[str, Any]) -> AnomalyConfig:
         sample_period_s=_period(doc),
         dynamic_lags=_lags(doc),
         stuck_samples=_stuck(doc),
+        ramp_min_hours=_positive(doc, "ramp_min_hours", 6.0),
+        counter_like_share=_number(doc, "counter_like_share", 0.9, 0.5, 1.0),
     )
 
 
@@ -136,6 +140,16 @@ def _period(doc: Mapping[str, Any]) -> float:
         raise AnomalyConfigError("sample_period_s: must be a number")
     if not value > 0:
         raise AnomalyConfigError(f"sample_period_s: {value} must be above 0")
+    return float(value)
+
+
+def _positive(doc: Mapping[str, Any], key: str, default: float) -> float:
+    """A real number (not a bool) above zero; ``default`` if absent."""
+    value = doc.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise AnomalyConfigError(f"{key}: must be a number")
+    if not value > 0:
+        raise AnomalyConfigError(f"{key}: {value} must be above 0")
     return float(value)
 
 

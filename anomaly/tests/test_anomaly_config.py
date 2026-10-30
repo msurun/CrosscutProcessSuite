@@ -94,3 +94,41 @@ def test_closed_loop_mode_rejected_everywhere() -> None:
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(doc(mode="closed_loop"), SCHEMA)
     assert SCHEMA["properties"]["mode"]["enum"] == ["off", "advisory"]
+
+
+def test_default_ramp_and_counter_like_share() -> None:
+    """Default ``ramp_min_hours`` and ``counter_like_share`` values are applied when omitted."""
+    cfg = load_config(GOOD)
+    assert cfg.ramp_min_hours == 6.0
+    assert cfg.counter_like_share == 0.9
+    jsonschema.validate(GOOD, SCHEMA)
+
+
+def test_custom_ramp_and_counter_like_share_values() -> None:
+    """Custom ``ramp_min_hours`` and ``counter_like_share`` values are loaded correctly."""
+    custom = doc(ramp_min_hours=2.5, counter_like_share=0.75)
+    cfg = load_config(custom)
+    assert cfg.ramp_min_hours == 2.5
+    assert cfg.counter_like_share == 0.75
+    jsonschema.validate(custom, SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("bad", "field"),
+    [
+        (doc(ramp_min_hours=0), "ramp_min_hours"),
+        (doc(ramp_min_hours=-1), "ramp_min_hours"),
+        (doc(ramp_min_hours=True), "ramp_min_hours"),
+        (doc(ramp_min_hours="x"), "ramp_min_hours"),
+        (doc(counter_like_share=0.4), "counter_like_share"),
+        (doc(counter_like_share=1.1), "counter_like_share"),
+        (doc(counter_like_share=True), "counter_like_share"),
+    ],
+)
+def test_invalid_ramp_and_counter_like_share_fields(bad: dict[str, Any], field: str) -> None:
+    """Invalid ``ramp_min_hours`` or ``counter_like_share`` values fail loader and schema."""
+    with pytest.raises(AnomalyConfigError) as err:
+        load_config(bad)
+    assert str(err.value).startswith(field)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(bad, SCHEMA)

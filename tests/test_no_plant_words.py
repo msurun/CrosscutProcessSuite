@@ -34,7 +34,7 @@ SKIP_DIRECTORY_NAMES = {
 # shrink as the affected files are removed or moved out of the generic repo.
 # Each entry is a relative POSIX path that is either an exact match or a
 # directory prefix.
-ALLOW_LISTED_RELATIVE_PATHS = ("connectors/flotation_public.py", "sim/", "opcua/")
+ALLOW_LISTED_RELATIVE_PATHS = ("sim/", "opcua/")
 
 
 def _read_lines(word_file: Path) -> list[str]:
