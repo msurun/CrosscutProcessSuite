@@ -53,7 +53,7 @@ def test_missing_codes_masks_the_given_code_and_keeps_minus_9999(tmp_path: Path)
     assert table.columns["tag.a"][1] == -9999.0
 
 
-def test_default_settings_mask_minus_9999(tmp_path: Path) -> None:
+def test_default_settings_mask_no_code(tmp_path: Path) -> None:
     path = _write_wide_csv(
         tmp_path / "default.csv",
         ["timestamp", "tag.a"],
@@ -62,7 +62,7 @@ def test_default_settings_mask_minus_9999(tmp_path: Path) -> None:
 
     table = read_plant_table(path, UTC_SPEC, ReadSettings())
 
-    assert np.isnan(table.columns["tag.a"][0])
+    assert table.columns["tag.a"][0] == -9999.0
     assert table.columns["tag.a"][1] == -999.0
 
 

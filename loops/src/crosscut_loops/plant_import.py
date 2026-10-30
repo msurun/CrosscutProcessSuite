@@ -37,8 +37,6 @@ from crosscut_loops.step_test_io import Note
 
 # Column names accepted as the time column when the first column is not named 'timestamp'.
 TIME_COLUMN_NAMES = frozenset({"timestamp", "time", "datetime"})
-# Value some analyser tags write for "no result"; read as a missing cell by default.
-HISTORIAN_SENTINEL = -9999.0
 TEST_COLUMN_NAME = "test"
 
 
@@ -46,13 +44,13 @@ TEST_COLUMN_NAME = "test"
 class ReadSettings:
     """How a plant file spells its missing values, numbers and time column.
 
-    missing_codes: numbers that mean "no result" and are read as missing (NaN).
+    missing_codes: numbers that mean "no result" and are read as missing (NaN); none by default.
     decimal_comma: read '1,5' as 1.5 (needs a delimiter other than ',').
     delimiter: the field separator of the file.
     time_names: lower-case column names accepted as the time column.
     """
 
-    missing_codes: tuple[float, ...] = (HISTORIAN_SENTINEL,)
+    missing_codes: tuple[float, ...] = ()
     decimal_comma: bool = False
     delimiter: str = ","
     time_names: frozenset[str] = TIME_COLUMN_NAMES

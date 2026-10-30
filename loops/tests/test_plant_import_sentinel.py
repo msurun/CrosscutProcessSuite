@@ -1,4 +1,4 @@
-"""Behaviour tests: the plant import reads the historian sentinel -9999 as a missing cell.
+"""Behaviour tests: the plant import reads -9999 as a missing cell only when asked to.
 
 Each test writes a tiny wide CSV (one time column plus tag columns) to tmp_path and reads it
 back with read_plant_table, so the real reader runs end to end on a real file.
@@ -9,10 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from crosscut_loops.plant_import import read_plant_table
+from crosscut_loops.plant_import import ReadSettings, read_plant_table
 from crosscut_loops.plant_import_time import TimeZoneSpec
 
 UTC_SPEC = TimeZoneSpec("utc")
+SENTINEL_SETTINGS = ReadSettings(missing_codes=(-9999.0,))
 
 HEADER_COLUMNS = ["timestamp", "sentinel.tag", "clean.tag", "bad.text.tag"]
 
@@ -50,7 +51,7 @@ def _write_wide_csv(path: Path) -> Path:
 def test_plant_import_sentinel_reads_minus_9999_as_missing(tmp_path: Path) -> None:
     path = _write_wide_csv(tmp_path / "sentinel.csv")
 
-    table = read_plant_table(path, UTC_SPEC)
+    table = read_plant_table(path, UTC_SPEC, SENTINEL_SETTINGS)
 
     assert np.isnan(table.columns["sentinel.tag"][0])
     assert np.isnan(table.columns["sentinel.tag"][1])
@@ -59,7 +60,7 @@ def test_plant_import_sentinel_reads_minus_9999_as_missing(tmp_path: Path) -> No
 def test_plant_import_sentinel_keeps_a_value_just_above_the_sentinel(tmp_path: Path) -> None:
     path = _write_wide_csv(tmp_path / "sentinel.csv")
 
-    table = read_plant_table(path, UTC_SPEC)
+    table = read_plant_table(path, UTC_SPEC, SENTINEL_SETTINGS)
 
     assert table.columns["sentinel.tag"][2] == -9998.5
 
@@ -67,7 +68,7 @@ def test_plant_import_sentinel_keeps_a_value_just_above_the_sentinel(tmp_path: P
 def test_plant_import_sentinel_keeps_normal_values(tmp_path: Path) -> None:
     path = _write_wide_csv(tmp_path / "sentinel.csv")
 
-    table = read_plant_table(path, UTC_SPEC)
+    table = read_plant_table(path, UTC_SPEC, SENTINEL_SETTINGS)
 
     assert table.columns["sentinel.tag"][3] == 42.0
     assert table.columns["sentinel.tag"][4] == 43.5
@@ -76,7 +77,7 @@ def test_plant_import_sentinel_keeps_normal_values(tmp_path: Path) -> None:
 def test_plant_import_sentinel_leaves_a_column_without_sentinels_unchanged(tmp_path: Path) -> None:
     path = _write_wide_csv(tmp_path / "sentinel.csv")
 
-    table = read_plant_table(path, UTC_SPEC)
+    table = read_plant_table(path, UTC_SPEC, SENTINEL_SETTINGS)
 
     assert table.columns["clean.tag"].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -84,6 +85,14 @@ def test_plant_import_sentinel_leaves_a_column_without_sentinels_unchanged(tmp_p
 def test_plant_import_sentinel_still_reads_bad_text_as_missing(tmp_path: Path) -> None:
     path = _write_wide_csv(tmp_path / "sentinel.csv")
 
-    table = read_plant_table(path, UTC_SPEC)
+    table = read_plant_table(path, UTC_SPEC, SENTINEL_SETTINGS)
 
     assert np.all(np.isnan(table.columns["bad.text.tag"]))
+
+
+def test_plant_import_reads_minus_9999_as_a_number_by_default(tmp_path: Path) -> None:
+    path = _write_wide_csv(tmp_path / "sentinel.csv")
+
+    table = read_plant_table(path, UTC_SPEC)
+
+    assert table.columns["sentinel.tag"][0] == -9999.0
