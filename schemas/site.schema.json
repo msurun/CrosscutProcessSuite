@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/site.schema.json",
   "title": "Site catalogue",
-  "description": "One site file per project: <data root>/_site/site.json. Step 36a: site, import, quality, naming, sources, units and tags. Equipment, loops, labs and operating modes (36b) are added later. No plant-specific defaults: every code and pattern is stated in the file.",
+  "description": "One site file per project: <data root>/_site/site.json. Site, import, quality, naming, sources, units and tags (36a); the signals table, equipment hierarchy, loops, labs and analysers, and operating modes (36b). No plant-specific defaults: every code and pattern is stated in the file.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "site", "tags"],
@@ -26,6 +26,31 @@
       "type": "array",
       "description": "The signals of the site.",
       "items": {"$ref": "#/$defs/tag"}
+    },
+    "signals": {
+      "type": "array",
+      "description": "The role of each tag for the modules (the mapping the wizard proposes and the engineer accepts).",
+      "items": {"$ref": "#/$defs/signal"}
+    },
+    "equipment": {
+      "type": "array",
+      "description": "ISA-95 hierarchy: site, area, unit, equipment. Each entry names its parent and the tags attached to it.",
+      "items": {"$ref": "#/$defs/equipment"}
+    },
+    "loops": {
+      "type": "array",
+      "description": "Control loops: the tags of PV, SP, OUT and mode, type, action and links.",
+      "items": {"$ref": "#/$defs/loop"}
+    },
+    "labs": {
+      "type": "array",
+      "description": "Laboratory and analyser results with the meaning of their time stamps.",
+      "items": {"$ref": "#/$defs/lab"}
+    },
+    "modes": {
+      "type": "array",
+      "description": "Operating modes defined as conditions on tags.",
+      "items": {"$ref": "#/$defs/mode"}
     }
   },
   "$defs": {
@@ -154,6 +179,132 @@
         }
       }
     },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "role"],
+      "properties": {
+        "tag": {"$ref": "#/$defs/identifier", "description": "Id of a tag."},
+        "role": {
+          "enum": ["pv", "sp", "out", "mode", "fb", "input", "target", "lab", "dv"],
+          "description": "What the tag is for. pv, sp, out, mode and fb belong to a loop; input, target and lab do not; dv may."
+        },
+        "loop": {"$ref": "#/$defs/identifier", "description": "Id of the loop; required for pv, sp, out, mode and fb."},
+        "module": {
+          "enum": ["loops", "anomaly", "softsensor"],
+          "description": "Restrict the signal to one module; empty means every module."
+        }
+      }
+    },
+    "equipment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "level"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string"},
+        "level": {"enum": ["site", "area", "unit", "equipment"], "description": "ISA-95 level."},
+        "parent": {"$ref": "#/$defs/identifier", "description": "Id of the parent entry; empty for the top."},
+        "tags": {
+          "type": "array",
+          "description": "Ids of the tags attached to this entry.",
+          "items": {"$ref": "#/$defs/identifier"},
+          "uniqueItems": true
+        },
+        "criticality": {
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Consequence of a failure of this equipment."
+        },
+        "asset_template": {"type": "string", "minLength": 1, "description": "Name of the asset template bound to this equipment."}
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["cascade", "ratio", "feedforward"],
+          "description": "cascade: this loop's output is the setpoint of the loop named. ratio: the setpoint follows the loop named. feedforward: the tag named is added forward."
+        },
+        "loop": {"$ref": "#/$defs/identifier", "description": "Id of the other loop."},
+        "tag": {"$ref": "#/$defs/identifier", "description": "Id of the feedforward tag."}
+      }
+    },
+    "loop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pv", "out"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string"},
+        "type": {"type": "string", "minLength": 1, "description": "Loop type that selects the loop template (flow, level, temperature, ...)."},
+        "pv": {"$ref": "#/$defs/identifier", "description": "Tag of the measured value."},
+        "sp": {"$ref": "#/$defs/identifier", "description": "Tag of the setpoint."},
+        "out": {"$ref": "#/$defs/identifier", "description": "Tag of the controller output."},
+        "mode": {"$ref": "#/$defs/identifier", "description": "Tag of the mode flag."},
+        "action": {"enum": ["direct", "reverse"], "description": "Direction of the controller action."},
+        "out_limits": {"$ref": "#/$defs/limits", "description": "Limits of the output, in the unit of the output tag."},
+        "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+        "vendor": {"type": "string", "minLength": 1, "description": "Vendor form of the PID parameters."}
+      }
+    },
+    "lab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "variable"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["lab", "analyser"], "description": "Laboratory sample or online analyser."},
+        "sample_point": {"type": "string", "description": "Where the sample is taken."},
+        "variable": {"type": "string", "minLength": 1, "description": "Measured quantity."},
+        "tag": {"$ref": "#/$defs/identifier", "description": "Tag that holds the result, if any."},
+        "unit": {"type": "string", "description": "Unit of the result; must equal the tag's unit or be convertible to it."},
+        "stamp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["meaning"],
+          "description": "What the time stamp of a result means.",
+          "properties": {
+            "meaning": {"enum": ["start", "end", "middle"], "description": "Start, end or middle of the sampling window."},
+            "offset_s": {"type": "number", "description": "Seconds to add to the stamp to reach the sample time."}
+          }
+        },
+        "composite_window_s": {"type": "number", "exclusiveMinimum": 0, "description": "Length of the composite sample window."},
+        "latency_s": {"type": "number", "minimum": 0, "description": "Delay from sampling to a result in the system."},
+        "missing_codes": {"$ref": "#/$defs/number_list"},
+        "valid_range": {"$ref": "#/$defs/limits"}
+      }
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "op", "value"],
+      "properties": {
+        "tag": {"$ref": "#/$defs/identifier"},
+        "op": {"enum": ["<", "<=", ">", ">=", "==", "!="]},
+        "value": {"type": "number"}
+      }
+    },
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "condition"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string"},
+        "scope": {"$ref": "#/$defs/identifier", "description": "Id of the equipment entry the mode applies to; empty means the whole site."},
+        "condition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clauses"],
+          "properties": {
+            "match": {"enum": ["all", "any"], "description": "All clauses or any one must hold; all when absent."},
+            "clauses": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/clause"}}
+          }
+        }
+      }
+    },
     "tag": {
       "type": "object",
       "additionalProperties": false,
@@ -166,11 +317,6 @@
         "area": {"type": "string", "description": "Plant area label."},
         "source": {"$ref": "#/$defs/identifier", "description": "Id of an entry in sources."},
         "address": {"type": "string", "description": "Address within the source (node id, point name, column)."},
-        "role": {
-          "enum": ["PV", "SP", "OUT", "MODE", "MEAS"],
-          "description": "Provisional role of the signal; replaced by the signals table of the mapping wizard."
-        },
-        "loop": {"type": "string", "description": "Loop the signal belongs to (provisional, see role)."},
         "dtype": {"enum": ["float", "int", "bool", "string"]},
         "range": {
           "$ref": "#/$defs/limits",

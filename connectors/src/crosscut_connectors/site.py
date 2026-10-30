@@ -1,7 +1,8 @@
 """The site catalogue: load, validate and save ``<data root>/_site/site.json``.
 
 The layout is fixed by ``schemas/site.schema.json``. Validation is the JSON Schema plus the
-cross-reference checks a schema cannot express (unique ids, known sources, consistent limits).
+cross-reference checks a schema cannot express (unique ids, known sources, consistent limits;
+tag ids, hierarchy and units of the 36b sections live in ``site_refs``).
 Nothing here touches a plant: it reads and writes one configuration file.
 """
 
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+
+from crosscut_connectors.site_refs import reference_problems
 
 SITE_FOLDER = "_site"
 SITE_FILE = "site.json"
@@ -69,6 +72,7 @@ def _cross_reference_problems(document: dict[str, Any]) -> list[str]:
     for index, tag in enumerate(document["tags"]):
         problems += _tag_problems(index, tag, set(source_ids))
     problems += _import_problems(document.get("import", {}))
+    problems += reference_problems(document)
     return problems
 
 

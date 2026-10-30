@@ -58,11 +58,11 @@ def test_validate_site_base_doc_is_valid() -> None:
     assert validate_site(doc) == []
 
 
-def test_validate_site_invalid_tag_role_returns_error_line() -> None:
+def test_validate_site_invalid_tag_dtype_returns_error_line() -> None:
     doc = copy.deepcopy(BASE_DOC)
-    doc["tags"][0]["role"] = "XX"
+    doc["tags"][0]["dtype"] = "XX"
     errors = validate_site(doc)
-    assert any(line.startswith("tags.0.role") for line in errors)
+    assert any(line.startswith("tags.0.dtype") for line in errors)
 
 
 def test_validate_site_duplicate_tag_id_returns_error() -> None:
@@ -112,7 +112,7 @@ def test_validate_site_decimal_comma_with_comma_delimiter_returns_error() -> Non
 
 def test_save_site_rejects_invalid_doc_and_writes_no_file(tmp_path: Path) -> None:
     doc = copy.deepcopy(BASE_DOC)
-    doc["tags"][0]["role"] = "XX"
+    doc["tags"][0]["dtype"] = "XX"
     with pytest.raises(SiteError):
         save_site(tmp_path, doc)
     assert not site_path(tmp_path).exists()

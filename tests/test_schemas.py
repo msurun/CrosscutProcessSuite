@@ -311,7 +311,7 @@ SITE_INVALID = [
     mutated(SITE_DOC, ["sources", 0, "driver"], "ftp"),
     mutated(SITE_DOC, ["sources", 0, "password"], "secret"),
     mutated(SITE_DOC, ["tags", 0, "id"], "has space"),
-    mutated(SITE_DOC, ["tags", 0, "role"], "XX"),
+    mutated(SITE_DOC, ["tags", 0, "dtype"], "XX"),
     mutated(SITE_DOC, ["tags", 0, "eng_limits"], {}),
     mutated(SITE_DOC, ["tags", 0, "min"], 0),
     mutated(SITE_DOC, ["tags", 0, "quality_map"], {"192": "fine"}),

@@ -58,20 +58,20 @@ def test_put_site_saves_and_returns_document(
     assert get_response.json() == base_doc
 
 
-def test_put_site_rejects_invalid_role_with_422(
+def test_put_site_rejects_invalid_dtype_with_422(
     client: TestClient, tmp_path: Path, base_doc: dict[str, Any]
 ) -> None:
     invalid_doc = base_doc.copy()
     # Create a copy of the tags list to avoid mutating the fixture
     invalid_tags = [tag.copy() for tag in invalid_doc["tags"]]
-    invalid_tags[0]["role"] = "XX"
+    invalid_tags[0]["dtype"] = "XX"
     invalid_doc["tags"] = invalid_tags
 
     response = client.put("/site", json=invalid_doc)
     assert response.status_code == 422
     # The error detail is a list of strings from the validator
     errors = response.json()["detail"]
-    assert any("tags.0.role" in err for err in errors)
+    assert any("tags.0.dtype" in err for err in errors)
 
     # Verify no file was written
     assert not (tmp_path / "_site" / "site.json").exists()
