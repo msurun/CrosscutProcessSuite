@@ -26,7 +26,7 @@ Window = samples `t_s[i0:i1]` around one event; y = PV, u = OUT (measured, whate
   OUT unit. Linear in (y0, beta, k) for fixed theta; scan theta. Report k and theta with SEs the same way.
 - `kind="auto"`: fit both; keep the one with the lower BIC unless `process_kind` of the loop says otherwise (then the
   loop's kind wins and the other is reported as `alt_model` with its BIC).
-- Closed loop (SP step in AUTO): the same model driven by the measured OUT; flagged `closed_loop` (approximate: the controller
+- Closed loop (SP step in AUTO or RSP; CAS is excluded because the master controller moves the SP correlated with disturbances): the same model driven by the measured OUT; flagged `closed_loop` (approximate: the controller
   correlates u with disturbances, so the gain can be biased; the step must be large against noise).
 
 ## Event detection (`StepEvent`: kind, i, t_s, size, unit_kind)

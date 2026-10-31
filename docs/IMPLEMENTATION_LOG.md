@@ -106,7 +106,7 @@ editor: `docs/design/fuzzy-studio.md`. Backlog, in the order to do it:
 - Dataset storage: Parquet, long format (`ts`, `tag_id`, `value`, `quality`); time = UTC int64 ns; quality 0/1/2.
 - Simulator: fixed step (default 1 s), deterministic (`numpy.random.Generator`, PCG64), exact discretization.
   `Plant.step()` advances by `scenario.dt_s` (no argument).
-- Loop modes encoded as `0 = MAN`, `1 = AUTO`, `2 = CAS`. In CAS the setpoint follows the remote setpoint tag.
+- Loop modes encoded as `0 = MAN`, `1 = AUTO`, `2 = CAS`, `3 = RSP` (constant added for the external RougherSim; the plants do not implement RSP). In CAS the setpoint follows the remote setpoint tag.
 - Dataset directory: `dataset.json`, `tags.json`, `data/date=YYYY-MM-DD/part-0.parquet` (zstd, one file per UTC day); samples are taken BEFORE each step
   (sample k has time k*dt); `data_sha256` hashes the logical content (ts int64, tag ids joined by newline, value float64, quality uint8), not the Parquet bytes.
 - Named scenarios per plant in `scenarios.py` (`nominal`, `noisy_feed`, `feed_step`, `excited` for Wood-Berry); `excited` = random-binary setpoint events.
@@ -918,3 +918,7 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 
 - `frontend/src/schemaFormModel.ts` (ec6cab1, hard_code via deepseek $0.005 + hand fixes): pure logic of the form, the plan's `schemaForm.ts` renamed because `SchemaForm.tsx` cannot coexist with `schemaForm.ts` on a case-insensitive file system (tsc TS1149, and `./SchemaForm` would resolve to the wrong module at runtime too). Subset: object/array/enum/number min/max/string/boolean, $ref only into $defs, no oneOf; arrays of scalars edit line-by-line (numeric detection), everything else as raw JSON; labels t("schema.<name>.<path>") -> title -> name; a property without `type` infers the input type from its `default` (anomaly `stuck_samples` anyOf). 31 vitest cases (bulk-supervisor, first try, 3 assertion tweaks).
 - `SchemaField.tsx`, `SchemaForm.tsx`, `ConfigEditorPage.tsx` (hard_code via deepseek, second call after the first output truncated after one file $0.002+$0.003): the page loads schema + document in parallel (404 -> empty document + "not stored" hint), edits immutably through the model, saves via the config routes and lists multi-line 422 problems; reuses existing CSS classes only. `api.ts`: fetchSchemas/fetchSchema/fetchConfig/saveConfig + list-detail 422 bodies joined into the error message. Locale keys `configEditor.*` added to en/pl/es (parity tests cover them). Gates: tsc clean, vitest 727 passed. Module: online foundation, Phase 1.
+
+## 2026-10-31: RSP mode code
+
+- `crosscut_sim.core.RSP = 3` (RougherSim contract). `step_events.CLOSED_LOOP_MODES = {AUTO, RSP}`: SP steps in RSP are closed-loop events; CAS stays excluded (master moves SP, biased identification). `monitor.py` semantics unchanged. Tests in `test_step_events_detect.py`. Uncommitted.

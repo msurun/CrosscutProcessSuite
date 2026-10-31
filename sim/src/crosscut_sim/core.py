@@ -23,6 +23,7 @@ BAD = 2
 MAN = 0
 AUTO = 1
 CAS = 2
+RSP = 3  # remote setpoint: the supervisor/gateway writes the SP
 
 
 @dataclass(frozen=True)

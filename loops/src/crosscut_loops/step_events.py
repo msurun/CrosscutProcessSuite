@@ -55,6 +55,14 @@ MIN_POST_SAMPLES = 30
 
 MANUAL_MODE = 0
 AUTO_MODE = 1
+CAS_MODE = 2
+RSP_MODE = 3
+
+# Raw mode codes whose SP moves count as closed-loop (auto-like) SP steps:
+# AUTO (operator SP) and RSP (remote setpoint written by the supervisor or
+# gateway). CAS (2) is deliberately excluded: the master controller moves the SP
+# continuously and correlated with disturbances, which biases identification.
+CLOSED_LOOP_MODES = frozenset({AUTO_MODE, RSP_MODE})
 
 OUT_STEP_KIND = "out_step"
 SP_STEP_KIND = "sp_step"
@@ -199,8 +207,9 @@ def _validate_inputs(
 def _find_segments(mode: np.ndarray, t_s: np.ndarray, dt_s: float) -> list[_Segment]:
     """Split the record where the mode changes (to a known value) or a gap opens.
 
-    Only manual (0) and auto (1) runs become segments; samples with an unknown
-    mode (NaN) or any other value belong to no segment and host no events.
+    Only manual (0) and closed-loop (CLOSED_LOOP_MODES: auto 1, remote setpoint 3)
+    runs become segments; samples with an unknown mode (NaN), CAS (2) or any
+    other value belong to no segment and host no events.
     """
     segments: list[_Segment] = []
     current_mode = _known_mode(mode[0]) if mode.size else None
@@ -217,10 +226,14 @@ def _find_segments(mode: np.ndarray, t_s: np.ndarray, dt_s: float) -> list[_Segm
 
 
 def _known_mode(value: float) -> int | None:
-    """Map a raw mode sample to 0 or 1, or None when unknown/unexpected."""
+    """Map a raw mode sample to MANUAL_MODE or AUTO_MODE, or None when unknown.
+
+    RSP is folded into AUTO_MODE (both are closed-loop); CAS and unexpected
+    values give None.
+    """
     if value == MANUAL_MODE:
         return MANUAL_MODE
-    if value == AUTO_MODE:
+    if value in CLOSED_LOOP_MODES:
         return AUTO_MODE
     return None
 

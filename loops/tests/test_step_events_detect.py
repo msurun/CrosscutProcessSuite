@@ -11,8 +11,10 @@ import numpy as np
 import pytest
 from crosscut_loops.step_events import (
     AUTO_MODE,
+    CAS_MODE,
     MANUAL_MODE,
     OUT_STEP_KIND,
+    RSP_MODE,
     SP_STEP_KIND,
     WINDOW_TOO_SHORT_REASON,
     SkippedEvent,
@@ -282,6 +284,30 @@ def test_an_event_window_does_not_cross_a_time_gap() -> None:
 
     event = _find_out_event(events)
     assert event.i1 <= 151
+
+
+def _sp_step_events_in_mode(mode_code: int) -> list[StepEvent]:
+    """Run one record with an SP step of 3 units under a constant mode code."""
+    rng = np.random.default_rng(seed=6)
+    out = np.full(NUM_SAMPLES, 40.0) + _noise(rng, NUM_SAMPLES, OUT_NOISE_SD)
+    pv = np.full(NUM_SAMPLES, 50.0) + _noise(rng, NUM_SAMPLES, PV_NOISE_SD)
+    sp = _sp_step_at(NUM_SAMPLES, 150, step_size=3.0, base=50.0)
+    mode = np.full(NUM_SAMPLES, mode_code)
+    events, _skipped = _run_record(out, sp, pv, mode)
+    return [event for event in events if event.kind == SP_STEP_KIND]
+
+
+def test_an_rsp_sp_step_is_a_closed_loop_sp_event() -> None:
+    sp_events = _sp_step_events_in_mode(RSP_MODE)
+
+    assert len(sp_events) == 1
+    assert sp_events[0].size == pytest.approx(3.0, abs=SP_SIZE_TOLERANCE)
+    assert sp_events[0].mode == "auto"
+
+
+def test_a_cas_sp_step_produces_no_event() -> None:
+    # CAS: the master controller moves the SP, which biases identification.
+    assert _sp_step_events_in_mode(CAS_MODE) == []
 
 
 def test_a_nan_mode_sample_produces_no_event() -> None:
