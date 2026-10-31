@@ -1,4 +1,10 @@
 // src/components/TopBar.tsx
+/**
+ * Header bar for the Crosscut web console.
+ * Displays application branding, the read-only mode badge, an optional
+ * shortcut to the plant site catalogue, and language/theme preference pickers.
+ */
+
 import type { ThemePreference } from "../useTheme";
 
 /** The theme options in the order they are offered to the user. */
@@ -29,10 +35,14 @@ export interface TopBarProps {
   themeLabel: string;
   /** Human readable (translated) name for each theme preference. */
   themeNames: Record<ThemePreference, string>;
+  /** Optional callback to navigate directly to the site catalogue. */
+  onCatalogue?: () => void;
+  /** Accessible label for the site catalogue link or button. */
+  catalogueLabel?: string;
 }
 
 /**
- * Header bar with the application title, a read-only badge and the language and theme pickers.
+ * Header bar with application title, read-only badge, catalogue shortcut, and pickers.
  *
  * @returns The rendered header element.
  */
@@ -47,6 +57,8 @@ export function TopBar({
   onTheme,
   themeLabel,
   themeNames,
+  onCatalogue,
+  catalogueLabel,
 }: TopBarProps) {
   function handleLanguageChange(event: React.ChangeEvent<HTMLSelectElement>) {
     onLanguage(event.target.value);
@@ -59,6 +71,16 @@ export function TopBar({
   return (
     <header className="top-bar">
       <strong>{title}</strong>
+
+      {onCatalogue && catalogueLabel && (
+        <button
+          type="button"
+          className="link-button"
+          onClick={onCatalogue}
+        >
+          {catalogueLabel}
+        </button>
+      )}
 
       <span className="read-only-badge">{readOnlyLabel}</span>
 

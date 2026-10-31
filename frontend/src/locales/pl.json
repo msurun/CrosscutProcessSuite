@@ -1069,6 +1069,7 @@
   "steps.chart.out": "Wyjście",
   "steps.chart.axis": "Czas (min)",
   "nav.steps": "Kroki",
+  "nav.catalogue": "Katalog",
   "steps.alt_model": "Model alternatywny {model} (BIC {bic}) dopasował się gorzej",
   "knowledge.vendor": "Blok PID (producent regulatora)",
   "knowledge.vendor.none": "Nie ustawiono",

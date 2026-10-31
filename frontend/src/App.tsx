@@ -25,6 +25,7 @@ import { useRoute } from "./useRoute";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
 import { TrendsPage } from "./components/TrendsPage";
+import { SitePage } from "./components/SitePage";
 import { useTheme, type ThemePreference } from "./useTheme";
 
 /** Language, its translator and the language setter, for the whole app. */
@@ -202,6 +203,8 @@ export function App() {
         onTheme={setTheme}
         themeLabel={t("top.theme")}
         themeNames={themeNames}
+        onCatalogue={() => navigate(withView(route, "catalogue"))}
+        catalogueLabel={t("nav.catalogue")}
       />
       <div className="app-body">
         <aside className="sidebar">
@@ -242,7 +245,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import", "catalogue"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -295,6 +298,7 @@ export function App() {
                 t={t}
               />
             )}
+            {view === "catalogue" && <SitePage t={t} />}
             {!datasetMissing && view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
             {!datasetMissing && view === "trends" && (
               <TrendsPage datasetId={selectedDatasetId} tags={tags} selectedTags={selectedTags} t={t} />

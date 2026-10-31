@@ -57,20 +57,20 @@ export function resolveRef(schema: SchemaObject, ref: string): SchemaObject {
 }
 
 /** Resolve a $ref on the schema when present, otherwise the schema itself. */
-function resolvedOf(schema: SchemaObject): SchemaObject {
-  return schema.$ref ? resolveRef(schema, schema.$ref) : schema;
+function resolvedOf(schema: SchemaObject, rootSchema?: SchemaObject): SchemaObject {
+  return schema.$ref ? resolveRef(rootSchema ?? schema, schema.$ref) : schema;
 }
 
 /** Determine the field kind for a schema, resolving $ref first. */
-export function fieldKind(schema: SchemaObject): FieldKind {
-  const resolved = resolvedOf(schema);
+export function fieldKind(schema: SchemaObject, rootSchema?: SchemaObject): FieldKind {
+  const resolved = resolvedOf(schema, rootSchema);
 
   if (resolved.enum !== undefined) return "enum";
   if (resolved.type === "object") return "json";
   if (resolved.type === "array") {
     const items = resolved.items;
     if (items) {
-      const itemsType = resolvedOf(items).type;
+      const itemsType = resolvedOf(items, rootSchema).type;
       if (itemsType === "string" || itemsType === "number" || itemsType === "integer") {
         return "scalarArray";
       }
@@ -143,56 +143,51 @@ function parseScalarArray(text: string, numericItems: boolean): JsonValue[] {
   return result;
 }
 
+/** Evaluation context for describing properties across a root schema. */
+interface DescribeContext {
+  rootSchema: SchemaObject;
+  schemaName: string;
+  requiredNames: Set<string>;
+  t: Translate;
+}
+
+/** Fallback value when a property is missing in the document. */
+function defaultDisplayValue(kind: FieldKind, inputType: string, options: string[]): JsonValue {
+  if (kind === "enum" && options.length > 0) return options[0];
+  if (kind === "scalarArray") return [];
+  if (kind === "json") return {};
+  if (inputType === "number") return 0;
+  if (inputType === "boolean") return false;
+  return "";
+}
+
 /** Create one Field descriptor from a top-level property schema and its value. */
 function describeField(
   name: string,
   propertySchema: SchemaObject,
   value: JsonValue,
-  schemaName: string,
-  required: boolean,
-  t: Translate,
+  ctx: DescribeContext,
 ): Field {
-  const resolved = resolvedOf(propertySchema);
-  const kind = fieldKind(propertySchema);
+  const resolved = resolvedOf(propertySchema, ctx.rootSchema);
+  const kind = fieldKind(propertySchema, ctx.rootSchema);
   const inputType = scalarInputType(resolved);
-
   const options = resolved.enum ? resolved.enum.map((item) => String(item)) : [];
 
   const itemsAreNumeric =
-    resolved.items !== undefined && ["number", "integer"].includes(resolvedOf(resolved.items).type ?? "");
+    resolved.items !== undefined &&
+    ["number", "integer"].includes(resolvedOf(resolved.items, ctx.rootSchema).type ?? "");
   const currentIsNumeric =
     Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "number");
   const numericItems = kind === "scalarArray" && (itemsAreNumeric || currentIsNumeric);
 
-  const labelKey = `schema.${schemaName}.${name}`;
-  const label = resolveLabel(labelKey, t(labelKey), resolved.title, name);
+  const labelKey = `schema.${ctx.schemaName}.${name}`;
+  const label = resolveLabel(labelKey, ctx.t(labelKey), resolved.title, name);
   const help = resolved.description ?? "";
 
-  // Default value when the property is absent from the document.
-  let displayValue: JsonValue = value;
-  if (displayValue === undefined) {
-    if (kind === "enum" && options.length > 0) {
-      displayValue = options[0];
-    } else if (kind === "scalarArray") {
-      displayValue = [];
-    } else if (kind === "json") {
-      displayValue = {};
-    } else if (inputType === "number") {
-      displayValue = 0;
-    } else if (inputType === "boolean") {
-      displayValue = false;
-    } else {
-      displayValue = "";
-    }
-  }
-
-  // Degrade a scalarArray whose current value is not a usable scalar array to JSON editing.
-  let effectiveKind = kind;
-  let effectiveNumericItems = numericItems;
-  if (kind === "scalarArray" && !isScalarArray(displayValue)) {
-    effectiveKind = "json";
-    effectiveNumericItems = false;
-  }
+  const displayValue = value !== undefined ? value : defaultDisplayValue(kind, inputType, options);
+  const isUsableScalar = kind === "scalarArray" && isScalarArray(displayValue);
+  const effectiveKind = kind === "scalarArray" && !isUsableScalar ? "json" : kind;
+  const effectiveNumeric = effectiveKind === "scalarArray" && numericItems;
 
   return {
     name,
@@ -201,11 +196,11 @@ function describeField(
     options,
     minimum: resolved.minimum ?? null,
     maximum: resolved.maximum ?? null,
-    required,
+    required: ctx.requiredNames.has(name),
     label,
     help,
     text: renderText(displayValue, effectiveKind),
-    numericItems: effectiveNumericItems,
+    numericItems: effectiveNumeric,
   };
 }
 
@@ -217,10 +212,15 @@ export function describeFields(
   t: Translate,
 ): Field[] {
   const properties = schema.properties ?? {};
-  const requiredNames = schema.required ?? [];
+  const ctx: DescribeContext = {
+    rootSchema: schema,
+    schemaName,
+    requiredNames: new Set(schema.required ?? []),
+    t,
+  };
 
   return Object.entries(properties).map(([name, propertySchema]) =>
-    describeField(name, propertySchema, doc[name], schemaName, requiredNames.includes(name), t),
+    describeField(name, propertySchema, doc[name], ctx),
   );
 }
 

@@ -1058,6 +1058,7 @@
   "steps.chart.out": "Output",
   "steps.chart.axis": "Time (min)",
   "nav.steps": "Steps",
+  "nav.catalogue": "Catalogue",
   "steps.alt_model": "Alternative model {model} (BIC {bic}) fitted less well",
   "knowledge.vendor": "PID block (controller vendor)",
   "knowledge.vendor.none": "Not set",

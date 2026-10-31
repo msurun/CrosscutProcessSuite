@@ -1,7 +1,7 @@
 /**
  * Page that edits one configuration document (issue #45) through the schema-driven form:
  * loads the schema and the stored document (404 means "start empty"), applies field
- * edits with the pure logic of schemaForm.ts and saves through the config routes.
+ * edits with the pure logic of schemaFormModel.ts and saves through the config routes.
  */
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, fetchConfig, fetchSchema, saveConfig } from "./api";

@@ -1069,6 +1069,7 @@
   "steps.chart.out": "Señal de control",
   "steps.chart.axis": "Tiempo (min)",
   "nav.steps": "Pasos",
+  "nav.catalogue": "Catálogo",
   "steps.alt_model": "El modelo alternativo {model} (BIC {bic}) ajustó peor",
   "knowledge.vendor": "Bloque PID (fabricante del controlador)",
   "knowledge.vendor.none": "Sin definir",

@@ -51,6 +51,12 @@ describe("parseHash", () => {
     expect(formatHash(route)).toBe("#/d/sales/softsensor");
   });
 
+  it("parses the catalogue view and formats it back", () => {
+    const route = parseHash("#/d/sales/catalogue");
+    expect(route).toEqual({ dataset: "sales", view: "catalogue", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/d/sales/catalogue");
+  });
+
   it("parses a loop without a sub, defaulting sub to detail", () => {
     expect(parseHash("#/d/sales/loops/checkout")).toEqual({
       dataset: "sales",
@@ -108,6 +114,7 @@ describe("round trip", () => {
   const awkwardRoutes: Route[] = [
     { dataset: "sales", view: "trends", loop: null, sub: "detail" },
     { dataset: "a/b", view: "fuzzy", loop: null, sub: "detail" },
+    { dataset: "sales", view: "catalogue", loop: null, sub: "detail" },
     { dataset: "#hash?q=1", view: "trends", loop: null, sub: "detail" },
     { dataset: "with space", view: "loops", loop: "my loop", sub: "detail" },
     { dataset: "100%", view: "loops", loop: "a/b#c?d", sub: "benefit" },
@@ -133,6 +140,16 @@ describe("withDataset", () => {
 });
 
 describe("withView", () => {
+  it("switches to the catalogue view", () => {
+    const start: Route = { dataset: "sales", view: "trends", loop: null, sub: "detail" };
+    expect(withView(start, "catalogue")).toEqual({
+      dataset: "sales",
+      view: "catalogue",
+      loop: null,
+      sub: "detail",
+    });
+  });
+
   it("drops loop and sub when leaving the loops view", () => {
     const start: Route = { dataset: "sales", view: "loops", loop: "checkout", sub: "tuning" };
     expect(withView(start, "trends")).toEqual({

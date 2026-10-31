@@ -123,6 +123,29 @@ describe("describeFields", () => {
 
   const fields = describeFields(schema, doc, schemaName, t);
 
+  it("resolves $ref from root schema $defs for property definitions", () => {
+    const rootSchema: SchemaObject = {
+      $defs: {
+        siteInfo: {
+          type: "object",
+          title: "Site Info",
+          description: "Plant metadata",
+        },
+      },
+      properties: {
+        site: {
+          $ref: "#/$defs/siteInfo",
+        },
+      },
+    };
+    const described = describeFields(rootSchema, { site: { name: "Plant" } }, "site", (k) => k);
+    expect(described).toHaveLength(1);
+    expect(described[0].name).toBe("site");
+    expect(described[0].kind).toBe("json");
+    expect(described[0].label).toBe("Site Info");
+    expect(described[0].help).toBe("Plant metadata");
+  });
+
   it("property order follows the schema", () => {
     expect(fields.map((field) => field.name)).toEqual([
       "stringProp",

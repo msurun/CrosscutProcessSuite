@@ -921,4 +921,15 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 
 ## 2026-10-31: RSP mode code
 
-- `crosscut_sim.core.RSP = 3` (RougherSim contract). `step_events.CLOSED_LOOP_MODES = {AUTO, RSP}`: SP steps in RSP are closed-loop events; CAS stays excluded (master moves SP, biased identification). `monitor.py` semantics unchanged. Tests in `test_step_events_detect.py`. Uncommitted.
+- `crosscut_sim.core.RSP = 3` (RougherSim contract). `step_events.CLOSED_LOOP_MODES = {AUTO, RSP}`: SP steps in RSP are closed-loop events; CAS stays excluded (master moves SP, biased identification). `monitor.py` semantics unchanged. Tests in `test_step_events_detect.py`. Committed in 9dcf85f.
+
+## 2026-10-31: Phase 1 step 4 (#36 exit criterion) — catalogue GUI view for site
+
+- Step 4 (exit criterion of #36): `catalogue` GUI view for the site document.
+- `frontend/src/route.ts`: added "catalogue" to `View` union type and `KNOWN_VIEWS`. `route.test.ts` extended with parsing, formatting, round trip, and `withView` tests (32 vitest tests).
+- `frontend/src/components/SitePage.tsx` and `frontend/src/SitePage.tsx`: renders `ConfigEditorPage` for fixed kind "site" and id "site". `SitePage.test.tsx` (3 vitest tests) verifies schema and config fetches, rendering and saving.
+- `frontend/src/schemaFormModel.ts`: fixed `$ref` resolution for property definitions pointing to root `$defs` (`rootSchema` passed via `DescribeContext`), refactored `describeField` to <= 4 parameters and small single-job helpers. Added unit test to `schemaFormModel.test.ts`.
+- `frontend/src/components/TopBar.tsx`: added file header and optional `onCatalogue` and `catalogueLabel` props.
+- `frontend/src/App.tsx`: wired "catalogue" into `view-tabs` and main view switcher, connected `TopBar` catalogue action.
+- Locales: added `nav.catalogue` in en ("Catalogue"), pl ("Katalog"), es ("Catálogo") with full parity in `i18n.test.ts` and `i18nKeys.test.ts`.
+- E2E tests: `frontend/e2e/catalogue.spec.ts` (4 tests) covering catalogue form display and saving, TopBar navigation, and Axe a11y checks at 1440 and 390 px with zero horizontal scroll. Full suite: 54 Playwright e2e tests green. Module: online foundation, Phase 1.

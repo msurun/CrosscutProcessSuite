@@ -23,17 +23,18 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 | 4 Soft sensor | PLS on lagged tags, validity flags, bias tracker, Soft sensor view | exp30 beats last lab value 31/34; simulation only; drift flag not reliable; exp31 (plant 1) not blind | 4 |
 | ADR 011/012 write path | `gateway/` interfaces, 12 strict-xfail scenarios, static no-write guards (now mean "only the gateway writes") | design only; not implemented | 2 |
 
-Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps. Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (44 Playwright tests with axe). All green.
+Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps, Catalogue. Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (54 Playwright tests with axe). All green.
 
-## Next steps (updated 2026-10-30)
+## Next steps (updated 2026-10-31)
 
 State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 36a/36b). Done: plant-word CI guard, PID vendor field (#41, closed), #42 constants moved to configuration, default missing-value code empty. CI is green again after the E501 fix (a768210). Full pytest: no failures (gateway xfails expected).
 
 1. 36b is DONE and pushed (bfd66e2, tests 0cec67e): signals table (role table in `docs/PHASE1_PLAN.md` #37), equipment, loops, labs, modes in `schemas/site.schema.json`; `connectors/site_refs.py` does the cross-reference checks; `connectors/tests/test_site_refs.py` (24 tests) closes the gap; example site file converted (tag `role`/`loop` removed). Schema coverage in `tests/test_site_schema_catalogue.py`, API round trip in `api/tests/test_site_routes_catalogue.py`.
-2. #45 backend DONE (7bb15a6): `api/schema_routes.py` GET /schemas, GET /schemas/{name}, GET/PUT /config/{kind}/{id} (anomaly, softsensor, supervisor, site) with Draft 2020-12 validation (site: full `validate_site`), id-vs-URL check, atomic write; router in `create_app`. Next in order: #45 frontend (src/schemaForm.ts pure + vitest, SchemaForm.tsx, SchemaField.tsx, ConfigEditorPage.tsx, labels t("schema.<name>.<path>") with title fallback, en/pl/es parity), then the `catalogue` view for site (route.ts, App.tsx, TopBar.tsx, SitePage.tsx via SchemaForm, e2e, axe), then #37 implementation, #43, #39, #44.
-3. Open: `catalogue` GUI view for site, strings en/pl/es, e2e (exit criteria of #36).
-4. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
-5. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
+2. #45 backend DONE (7bb15a6) and #45 frontend renderer DONE (ec6cab1): `src/schemaFormModel.ts` (pure logic + vitest), `SchemaForm.tsx`, `SchemaField.tsx`, `ConfigEditorPage.tsx`, `api.ts` config functions, locale keys `configEditor.*`.
+3. Phase 1 step 4 (#36 exit criterion) DONE: `catalogue` GUI view for site (`route.ts`, `App.tsx`, `TopBar.tsx`, `SitePage.tsx` via `ConfigEditorPage`/`SchemaForm`, strings en/pl/es, route tests, e2e with axe).
+4. Next in order: #37 mapping wizard (role table in `docs/PHASE1_PLAN.md`), #43 connector interface, #39 onboarding, #44 runtime.
+5. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
+6. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
 
 Kanban: milestones P4a (virtual-sensor engine, #13 #15 #38) and P4b (asset templates and PdM, empty) exist. 
 
