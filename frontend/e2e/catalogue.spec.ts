@@ -76,6 +76,45 @@ test("navigating via TopBar catalogue button reaches catalogue view", async ({ p
   await expect(page.getByRole("heading", { name: /Konfiguracja|Configuration/ })).toBeVisible({ timeout: 30_000 });
 });
 
+test("mapping wizard allows inferring roles, configuring loops, and saving mapping", async ({ page }) => {
+  await openCataloguePage(page);
+
+  // Switch to Mapping Wizard mode
+  const wizardTab = page.getByTestId("mode-mapping-wizard");
+  await expect(wizardTab).toBeVisible();
+  await wizardTab.click();
+
+  await expect(page.getByTestId("catalogue-wizard")).toBeVisible();
+  await expect(page.getByTestId("wizard-step-source")).toBeVisible();
+
+  // Select manual entry and paste tags
+  const manualRadio = page.getByLabel(/Wklej nazwy tagów|Paste tag names/);
+  await manualRadio.click();
+
+  const textarea = page.getByTestId("wizard-manual-textarea");
+  await textarea.fill("TIC101.PV, TIC101.SP, TIC101.OUT, TIC101.MODE, FEED_RATE, CONC_TARGET");
+
+  // Step 1 -> 2: Inspect tags
+  await page.getByRole("button", { name: /Dalej: Sprawdź tagi|Next: Inspect Tags/ }).click();
+  await expect(page.getByTestId("wizard-step-tags")).toBeVisible();
+
+  // Step 2 -> 3: Infer roles
+  await page.getByRole("button", { name: /Dalej: Wnioskuj role|Next: Infer Roles/ }).click();
+  await expect(page.getByTestId("wizard-step-roles")).toBeVisible();
+
+  // Step 3 -> 4: Review loops
+  await page.getByRole("button", { name: /Dalej: Przejrzyj pętle|Next: Review Loops/ }).click();
+  await expect(page.getByTestId("wizard-step-loops")).toBeVisible();
+
+  // Step 4 -> 5: Summary
+  await page.getByRole("button", { name: /Dalej: Podsumowanie|Next: Summary/ }).click();
+  await expect(page.getByTestId("wizard-step-confirm")).toBeVisible();
+
+  // Save mapping
+  await page.getByTestId("wizard-save-btn").click();
+  await expect(page.getByTestId("wizard-success-notice")).toBeVisible({ timeout: 10_000 });
+});
+
 for (const width of [1440, 390]) {
   test(`catalogue page has no axe violations and no horizontal scroll @${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

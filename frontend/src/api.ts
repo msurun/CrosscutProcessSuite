@@ -1366,3 +1366,54 @@ export async function saveConfig(kind: string, configId: string, document: JsonD
     document,
   );
 }
+
+export interface CatalogueSignal {
+  tag: string;
+  role: "pv" | "sp" | "out" | "mode" | "fb" | "input" | "target" | "lab" | "dv";
+  loop?: string;
+  module?: "loops" | "anomaly" | "softsensor";
+}
+
+export interface CatalogueLoop {
+  id: string;
+  pv: string;
+  out: string;
+  sp?: string;
+  mode?: string;
+  type?: string;
+  action?: "direct" | "reverse";
+}
+
+export interface CatalogueMapping {
+  signals: CatalogueSignal[];
+  loops: CatalogueLoop[];
+}
+
+/** Infer canonical roles and propose loops for tags. */
+export async function suggestCatalogueRoles(
+  tags: string[],
+  naming?: Record<string, unknown>,
+  datasetId?: string,
+): Promise<CatalogueMapping> {
+  return sendJson<CatalogueMapping>("POST", `${API_PREFIX}/catalogue/suggest`, {
+    tags,
+    naming: naming ?? {},
+    dataset_id: datasetId ?? null,
+  });
+}
+
+/** Fetch currently stored signals and loops from site catalogue. */
+export async function fetchCatalogueMapping(): Promise<CatalogueMapping> {
+  return getJson<CatalogueMapping>(`${API_PREFIX}/catalogue/mapping`);
+}
+
+/** Validate and persist catalogue mapping, syncing analysis modules. */
+export async function saveCatalogueMapping(
+  mapping: CatalogueMapping,
+): Promise<{ status: string; signals: CatalogueSignal[]; loops: CatalogueLoop[] }> {
+  return sendJson<{ status: string; signals: CatalogueSignal[]; loops: CatalogueLoop[] }>(
+    "PUT",
+    `${API_PREFIX}/catalogue/mapping`,
+    mapping,
+  );
+}

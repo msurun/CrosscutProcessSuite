@@ -933,3 +933,17 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - `frontend/src/App.tsx`: wired "catalogue" into `view-tabs` and main view switcher, connected `TopBar` catalogue action.
 - Locales: added `nav.catalogue` in en ("Catalogue"), pl ("Katalog"), es ("Catálogo") with full parity in `i18n.test.ts` and `i18nKeys.test.ts`.
 - E2E tests: `frontend/e2e/catalogue.spec.ts` (4 tests) covering catalogue form display and saving, TopBar navigation, and Axe a11y checks at 1440 and 390 px with zero horizontal scroll. Full suite: 54 Playwright e2e tests green. Module: online foundation, Phase 1.
+
+## 2026-10-31: Phase 1 step #37 — mapping wizard & role table reconciliation
+
+- Reconciled role vocabularies in `connectors/src/crosscut_connectors/role_mapping.py`: canonical roles `pv`, `sp`, `out`, `mode`, `fb`, `input`, `target`, `lab`, `dv`. Pure functions `suggest_roles(tag_names, naming)` across naming conventions (dot, underscore, dash, and site `naming` block with `valve_pattern` and `mode_suffix`) and `loops_from_signals(signals)` to assemble complete controller loops (`out` required).
+- Unit tests in `connectors/tests/test_role_mapping.py` (9 tests) covering standard conventions, custom naming block, non-loop roles (inputs, targets, labs), disturbance variables (dv), legacy reconciliation, and loop assembly.
+- Backend catalogue routes in `api/src/crosscut_api/catalogue_routes.py`: `POST /catalogue/suggest`, `GET /catalogue/mapping`, and `PUT /catalogue/mapping`. Validates against `validate_site`, ensures tag references, persists to `<root>/_site/site.json`, and syncs default configs for anomaly detection and soft sensor.
+- Wired catalogue loops into `DatasetStore.loops_of` and `find_loop` in `api/src/crosscut_api/app.py`: loops defined in `_site/site.json` are returned by `/datasets/{id}/loops`, driving the Loops view.
+- Backend integration tests in `api/tests/test_catalogue_routes.py` (5 tests): verifies suggest, mapping validation and round-trip, and that a single mapping drives a loop in Loops, input signals in Anomalies, and target signal in Soft sensor (satisfying exit criterion #37).
+- Frontend mapping wizard in `frontend/src/components/CatalogueWizard.tsx`: multi-step wizard reusing `Stepper.tsx` (Source -> Tags -> Roles -> Loops -> Confirm). Wired into `SitePage.tsx` with a view mode toggle between Direct Editor and Mapping Wizard.
+- API client functions in `frontend/src/api.ts`: `suggestCatalogueRoles`, `fetchCatalogueMapping`, `saveCatalogueMapping`.
+- Localized in `en.json`, `pl.json`, `es.json` with 100% parity verified by `i18n.test.ts` and `i18nKeys.test.ts`.
+- Component tests in `frontend/src/components/CatalogueWizard.test.tsx` (3 vitest tests).
+- E2E test in `frontend/e2e/catalogue.spec.ts` covering wizard navigation, role inference, loop configuration, and mapping save.
+- All gates green: `ruff` clean, full `pytest` 2172 passed, 12 xfailed (expected gateway xfails), `npx tsc --noEmit` clean, 737 Vitest tests passed, `npm run build` passed, 55 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.

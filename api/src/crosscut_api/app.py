@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import numpy as np
+from crosscut_connectors.site import load_site, site_path
 from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_edit import (
@@ -34,6 +35,7 @@ from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.anomaly_routes import build_anomaly_router
+from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.intake_routes import build_intake_router
@@ -127,6 +129,23 @@ class BenefitQuery:
     def to_request(self) -> BenefitRequest:
         """The same values as the library's request object."""
         return BenefitRequest(**vars(self))
+
+
+def _site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
+    """Return LoopTags defined in <root>/_site/site.json when present and valid."""
+    if not site_path(root).exists():
+        return []
+    try:
+        site_doc = load_site(root)
+        if not site_doc.get("loops"):
+            return []
+        site_tags = {t["id"]: t for t in site_doc.get("tags", [])}
+        combined = [{**site_tags.get(t["id"], {}), **t} for t in tags]
+        tag_ids = {t["id"] for t in tags}
+        combined.extend(st for st in site_doc.get("tags", []) if st["id"] not in tag_ids)
+        return loops_from_project({"loops": site_doc["loops"]}, combined)
+    except Exception:
+        return []
 
 
 def _loops_of(dataset_dir: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
@@ -234,9 +253,13 @@ class DatasetStore:
         return _tags_from_document(_read_json(dataset_dir / "tags.json"))
 
     def loops_of(self, dataset_id: str) -> list[LoopTags]:
-        """The control loops of a dataset (its project.json, else found by naming convention)."""
+        """The control loops of a dataset (its project.json, else site.json, else naming)."""
         dataset_dir = _dataset_dir(self.root, dataset_id)
-        return _loops_of(dataset_dir, self.tags_of(dataset_dir))
+        tags = self.tags_of(dataset_dir)
+        site_loops = _site_loops_of(self.root, tags)
+        if site_loops:
+            return site_loops
+        return _loops_of(dataset_dir, tags)
 
     def find_loop(self, dataset_dir: Path, loop_name: str) -> Any:
         """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
@@ -250,7 +273,7 @@ class DatasetStore:
         """
         # ``next(...)`` stops at the first loop whose name matches; ``None`` is the sentinel
         # for "generator exhausted without a match".
-        loops = _loops_of(dataset_dir, self.tags_of(dataset_dir))
+        loops = self.loops_of(dataset_dir.name)
         loop = next((one for one in loops if one.name == loop_name), None)
         if loop is None:
             raise HTTPException(status_code=404, detail=f"unknown loop: {loop_name}")
@@ -381,9 +404,8 @@ class _LoopEndpoints:
 
     def get_loops(self, dataset_id: str) -> dict[str, Any]:
         """Analyse every control loop of the dataset (health, findings, key numbers)."""
-        dataset_dir = _dataset_dir(self.store.root, dataset_id)
         t_s, values = self.store.load_seconds(dataset_id)
-        loops_of_dataset = _loops_of(dataset_dir, self.store.tags_of(dataset_dir))
+        loops_of_dataset = self.store.loops_of(dataset_id)
         return {"dataset_id": dataset_id, "loops": analyze_dataset(t_s, values, loops_of_dataset)}
 
     def get_tuning(self, query: Annotated[TuningQuery, Depends()]) -> dict[str, Any]:
@@ -598,6 +620,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_intake_router(store.root, store.loops_of))
     app.include_router(build_plant_import_router(store.root))
     app.include_router(build_site_router(store.root))
+    app.include_router(build_catalogue_router(store.root, store.tags_of))
     app.include_router(build_schema_router(store.root))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
