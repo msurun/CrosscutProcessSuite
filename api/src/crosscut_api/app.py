@@ -40,6 +40,7 @@ from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.intake_routes import build_intake_router
+from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_routes import build_site_router
@@ -133,7 +134,7 @@ class BenefitQuery:
 
 
 def _site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
-    """Return LoopTags defined in <root>/_site/site.json when present and valid."""
+    """Return LoopTags defined in <root>/_site/site.json when present."""
     if not site_path(root).exists():
         return []
     try:
@@ -141,12 +142,35 @@ def _site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
         if not site_doc.get("loops"):
             return []
         site_tags = {t["id"]: t for t in site_doc.get("tags", [])}
-        combined = [{**site_tags.get(t["id"], {}), **t} for t in tags]
-        tag_ids = {t["id"] for t in tags}
-        combined.extend(st for st in site_doc.get("tags", []) if st["id"] not in tag_ids)
-        return loops_from_project({"loops": site_doc["loops"]}, combined)
+        tag_dict = {t["id"]: t for t in tags}
+        combined = {**site_tags, **tag_dict}
+        return [_build_site_loop(entry, combined) for entry in site_doc["loops"]]
     except Exception:
         return []
+
+
+def _build_site_loop(entry: dict[str, Any], tag_map: dict[str, dict[str, Any]]) -> LoopTags:
+    """Build one LoopTags from a site catalog loop entry."""
+    lid = str(entry.get("id", ""))
+    pv = str(entry.get("pv", "") or "")
+    sp = str(entry.get("sp", "") or "")
+    out = str(entry.get("out", "") or "")
+    mode = str(entry.get("mode", "") or "")
+    pv_tag = tag_map.get(pv, {})
+    out_tag = tag_map.get(out, {})
+    return LoopTags(
+        name=str(entry.get("name") or lid),
+        pv=pv,
+        sp=sp,
+        out=out,
+        mode=mode,
+        unit=str(pv_tag.get("unit", "") or ""),
+        eng_min=float(pv_tag["eng_min"]) if pv_tag.get("eng_min") is not None else None,
+        eng_max=float(pv_tag["eng_max"]) if pv_tag.get("eng_max") is not None else None,
+        out_low=float(out_tag["eng_min"]) if out_tag.get("eng_min") is not None else None,
+        out_high=float(out_tag["eng_max"]) if out_tag.get("eng_max") is not None else None,
+        vendor=entry.get("vendor"),
+    )
 
 
 def _loops_of(dataset_dir: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
@@ -619,6 +643,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_anomaly_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_softsensor_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_intake_router(store.root, store.loops_of))
+    app.include_router(build_onboarding_router(store))
     app.include_router(build_plant_import_router(store.root))
     app.include_router(build_site_router(store.root))
     app.include_router(build_catalogue_router(store.root, store.tags_of))

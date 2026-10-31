@@ -1477,3 +1477,23 @@ export async function readSourceLive(
   );
 }
 
+export type ReadinessStatus = "ok" | "warning" | "not_ready";
+
+export interface ModuleReadiness {
+  status: ReadinessStatus;
+  reasons: string[];
+  items_checked: number;
+}
+
+export interface DatasetReadiness {
+  dataset_id: string;
+  verdict: ReadinessStatus;
+  modules: Record<string, ModuleReadiness>;
+}
+
+/** Fetch readiness verdicts and checklist for loops, anomaly detection, and soft sensors. */
+export async function fetchDatasetReadiness(datasetId: string): Promise<DatasetReadiness> {
+  return getJson<DatasetReadiness>(`${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/readiness`);
+}
+
+

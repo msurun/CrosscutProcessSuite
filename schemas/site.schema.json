@@ -51,9 +51,30 @@
       "type": "array",
       "description": "Operating modes defined as conditions on tags.",
       "items": {"$ref": "#/$defs/mode"}
+    },
+    "readiness": {
+      "$ref": "#/$defs/readiness",
+      "description": "Thresholds and parameters for module onboarding and readiness checks."
     }
   },
   "$defs": {
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Thresholds and parameters for module onboarding and readiness checks.",
+      "properties": {
+        "min_duration_h": {"type": "number", "minimum": 0},
+        "warn_duration_h": {"type": "number", "minimum": 0},
+        "max_sample_period_s": {"type": "number", "minimum": 0},
+        "warn_sample_period_s": {"type": "number", "minimum": 0},
+        "max_missing_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "warn_missing_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_flat_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "warn_flat_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_anomaly_inputs": {"type": "integer", "minimum": 1},
+        "min_softsensor_inputs": {"type": "integer", "minimum": 1}
+      }
+    },
     "identifier": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.:-]+$",

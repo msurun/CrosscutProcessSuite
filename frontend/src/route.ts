@@ -4,7 +4,17 @@
 // names may contain "/", "#", "?", spaces, "%" and non-ASCII letters.
 
 /** The top-level views the app can show. */
-export type View = "trends" | "loops" | "fuzzy" | "advisory" | "anomalies" | "softsensor" | "steps" | "import" | "catalogue";
+export type View =
+  | "trends"
+  | "loops"
+  | "fuzzy"
+  | "advisory"
+  | "anomalies"
+  | "softsensor"
+  | "steps"
+  | "import"
+  | "catalogue"
+  | "onboarding";
 
 /** The sub-tabs of the "loops" view. */
 export type LoopSub = "detail" | "tuning" | "benefit" | "valve";
@@ -27,7 +37,18 @@ export const DEFAULT_ROUTE: Route = {
 
 const PATH_PREFIX = "/d/";
 const HASH_PREFIX = `#${PATH_PREFIX}`;
-const KNOWN_VIEWS: readonly View[] = ["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import", "catalogue"];
+const KNOWN_VIEWS: readonly View[] = [
+  "trends",
+  "loops",
+  "fuzzy",
+  "advisory",
+  "anomalies",
+  "softsensor",
+  "steps",
+  "import",
+  "catalogue",
+  "onboarding",
+];
 const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];
 
 /**

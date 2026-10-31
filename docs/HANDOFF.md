@@ -23,7 +23,7 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 | 4 Soft sensor | PLS on lagged tags, validity flags, bias tracker, Soft sensor view | exp30 beats last lab value 31/34; simulation only; drift flag not reliable; exp31 (plant 1) not blind | 4 |
 | ADR 011/012 write path | `gateway/` interfaces, 12 strict-xfail scenarios, static no-write guards (now mean "only the gateway writes") | design only; not implemented | 2 |
 
-Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps, Catalogue (with Mapping Wizard). Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (55 Playwright tests with axe). All green.
+Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps, Catalogue (with Mapping Wizard and Data Sources), Onboarding. Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (60 Playwright tests with axe). All green.
 
 ## Next steps (updated 2026-10-31)
 
@@ -33,8 +33,9 @@ State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 
 2. #45 backend DONE (7bb15a6) and #45 frontend renderer DONE (ec6cab1): `src/schemaFormModel.ts` (pure logic + vitest), `SchemaForm.tsx`, `SchemaField.tsx`, `ConfigEditorPage.tsx`, `api.ts` config functions, locale keys `configEditor.*`.
 3. Phase 1 step 4 (#36 exit criterion) DONE (78acabf): `catalogue` GUI view for site (`route.ts`, `App.tsx`, `TopBar.tsx`, `SitePage.tsx` via `ConfigEditorPage`/`SchemaForm`, strings en/pl/es, route tests, e2e with axe).
 4. Phase 1 step #37 (Mapping Wizard & Role Reconciliation) DONE (29688de): `role_mapping.py` with `suggest_roles` and `loops_from_signals`, `catalogue_routes.py` (`POST /catalogue/suggest`, `GET/PUT /catalogue/mapping`), `DatasetStore.loops_of` serving mapped loops, `CatalogueWizard.tsx` (5 steps reusing `Stepper.tsx`), integration with `SitePage.tsx`, strings en/pl/es, unit tests (9 in `test_role_mapping.py`, 5 in `test_catalogue_routes.py`, 3 in `CatalogueWizard.test.tsx`), e2e test in `catalogue.spec.ts`.
-5. Phase 1 step #43 (Connector Interface & Adapters) DONE: read-only `Connector` protocol, `OpcUaConnector` (browse, metadata, read_live), `CsvConnector` (browse, metadata, history), `SqlConnector` (browse, metadata, history), registry (`connector_from_source`), `gateway` static no-write guard for connectors, backend routes (`/sources`, `/sources/{id}/test`, `/sources/{id}/browse`, `/sources/{id}/read-live`), `SourcesPanel.tsx` in frontend with live sampling, strings en/pl/es, unit/integration tests (contract, live read against PlantServer, backend routes, panel unit test, e2e Playwright with axe).
-6. Next in order: #39 onboarding and readiness check, #44 runtime service, then Phase 2 (Write Gateway).
+5. Phase 1 step #43 (Connector Interface & Adapters) DONE (be8657b): read-only `Connector` protocol, `OpcUaConnector` (browse, metadata, read_live), `CsvConnector` (browse, metadata, history), `SqlConnector` (browse, metadata, history), registry (`connector_from_source`), `gateway` static no-write guard for connectors, backend routes (`/sources`, `/sources/{id}/test`, `/sources/{id}/browse`, `/sources/{id}/read-live`), `SourcesPanel.tsx` in frontend with live sampling, strings en/pl/es, unit/integration tests (contract, live read against PlantServer, backend routes, panel unit test, e2e Playwright with axe).
+6. Phase 1 step #39 (Onboarding & Readiness Check) DONE: site schema `readiness` definition, parameterized `ReadinessConfig` in `loops/readiness.py`, `connectors/onboarding.py` multi-module evaluation (`loops`, `anomaly`, `softsensor`), `GET /datasets/{id}/readiness` endpoint, `OnboardingPage.tsx` with traffic lights and actionable what-to-fix reasons, strings en/pl/es, unit tests, e2e Playwright with axe.
+7. Next in order: #44 runtime service, then Phase 2 (Write Gateway).
 5. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
 6. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
 

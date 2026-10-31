@@ -38,6 +38,22 @@ OK, WARN, FAIL = "ok", "warn", "fail"
 
 
 @dataclass(frozen=True)
+class ReadinessConfig:
+    """Thresholds and parameters for data readiness and onboarding checks."""
+
+    min_duration_h: float = MIN_DURATION_H
+    warn_duration_h: float = WARN_DURATION_H
+    max_sample_period_s: float = FAIL_PERIOD_S
+    warn_sample_period_s: float = STICTION_PERIOD_S
+    max_missing_share: float = FAIL_NAN_SHARE
+    warn_missing_share: float = WARN_NAN_SHARE
+    max_flat_share: float = FAIL_FLAT_SHARE
+    warn_flat_share: float = WARN_FLAT_SHARE
+    min_anomaly_inputs: int = 2
+    min_softsensor_inputs: int = 2
+
+
+@dataclass(frozen=True)
 class Check:
     """One finding of the readiness check.
 
@@ -71,52 +87,59 @@ class ReadinessReport:
 
 
 def check_readiness(
-    t_s: np.ndarray, columns: Mapping[str, np.ndarray], loops: Sequence[LoopTags]
+    t_s: np.ndarray,
+    columns: Mapping[str, np.ndarray],
+    loops: Sequence[LoopTags],
+    config: ReadinessConfig | None = None,
 ) -> ReadinessReport:
     """Check whether an export is good enough for loop monitoring and stiction detection.
 
     ``t_s`` are the timestamps in seconds, ``columns`` the series by tag name, ``loops`` the
     loops the customer wants analysed. The record needs at least two timestamps.
     """
+    cfg = config or ReadinessConfig()
     if len(t_s) < 2:
         return ReadinessReport((Check("duration", FAIL, "The record has fewer than 2 samples."),))
-    time_checks = _check_time_steps(t_s)
-    checks = [_check_duration(t_s), *time_checks]
+    time_checks = _check_time_steps(t_s, cfg)
+    checks = [_check_duration(t_s, cfg), *time_checks]
     if any(check.status == FAIL for check in time_checks):
         return ReadinessReport(tuple(checks))  # the per-tag checks divide by the time step
     for loop in loops:
-        checks.extend(_check_loop(t_s, columns, loop))
+        checks.extend(_check_loop(t_s, columns, loop, cfg))
     return ReadinessReport(tuple(checks))
 
 
-def _check_duration(t_s: np.ndarray) -> Check:
-    """Fail below 6 h, warn below 24 h: a few oscillation cycles need hours of data."""
+def _check_duration(t_s: np.ndarray, cfg: ReadinessConfig) -> Check:
+    """Fail below min_duration_h, warn below warn_duration_h."""
     hours = float(t_s[-1] - t_s[0]) / SECONDS_PER_HOUR
-    if hours < MIN_DURATION_H:
-        return Check("duration", FAIL, f"The record is {hours:.1f} h long; 6 h are needed.")
-    if hours < WARN_DURATION_H:
-        return Check("duration", WARN, f"The record is {hours:.1f} h long; 24 h is better.")
+    if hours < cfg.min_duration_h:
+        msg = f"The record is {hours:.1f} h long; {cfg.min_duration_h:.1f} h are needed."
+        return Check("duration", FAIL, msg)
+    if hours < cfg.warn_duration_h:
+        msg = f"The record is {hours:.1f} h long; {cfg.warn_duration_h:.1f} h is better."
+        return Check("duration", WARN, msg)
     return Check("duration", OK, f"The record is {hours:.1f} h long.")
 
 
-def _check_time_steps(t_s: np.ndarray) -> list[Check]:
+def _check_time_steps(t_s: np.ndarray, cfg: ReadinessConfig) -> list[Check]:
     """Sample period, regularity and ordering of the timestamps."""
     steps = np.diff(t_s)
     if not np.all(np.isfinite(t_s)) or np.any(steps <= 0):
         return [Check("time_order", FAIL, "Timestamps are missing, repeated or out of order.")]
-    return [_check_period(float(np.median(steps))), _check_regularity(steps)]
+    return [_check_period(float(np.median(steps)), cfg), _check_regularity(steps)]
 
 
-def _check_period(period_s: float) -> Check:
-    """Sample period: above 15 s hides valve stiction, above 60 s is too coarse."""
-    if period_s > FAIL_PERIOD_S:
-        return Check("sample_period", FAIL, f"Samples are {period_s:.0f} s apart; 60 s is max.")
-    if period_s > STICTION_PERIOD_S:
-        return Check(
-            "sample_period",
-            WARN,
-            f"Samples are {period_s:.0f} s apart; slower than about 15 s hides valve stiction.",
+def _check_period(period_s: float, cfg: ReadinessConfig) -> Check:
+    """Sample period: above warn hides valve stiction, above max is too coarse."""
+    if period_s > cfg.max_sample_period_s:
+        msg = f"Samples are {period_s:.0f} s apart; {cfg.max_sample_period_s:.0f} s is max."
+        return Check("sample_period", FAIL, msg)
+    if period_s > cfg.warn_sample_period_s:
+        msg = (
+            f"Samples are {period_s:.0f} s apart; slower than about "
+            f"{cfg.warn_sample_period_s:.0f} s hides valve stiction."
         )
+        return Check("sample_period", WARN, msg)
     return Check("sample_period", OK, f"Samples are {period_s:.1f} s apart.")
 
 
@@ -129,7 +152,10 @@ def _check_regularity(steps: np.ndarray) -> Check:
 
 
 def _check_loop(
-    t_s: np.ndarray, columns: Mapping[str, np.ndarray], loop: LoopTags
+    t_s: np.ndarray,
+    columns: Mapping[str, np.ndarray],
+    loop: LoopTags,
+    cfg: ReadinessConfig,
 ) -> list[Check]:
     """A loop needs PV and SP (fail); OUT and MODE are needed for stiction and manual findings."""
     checks = _check_loop_roles(loop)
@@ -140,7 +166,7 @@ def _check_loop(
             checks.append(Check(f"tags:{loop.name}", status, f"Tag {tag} is not in the export."))
         else:
             values = np.asarray(columns[tag], dtype=float)
-            checks.extend(_check_tag(t_s, values, tag, role in MOVING_ROLES))
+            checks.extend(_check_tag(t_s, values, tag, role in MOVING_ROLES, cfg))
     return checks
 
 
@@ -164,7 +190,13 @@ def _check_loop_roles(loop: LoopTags) -> list[Check]:
     return checks
 
 
-def _check_tag(t_s: np.ndarray, values: np.ndarray, tag: str, can_be_stuck: bool) -> list[Check]:
+def _check_tag(
+    t_s: np.ndarray,
+    values: np.ndarray,
+    tag: str,
+    can_be_stuck: bool,
+    cfg: ReadinessConfig,
+) -> list[Check]:
     """Missing values and, for tags that should move (PV, OUT), stuck stretches.
 
     A setpoint or a mode flag is constant for days in a healthy plant, so only PV and OUT are
@@ -172,12 +204,12 @@ def _check_tag(t_s: np.ndarray, values: np.ndarray, tag: str, can_be_stuck: bool
     """
     checks = []
     missing = float(np.mean(np.isnan(values)))
-    if missing > WARN_NAN_SHARE:
-        status = FAIL if missing > FAIL_NAN_SHARE else WARN
+    if missing > cfg.warn_missing_share:
+        status = FAIL if missing > cfg.max_missing_share else WARN
         checks.append(Check(f"missing:{tag}", status, f"Tag {tag}: {missing:.1%} missing values."))
     flat = _flat_share(t_s, values) if can_be_stuck else 0.0
-    if flat > WARN_FLAT_SHARE:
-        status = FAIL if flat > FAIL_FLAT_SHARE else WARN
+    if flat > cfg.warn_flat_share:
+        status = FAIL if flat > cfg.max_flat_share else WARN
         checks.append(Check(f"flat:{tag}", status, f"Tag {tag}: {flat:.1%} of samples are stuck."))
     return checks
 

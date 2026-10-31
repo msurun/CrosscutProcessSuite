@@ -57,6 +57,12 @@ describe("parseHash", () => {
     expect(formatHash(route)).toBe("#/d/sales/catalogue");
   });
 
+  it("parses the onboarding view and formats it back", () => {
+    const route = parseHash("#/d/sales/onboarding");
+    expect(route).toEqual({ dataset: "sales", view: "onboarding", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/d/sales/onboarding");
+  });
+
   it("parses a loop without a sub, defaulting sub to detail", () => {
     expect(parseHash("#/d/sales/loops/checkout")).toEqual({
       dataset: "sales",

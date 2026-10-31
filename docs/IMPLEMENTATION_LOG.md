@@ -959,3 +959,15 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Localized in `en.json`, `pl.json`, `es.json` with 100% key parity verified by `i18nKeys.test.ts`.
 - Tests added: `connectors/tests/test_connector_contract.py` (7 tests), `connectors/tests/test_opcua_connector.py` (1 test against PlantServer), `api/tests/test_connector_routes.py` (5 tests), `frontend/src/components/SourcesPanel.test.tsx` (3 tests), and Playwright E2E test in `catalogue.spec.ts`.
 - All gates green: `ruff` clean, full `pytest` 2186 passed, 12 xfailed, `npx tsc --noEmit` clean, 740 vitest tests passed, `npm run build` passed, 56 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.
+
+## 2026-10-31 - Phase 1 Step #39 (Onboarding & Dataset Readiness Check)
+
+- Moved readiness thresholds and parameters from hardcoded constants to `schemas/site.schema.json` under `$defs/readiness` and `site.readiness`.
+- Parameterized `loops/src/crosscut_loops/readiness.py` with `ReadinessConfig` (min_duration_h, warn_duration_h, max_sample_period_s, warn_sample_period_s, missing shares, etc.), while preserving default fallback behaviour.
+- Created `connectors/src/crosscut_connectors/onboarding.py`: evaluates structural and statistical readiness verdicts (`ok`, `warning`, `not_ready`) across `loops`, `anomaly`, and `softsensor` modules, checking prerequisites, missing OUT/mode tags, target signals, and lab references.
+- Added backend route `GET /datasets/{dataset_id}/readiness` in `api/src/crosscut_api/onboarding_routes.py` and mounted in `api/src/crosscut_api/app.py`. Added robust `_loop_tags_from_site` to preserve partial loop definitions during onboarding.
+- Built frontend `OnboardingPage.tsx` (`frontend/src/components/OnboardingPage.tsx`) with overall readiness traffic light, per-module status cards, items inspected count, and actionable "What to fix" recommendations.
+- Localized in `en.json`, `pl.json`, `es.json` with 100% key parity verified by `i18nKeys.test.ts`.
+- Tests added: `connectors/tests/test_onboarding.py` (4 tests), `api/tests/test_onboarding_routes.py` (3 tests), `frontend/src/components/OnboardingPage.test.tsx` (3 vitest tests), `route.test.ts` (extended with onboarding view), and Playwright E2E test with axe checks in `frontend/e2e/onboarding.spec.ts` (60 E2E tests total).
+- All gates green: `ruff` clean, whole-repo `pytest` clean (2193 passed, 12 xfailed), `npx tsc --noEmit` clean, 744 Vitest tests passed, `npm run build` passed, 60 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.
+
