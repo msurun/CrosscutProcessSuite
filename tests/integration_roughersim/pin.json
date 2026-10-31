@@ -1,0 +1,8 @@
+{
+  "commit_sha": "de01a96be17a66efa31c09caaca94ca9bed8585c",
+  "goldens": {
+    "rs.nominal.base.v1/100001": "7c1fc5b4f90f0f8d845256495d19983a250852934910f45220da98248913f5dd",
+    "rs.step_test.fic203.v1/100003": "51839a611b23b13cab14dee6b01fffc765af1a801c3ab5820bce6330c3ddd41b"
+  },
+  "tag": "rs-v0.10.0"
+}

@@ -5,6 +5,7 @@
 [tool.pytest.ini_options]
 testpaths = ["tests", "sim/tests", "artifacts/tests", "opcua/tests", "api/tests", "connectors/tests", "loops/tests", "fuzzy/tests", "supervisor/tests", "anomaly/tests", "gateway/tests", "softsensor/tests", "core/tests", "experiments"]
 addopts = "-q"
+markers = ["slow: takes more than a few seconds (deselect with -m 'not slow')"]
 
 [tool.ruff]
 line-length = 100
