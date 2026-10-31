@@ -1067,5 +1067,12 @@
   "tuning.vendor.title": "Parameters of {block}",
   "tuning.vendor.evidence.verified": "Form confirmed by a public vendor document.",
   "tuning.vendor.evidence.partly_verified": "Form partly confirmed by a public vendor document; check the caveats.",
-  "tuning.vendor.evidence.unverified": "Form not confirmed by a public document; check on the real system."
+  "tuning.vendor.evidence.unverified": "Form not confirmed by a public document; check on the real system.",
+  "configEditor.title": "Configuration",
+  "configEditor.loading": "Loading…",
+  "configEditor.notStored": "Nothing is stored for this id yet; the form starts empty and saving creates the document.",
+  "configEditor.save": "Save",
+  "configEditor.saving": "Saving…",
+  "configEditor.saved": "Saved.",
+  "configEditor.saveFailed": "Saving failed: {detail}"
 }

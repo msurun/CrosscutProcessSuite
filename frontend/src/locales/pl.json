@@ -1078,5 +1078,12 @@
   "tuning.vendor.title": "Parametry bloku {block}",
   "tuning.vendor.evidence.verified": "Postać potwierdzona publicznym dokumentem producenta.",
   "tuning.vendor.evidence.partly_verified": "Postać częściowo potwierdzona publicznym dokumentem producenta; sprawdź uwagi.",
-  "tuning.vendor.evidence.unverified": "Postać niepotwierdzona publicznym dokumentem; sprawdź na prawdziwym systemie."
+  "tuning.vendor.evidence.unverified": "Postać niepotwierdzona publicznym dokumentem; sprawdź na prawdziwym systemie.",
+  "configEditor.title": "Konfiguracja",
+  "configEditor.loading": "Ładowanie…",
+  "configEditor.notStored": "Dla tego identyfikatora nic jeszcze nie jest zapisane; formularz startuje pusty, a zapis utworzy dokument.",
+  "configEditor.save": "Zapisz",
+  "configEditor.saving": "Zapisywanie…",
+  "configEditor.saved": "Zapisano.",
+  "configEditor.saveFailed": "Zapis nie powiódł się: {detail}"
 }

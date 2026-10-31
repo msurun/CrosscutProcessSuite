@@ -5,6 +5,7 @@
  */
 
 import type { FuzzyDocument } from "./fuzzy";
+import type { JsonDocument, SchemaObject } from "./schemaFormModel";
 
 /** One dataset as listed by `GET /api/datasets`. */
 export interface DatasetSummary {
@@ -476,7 +477,10 @@ async function sendJson<T>(method: string, url: string, body: unknown): Promise<
     try {
       const detail = ((await response.json()) as { detail?: unknown }).detail;
       if (typeof detail === "string") message = detail;
-      else if (typeof detail === "object" && detail !== null) {
+      else if (Array.isArray(detail) && detail.every((item) => typeof item === "string")) {
+        // Validation problems: one readable line per item (site and config routes).
+        message = (detail as string[]).join("\n");
+      } else if (typeof detail === "object" && detail !== null) {
         // Structured input error: {code, message, field}.
         const info = detail as { code?: unknown; message?: unknown; field?: unknown; finding_codes?: unknown };
         if (typeof info.message === "string") message = info.message;
@@ -1334,4 +1338,31 @@ export async function checkIntake(input: IntakeInput): Promise<IntakeCheck> {
  */
 export async function createIntakeDataset(input: IntakeInput, spec: IntakeDatasetSpec): Promise<IntakeCreated> {
   return sendJson<IntakeCreated>("POST", `${API_PREFIX}/intake/dataset`, { ...intakeBody(input), ...spec });
+}
+
+/** The names of every schema the backend serves. */
+export async function fetchSchemas(): Promise<{ schemas: string[] }> {
+  return getJson<{ schemas: string[] }>(`${API_PREFIX}/schemas`);
+}
+
+/** The parsed JSON Schema of one configuration kind. @throws {ApiError} 404 when the name is unknown. */
+export async function fetchSchema(name: string): Promise<SchemaObject> {
+  return getJson<SchemaObject>(`${API_PREFIX}/schemas/${encodeURIComponent(name)}`);
+}
+
+/** The stored configuration document. @throws {ApiError} 404 when nothing is stored for the id yet. */
+export async function fetchConfig(kind: string, configId: string): Promise<JsonDocument> {
+  return getJson<JsonDocument>(`${API_PREFIX}/config/${encodeURIComponent(kind)}/${encodeURIComponent(configId)}`);
+}
+
+/**
+ * Validate and store a configuration document.
+ * @throws {ApiError} 404 for an unknown kind or id, 422 with one line per validation problem.
+ */
+export async function saveConfig(kind: string, configId: string, document: JsonDocument): Promise<JsonDocument> {
+  return sendJson<JsonDocument>(
+    "PUT",
+    `${API_PREFIX}/config/${encodeURIComponent(kind)}/${encodeURIComponent(configId)}`,
+    document,
+  );
 }
