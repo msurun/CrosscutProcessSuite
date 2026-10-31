@@ -92,3 +92,23 @@ def test_scanner_detects_forbidden_code() -> None:
         "node.write_value(1)\nx = ua.WriteValue()\n"
     )
     assert _problems(tree) == {"asyncua", "opcua", "crosscut_gateway", "write_value", "WriteValue"}
+
+
+def test_connector_protocol_has_no_write_method() -> None:
+    """The Connector Protocol in connectors/base.py and its adapters must declare no write method.
+
+    ADR 011 and ADR 012 mandate that writing to a plant is owned exclusively by the Write Gateway.
+    Read connectors must never expose write, set_value, or actuator output methods.
+    """
+    connectors_dir = ROOT / "connectors/src/crosscut_connectors"
+    if not connectors_dir.is_dir():
+        return
+    for py_file in connectors_dir.glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = node.name.lower()
+                msg = f"{py_file.name}: forbidden write method {name}"
+                assert not name.startswith("write_"), msg
+                assert name != "write", msg
+                assert not name.startswith("set_value"), f"{py_file.name}: forbidden setter {name}"

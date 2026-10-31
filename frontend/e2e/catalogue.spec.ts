@@ -15,6 +15,9 @@ const VALID_SITE = {
     name: "E2E Test Site",
     timezone: "UTC",
   },
+  sources: [
+    { id: "e2e_csv", driver: "csv", endpoint: "/tmp/data" },
+  ],
   tags: [],
 };
 
@@ -113,6 +116,14 @@ test("mapping wizard allows inferring roles, configuring loops, and saving mappi
   // Save mapping
   await page.getByTestId("wizard-save-btn").click();
   await expect(page.getByTestId("wizard-success-notice")).toBeVisible({ timeout: 10_000 });
+});
+
+test("switches to data sources panel and renders configured sources", async ({ page }) => {
+  await openCataloguePage(page);
+  await page.getByTestId("mode-data-sources").click();
+  await expect(page.getByTestId("sources-panel")).toBeVisible();
+  await expect(page.getByTestId("source-card-e2e_csv")).toBeVisible();
+  await expect(page.getByTestId("test-source-e2e_csv")).toBeVisible();
 });
 
 for (const width of [1440, 390]) {

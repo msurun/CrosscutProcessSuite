@@ -947,3 +947,15 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Component tests in `frontend/src/components/CatalogueWizard.test.tsx` (3 vitest tests).
 - E2E test in `frontend/e2e/catalogue.spec.ts` covering wizard navigation, role inference, loop configuration, and mapping save.
 - All gates green: `ruff` clean, full `pytest` 2172 passed, 12 xfailed (expected gateway xfails), `npx tsc --noEmit` clean, 737 Vitest tests passed, `npm run build` passed, 55 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.
+
+## 2026-10-31 - Phase 1 Step #43 (Connector Interface & Adapters)
+
+- Added read-only `Connector` protocol and data structures (`NodeInfo`, `TagMetadata`, `LiveValue`, `NotSupportedError`, `SourceConnectionError`) in `connectors/src/crosscut_connectors/base.py`.
+- Added adapters: `OpcUaConnector` (browse, metadata, read_live with sync/async event loop safety), `CsvConnector` (browse files/columns, metadata, history), and `SqlConnector` (browse tables/columns, metadata, parameterized history) in `crosscut_connectors/`.
+- Extended static guard in `gateway/tests/test_gateway_static_guards.py` verifying no connector adapter or protocol defines write methods (ADR 011/012).
+- Added connector registry in `crosscut_connectors/registry.py` (`create_connector`, `connector_from_source`).
+- Added backend REST routes in `api/src/crosscut_api/connector_routes.py`: `GET /sources`, `POST /sources/{id}/test`, `GET /sources/{id}/browse`, and `POST /sources/{id}/read-live`. Mounted in `create_app` in `api/src/crosscut_api/app.py`.
+- Added frontend API functions and `SourcesPanel.tsx` in `frontend/src/components/` with connection testing, capabilities chips, and interactive node browsing with live sampling. Integrated into `SitePage.tsx` under `"sources"` mode.
+- Localized in `en.json`, `pl.json`, `es.json` with 100% key parity verified by `i18nKeys.test.ts`.
+- Tests added: `connectors/tests/test_connector_contract.py` (7 tests), `connectors/tests/test_opcua_connector.py` (1 test against PlantServer), `api/tests/test_connector_routes.py` (5 tests), `frontend/src/components/SourcesPanel.test.tsx` (3 tests), and Playwright E2E test in `catalogue.spec.ts`.
+- All gates green: `ruff` clean, full `pytest` 2186 passed, 12 xfailed, `npx tsc --noEmit` clean, 740 vitest tests passed, `npm run build` passed, 56 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.

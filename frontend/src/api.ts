@@ -1417,3 +1417,63 @@ export async function saveCatalogueMapping(
     mapping,
   );
 }
+
+export interface SourceInfo {
+  id: string;
+  driver: "opcua" | "pi" | "sql" | "csv" | string;
+  endpoint?: string;
+  options?: Record<string, unknown>;
+}
+
+export interface SourceTestResult {
+  status: string;
+  source_id: string;
+  capabilities: string[];
+}
+
+export interface AddressSpaceNode {
+  id: string;
+  name: string;
+  node_type: "object" | "variable" | "file" | "table" | string;
+  has_children: boolean;
+}
+
+export interface ConnectorLiveValue {
+  value: number | null;
+  quality: number;
+  timestamp_utc: string;
+}
+
+/** Fetch data sources configured in the site catalogue. */
+export async function fetchSources(): Promise<{ sources: SourceInfo[] }> {
+  return getJson<{ sources: SourceInfo[] }>(`${API_PREFIX}/sources`);
+}
+
+/** Verify connectivity and retrieve supported capabilities of a source. */
+export async function testSource(sourceId: string): Promise<SourceTestResult> {
+  return sendJson<SourceTestResult>("POST", `${API_PREFIX}/sources/${encodeURIComponent(sourceId)}/test`, {});
+}
+
+/** Browse address space nodes for a given source. */
+export async function browseSource(
+  sourceId: string,
+  nodeId?: string,
+): Promise<{ source_id: string; node_id?: string; nodes: AddressSpaceNode[] }> {
+  const query = nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : "";
+  return getJson<{ source_id: string; node_id?: string; nodes: AddressSpaceNode[] }>(
+    `${API_PREFIX}/sources/${encodeURIComponent(sourceId)}/browse${query}`,
+  );
+}
+
+/** Read current live values and quality codes from a source connector. */
+export async function readSourceLive(
+  sourceId: string,
+  tags: string[],
+): Promise<{ source_id: string; values: Record<string, ConnectorLiveValue> }> {
+  return sendJson<{ source_id: string; values: Record<string, ConnectorLiveValue> }>(
+    "POST",
+    `${API_PREFIX}/sources/${encodeURIComponent(sourceId)}/read-live`,
+    { tags },
+  );
+}
+

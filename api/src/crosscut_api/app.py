@@ -36,6 +36,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.catalogue_routes import build_catalogue_router
+from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.intake_routes import build_intake_router
@@ -621,6 +622,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_plant_import_router(store.root))
     app.include_router(build_site_router(store.root))
     app.include_router(build_catalogue_router(store.root, store.tags_of))
+    app.include_router(build_connector_router(store.root))
     app.include_router(build_schema_router(store.root))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
