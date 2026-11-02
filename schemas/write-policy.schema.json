@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/write-policy.schema.json",
+  "title": "Write policy",
+  "description": "Write policy configuration for the Crosscut Write Gateway (ADR 011, ADR 012). Defines permissible write targets, engineering boundaries, step and rate clamps, allowed loop modes, and watchdog timings. Any proposal outside this policy is rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "mode", "targets"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Version of this write policy schema layout."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["off", "advisory", "dry_run", "confirm", "supervised"],
+      "description": "Operating mode of the write gateway. Default is never implied; mode must be explicitly specified."
+    },
+    "targets": {
+      "type": "object",
+      "description": "Per-target write policy mapping target tag identifier to its constraints. If empty, all writes are refused.",
+      "additionalProperties": {
+        "$ref": "#/$defs/target_policy"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]+$",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Unique tag identifier for the write target."
+    },
+    "target_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limits",
+        "max_step",
+        "max_rate_per_s",
+        "min_interval_s",
+        "allowed_loop_modes",
+        "hold_off_s",
+        "watchdog_s",
+        "readback_tolerance"
+      ],
+      "properties": {
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "$comment": "limits[0] <= limits[1] is checked in code, not by the schema.",
+          "description": "Permissible engineering range [low, high] for the setpoint value."
+        },
+        "max_step": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum absolute step change allowed in a single write operation."
+        },
+        "max_rate_per_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum rate of change allowed in engineering units per second."
+        },
+        "min_interval_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum elapsed time between consecutive writes to this target in seconds."
+        },
+        "allowed_loop_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Loop modes in which writes are permitted (e.g. CAS, AUTO, RSP)."
+        },
+        "hold_off_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Hold-off time after operator intervention before writing can resume in seconds."
+        },
+        "watchdog_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum elapsed time without a heartbeat before returning to local in seconds."
+        },
+        "readback_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum absolute deviation between written setpoint and read-back value."
+        }
+      }
+    }
+  }
+}
+
