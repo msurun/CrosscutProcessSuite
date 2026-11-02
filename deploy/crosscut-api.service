@@ -1,0 +1,28 @@
+# systemd unit for the Crosscut data API (FastAPI, served by uvicorn).
+# The API reads datasets from CROSSCUT_ROOT and never writes to the plant.
+# Install: copy to /etc/systemd/system/, then `systemctl daemon-reload` and
+# `systemctl enable --now crosscut-api`. See deploy/README.md.
+
+[Unit]
+Description=Crosscut data API (uvicorn, port 8000)
+After=network-online.target crosscut-runtime.service
+Wants=network-online.target
+
+[Service]
+# Same dedicated account as the runtime; no plant write rights.
+User=crosscut
+Group=crosscut
+WorkingDirectory=/opt/crosscut
+Environment=CROSSCUT_ROOT=/var/lib/crosscut
+# create_app(Path(...)) takes the data root as an argument, so uvicorn is
+# started through a one-line -c call (same pattern as frontend/e2e/support).
+ExecStart=/opt/crosscut/.venv/bin/python -c "import sys, os; from pathlib import Path; import uvicorn; from crosscut_api.app import create_app; uvicorn.run(create_app(Path(os.environ['CROSSCUT_ROOT'])), host='127.0.0.1', port=8000)"
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/crosscut
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

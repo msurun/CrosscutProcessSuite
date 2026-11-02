@@ -1,0 +1,27 @@
+# systemd unit for the Crosscut runtime (scheduler + jobs).
+# Install: copy to /etc/systemd/system/, then `systemctl daemon-reload` and
+# `systemctl enable --now crosscut-runtime`. See deploy/README.md.
+
+[Unit]
+Description=Crosscut runtime (periodic jobs, state under /var/lib/crosscut/_runtime)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Runs as a dedicated account with NO write rights to the plant; it only
+# writes under /var/lib/crosscut (its own state directory).
+User=crosscut
+Group=crosscut
+WorkingDirectory=/opt/crosscut
+ExecStart=/opt/crosscut/.venv/bin/python -m crosscut_runtime --root /var/lib/crosscut
+# Restart after crashes, but not after a clean stop.
+Restart=on-failure
+RestartSec=5
+# Hardening: read-only system, writes only to the state directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/crosscut
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

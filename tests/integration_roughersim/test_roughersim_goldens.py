@@ -1,4 +1,4 @@
-"""Golden-hash guard for the pinned RougherSim release (rs-v0.10.0).
+"""Golden-hash guard for the pinned RougherSim release (rs-v0.11.0).
 
 Records two 24 h scenarios with the sibling RougherSim checkout and compares the
 hash recipe in golden.py with pin.json. Skips unless the checkout is the pin.
