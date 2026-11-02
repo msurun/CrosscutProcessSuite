@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/job.schema.json",
+  "title": "Runtime jobs",
+  "description": "Jobs run cyclically by the runtime service, stored at <data root>/_runtime/jobs.json. A loop_kpi job computes live loop KPIs from Connector.read_live samples over a rolling window; anomaly_scan jobs are accepted from Phase 1, their execution lands in a later phase (the runtime marks them 'unsupported' until then).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "jobs"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Version of this file layout."
+    },
+    "jobs": {
+      "type": "array",
+      "description": "The jobs of the deployment; empty when nothing is deployed.",
+      "items": {"$ref": "#/$defs/job"}
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]+$",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "period_s", "window_s", "enabled"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier", "description": "Unique id of the job."},
+        "kind": {
+          "enum": ["loop_kpi", "anomaly_scan"],
+          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'."
+        },
+        "source": {
+          "$ref": "#/$defs/identifier",
+          "description": "Id of an entry in the site's sources; live values are read from that source."
+        },
+        "loops": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/identifier"},
+          "uniqueItems": true,
+          "description": "Ids of entries in the site's loops; required for loop_kpi jobs."
+        },
+        "tags": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/identifier"},
+          "uniqueItems": true,
+          "description": "Ids of entries in the site's tags; required for anomaly_scan jobs."
+        },
+        "period_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "How often the job samples the source, in seconds."
+        },
+        "window_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Length of the rolling window the KPI is computed on, in seconds."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the runtime runs the job; the GUI start/stop acts on this flag."
+        }
+      }
+    }
+  }
+}

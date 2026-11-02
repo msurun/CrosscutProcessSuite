@@ -1496,4 +1496,118 @@ export async function fetchDatasetReadiness(datasetId: string): Promise<DatasetR
   return getJson<DatasetReadiness>(`${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/readiness`);
 }
 
+// --- Runtime service (Phase 1, #44; routes in api/src/crosscut_api/runtime_routes.py) ---
+
+/** What a runtime job computes (schemas/job.schema.json). */
+export type RuntimeJobKind = "loop_kpi" | "anomaly_scan";
+
+/** One job as stored in jobs.json; `loops` for loop_kpi jobs, `tags` for anomaly_scan jobs. */
+export interface RuntimeJob {
+  id: string;
+  kind: RuntimeJobKind;
+  source: string;
+  loops?: string[];
+  tags?: string[];
+  period_s: number;
+  window_s: number;
+  enabled: boolean;
+}
+
+/** KPI snapshot of one loop of a loop_kpi job; the runtime carries more fields than the UI shows. */
+export interface RuntimeLoopKpi {
+  classification?: string;
+  harris_index?: number | null;
+}
+
+/** Per-loop KPI of a job summary; null when the job has not produced one yet. */
+export type RuntimeJobKpi = Record<string, RuntimeLoopKpi> | null;
+
+/** A stored job merged with its runtime state (one entry of GET /runtime/status). */
+export interface RuntimeJobSummary {
+  id: string;
+  kind: RuntimeJobKind;
+  source: string;
+  enabled: boolean;
+  status: string;
+  last_run_utc: string | null;
+  error: string | null;
+  samples: number;
+  kpi: RuntimeJobKpi;
+}
+
+/** Health of the runtime service (freshness of its state file). */
+export interface RuntimeServiceStatus {
+  running: boolean;
+  updated_at_utc: string | null;
+}
+
+/** Payload of GET /runtime/status. */
+export interface RuntimeStatus {
+  service: RuntimeServiceStatus;
+  jobs: RuntimeJobSummary[];
+}
+
+/** The jobs document as stored (GET /runtime/jobs and the answer of every job mutation). */
+export interface RuntimeJobsDocument {
+  schema_version: number;
+  jobs: RuntimeJob[];
+}
+
+/** Payload of GET /runtime/log; each line is one JSON string. */
+export interface RuntimeLog {
+  lines: string[];
+}
+
+const runtimeJobUrl = (jobId: string): string => `${API_PREFIX}/runtime/jobs/${encodeURIComponent(jobId)}`;
+
+/** Read the runtime service status and the state of every job. */
+export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
+  return getJson<RuntimeStatus>(`${API_PREFIX}/runtime/status`);
+}
+
+/** Read the most recent `limit` lines of the runtime log. */
+export async function fetchRuntimeLog(limit = 200): Promise<RuntimeLog> {
+  return getJson<RuntimeLog>(`${API_PREFIX}/runtime/log?limit=${limit}`);
+}
+
+/** Read the stored jobs document. */
+export async function fetchRuntimeJobs(): Promise<RuntimeJobsDocument> {
+  return getJson<RuntimeJobsDocument>(`${API_PREFIX}/runtime/jobs`);
+}
+
+/**
+ * Add a job after the server validates it.
+ * @throws {ApiError} 409 on a duplicate id, 422 with one line per problem.
+ */
+export async function createRuntimeJob(job: RuntimeJob): Promise<RuntimeJobsDocument> {
+  return sendJson<RuntimeJobsDocument>("POST", `${API_PREFIX}/runtime/jobs`, job);
+}
+
+/**
+ * Merge a partial job over the stored one.
+ * @throws {ApiError} 404 for an unknown id, 422 with one line per problem.
+ */
+export async function patchRuntimeJob(jobId: string, patch: Partial<RuntimeJob>): Promise<RuntimeJobsDocument> {
+  return sendJson<RuntimeJobsDocument>("PATCH", runtimeJobUrl(jobId), patch);
+}
+
+/** Remove a job by id. @throws {ApiError} 404 when it does not exist. */
+export async function deleteRuntimeJob(jobId: string): Promise<RuntimeJobsDocument> {
+  const response = await fetch(runtimeJobUrl(jobId), { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiError(response.status, await readErrorMessage(response));
+  }
+  return (await response.json()) as RuntimeJobsDocument;
+}
+
+/** Enable a job (the runtime starts running it). @throws {ApiError} 404 for an unknown id. */
+export async function startRuntimeJob(jobId: string): Promise<RuntimeJobsDocument> {
+  return sendJson<RuntimeJobsDocument>("POST", `${runtimeJobUrl(jobId)}/start`, {});
+}
+
+/** Disable a job (the runtime stops running it). @throws {ApiError} 404 for an unknown id. */
+export async function stopRuntimeJob(jobId: string): Promise<RuntimeJobsDocument> {
+  return sendJson<RuntimeJobsDocument>("POST", `${runtimeJobUrl(jobId)}/stop`, {});
+}
+
 

@@ -63,6 +63,12 @@ describe("parseHash", () => {
     expect(formatHash(route)).toBe("#/d/sales/onboarding");
   });
 
+  it("parses the runtime view and formats it back", () => {
+    const route = parseHash("#/d/sales/runtime");
+    expect(route).toEqual({ dataset: "sales", view: "runtime", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/d/sales/runtime");
+  });
+
   it("parses a loop without a sub, defaulting sub to detail", () => {
     expect(parseHash("#/d/sales/loops/checkout")).toEqual({
       dataset: "sales",
@@ -121,6 +127,7 @@ describe("round trip", () => {
     { dataset: "sales", view: "trends", loop: null, sub: "detail" },
     { dataset: "a/b", view: "fuzzy", loop: null, sub: "detail" },
     { dataset: "sales", view: "catalogue", loop: null, sub: "detail" },
+    { dataset: "sales", view: "runtime", loop: null, sub: "detail" },
     { dataset: "#hash?q=1", view: "trends", loop: null, sub: "detail" },
     { dataset: "with space", view: "loops", loop: "my loop", sub: "detail" },
     { dataset: "100%", view: "loops", loop: "a/b#c?d", sub: "benefit" },

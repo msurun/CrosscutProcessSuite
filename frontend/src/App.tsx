@@ -27,6 +27,7 @@ import { TopBar } from "./components/TopBar";
 import { TrendsPage } from "./components/TrendsPage";
 import { SitePage } from "./components/SitePage";
 import { OnboardingPage } from "./components/OnboardingPage";
+import { RuntimePage } from "./RuntimePage";
 import { useTheme, type ThemePreference } from "./useTheme";
 
 /** Language, its translator and the language setter, for the whole app. */
@@ -246,7 +247,7 @@ export function App() {
           )}
           <ContextBar dataset={dataset} analysis={view === "loops" ? analysis : null} t={t} />
           <nav className="view-tabs" aria-label={t("app.name")}>
-            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import", "catalogue", "onboarding"] as const satisfies readonly View[]).map((name) => (
+            {(["trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import", "catalogue", "onboarding", "runtime"] as const satisfies readonly View[]).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -300,6 +301,7 @@ export function App() {
               />
             )}
             {view === "catalogue" && <SitePage t={t} />}
+            {view === "runtime" && <RuntimePage t={t} />}
             {!datasetMissing && view === "onboarding" && <OnboardingPage datasetId={selectedDatasetId} t={t} />}
             {!datasetMissing && view === "fuzzy" && <FuzzyPage datasetId={selectedDatasetId} t={t} />}
             {!datasetMissing && view === "trends" && (
