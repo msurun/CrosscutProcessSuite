@@ -101,6 +101,8 @@ class _GatewayEndpoints:
             return gw.approve(key)
         except KeyError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
+        except TimeoutError as err:
+            raise HTTPException(status_code=504, detail="gateway did not answer") from err
 
     def post_reject(self, key: str) -> dict[str, Any]:
         """POST /gateway/pending/{key}/reject: Discard queued proposal without writing."""
@@ -109,12 +111,17 @@ class _GatewayEndpoints:
             gw.reject(key)
         except KeyError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
+        except TimeoutError as err:
+            raise HTTPException(status_code=504, detail="gateway did not answer") from err
         return {"ok": True}
 
     def post_kill(self) -> dict[str, Any]:
         """POST /gateway/kill: Trigger emergency kill switch."""
         gw = self._gw()
-        gw.kill()
+        try:
+            gw.kill()
+        except TimeoutError as err:
+            raise HTTPException(status_code=504, detail="gateway did not answer") from err
         return {"ok": True}
 
     def post_re_enable(self, tag: str) -> dict[str, Any]:
@@ -126,6 +133,8 @@ class _GatewayEndpoints:
             raise HTTPException(status_code=409, detail=str(err)) from err
         except KeyError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
+        except TimeoutError as err:
+            raise HTTPException(status_code=504, detail="gateway did not answer") from err
         return {"ok": True}
 
     def put_mode(self, body: ModeUpdate) -> dict[str, Any]:
@@ -136,6 +145,8 @@ class _GatewayEndpoints:
             gw.set_mode(valid_mode)
         except ValueError as err:
             raise HTTPException(status_code=422, detail=str(err)) from err
+        except TimeoutError as err:
+            raise HTTPException(status_code=504, detail="gateway did not answer") from err
         return {"ok": True, "mode": valid_mode}
 
     def get_audit(self, limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:

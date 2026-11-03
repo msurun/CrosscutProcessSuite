@@ -76,6 +76,11 @@ class WriteGateway:
 
     # ------------------------------------------------------------------ public API
 
+    @property
+    def mode(self) -> Mode:
+        """Return the active operating mode (read-only)."""
+        return self._mode
+
     def propose(self, proposal: WriteProposal) -> WriteDecision:
         """Process one proposal through the current gateway mode.
 
