@@ -212,6 +212,14 @@ def _evaluate_clamping(
     return WriteDecision(accepted=True, reason_code="clamped", clamped_value=clamped)
 
 
+def _last_value_invalid(policy: WritePolicy, last_value: float | None) -> bool:
+    """Return True when a known last value is non-finite or outside policy limits."""
+    if last_value is None:
+        return False
+    low, high = policy.limits
+    return not math.isfinite(last_value) or last_value < low or last_value > high
+
+
 def validate_proposal(
     policy: WritePolicy | None,
     proposal: WriteProposal,
@@ -222,7 +230,7 @@ def validate_proposal(
     """Stateless evaluation of a write proposal against policy constraints.
 
     Evaluates rules in strict priority order (no_policy, bad_value, mode_not_allowed,
-    clock_backwards, min_interval, clamping).
+    last_value_out_of_limits, clock_backwards, min_interval, clamping).
 
     Units:
     - proposal.value, last_value: engineering units
@@ -237,6 +245,8 @@ def validate_proposal(
         return WriteDecision(accepted=False, reason_code="bad_value")
     if loop_mode not in policy.allowed_loop_modes:
         return WriteDecision(accepted=False, reason_code="mode_not_allowed")
+    if _last_value_invalid(policy, last_value):
+        return WriteDecision(accepted=False, reason_code="last_value_out_of_limits")
     timing_decision = _check_timing(policy, proposal.t_ns, last_write_t_ns)
     if timing_decision is not None:
         return timing_decision
