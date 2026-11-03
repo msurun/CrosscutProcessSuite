@@ -39,6 +39,7 @@ from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
+from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_api.intake_routes import build_intake_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
@@ -662,6 +663,10 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_connector_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    # The Write Gateway runs as a separate process; a client for it is a later step, so the
+    # provider returns None and the gateway routes answer 503. This module must not import
+    # crosscut_gateway.
+    app.include_router(build_gateway_router(lambda: None))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))

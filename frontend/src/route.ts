@@ -15,7 +15,8 @@ export type View =
   | "import"
   | "catalogue"
   | "onboarding"
-  | "runtime";
+  | "runtime"
+  | "gateway";
 
 /** The sub-tabs of the "loops" view. */
 export type LoopSub = "detail" | "tuning" | "benefit" | "valve";
@@ -50,6 +51,7 @@ const KNOWN_VIEWS: readonly View[] = [
   "catalogue",
   "onboarding",
   "runtime",
+  "gateway",
 ];
 const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];
 
