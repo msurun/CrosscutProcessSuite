@@ -1533,6 +1533,8 @@ export interface RuntimeJobSummary {
   error: string | null;
   samples: number;
   kpi: RuntimeJobKpi;
+  /** Latest anomaly-scan outcome of an anomaly_scan job; null or absent for loop_kpi jobs. */
+  scan?: unknown | null;
 }
 
 /** Health of the runtime service (freshness of its state file). */

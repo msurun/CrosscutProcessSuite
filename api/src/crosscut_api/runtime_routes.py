@@ -144,6 +144,7 @@ def _job_summary(job: dict[str, Any], state_entry: dict[str, Any] | None) -> dic
         "error": entry.get("error"),
         "samples": entry.get("samples", 0),
         "kpi": entry.get("kpi"),
+        "scan": entry.get("scan"),
     }
 
 

@@ -1,9 +1,10 @@
 // One-command e2e run (`npm run e2e:all`): builds a temp data root with make_e2e_root.py, starts the
-// API and Vite on free ports, runs `playwright test` (extra CLI args are passed on) and always
-// stops the servers. Only the temp directory is created and removed. Windows and Linux.
+// API and Vite on free ports, then the OPC UA test server (wood_berry) and the crosscut_runtime service
+// on that root, runs `playwright test` (extra CLI args are passed on) and always stops the servers.
+// Only the temp directory is created and removed. Windows and Linux.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +58,39 @@ function stop(child) {
   else child.kill("SIGTERM");
 }
 
+/** True when a TCP connection to 127.0.0.1:`port` succeeds. */
+function canConnect(port) {
+  return new Promise((ok) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.once("connect", () => {
+      socket.destroy();
+      ok(true);
+    });
+    socket.once("error", () => ok(false));
+  });
+}
+
+/** Polls until `port` accepts connections; throws if `child` exits or after 60 s. */
+async function waitForPort(port, child, label) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`${label} exited early (code ${child.exitCode})`);
+    if (await canConnect(port)) return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`${label} did not accept connections on port ${port}`);
+}
+
+/** Starts the OPC UA test server, then the runtime service on `root`; returns the OPC UA endpoint. */
+async function startBackground(python, root, children) {
+  const opcuaPort = await freePort();
+  const opcua = spawn(python, ["-m", "crosscut_opcua.server", "--plant", "wood_berry", "--port", String(opcuaPort), "--speed", "20", "--tick", "0.05"], { stdio: "inherit" });
+  children.push(opcua);
+  await waitForPort(opcuaPort, opcua, "OPC UA server");
+  children.push(spawn(python, ["-m", "crosscut_runtime", "--root", root, "--interval", "0.5"], { stdio: "inherit" }));
+  return `opc.tcp://127.0.0.1:${opcuaPort}`;
+}
+
 async function main() {
   const python = findPython();
   const root = join(mkdtempSync(join(tmpdir(), "crosscut-e2e-")), "data");
@@ -73,8 +107,9 @@ async function main() {
     const base = `http://localhost:${uiPort}`;
     await waitFor(`http://127.0.0.1:${apiPort}/docs`, api, "API");
     await waitFor(base, vite, "Vite");
+    const opcuaEndpoint = await startBackground(python, root, children);
     const pw = join(frontend, "node_modules/@playwright/test/cli.js");
-    const testEnv = { ...process.env, E2E_BASE_URL: base, E2E_DATA_ROOT: root, E2E_PYTHON: python };
+    const testEnv = { ...process.env, E2E_BASE_URL: base, E2E_DATA_ROOT: root, E2E_PYTHON: python, E2E_OPCUA_ENDPOINT: opcuaEndpoint };
     const run = spawnSync(process.execPath, [pw, "test", ...process.argv.slice(2)], { cwd: frontend, env: testEnv, stdio: "inherit" });
     return run.status ?? 1;
   } finally {

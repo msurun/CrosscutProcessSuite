@@ -25,4 +25,9 @@ export default defineConfig({
     locale: "pl-PL",
     launchOptions: { executablePath: findChromium() },
   },
+  // Specs share one data root (site.json): runtime.spec.ts runs alone, after all the others.
+  projects: [
+    { name: "main", testIgnore: /runtime\.spec\.ts/ },
+    { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["main"] },
+  ],
 });

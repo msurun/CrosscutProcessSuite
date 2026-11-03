@@ -17,10 +17,23 @@ from typing import Any
 from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
 
+from crosscut_runtime.addressing import AddressedConnector
 from crosscut_runtime.history import HistoryError, HistoryStore, history_path
+from crosscut_runtime.jobs.anomaly_scan import AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore
+
+RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan")
+
+
+def _failing_run(message: str) -> Callable[[], Any]:
+    """A run function that raises on every pass, for a job that cannot be built."""
+
+    def run() -> Any:
+        raise ValueError(message)
+
+    return run
 
 
 class RuntimeService:
@@ -38,8 +51,10 @@ class RuntimeService:
         self._connector_factory = connector_factory
         self._clock = clock
         self._job_docs: dict[str, dict[str, Any]] = {}
+        self._addresses: dict[str, dict[str, str]] = {}
         self._connectors: dict[str, Any] = {}
         self._kpi_jobs: dict[str, LoopKpiJob] = {}
+        self._anomaly_jobs: dict[str, tuple[dict[str, Any], AnomalyScanJob]] = {}
         self._history = HistoryStore(history_path(root))
         self._pending_samples: list[tuple[str, float, float]] = []
 
@@ -68,53 +83,83 @@ class RuntimeService:
         """Update job slots based on current configuration and site."""
         loop_docs = {loop["id"]: loop for loop in site.get("loops", [])}
         sources = {src["id"]: src for src in site.get("sources", [])}
+        addresses = {t["id"]: t["address"] for t in site.get("tags", []) if t.get("address")}
         active_ids = set()
 
         for job in jobs:
             job_id = job["id"]
-            if not job.get("enabled", False) or job["kind"] == "anomaly_scan":
+            if not job.get("enabled", False):
                 self._remove_job(job_id)
                 continue
 
             active_ids.add(job_id)
             if job["kind"] == "loop_kpi":
-                self._sync_loop_kpi_job(job, loop_docs, sources)
+                self._sync_job(job, sources, addresses, lambda doc: self._loop_run(doc, loop_docs))
+            elif job["kind"] == "anomaly_scan":
+                self._sync_job(job, sources, addresses, self._anomaly_run)
 
         for job_id in self._scheduler.ids():
             if job_id not in active_ids:
                 self._remove_job(job_id)
 
     def _remove_job(self, job_id: str) -> None:
-        """Unschedule a job and drop its cached KPI job (the rolling window goes with it)."""
+        """Unschedule a job and drop its cached job objects (the rolling windows go with them)."""
         self._scheduler.remove(job_id)
         self._kpi_jobs.pop(job_id, None)
+        self._anomaly_jobs.pop(job_id, None)
 
-    def _sync_loop_kpi_job(
+    def _sync_job(
         self,
         job: dict[str, Any],
-        loop_docs: dict[str, dict[str, Any]],
         sources: dict[str, dict[str, Any]],
+        addresses: dict[str, str],
+        make_run: Callable[[dict[str, Any]], Callable[[], Any]],
     ) -> None:
-        """Update or create a JobSlot for a loop_kpi job."""
+        """Update the JobSlot of a job; rebuild its connector when the doc or addresses change."""
         job_id = job["id"]
-        unchanged = self._job_docs.get(job_id) == job
+        unchanged = self._job_docs.get(job_id) == job and self._addresses.get(job_id) == addresses
 
         if not unchanged:
             self._job_docs[job_id] = job
-            source_doc = sources.get(job["source"], {})
-            self._connectors[job_id] = self._connector_factory(source_doc)
+            self._addresses[job_id] = addresses
+            connector = self._connector_factory(sources.get(job["source"], {}))
+            self._connectors[job_id] = AddressedConnector(connector, addresses)
+            self._kpi_jobs.pop(job_id, None)
+            self._anomaly_jobs.pop(job_id, None)
 
-        kpi_job = self._kpi_job_for(job, loop_docs)
-
-        def run_fn() -> Any:
-            return kpi_job.run()
-
+        run_fn = make_run(job)
         existing = self._scheduler.get(job_id)
         if existing and unchanged:
             existing.run = run_fn
             existing.period_s = job["period_s"]
         else:
             self._scheduler.put(JobSlot(job_id, job["period_s"], run_fn))
+
+    def _loop_run(
+        self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]]
+    ) -> Callable[[], Any]:
+        """The run function of a loop_kpi job, bound to its cached LoopKpiJob."""
+        return self._kpi_job_for(job, loop_docs).run
+
+    def _anomaly_run(self, job: dict[str, Any]) -> Callable[[], Any]:
+        """The run function of an anomaly_scan job; a job that cannot be built fails each pass."""
+        try:
+            return self._anomaly_job_for(job).run
+        except ValueError as error:
+            return _failing_run(str(error))
+
+    def _anomaly_job_for(self, job: dict[str, Any]) -> AnomalyScanJob:
+        """The cached AnomalyScanJob of a job, so its learned model and clock survive across runs.
+
+        A new instance is made only when the job doc changes; a ValueError propagates.
+        """
+        job_id = job["id"]
+        cached = self._anomaly_jobs.get(job_id)
+        if cached is None or cached[0] != job:
+            scan_job = AnomalyScanJob(job, self._connectors[job_id], self._history, self._clock)
+            cached = (job, scan_job)
+            self._anomaly_jobs[job_id] = cached
+        return cached[1]
 
     def _kpi_job_for(self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]]) -> LoopKpiJob:
         """The cached LoopKpiJob of a job, so its rolling window survives across runs.
@@ -156,7 +201,7 @@ class RuntimeService:
             st = job_states.setdefault(job_id, {})
             if not job.get("enabled", False):
                 continue
-            if job["kind"] == "anomaly_scan":
+            if job["kind"] not in RUNNABLE_KINDS:
                 st["status"] = "unsupported"
                 continue
 
@@ -167,6 +212,7 @@ class RuntimeService:
                     st.update({"status": "ok", "error": None})
                     st["samples"] = run.result.get("samples")
                     st["kpi"] = run.result.get("kpi")
+                    st["scan"] = run.result.get("scan")
                 else:
                     st.update({"status": "error", "error": run.error})
                     self._store.append_log("error", run.error, job_id)

@@ -101,6 +101,24 @@ def test_catalogue_mapping_put_and_get(client: TestClient, test_root: Path) -> N
     assert len(data["signals"]) == 5
 
 
+def test_loops_endpoint_survives_a_site_loop_with_tags_missing_from_the_dataset(
+    client: TestClient,
+) -> None:
+    body = {
+        "signals": [
+            {"tag": "GHOST.PV", "role": "pv", "loop": "GHOST"},
+            {"tag": "GHOST.OUT", "role": "out", "loop": "GHOST"},
+        ],
+        "loops": [{"id": "GHOST", "pv": "GHOST.PV", "out": "GHOST.OUT"}],
+    }
+    assert client.put("/catalogue/mapping", json=body).status_code == 200
+    dataset_id = client.get("/datasets").json()[0]["id"]
+
+    response = client.get(f"/datasets/{dataset_id}/loops")
+    assert response.status_code == 200
+    assert "GHOST" not in [loop["name"] for loop in response.json()["loops"]]
+
+
 def test_catalogue_mapping_rejects_slot_mismatch(client: TestClient) -> None:
     body = {
         "signals": [

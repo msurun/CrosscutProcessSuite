@@ -145,9 +145,20 @@ def _site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
         site_tags = {t["id"]: t for t in site_doc.get("tags", [])}
         tag_dict = {t["id"]: t for t in tags}
         combined = {**site_tags, **tag_dict}
-        return [_build_site_loop(entry, combined) for entry in site_doc["loops"]]
+        usable = [entry for entry in site_doc["loops"] if _stated_tags_in(entry, tag_dict)]
+        return [_build_site_loop(entry, combined) for entry in usable]
     except Exception:
         return []
+
+
+def _stated_tags_in(entry: dict[str, Any], tag_dict: dict[str, dict[str, Any]]) -> bool:
+    """True unless a PV or OUT id the site loop states is missing from the dataset.
+
+    An empty or absent PV/OUT is not stated, so the loop is kept (onboarding
+    readiness reports out-less loops as amber).
+    """
+    stated = [str(entry.get(role, "") or "") for role in ("pv", "out")]
+    return all(tag in tag_dict for tag in stated if tag)
 
 
 def _build_site_loop(entry: dict[str, Any], tag_map: dict[str, dict[str, Any]]) -> LoopTags:
