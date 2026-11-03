@@ -78,6 +78,10 @@ class SimControlSystem(Protocol):
         """An operator changes the setpoint."""
         ...
 
+    def release(self, tag: str) -> None:
+        """Hand the setpoint of ``tag`` back to local control."""
+        ...
+
 
 class Gateway(Protocol):
     """The write gateway: the only component allowed to write to a control system."""

@@ -1,7 +1,7 @@
-"""Specification of the write gateway as strict-xfail scenarios (ADR 011).
+"""Scenarios for the write gateway (ADR 011), run against the real engine.
 
 Each test describes behaviour the gateway must have against a deterministic simulated control
-system with a fake clock. They fail today because the fixture raises NotImplementedError.
+system with a fake clock. The fixtures build ``crosscut_gateway.engine.WriteGateway`` on that sim.
 """
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from crosscut_gateway import engine
 from crosscut_gateway.interfaces import Gateway, WritePolicy, WriteProposal
 
 TAG = "FIC101.SP"
 S = 1_000_000_000  # one second in ns
-pytestmark = pytest.mark.xfail(strict=True, reason="gateway not implemented (ADR 011)")
 
 POLICY = WritePolicy(
     limits=(0.0, 100.0),
@@ -91,6 +91,10 @@ class SimPlant:
         self.values[tag] = value
         self.remote = False
 
+    def release(self, tag: str) -> None:
+        """Hand the setpoint of ``tag`` back to local control."""
+        self.remote = False
+
 
 @pytest.fixture
 def sim() -> SimPlant:
@@ -100,19 +104,19 @@ def sim() -> SimPlant:
 
 @pytest.fixture
 def gateway_under_test(sim: SimPlant) -> Gateway:
-    """The real gateway in ``supervised`` mode on ``sim`` with ``POLICY`` (not written yet)."""
-    raise NotImplementedError("gateway not implemented (ADR 011)")
+    """The real gateway in ``supervised`` mode on ``sim`` with ``POLICY``."""
+    return engine.WriteGateway(sim, {TAG: POLICY}, "supervised")
 
 
 @pytest.fixture
 def dry_run_gateway(sim: SimPlant) -> Gateway:
-    """The real gateway in ``dry_run`` mode on ``sim`` with ``POLICY`` (not written yet)."""
-    raise NotImplementedError("gateway not implemented (ADR 011)")
+    """The real gateway in ``dry_run`` mode on ``sim`` with ``POLICY``."""
+    return engine.WriteGateway(sim, {TAG: POLICY}, "dry_run")
 
 
 def start_from_policy_file(path: Path, sim: SimPlant) -> Gateway:
-    """Start the gateway from a policy file whose sha256 is pinned (not written yet)."""
-    raise NotImplementedError("gateway not implemented (ADR 011)")
+    """Start the gateway from a policy file whose sha256 is pinned."""
+    return engine.start_from_policy_file(path, sim, "supervised")
 
 
 def proposal(value: float, t_ns: int = 0, reason: str = "test") -> WriteProposal:
