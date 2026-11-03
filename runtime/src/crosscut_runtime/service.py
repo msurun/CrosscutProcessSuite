@@ -17,6 +17,7 @@ from typing import Any
 from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
 
+from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore
@@ -38,6 +39,9 @@ class RuntimeService:
         self._clock = clock
         self._job_docs: dict[str, dict[str, Any]] = {}
         self._connectors: dict[str, Any] = {}
+        self._kpi_jobs: dict[str, LoopKpiJob] = {}
+        self._history = HistoryStore(history_path(root))
+        self._pending_samples: list[tuple[str, float, float]] = []
 
     def run_once(self) -> None:
         """Synchronize configuration, run due jobs, and record the results."""
@@ -50,6 +54,7 @@ class RuntimeService:
 
         self._sync_scheduler(jobs_doc.get("jobs", []), site)
         results = self._scheduler.tick(self._clock())
+        self._flush_samples()
         self._update_state(jobs_doc.get("jobs", []), results)
 
     def stop(self) -> None:
@@ -68,7 +73,7 @@ class RuntimeService:
         for job in jobs:
             job_id = job["id"]
             if not job.get("enabled", False) or job["kind"] == "anomaly_scan":
-                self._scheduler.remove(job_id)
+                self._remove_job(job_id)
                 continue
 
             active_ids.add(job_id)
@@ -77,7 +82,12 @@ class RuntimeService:
 
         for job_id in self._scheduler.ids():
             if job_id not in active_ids:
-                self._scheduler.remove(job_id)
+                self._remove_job(job_id)
+
+    def _remove_job(self, job_id: str) -> None:
+        """Unschedule a job and drop its cached KPI job (the rolling window goes with it)."""
+        self._scheduler.remove(job_id)
+        self._kpi_jobs.pop(job_id, None)
 
     def _sync_loop_kpi_job(
         self,
@@ -87,24 +97,52 @@ class RuntimeService:
     ) -> None:
         """Update or create a JobSlot for a loop_kpi job."""
         job_id = job["id"]
-        old_job = self._job_docs.get(job_id)
+        unchanged = self._job_docs.get(job_id) == job
 
-        if old_job != job:
+        if not unchanged:
             self._job_docs[job_id] = job
             source_doc = sources.get(job["source"], {})
             self._connectors[job_id] = self._connector_factory(source_doc)
 
-        connector = self._connectors[job_id]
+        kpi_job = self._kpi_job_for(job, loop_docs)
 
         def run_fn() -> Any:
-            return LoopKpiJob(job, loop_docs, connector).run()
+            return kpi_job.run()
 
         existing = self._scheduler.get(job_id)
-        if existing and old_job == job:
+        if existing and unchanged:
             existing.run = run_fn
             existing.period_s = job["period_s"]
         else:
             self._scheduler.put(JobSlot(job_id, job["period_s"], run_fn))
+
+    def _kpi_job_for(self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]]) -> LoopKpiJob:
+        """The cached LoopKpiJob of a job, so its rolling window survives across runs.
+
+        A new instance (and an empty window) is made only when the job doc or the loop docs change.
+        """
+        job_id = job["id"]
+        cached = self._kpi_jobs.get(job_id)
+        if cached is None or cached.job_doc != job or cached.loop_docs != loop_docs:
+            cached = LoopKpiJob(
+                job, loop_docs, self._connectors[job_id], on_sample=self._buffer_sample
+            )
+            self._kpi_jobs[job_id] = cached
+        return cached
+
+    def _buffer_sample(self, tag: str, ts: float, value: float) -> None:
+        """Queue one accepted live sample; it is written to history at the end of the pass."""
+        self._pending_samples.append((tag, ts, value))
+
+    def _flush_samples(self) -> None:
+        """Write the samples queued during this pass; a store failure is logged, not raised."""
+        if not self._pending_samples:
+            return
+        rows, self._pending_samples = self._pending_samples, []
+        try:
+            self._history.append(rows)
+        except HistoryError as error:
+            self._store.append_log("error", f"History write failed: {error}")
 
     def _update_state(self, jobs: list[dict[str, Any]], results: list[Any]) -> None:
         """Merge job outcomes into the runtime state file."""

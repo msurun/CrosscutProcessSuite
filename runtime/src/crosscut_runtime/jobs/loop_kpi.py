@@ -8,6 +8,7 @@ of the offline record of the same series are exactly equal (the property the tes
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -146,16 +147,19 @@ class LoopKpiJob:
         job_doc: dict[str, Any],
         loop_docs: dict[str, dict[str, Any]],
         connector: Any,
+        on_sample: Callable[[str, float, float], None] | None = None,
     ) -> None:
         """Create the job from its jobs.json document, the site loop docs and a read connector.
 
         ``connector`` is anything with ``read_live(tag_ids) -> dict[str, LiveValue]`` (a
         ``crosscut_connectors.base.Connector``); ``loop_docs`` maps a loop id to its site
-        catalogue loop document.
+        catalogue loop document. ``on_sample(tag, ts, value)``, when given, is called for every
+        accepted sample (epoch seconds, tag units), e.g. to persist it to the history store.
         """
         self.job_doc = job_doc
         self.loop_docs = loop_docs
         self.connector = connector
+        self.on_sample = on_sample
         self.window = RollingWindow(float(job_doc["window_s"]))
 
     def _tag_ids(self, loop_doc: dict[str, Any]) -> dict[str, str] | None:
@@ -175,6 +179,8 @@ class LoopKpiJob:
             # The connector stamps samples in UTC ISO text; the window works in epoch seconds.
             ts = datetime.fromisoformat(live.timestamp_utc).timestamp()
             self.window.add(tag, ts, live.value)
+            if self.on_sample is not None:
+                self.on_sample(tag, ts, float(live.value))
 
     def _loop_kpi(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> dict[str, Any] | None:
         """The KPI of one loop from the window, or None while below the sample threshold."""
