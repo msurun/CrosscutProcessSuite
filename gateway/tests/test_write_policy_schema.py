@@ -137,6 +137,30 @@ def test_limits_must_have_exactly_two_items() -> None:
     assert not _validator().is_valid(doc2)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("min_interval_s", -0.1),
+        ("hold_off_s", -1.0),
+        ("readback_tolerance", -0.5),
+        ("watchdog_s", 0),
+    ],
+)
+def test_negative_timing_or_zero_watchdog_fails(field: str, value: float) -> None:
+    """Negative intervals, hold-offs or tolerances and a zero watchdog must fail."""
+    doc = copy.deepcopy(VALID_POLICY_DOC)
+    doc["targets"]["LIC_101.SP"][field] = value
+    assert not _validator().is_valid(doc)
+
+
+@pytest.mark.parametrize("bad_limits", [["a", 1], [0.0, None]])
+def test_non_numeric_limits_fail(bad_limits: list[Any]) -> None:
+    """Limits must be numbers; strings and null are rejected."""
+    doc = copy.deepcopy(VALID_POLICY_DOC)
+    doc["targets"]["LIC_101.SP"]["limits"] = bad_limits
+    assert not _validator().is_valid(doc)
+
+
 def test_invalid_target_tag_identifier_fails() -> None:
     """Target tags must conform to valid identifier syntax."""
     doc = copy.deepcopy(VALID_POLICY_DOC)

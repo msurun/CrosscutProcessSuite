@@ -1,7 +1,7 @@
 """CLI tool displaying L5 Virtual DCS matrix status and readiness counts.
 
-Prints a formatted Markdown table of all acceptance rows, tracking required RougherSim
-hooks, associated modules, and implementation readiness without any side effects.
+Prints a Markdown table of all acceptance rows (phase, milestone, scenarios, status,
+criterion), then totals by status and a row count per phase. No side effects beyond stdout.
 """
 
 from __future__ import annotations
@@ -14,30 +14,34 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from matrix import MATRIX, MatrixRow  # noqa: E402
+from matrix import MATRIX, VALID_PHASES, MatrixRow  # noqa: E402
 
 
 def _render_row(row: MatrixRow) -> str:
     """Format a single MatrixRow into a Markdown table row."""
     ref_part = f" (`{row.scenario_ref}`)" if row.scenario_ref else ""
-    claim_text = f"{row.claim}{ref_part}"
-    fields = [row.row_id, row.module, row.scenario_id, row.status, row.needs, claim_text]
+    scenarios = f"{', '.join(row.scenarios)}{ref_part}"
+    fields = [row.row_id, row.phase, row.milestone, scenarios, row.status, row.criterion]
     return f"| {' | '.join(fields)} |"
 
 
 def _build_summary(rows: tuple[MatrixRow, ...]) -> str:
-    """Compute and format summary counts for pending and ready matrix rows."""
+    """Compute totals by status and a row count for each phase."""
     pending_count = sum(1 for r in rows if r.status == "pending")
     ready_count = sum(1 for r in rows if r.status == "ready")
-    total_count = len(rows)
-    return f"**Total:** {total_count} | **Pending:** {pending_count} | **Ready:** {ready_count}"
+    totals = f"**Total:** {len(rows)} | **Pending:** {pending_count} | **Ready:** {ready_count}"
+    per_phase = " | ".join(
+        f"**{phase}:** {sum(1 for r in rows if r.phase == phase)}"
+        for phase in sorted(VALID_PHASES)
+    )
+    return f"{totals}\n\n{per_phase}"
 
 
 def print_matrix_status() -> None:
     """Print the complete L5 acceptance matrix in Markdown format to stdout."""
     headers = [
         "# L5 Virtual DCS Acceptance Matrix Status\n",
-        "| ID | Module | Scenario | Status | Needs | Claim |",
+        "| ID | Phase | Milestone | Scenarios | Status | Criterion |",
         "|---|---|---|---|---|---|",
     ]
     lines = headers + [_render_row(row) for row in MATRIX]

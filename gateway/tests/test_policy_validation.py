@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
+from typing import Any
 
 import pytest
-from crosscut_gateway.interfaces import WritePolicy, WriteProposal
+from crosscut_gateway.interfaces import WriteDecision, WritePolicy, WriteProposal
 from crosscut_gateway.policy import (
     PolicyError,
     policy_from_dict,
@@ -141,6 +143,17 @@ def test_accept_proposal_clamped_with_reason_clamped() -> None:
     assert decision.clamped_value == 60.0  # max_step=10 restricts 50 -> 60
 
 
+@pytest.mark.parametrize("bad_value", [True, False, None, "42", 10**400, -(10**400)])
+def test_refuse_non_numeric_or_overflowing_value_without_raising(bad_value: Any) -> None:
+    """Refuse with bad_value for bool, None, str or int beyond float range; never raise."""
+    prop = WriteProposal(TAG, bad_value, "supervisor_agent", 2 * ONE_SECOND_NS, "test")
+    decision = validate_proposal(
+        TEST_POLICY, prop, last_value=50.0, last_write_t_ns=ONE_SECOND_NS, loop_mode="CAS"
+    )
+    assert not decision.accepted
+    assert decision.reason_code == "bad_value"
+
+
 # --- Priority Rule Tests ---
 
 
@@ -188,6 +201,46 @@ def test_priority_min_interval_beats_clamping() -> None:
     )
     assert decision.reason_code == "min_interval"
     assert not decision.accepted
+
+
+def test_priority_clock_backwards_beats_bad_last_value() -> None:
+    """Verify clock_backwards is reported before a NaN last_value is considered."""
+    prop = _make_proposal(55.0, t_ns=ONE_SECOND_NS - 50)
+    decision = validate_proposal(
+        TEST_POLICY, prop, last_value=math.nan, last_write_t_ns=ONE_SECOND_NS, loop_mode="CAS"
+    )
+    assert decision.reason_code == "clock_backwards"
+
+
+def test_priority_min_interval_beats_last_value_out_of_limits() -> None:
+    """Verify min_interval is reported before a last_value outside engineering limits."""
+    last_write = ONE_SECOND_NS
+    too_early = last_write + int(0.2 * ONE_SECOND_NS)
+    prop = _make_proposal(55.0, t_ns=too_early)
+    decision = validate_proposal(
+        TEST_POLICY, prop, last_value=150.0, last_write_t_ns=last_write, loop_mode="CAS"
+    )
+    assert decision.reason_code == "min_interval"
+
+
+def test_last_value_above_limits_is_refused() -> None:
+    """Refuse with last_value_out_of_limits when the known setpoint exceeds the high limit."""
+    prop = _make_proposal(55.0)
+    decision = validate_proposal(
+        TEST_POLICY, prop, last_value=150.0, last_write_t_ns=None, loop_mode="CAS"
+    )
+    assert not decision.accepted
+    assert decision.reason_code == "last_value_out_of_limits"
+
+
+def test_last_value_nan_is_refused() -> None:
+    """Refuse with last_value_out_of_limits when the known setpoint is NaN."""
+    prop = _make_proposal(55.0)
+    decision = validate_proposal(
+        TEST_POLICY, prop, last_value=math.nan, last_write_t_ns=None, loop_mode="CAS"
+    )
+    assert not decision.accepted
+    assert decision.reason_code == "last_value_out_of_limits"
 
 
 # --- Table-Driven Clamp Tests (>= 15 cases) ---
@@ -265,6 +318,18 @@ def test_table_driven_clamping_scenarios(
 # --- Property-Style Randomized Invariants Test ---
 
 
+def _assert_min_acceptance_share(decisions: Sequence[WriteDecision], minimum: float = 0.5) -> None:
+    """Fail unless at least `minimum` of the decisions are accepted."""
+    accepted = sum(1 for decision in decisions if decision.accepted)
+    share = accepted / len(decisions)
+    assert share >= minimum, f"accepted share {share:.3f} below required {minimum:.3f}"
+
+
+def _always_refuse(proposal: WriteProposal) -> WriteDecision:
+    """Stub validator that refuses every proposal."""
+    return WriteDecision(accepted=False, reason_code="mode_not_allowed")
+
+
 def test_property_randomized_proposals_satisfy_invariants() -> None:
     """Property test over 500 pseudo-random proposals verifying physical invariants."""
     # In plain words: We generate 500 varied proposals and confirm that whenever the gateway
@@ -272,16 +337,19 @@ def test_property_randomized_proposals_satisfy_invariants() -> None:
     rng = random.Random(1234)
     last_val = 50.0
     last_t_ns = ONE_SECOND_NS
+    decisions: list[WriteDecision] = []
 
     for _ in range(500):
         val = rng.uniform(-50.0, 150.0)
-        dt_s = rng.uniform(1.0, 10.0)  # Always >= min_interval_s to test clamping mechanics
-        t_ns = last_t_ns + int(dt_s * ONE_SECOND_NS)
+        # Integer nanoseconds keep the rate bound exact; dt >= min_interval_s always holds.
+        dt_ns = rng.randint(ONE_SECOND_NS, 10 * ONE_SECOND_NS)
+        t_ns = last_t_ns + dt_ns
         prop = _make_proposal(val, t_ns=t_ns)
 
         decision = validate_proposal(
             TEST_POLICY, prop, last_value=last_val, last_write_t_ns=last_t_ns, loop_mode="CAS"
         )
+        decisions.append(decision)
         if decision.accepted:
             effective = decision.clamped_value if decision.clamped_value is not None else prop.value
             # Invariant 1: Inside hard engineering limits
@@ -290,10 +358,24 @@ def test_property_randomized_proposals_satisfy_invariants() -> None:
             step = abs(effective - last_val)
             assert step <= TEST_POLICY.max_step + 1e-9
             # Invariant 3: Velocity never exceeds max_rate_per_s
-            rate_allowed = TEST_POLICY.max_rate_per_s * dt_s
+            rate_allowed = TEST_POLICY.max_rate_per_s * dt_ns / ONE_SECOND_NS
             assert step <= rate_allowed + 1e-9
             last_val = effective
             last_t_ns = t_ns
+
+    _assert_min_acceptance_share(decisions)
+    assert any(decision.reason_code == "ok" for decision in decisions)
+
+
+def test_acceptance_share_helper_fails_for_always_refusing_stub() -> None:
+    """Verify the share assertion fails when a stub validator refuses every proposal."""
+    rng = random.Random(1234)
+    decisions = [
+        _always_refuse(_make_proposal(rng.uniform(-50.0, 150.0), t_ns=ONE_SECOND_NS))
+        for _ in range(500)
+    ]
+    with pytest.raises(AssertionError):
+        _assert_min_acceptance_share(decisions)
 
 
 # --- Proposal Key Tests ---
@@ -328,6 +410,20 @@ def test_proposal_key_is_sensitive_to_semantic_fields() -> None:
     assert proposal_key(diff_val) != key_base
     assert proposal_key(diff_user) != key_base
     assert proposal_key(diff_time) != key_base
+
+
+def test_proposal_key_does_not_collide_across_nul_separator() -> None:
+    """Keys differ for proposals whose NUL-joined fields would concatenate identically."""
+    first = WriteProposal("a\x0042.5\x00b", 42.5, "c", 1000, "test")
+    second = WriteProposal("a", 42.5, "b\x0042.5\x00c", 1000, "test")
+    assert proposal_key(first) != proposal_key(second)
+
+
+def test_proposal_key_treats_negative_zero_as_zero() -> None:
+    """Proposals with -0.0 and 0.0 values produce the same key."""
+    neg = _make_proposal(-0.0, t_ns=1000)
+    pos = _make_proposal(0.0, t_ns=1000)
+    assert proposal_key(neg) == proposal_key(pos)
 
 
 # --- Policy From Dict Tests ---
@@ -386,3 +482,86 @@ def test_policy_from_dict_rejects_missing_field() -> None:
     expected_err = r"Target 'FIC101\.SP': missing required field 'max_step'"
     with pytest.raises(PolicyError, match=expected_err):
         policy_from_dict(raw)
+
+
+def _raw_target(**overrides: Any) -> dict[str, Any]:
+    """Return a valid raw target dictionary with optional field overrides."""
+    base: dict[str, Any] = {
+        "limits": [0.0, 100.0],
+        "max_step": 5.0,
+        "max_rate_per_s": 2.0,
+        "min_interval_s": 1.0,
+        "allowed_loop_modes": ["CAS"],
+        "hold_off_s": 10.0,
+        "watchdog_s": 5.0,
+        "readback_tolerance": 0.5,
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("limits", [math.nan, 1.0]),
+        ("limits", [0.0, math.inf]),
+        ("max_step", math.nan),
+        ("max_rate_per_s", math.inf),
+        ("min_interval_s", -math.inf),
+        ("hold_off_s", math.nan),
+        ("watchdog_s", math.inf),
+        ("readback_tolerance", math.nan),
+    ],
+)
+def test_policy_from_dict_rejects_non_finite_numeric_fields(field: str, value: Any) -> None:
+    """Raise PolicyError when any numeric field is NaN or infinite."""
+    raw = {TAG: _raw_target(**{field: value})}
+    with pytest.raises(PolicyError, match="must be finite"):
+        policy_from_dict(raw)
+
+
+def test_policy_from_dict_rejects_integer_beyond_float_range() -> None:
+    """Raise PolicyError naming the field when an int cannot be converted to float."""
+    raw = {TAG: _raw_target(limits=[0, 10**400])}
+    with pytest.raises(PolicyError, match="limits\\[1\\] is out of float range"):
+        policy_from_dict(raw)
+
+
+def test_policy_from_dict_rejects_unknown_target_key() -> None:
+    """Raise PolicyError naming the misspelled key instead of silently ignoring it."""
+    raw = {TAG: _raw_target(max_stpe=5.0)}
+    with pytest.raises(PolicyError, match="unknown field 'max_stpe'"):
+        policy_from_dict(raw)
+
+
+def test_policy_from_dict_rejects_duplicate_modes_after_strip() -> None:
+    """Raise PolicyError when allowed_loop_modes repeats a mode once whitespace is stripped."""
+    raw = {TAG: _raw_target(allowed_loop_modes=["CAS", " CAS "])}
+    with pytest.raises(PolicyError, match="duplicate 'CAS'"):
+        policy_from_dict(raw)
+
+
+@pytest.mark.parametrize("tag", ["", "bad tag", "tag/name", "tag\n", "A" * 129])
+def test_policy_from_dict_rejects_invalid_tag(tag: str) -> None:
+    """Raise PolicyError for tags outside the schema identifier pattern or length."""
+    with pytest.raises(PolicyError, match="must match"):
+        policy_from_dict({tag: _raw_target()})
+
+
+def test_policy_from_dict_accepts_tag_at_maximum_length() -> None:
+    """Accept a 128-character identifier that uses only allowed characters."""
+    tag = "A" * 128
+    assert tag in policy_from_dict({tag: _raw_target()})
+
+
+@pytest.mark.parametrize("targets", [["FIC101.SP"], None, "FIC101.SP"])
+def test_policy_from_dict_rejects_non_dict_targets(targets: Any) -> None:
+    """Raise PolicyError when a 'targets' key is present but is not a mapping."""
+    with pytest.raises(PolicyError, match="'targets' must be a dictionary"):
+        policy_from_dict({"version": 1, "targets": targets})
+
+
+def test_policy_from_dict_uses_targets_only_when_present() -> None:
+    """Use the targets mapping and ignore version and mode metadata in the document."""
+    doc = {"version": 1, "mode": "AUTO", "targets": {TAG: _raw_target()}}
+    assert set(policy_from_dict(doc)) == {TAG}

@@ -7,6 +7,7 @@ tamper detection, and failure modes when loading policy files from disk.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -135,3 +136,74 @@ def test_load_reversed_limits_raises_policy_error(tmp_path: Path) -> None:
 
     with pytest.raises(PolicyError, match=r"limits\[0\].*>.*limits\[1\]"):
         load_policy_file(path)
+
+
+VALID_TEXT = json.dumps(VALID_POLICY_DICT, indent=2)
+
+
+def _write_text(tmp_path: Path, text: str) -> Path:
+    """Write raw policy text to a fresh file and return its path."""
+    path = tmp_path / "raw_policy.json"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_undecodable_bytes_raise_policy_error(tmp_path: Path) -> None:
+    """Non-UTF-8 bytes must surface as PolicyError, not UnicodeDecodeError."""
+    path = tmp_path / "bad_bytes.json"
+    path.write_bytes(b"\xff{")
+    with pytest.raises(PolicyError, match=r"Cannot read policy file") as exc_info:
+        load_policy_file(path)
+    assert type(exc_info.value) is PolicyError
+
+
+def test_utf8_bom_prefixed_policy_file_loads(tmp_path: Path) -> None:
+    """A UTF-8 byte-order mark before the JSON object is accepted."""
+    path = tmp_path / "bom_policy.json"
+    path.write_bytes(b"\xef\xbb\xbf" + VALID_TEXT.encode("utf-8"))
+    targets, mode, _ = load_policy_file(path)
+    assert mode == "supervised"
+    assert "FIC101.SP" in targets
+
+
+def test_duplicate_top_level_key_raises_policy_error(tmp_path: Path) -> None:
+    """A repeated root-level key is rejected instead of silently overwriting the first."""
+    text = VALID_TEXT.replace('"mode": "supervised"', '"mode": "supervised", "mode": "advisory"')
+    with pytest.raises(PolicyError, match=r"duplicate key 'mode'") as exc_info:
+        load_policy_file(_write_text(tmp_path, text))
+    assert type(exc_info.value) is PolicyError
+
+
+def test_duplicate_target_key_raises_policy_error(tmp_path: Path) -> None:
+    """A repeated key inside a target definition is rejected."""
+    text = VALID_TEXT.replace('"max_step": 10.0', '"max_step": 10.0, "max_step": 5.0')
+    with pytest.raises(PolicyError, match=r"duplicate key 'max_step'"):
+        load_policy_file(_write_text(tmp_path, text))
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_number_tokens_raise_policy_error(tmp_path: Path, token: str) -> None:
+    """NaN and Infinity tokens are not valid policy numbers and must be refused."""
+    text = VALID_TEXT.replace('"max_step": 10.0', f'"max_step": {token}')
+    with pytest.raises(PolicyError, match=r"non-finite number") as exc_info:
+        load_policy_file(_write_text(tmp_path, text))
+    assert type(exc_info.value) is PolicyError
+
+
+def test_five_thousand_digit_number_raises_policy_error(tmp_path: Path) -> None:
+    """An integer literal over the int-string conversion limit maps to PolicyError."""
+    text = VALID_TEXT.replace('"max_step": 10.0', '"max_step": ' + "9" * 5000)
+    with pytest.raises(PolicyError, match=r"Invalid JSON in policy file") as exc_info:
+        load_policy_file(_write_text(tmp_path, text))
+    assert type(exc_info.value) is PolicyError
+
+
+def test_missing_jsonschema_raises_policy_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the jsonschema package, validation fails with a clear PolicyError."""
+    path = _write_text(tmp_path, VALID_TEXT)
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    with pytest.raises(PolicyError, match=r"jsonschema is required") as exc_info:
+        load_policy_file(path)
+    assert type(exc_info.value) is PolicyError
