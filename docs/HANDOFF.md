@@ -1,4 +1,4 @@
-# Handoff (updated 2026-10-30): product reset, Phase 1 in progress
+# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md` (product definition, phases 0-8, owner decisions), then this file, then `docs/IMPLEMENTATION_LOG.md` for per-step detail.
 
@@ -35,7 +35,7 @@ State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 
 4. Phase 1 step #37 (Mapping Wizard & Role Reconciliation) DONE (29688de): `role_mapping.py` with `suggest_roles` and `loops_from_signals`, `catalogue_routes.py` (`POST /catalogue/suggest`, `GET/PUT /catalogue/mapping`), `DatasetStore.loops_of` serving mapped loops, `CatalogueWizard.tsx` (5 steps reusing `Stepper.tsx`), integration with `SitePage.tsx`, strings en/pl/es, unit tests (9 in `test_role_mapping.py`, 5 in `test_catalogue_routes.py`, 3 in `CatalogueWizard.test.tsx`), e2e test in `catalogue.spec.ts`.
 5. Phase 1 step #43 (Connector Interface & Adapters) DONE (be8657b): read-only `Connector` protocol, `OpcUaConnector` (browse, metadata, read_live), `CsvConnector` (browse, metadata, history), `SqlConnector` (browse, metadata, history), registry (`connector_from_source`), `gateway` static no-write guard for connectors, backend routes (`/sources`, `/sources/{id}/test`, `/sources/{id}/browse`, `/sources/{id}/read-live`), `SourcesPanel.tsx` in frontend with live sampling, strings en/pl/es, unit/integration tests (contract, live read against PlantServer, backend routes, panel unit test, e2e Playwright with axe).
 6. Phase 1 step #39 (Onboarding & Readiness Check) DONE (9092866): site schema `readiness` definition, parameterized `ReadinessConfig` in `loops/readiness.py`, `connectors/onboarding.py` multi-module evaluation (`loops`, `anomaly`, `softsensor`), `GET /datasets/{id}/readiness` endpoint, `OnboardingPage.tsx` with traffic lights and actionable what-to-fix reasons, strings en/pl/es, unit tests, e2e Playwright with axe.
-7. Next in order: #44 runtime service, then Phase 2 (Write Gateway).
+7. #44 runtime service DONE (Phase 1 exit met). Phase 2 in progress: Write Gateway engine DONE against the simulator; next: API/GUI console, OPC UA write protocol, roles (#47), policy editor, run the 12 scenarios against RougherSim (#53 harness).
 8. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
 9. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
 

@@ -971,3 +971,25 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Tests added: `connectors/tests/test_onboarding.py` (4 tests), `api/tests/test_onboarding_routes.py` (3 tests), `frontend/src/components/OnboardingPage.test.tsx` (3 vitest tests), `route.test.ts` (extended with onboarding view), and Playwright E2E test with axe checks in `frontend/e2e/onboarding.spec.ts` (60 E2E tests total).
 - All gates green: `ruff` clean, whole-repo `pytest` clean (2193 passed, 12 xfailed), `npx tsc --noEmit` clean, 744 Vitest tests passed, `npm run build` passed, 60 Playwright E2E tests passed with axe. `graphify update .` completed. Module: online foundation, Phase 1.
 
+## 2026-11-02 - Phase 1 #44 Runtime service (module: online foundation, Phase 1)
+
+- Added `runtime/` package: `store.py`, `scheduler.py`, `service.py`, `__main__.py`, and the run history in SQLite (`history.sqlite3` under `<root>/_runtime/`).
+- Jobs: `loop_kpi` and `anomaly_scan`. `anomaly_scan` learns a PCA from history and scans the last window with `crosscut_anomaly.detect.scan`.
+- `addressing.py` `AddressedConnector` maps tag ids to connector addresses for live reads.
+- Backend `api/runtime_routes.py`; GUI `RuntimePage.tsx`.
+- Deployment in `deploy/`: systemd unit, Windows wrappers, and README.
+- E2E `runtime.spec.ts` runs against an OPC UA PlantServer, with the runtime service started by `run_e2e.mjs`. Phase 1 exit criterion met; full e2e 63/63.
+- Fixes: `LoopKpiJob` was re-created per run, so its window never accumulated; `GET /datasets/<id>/loops` returned 500 when a site loop referenced tags missing from the dataset; opcua connector now resolves `nsu=` ids.
+- RougherSim pin moved to rs-v0.11.0.
+- Commits e18a42f, 47c1f2d, and the part-3 commit.
+
+## 2026-11-02 - Phase 2 #46 Write Gateway engine (module: write-path, Phase 2)
+
+- `gateway/policy.py`: stateless `validate_proposal` with clamps. `policy_file.py`: digest-pinned policy load. Schema `schemas/write-policy.schema.json`.
+- `audit.py`: hash-chained JSONL audit log.
+- `engine.py` `WriteGateway`: modes off, advisory, dry_run, confirm, supervised; idempotency; hold-off after operator override; read-back; watchdog; kill switch; confirm queue.
+- All 12 scenarios pass against the SimPlant; the strict-xfail marker is removed.
+- Opus safety review found 10 defects, fixed test-first (37 tests in `test_engine_hardening.py`).
+- Policy slice written by Antigravity (Gemini Flash) and reviewed.
+- Not done yet: OPC UA write protocol; roles/login (#47); API routes and GUI console (in progress; must reach the gateway through a `GatewayClient` abstraction, because analysis packages may not import `crosscut_gateway`); write-policy GUI editor. All targets start `enabled` at startup (decide per ADR 011 before real use).
+
