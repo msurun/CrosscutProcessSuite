@@ -993,3 +993,13 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Policy slice written by Antigravity (Gemini Flash) and reviewed.
 - Not done yet: OPC UA write protocol; roles/login (#47); API routes and GUI console (in progress; must reach the gateway through a `GatewayClient` abstraction, because analysis packages may not import `crosscut_gateway`); write-policy GUI editor. All targets start `enabled` at startup (decide per ADR 011 before real use).
 
+## 2026-11-02 - Phase 2 #46 gateway console, process boundary, review fixes (module: write-path, Phase 2)
+
+- API routes reach the gateway only through a `GatewayClient` Protocol; the API never imports `crosscut_gateway` (guard enforced). `GatewayPage` console and e2e cover the 503 state.
+- `gateway/service.py`: file mailbox under `<root>/_gateway/`: inbox (commands), outbox (results), `state.json` (audit tail and `chain_ok`). `os.replace` retry for Windows file locks.
+- `api/gateway_client.py`: `FileGatewayClient` and `gateway_provider`. The client is used only while `state.json` is fresh (<10 s), otherwise 503; a timeout returns 504.
+- L5 acceptance matrix as skipped rows (`tests/integration_roughersim/matrix.py`): 7 doc rows, 12 gateway rows, and 1 P2 e2e row.
+- Opus review of the Antigravity slices found 12 defects; all fixed (967f367).
+- Commits eee8221, b2a2c5b, 967f367, 1874520.
+- Open: OPC UA write adapter (needs owner approval for a new element/package and a guard change, because the gateway must not import OPC UA today); roles/login #47 and the write authority model (owner decision 9) before confirm/supervised on a real plant; policy editor (blocked on roles); tuning to the write path #48; nobody wires the engine to a real plant yet; the inbox must be OS-permission protected until #47; all targets start `enabled`.
+
