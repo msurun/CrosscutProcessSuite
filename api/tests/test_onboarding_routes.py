@@ -11,10 +11,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from crosscut_api.app import create_app
 from crosscut_connectors.site import save_site
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def clean_dataset_client(tmp_path: Path) -> tuple[TestClient, Path]:
         ],
     }
     save_site(tmp_path, site_doc)
-    return TestClient(create_app(tmp_path)), tmp_path
+    return TestClient(create_app_without_auth(tmp_path)), tmp_path
 
 
 def test_clean_dataset_readiness_endpoint(clean_dataset_client: tuple[TestClient, Path]) -> None:

@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_gateway.engine import WriteGateway
@@ -26,8 +25,9 @@ from crosscut_gateway.interfaces import WritePolicy
 from crosscut_gateway.service import GatewayService, serve
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
-TAG = "FIC101.SP"
+TAG ="FIC101.SP"
 SECOND_NS = 1_000_000_000
 WAIT_TIMEOUT_S = 3.0
 POLL_INTERVAL_S = 0.02
@@ -137,12 +137,22 @@ def _run_service(root: Path, plant: SimPlant) -> tuple[threading.Event, threadin
 
 def _fresh_client(root: Path) -> TestClient:
     """Build the real API app over ``root`` and return a test client for it."""
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
+
+
+def _install_signing_key(root: Path) -> Path:
+    """Write a random 32-byte HMAC key under root/_secrets and return its path."""
+    key_file = root / "_secrets" / "gateway-hmac.key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_bytes(os.urandom(32))
+    return key_file
 
 
 @pytest.fixture
-def live(tmp_path: Path) -> LiveService:
+def live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LiveService:
     """A running gateway service, the API in front of it, and the shared plant."""
+    monkeypatch.delenv("CROSSCUT_SECRETS_DIR", raising=False)
+    _install_signing_key(tmp_path)
     plant = SimPlant()
     stop_event, thread = _run_service(tmp_path, plant)
     client = _fresh_client(tmp_path)
@@ -328,6 +338,14 @@ def test_put_mode_changes_the_published_mode(live: LiveService) -> None:
     response = live.client.put("/gateway/mode", json={"mode": "supervised"})
     assert response.status_code == 200
     _poll(lambda: _mode_is(live.client, "supervised"), "the mode to become supervised")
+
+
+def test_signed_command_without_key_file_answers_503(live: LiveService) -> None:
+    """With no HMAC key file, approve answers 503 while kill is still sent unsigned."""
+    _wait_status(live.client)
+    (live.root / "_secrets" / "gateway-hmac.key").unlink()
+    assert live.client.post("/gateway/pending/x/approve").status_code == 503
+    assert live.client.post("/gateway/kill").status_code != 503
 
 
 def _imported_roots(node: ast.AST) -> list[str]:

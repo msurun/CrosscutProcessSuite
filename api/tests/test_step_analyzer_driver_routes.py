@@ -167,12 +167,12 @@ def test_step_driver_routes_an_unknown_driver_tag_passes_the_404_through(
 
 def test_step_driver_routes_real_loader_reads_two_tags_of_a_dataset(tmp_path: Path) -> None:
     """The app's own loader: a simulated dataset, one tag as driver and another as output."""
-    from crosscut_api.app import create_app  # noqa: PLC0415
     from crosscut_sim.run import main as run_simulation  # noqa: PLC0415
+    from open_app import create_app_without_auth  # noqa: PLC0415
 
     argv = ["--plant", "mill_circuit", "--duration", "2h", "--sample-period", "10"]
     assert run_simulation([*argv, "--out", str(tmp_path)]) == 0
-    real = TestClient(create_app(tmp_path))
+    real = TestClient(create_app_without_auth(tmp_path))
     dataset = real.get("/datasets").json()[0]["id"]
     body = {"driver": "sim.mc.mill_feed", "output": "sim.mc.mill_power"}
     assert real.post(f"/datasets/{dataset}/steps", json=body).status_code == 200

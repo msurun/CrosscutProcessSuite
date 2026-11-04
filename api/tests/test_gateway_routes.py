@@ -100,7 +100,7 @@ class GatewayAdapter:
             for p in self._gw.pending()
         ]
 
-    def approve(self, key: str) -> dict[str, object]:
+    def approve(self, key: str, actor: object = None) -> dict[str, object]:
         decision = self._gw.approve(key)
         return {
             "accepted": decision.accepted,
@@ -108,16 +108,16 @@ class GatewayAdapter:
             "clamped_value": decision.clamped_value,
         }
 
-    def reject(self, key: str) -> None:
+    def reject(self, key: str, actor: object = None) -> None:
         self._gw.reject(key)
 
-    def kill(self) -> None:
+    def kill(self, actor: object = None) -> None:
         self._gw.kill()
 
-    def re_enable(self, tag: str) -> None:
+    def re_enable(self, tag: str, actor: object = None) -> None:
         self._gw.re_enable(tag)
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str, actor: object = None) -> None:
         self._gw.set_mode(cast(Mode, mode))
 
     def audit(self, limit: int) -> dict[str, object]:
@@ -253,10 +253,16 @@ def test_put_mode_updates_mode_or_returns_422() -> None:
     gw = WriteGateway(plant, {TAG: _make_policy()}, mode="advisory")
     client = _make_app(gw)
 
-    resp = client.put("/gateway/mode", json={"mode": "supervised"})
-    assert resp.status_code == 200
-    assert resp.json()["mode"] == "supervised"
-    assert client.get("/gateway/status").json()["mode"] == "supervised"
+    # A rise of two steps (advisory -> confirm) is refused and leaves the mode alone.
+    jump = client.put("/gateway/mode", json={"mode": "confirm"})
+    assert jump.status_code == 409
+    assert client.get("/gateway/status").json()["mode"] == "advisory"
+
+    for step in ("dry_run", "confirm", "supervised"):
+        resp = client.put("/gateway/mode", json={"mode": step})
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == step
+        assert client.get("/gateway/status").json()["mode"] == step
 
     # Invalid mode returns 422
     assert client.put("/gateway/mode", json={"mode": "not_a_mode"}).status_code == 422

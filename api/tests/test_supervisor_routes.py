@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
+from open_app import create_app_without_auth
 
 ROOT = Path(__file__).resolve().parents[2]
 RECORD_SCHEMA = json.loads(
@@ -38,7 +38,7 @@ def client(tmp_path: Path) -> TestClient:
     """A client on a fresh 1-hour mill_circuit simulation (fresh, as the tests write logs)."""
     argv = ["--plant", "mill_circuit", "--duration", "1h", "--sample-period", "10"]
     assert run_simulation([*argv, "--out", str(tmp_path)]) == 0
-    return TestClient(create_app(tmp_path))
+    return TestClient(create_app_without_auth(tmp_path))
 
 
 def _dataset_id(client: TestClient) -> str:

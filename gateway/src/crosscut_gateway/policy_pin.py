@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from crosscut_gateway import policy_file
+from crosscut_gateway.actor import normalize_actor
 from crosscut_gateway.envelope import MIN_KEY_BYTES, EnvelopeError, sign_envelope
 from crosscut_gateway.interfaces import WritePolicy
 from crosscut_gateway.policy import PolicyError
@@ -37,6 +38,17 @@ class PinSigners:
 
     author: str
     approver: str
+
+
+@dataclass(frozen=True)
+class PinRequest:
+    """A policy document to install as the live policy, with the pin that approves it."""
+
+    policy_path: Path
+    document: dict[str, Any]
+    key: bytes
+    signers: PinSigners
+    now: datetime
 
 
 def pin_path_for(policy_path: Path) -> Path:
@@ -59,10 +71,12 @@ def _require_key(key: bytes) -> None:
 
 
 def _check_signers(signers: PinSigners) -> None:
-    """Refuse empty signer names and a signer approving their own authorship."""
-    if not signers.author.strip() or not signers.approver.strip():
+    """Refuse empty signer names and a signer approving their own authorship, ignoring case."""
+    author = normalize_actor(signers.author)
+    approver = normalize_actor(signers.approver)
+    if not author or not approver:
         raise PinError("signer_empty")
-    if signers.author == signers.approver:
+    if author == approver:
         raise PinError("author_equals_approver")
 
 
@@ -79,13 +93,12 @@ def _digests_equal(left: str, right: str) -> bool:
     return hmac.compare_digest(left.encode("utf-8", "replace"), right.encode("utf-8", "replace"))
 
 
-def _write_atomic(path: Path, doc: dict[str, str]) -> None:
-    """Write ``doc`` as UTF-8 JSON to ``path`` through a sibling temp file and an atomic replace."""
-    payload = json.dumps(doc, indent=2).encode("utf-8")
+def _write_bytes(path: Path, payload: bytes) -> None:
+    """Write ``payload`` to ``path`` through a sibling temp file and an atomic replace."""
     try:
-        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".pin-", suffix=".tmp")
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".write-", suffix=".tmp")
     except OSError as err:
-        raise PinError(f"Cannot write pin file {path}: {err}") from err
+        raise PinError(f"Cannot write {path}: {err}") from err
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
@@ -93,7 +106,12 @@ def _write_atomic(path: Path, doc: dict[str, str]) -> None:
     except OSError as err:
         with contextlib.suppress(OSError):
             os.unlink(tmp_name)
-        raise PinError(f"Cannot write pin file {path}: {err}") from err
+        raise PinError(f"Cannot write {path}: {err}") from err
+
+
+def _write_atomic(path: Path, doc: dict[str, str]) -> None:
+    """Write the pin document ``doc`` to ``path`` as UTF-8 JSON, atomically."""
+    _write_bytes(path, json.dumps(doc, indent=2).encode("utf-8"))
 
 
 def create_pin(
@@ -165,7 +183,7 @@ def verify_pin(policy_path: Path, key: bytes) -> str:
     fields = _pin_fields(_read_pin(pin_path_for(policy_path)))
     if not _signature_is_valid(fields, key):
         raise PinError("bad_signature")
-    if fields["author"] == fields["approver"]:
+    if normalize_actor(fields["author"]) == normalize_actor(fields["approver"]):
         raise PinError("author_equals_approver")
     if not _digests_equal(fields["digest"], file_digest(policy_path)):
         raise PinError("digest_mismatch")
@@ -186,3 +204,58 @@ def load_pinned_policy(
     if not _digests_equal(pinned_digest, file_digest(policy_path)):
         raise PinError("digest_mismatch")
     return targets, mode, pinned_digest
+
+
+def _policy_bytes(document: dict[str, Any]) -> bytes:
+    """Return the policy document as the UTF-8 JSON written to the policy file."""
+    return (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _read_optional(path: Path) -> bytes | None:
+    """Return the bytes of ``path``, or None when the file does not exist."""
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        raise PinError(f"Cannot read {path}: {err}") from err
+
+
+def _snapshot(policy_path: Path) -> dict[Path, bytes | None]:
+    """Record the current bytes of the policy file and its pin; None where absent."""
+    pin_path = pin_path_for(policy_path)
+    return {policy_path: _read_optional(policy_path), pin_path: _read_optional(pin_path)}
+
+
+def _restore_one(path: Path, old: bytes | None) -> None:
+    """Return ``path`` to its ``old`` bytes, or remove it when ``old`` is None; best effort."""
+    with contextlib.suppress(OSError, PinError):
+        if _read_optional(path) == old:
+            return
+        if old is None:
+            path.unlink(missing_ok=True)
+        else:
+            _write_bytes(path, old)
+
+
+def _restore(snapshot: dict[Path, bytes | None]) -> None:
+    """Restore every file in ``snapshot`` to its recorded bytes."""
+    for path, old in snapshot.items():
+        _restore_one(path, old)
+
+
+def install_policy_with_pin(request: PinRequest) -> dict[str, str]:
+    """Install the policy document and sign its pin, restoring the previous state on failure.
+
+    The key and signer checks run before any write, so a refused request touches nothing.
+    Raises PinError with install_failed after restoring the previous policy and pin bytes.
+    """
+    _require_key(request.key)
+    _check_signers(request.signers)
+    snapshot = _snapshot(request.policy_path)
+    try:
+        _write_bytes(request.policy_path, _policy_bytes(request.document))
+        return create_pin(request.policy_path, request.key, request.signers, request.now)
+    except PinError as err:
+        _restore(snapshot)
+        raise PinError("install_failed") from err

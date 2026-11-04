@@ -12,8 +12,9 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const frontend = resolve(here, "../..");
 const repo = resolve(frontend, "..");
+// The e2e suite runs with auth disabled (specs do not log in); a separate auth spec will enable it.
 const API_CODE = "import sys,uvicorn;from pathlib import Path;from crosscut_api.app import create_app;" +
-  "uvicorn.run(create_app(Path(sys.argv[1])),host='127.0.0.1',port=int(sys.argv[2]),log_level='warning')";
+  "uvicorn.run(create_app(Path(sys.argv[1]),auth_enabled=False),host='127.0.0.1',port=int(sys.argv[2]),log_level='warning')";
 
 /** The interpreter: E2E_PYTHON, else the repo venv, else `python`. */
 function findPython() {

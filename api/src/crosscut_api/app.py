@@ -4,7 +4,9 @@ Datasets and loops are read-only. A client can write only configuration kept und
 root: a fuzzy rule base (see fuzzy_routes) and the per-loop knowledge in a dataset's
 project.json (see _KnowledgeEndpoints), and intake_routes creates one new dataset folder from
 an uploaded step-test CSV. The valve stroke test (valve_routes) only reads a
-record. Nothing here writes to a plant.
+record. Nothing here writes to a plant. Routes are default-deny via ROUTE_PERMISSIONS
+(crosscut_api.auth.route_permissions); auth_enabled=False exists only for tests and the
+e2e launcher.
 """
 
 from __future__ import annotations
@@ -35,7 +37,10 @@ from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.anomaly_routes import build_anomaly_router
-from crosscut_api.auth_routes import build_auth_router
+from crosscut_api.auth.deps import AuthGuards, build_auth_context
+from crosscut_api.auth.enforce import make_enforcer
+from crosscut_api.auth.sessions import AuthConfig
+from crosscut_api.auth_routes import DEFAULT_CONFIG, build_auth_router, build_auth_router_for
 from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
@@ -647,10 +652,55 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     return router
 
 
-def create_app(data_root: Path) -> FastAPI:
-    """Create the API for the datasets stored in the sub-directories of ``data_root``."""
+def create_app(
+    data_root: Path,
+    auth_enabled: bool = True,
+    auth_config: AuthConfig = DEFAULT_CONFIG,
+) -> FastAPI:
+    """Create the API for the datasets stored in the sub-directories of ``data_root``.
+
+    Authentication is enabled by default: every route is then checked by the default-deny
+    enforcer and the ``/auth`` routes are mounted. ``auth_enabled=False`` turns the enforcer
+    off and is meant only for tests and the e2e launcher.
+    """
     store = DatasetStore(Path(data_root))
-    app = FastAPI(title="Crosscut data API")
+    app, auth_router = _new_app(store.root, auth_enabled, auth_config)
+    app.include_router(auth_router)
+    _mount_routers(app, store)
+    return app
+
+
+def _new_app(
+    store_root: Path, auth_enabled: bool, auth_config: AuthConfig
+) -> tuple[FastAPI, APIRouter]:
+    """Create the FastAPI app and its ``/auth`` router, guarded by one shared auth context."""
+    title = "Crosscut data API"
+    if not auth_enabled:
+        app = FastAPI(title=title)
+        app.state.auth_enabled = False
+        return app, build_auth_router(store_root, auth_config)
+    ctx = build_auth_context(store_root, auth_config)
+    enforcer = Depends(make_enforcer(AuthGuards(ctx), ctx))
+    app = FastAPI(title=title, dependencies=[enforcer])
+    app.state.auth_enabled = True
+    return app, build_auth_router_for(ctx)
+
+
+def _mount_routers(app: FastAPI, store: DatasetStore) -> None:
+    """Include every data router on ``app``, in their original order."""
+    _mount_data_routers(app, store)
+    # The Write Gateway runs as a separate process (ADR 011/012); the API talks to it only
+    # through the file mailbox under <data root>/_gateway/ (FileGatewayClient) and answers 503
+    # while the gateway's state file is missing or stale. This module must not import
+    # crosscut_gateway.
+    app.include_router(build_gateway_router(gateway_provider(store.root)))
+    _register_health_route(app)
+    app.include_router(_dataset_router(store))
+    app.include_router(_loop_router(store))
+
+
+def _mount_data_routers(app: FastAPI, store: DatasetStore) -> None:
+    """Include the analysis, intake and configuration routers on ``app``."""
     # The fuzzy rule-base endpoints (replay, backtest) need the same loaded tables, so they
     # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
@@ -665,16 +715,6 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_connector_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
-    app.include_router(build_auth_router(store.root))
-    # The Write Gateway runs as a separate process (ADR 011/012); the API talks to it only
-    # through the file mailbox under <data root>/_gateway/ (FileGatewayClient) and answers 503
-    # while the gateway's state file is missing or stale. This module must not import
-    # crosscut_gateway.
-    app.include_router(build_gateway_router(gateway_provider(store.root)))
-    _register_health_route(app)
-    app.include_router(_dataset_router(store))
-    app.include_router(_loop_router(store))
-    return app
 
 
 def _register_health_route(app: FastAPI) -> None:

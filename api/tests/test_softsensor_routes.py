@@ -8,9 +8,10 @@ from typing import Any
 
 import numpy as np
 import pytest
-from crosscut_api.app import DatasetStore, create_app
+from crosscut_api.app import DatasetStore
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 PREFIX = "sim.mc."
 INPUTS = [PREFIX + "mill_power", PREFIX + "p80", PREFIX + "mill_feed"]
@@ -40,7 +41,7 @@ def root(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(root: Path) -> TestClient:
     """A client on the simulated data root."""
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def _dataset_id(client: TestClient) -> str:

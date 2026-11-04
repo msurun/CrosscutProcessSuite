@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from crosscut_api.app import create_app
 from crosscut_loops.step_test_cli import main
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 GRID_S = 2.0
 LOOP_URL = "/datasets/{name}/loops/LIC1/tuning"
@@ -36,7 +36,7 @@ def _client(tmp_path: Path, name: str, manual_from_s: float) -> TestClient:
     cols = ["--time-col", "time_s", "--pv-col", "LIC1.PV", "--out-col", "LIC1.OUT"]
     args = ["make-dataset", str(csv_path), *cols, "--mode-col", "LIC1.MODE", "--manual-value", "0"]
     assert main([*args, "--out", str(root / name)]) == 0
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def test_suggested_window_includes_the_quiet_lead(tmp_path: Path) -> None:
@@ -73,5 +73,6 @@ def test_self_regulating_window_is_not_padded(tmp_path: Path, kind: str) -> None
     root = tmp_path / "root"
     assert main(["make-dataset", str(csv_path), *cols, "--process-kind", kind,
                  "--out", str(root / "s")]) == 0  # fmt: skip
-    window = TestClient(create_app(root)).get(LOOP_URL.format(name="s")).json()["window"]
+    client = TestClient(create_app_without_auth(root))
+    window = client.get(LOOP_URL.format(name="s")).json()["window"]
     assert window["padded"] == {"before_s": 0.0, "after_s": 0.0}

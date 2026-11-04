@@ -31,3 +31,8 @@ class ActorContext:
 
 
 GATEWAY_ACTOR = ActorContext(actor="gateway")
+
+
+def normalize_actor(name: str) -> str:
+    """Return the canonical form of an actor name: whitespace collapsed, case folded."""
+    return " ".join(name.split()).casefold()

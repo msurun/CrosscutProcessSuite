@@ -4,13 +4,17 @@ The only way in is the <root>/_gateway/inbox directory. With auth_required, each
 carry an HMAC envelope that AuthGate verifies, and policy commands pass a policy precheck.
 Without it (legacy mode) the inbox is trusted, so OS permissions must restrict who writes it.
 A KILL file in <root>/_gateway kills the gateway in every mode.
+Seen nonces persist in _gateway/nonce-cache.json; envelopes issued before start are refused.
+The kill latch is _gateway/KILLED, which survives restarts until a signed kill_reset.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -19,13 +23,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from crosscut_gateway import latch_store
 from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext
 from crosscut_gateway.audit import verify_chain
 from crosscut_gateway.auth_gate import AuthGate, roles_digest
 from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
-from crosscut_gateway.keyfile import default_key_path, read_key
+from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
 from crosscut_gateway.policy import proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
 
@@ -50,7 +55,7 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "kill": [],
     "kill_reset": [],
     "policy_draft": [("document", "object")],
-    "policy_pin": [],
+    "policy_pin": [("digest", "str")],
     "policy_reload": [],
 }
 
@@ -77,10 +82,11 @@ class ServiceOptions:
     key_path: Path | None = None
     roles_path: Path | None = None
     policy_path: Path | None = None
+    enforce_start_floor: bool = True
 
 
 _DEFAULT_OPTIONS = ServiceOptions()
-_UNKNOWN_CTX = ActorContext(actor="unknown")
+_UNKNOWN_CTX = ActorContext(actor="unverified:unknown")
 _LEGACY_CTX = ActorContext(actor="legacy")
 _KILL_FILE_CTX = ActorContext(actor="unsigned", source_ip="kill_file", cmd_id="KILL")
 _Handler = Callable[[dict[str, Any], ActorContext | None], dict[str, Any]]
@@ -129,10 +135,13 @@ class GatewayService:
         self._root = root
         self._gateway = gateway
         self._clock = clock
+        self._start_ns = int(clock() * 1_000_000_000)
+        self._last_nonce_snapshot: dict[str, Any] | None = None
         self._inbox_dir = root / "_gateway" / "inbox"
         self._outbox_dir = root / "_gateway" / "outbox"
         self._rejected_dir = root / "_gateway" / "rejected"
-        self._kill_path = root / "_gateway" / "KILL"
+        self._gateway_dir = root / "_gateway"
+        self._kill_path = self._gateway_dir / "KILL"
         self._key_path = options.key_path or default_key_path(root)
         self._gate: AuthGate | None = None
         self._roles_digest = ""
@@ -144,18 +153,49 @@ class GatewayService:
         for directory in (self._inbox_dir, self._outbox_dir, self._rejected_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self._setup_auth(options)
+        self._restore_kill_latch()
+
+    def _restore_kill_latch(self) -> None:
+        """Re-engage the kill after a restart while the persisted KILLED latch is present."""
+        if not latch_store.kill_latch_present(self._gateway_dir):
+            return
+        self._gateway.kill(actor_ctx=ActorContext(actor="kill_latch", source_ip="restart"))
+        self._gateway.record_event("kill_latch_restored", GATEWAY_ACTOR, "restart")
 
     def _setup_auth(self, options: ServiceOptions) -> None:
         """Load roles and the gate when auth is required; legacy mode keeps no gate."""
         if not options.auth_required:
             return
         roles, fallback_reason = roles_or_default(options.roles_path)
-        self._gate = AuthGate(roles, self._clock)
+        floor = self._start_ns if options.enforce_start_floor else None
+        gate = AuthGate(roles, self._clock, floor)
+        self._gate = gate
+        self._restore_nonce_cache(gate)
         self._roles_digest = roles_digest(roles)
         self._refresh_key()
         self._gateway.record_event(
             "roles_loaded", GATEWAY_ACTOR, fallback_reason or "ok", value=self._roles_digest
         )
+
+    def _restore_nonce_cache(self, gate: AuthGate) -> None:
+        """Reload the persisted nonce cache so a replay across a restart is still refused."""
+        data = latch_store.read_json_object(self._gateway_dir / latch_store.NONCE_NAME)
+        if data is not None:
+            gate.restore_nonces(data)
+
+    def _save_nonces(self) -> None:
+        """Save the nonce cache when it changed since the last save; audit a failed write."""
+        if self._gate is None:
+            return
+        snapshot = self._gate.nonce_snapshot()
+        if snapshot == self._last_nonce_snapshot:
+            return
+        try:
+            latch_store.write_json_atomic(self._gateway_dir / latch_store.NONCE_NAME, snapshot)
+        except OSError:
+            self._gateway.record_event("service_error", GATEWAY_ACTOR, "nonce_save_failed")
+            return
+        self._last_nonce_snapshot = snapshot
 
     def _refresh_key(self) -> None:
         """Reload the HMAC key from disk so a key rotation takes effect on the next poll."""
@@ -163,15 +203,26 @@ class GatewayService:
             self._gate.set_key(read_key(self._key_path))
 
     def _move_to_rejected(self, filepath: Path, reason: str) -> None:
-        filename = filepath.name
-        rejected_path = self._rejected_dir / filename
-        reason_path = self._rejected_dir / (filename + ".reason.txt")
-        reason_path.write_text(reason, encoding="utf-8")
+        """Move filepath (file or directory) into rejected/ beside a reason file, never raising."""
+        rejected_path = self._rejected_dir / filepath.name
+        with contextlib.suppress(OSError, ValueError):
+            reason_path = self._rejected_dir / (filepath.name + ".reason.txt")
+            reason_path.write_text(reason, encoding="utf-8")
         try:
             os.replace(filepath, rejected_path)
         except OSError:
-            rejected_path.write_text(filepath.read_text(encoding="utf-8"), encoding="utf-8")
-            filepath.unlink()
+            self._drop_source(filepath, rejected_path)
+
+    @staticmethod
+    def _drop_source(source: Path, target: Path) -> None:
+        """Fallback after a failed move: copy a file's bytes to target, or remove a directory."""
+        with contextlib.suppress(OSError):
+            if source.is_dir():
+                shutil.rmtree(source, ignore_errors=True)
+                return
+            target.write_bytes(source.read_bytes())
+        with contextlib.suppress(OSError):
+            source.unlink()
 
     @staticmethod
     def _write_atomic(target: Path, data: dict[str, Any]) -> None:
@@ -202,6 +253,12 @@ class GatewayService:
     def _assert_is_number(self, cmd: str, name: str, val: Any) -> None:
         if isinstance(val, bool) or not isinstance(val, (int, float)):
             raise CommandError(f"{cmd}: {name} must be int or float, not bool")
+        try:
+            finite = math.isfinite(float(val))
+        except OverflowError:
+            finite = False
+        if not finite:
+            raise CommandError(f"{cmd}: {name} out of range")
 
     def _assert_is_int(self, cmd: str, name: str, val: Any) -> None:
         if isinstance(val, bool) or not isinstance(val, int):
@@ -272,13 +329,33 @@ class GatewayService:
 
     def _handle_kill(self, _args: dict[str, Any], ctx: ActorContext | None) -> dict[str, Any]:
         self._gateway.kill(actor_ctx=ctx)
+        self._latch_kill(ctx)
         return {}
+
+    def _latch_kill(self, ctx: ActorContext | None) -> None:
+        """Persist the kill latch so a restart stays killed; a failed write keeps the kill."""
+        actor = ctx.actor if ctx else "legacy"
+        at_utc = datetime.fromtimestamp(self._clock(), tz=UTC).isoformat()
+        try:
+            latch_store.write_kill_latch(self._gateway_dir, actor, at_utc)
+        except OSError:
+            self._gateway.record_event("service_error", GATEWAY_ACTOR, "kill_latch_write_failed")
 
     def _handle_kill_reset(
         self, _args: dict[str, Any], ctx: ActorContext | None
     ) -> dict[str, Any]:
         self._gateway.reset_kill(actor_ctx=ctx)
+        self._clear_latch()
         return {}
+
+    def _clear_latch(self) -> None:
+        """Remove the kill latch after a reset; refuse only when the latch file survives."""
+        try:
+            latch_store.clear_kill_latch(self._gateway_dir)
+        except OSError as exc:
+            self._gateway.record_event("service_error", GATEWAY_ACTOR, "kill_latch_clear_failed")
+            if latch_store.kill_latch_present(self._gateway_dir):
+                raise CommandError("kill latch could not be cleared") from exc
 
     def _handle_re_enable(
         self, args: dict[str, Any], ctx: ActorContext | None
@@ -327,7 +404,7 @@ class GatewayService:
 
     def _get_audit_view(self) -> tuple[list[Any], bool]:
         records = self._gateway.audit_records()
-        return records[-200:], verify_chain(records)
+        return records[-200:], verify_chain(records, self._policy_key())
 
     def _policy_key(self) -> bytes | None:
         """Return the loaded gateway key for policy signing, or None in legacy mode."""
@@ -351,6 +428,7 @@ class GatewayService:
             "chain_ok": chain_ok,
             "auth": self._auth_status(),
             "roles_digest": self._roles_digest,
+            "key_acl": key_acl_status(self._key_path),
         }
         self._write_atomic(self._root / "_gateway" / "state.json", state)
 
@@ -358,25 +436,54 @@ class GatewayService:
         """Refresh the key, handle the KILL file, process the inbox, tick and write state."""
         self._refresh_key()
         self._handle_kill_file()
-        for inbox_file in sorted(self._inbox_dir.glob("*.json")):
-            self._process_file(inbox_file)
+        for inbox_file in self._inbox_files():
+            self._guarded_process(inbox_file)
+        self._save_nonces()
         self._gateway.tick(int(self._clock() * 1_000_000_000))
         self._write_state()
 
+    def _inbox_files(self) -> list[Path]:
+        """Return the inbox's JSON entries in name order, or [] when the inbox cannot be listed."""
+        try:
+            return sorted(self._inbox_dir.glob("*.json"))
+        except OSError:
+            return []
+
+    def _guarded_process(self, filepath: Path) -> None:
+        """Process one inbox file; any failure quarantines that file and the cycle goes on."""
+        try:
+            self._process_file(filepath)
+        except Exception as exc:
+            self._quarantine(filepath, exc)
+
+    def _quarantine(self, filepath: Path, exc: Exception) -> None:
+        """Move a file that broke processing to rejected/ and audit it; skip vanished files."""
+        if isinstance(exc, FileNotFoundError):
+            return
+        self._move_to_rejected(filepath, exc.__class__.__name__)
+        self.record_service_error(exc)
+
+    def record_service_error(self, exc: BaseException) -> None:
+        """Audit a failed service step by exception class name only, never its message."""
+        with contextlib.suppress(Exception):
+            self._gateway.record_event("service_error", GATEWAY_ACTOR, exc.__class__.__name__)
+
     def _handle_kill_file(self) -> None:
-        """Kill the gateway while the KILL file exists, consuming the file after each kill."""
+        """Kill the gateway while the KILL file exists, retiring the file after each kill."""
         if not self._kill_path.exists():
             return
         self._gateway.kill(actor_ctx=_KILL_FILE_CTX)
-        try:
-            self._kill_path.unlink()
-        except OSError:
-            self._retire_kill_file()
+        self._latch_kill(_KILL_FILE_CTX)
+        self._retire_kill_file()
 
     def _retire_kill_file(self) -> None:
-        """Rename an undeletable KILL file to KILL.handled, ignoring a failure to do so."""
-        with contextlib.suppress(OSError):
-            os.replace(self._kill_path, self._kill_path.with_name("KILL.handled"))
+        """Rename the handled KILL file to KILL.handled-<ts>, falling back to unlink."""
+        target = self._kill_path.with_name(f"KILL.handled-{int(self._clock())}")
+        try:
+            os.replace(self._kill_path, target)
+        except OSError:
+            with contextlib.suppress(OSError):
+                self._kill_path.unlink()
 
     def _read_command(self, filepath: Path) -> dict[str, Any]:
         try:
@@ -405,11 +512,11 @@ class GatewayService:
         verdict = self._gate.check(cmd_data, self._gateway)
         if not verdict.ok:
             raise AuthRejected(verdict.reason, verdict.ctx)
-        return self._precheck(cmd_data["cmd"], verdict.ctx)
+        return self._precheck(cmd_data["cmd"], verdict.ctx, cmd_data["args"])
 
-    def _precheck(self, cmd: str, ctx: ActorContext) -> ActorContext:
+    def _precheck(self, cmd: str, ctx: ActorContext, args: Any) -> ActorContext:
         """Return ctx when the policy precheck passes for cmd; otherwise raise AuthRejected."""
-        reason = self._policy.precheck(cmd, ctx, self._gateway)
+        reason = self._policy.precheck(cmd, ctx, self._gateway, args)
         if reason is not None:
             raise AuthRejected(reason, ctx)
         return ctx
@@ -446,11 +553,10 @@ class GatewayService:
 
 
 def serve(service: GatewayService, interval_s: float, stop_event: threading.Event) -> None:
-    """Run the service loop until *stop_event* is set."""
+    """Run poll cycles until *stop_event* is set; a failing cycle is reported and skipped."""
     while not stop_event.is_set():
-        # A transient file-system error must not kill the gateway loop.
         try:
             service.poll_once()
-        except OSError:
-            pass
+        except Exception as exc:
+            service.record_service_error(exc)
         stop_event.wait(interval_s)

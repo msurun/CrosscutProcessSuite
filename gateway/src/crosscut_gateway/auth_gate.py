@@ -1,8 +1,9 @@
 """Command authentication gate for the write gateway; fails closed.
 
 Unsigned commands are refused unless they are kill. While no key is loaded, signed commands are
-refused unless they are kill or a set_mode downgrade. Verified envelopes then pass role
-authorization, the self-approval rule and the policy_pin step-up rule.
+refused unless they are kill or a set_mode that does not raise the mode. Verified envelopes then
+pass role authorization, the self-approval rule and the policy_pin step-up rule. Envelopes that
+fail verification are attributed to "unverified:<claimed actor>" in the audit trail.
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ _NONCE_WINDOW_S = 120
 _UNKNOWN_ACTOR = "unknown"
 _UNSIGNED_ACTOR = "unsigned"
 _UNVERIFIED_PREFIX = "unverified:"
-_LOW_MODES = ("off", "advisory")
+_UNVERIFIED_REASONS = frozenset({"malformed", "bad_signature", "key_too_short"})
+_START_GRACE_NS = 1_000_000_000
 
 
 def roles_digest(table: Mapping[str, frozenset[str]]) -> str:
@@ -73,15 +75,26 @@ def _refusal(cmd_data: object, reason: str) -> GateVerdict:
     return GateVerdict(False, reason, _ctx(cmd_data, _claimed_actor(cmd_data)))
 
 
+def _unverified_refusal(cmd_data: object, reason: str) -> GateVerdict:
+    """Return a refused verdict for an envelope whose signature did not verify."""
+    actor = _UNVERIFIED_PREFIX + _claimed_actor(cmd_data)
+    return GateVerdict(False, reason, _ctx(cmd_data, actor))
+
+
+def _verify_refusal(cmd_data: dict[str, Any], reason: str) -> GateVerdict:
+    """Return the refusal for a failed verification, attributed as unverified when so classed."""
+    if reason in _UNVERIFIED_REASONS:
+        return _unverified_refusal(cmd_data, reason)
+    return _refusal(cmd_data, reason)
+
+
 def _is_safe_downgrade(args: object, gateway: WriteGateway) -> bool:
-    """Return True when set_mode args go to off or advisory, or do not raise the current mode."""
+    """Return True when set_mode args name a known mode that does not raise the current mode."""
     if not isinstance(args, dict):
         return False
     new = args.get("mode")
     if not isinstance(new, str) or new not in MODES:
         return False
-    if new in _LOW_MODES:
-        return True
     current = gateway.mode
     return current in MODES and MODES.index(new) <= MODES.index(current)
 
@@ -90,7 +103,7 @@ def _check_unsigned(cmd_data: dict[str, Any]) -> GateVerdict:
     """Allow an unsigned kill command; refuse every other unsigned command."""
     if cmd_data.get("cmd") == "kill":
         return GateVerdict(True, "ok", _ctx(cmd_data, _UNSIGNED_ACTOR))
-    return _refusal(cmd_data, "unsigned_not_allowed")
+    return _unverified_refusal(cmd_data, "unsigned_not_allowed")
 
 
 def _check_keyless(cmd_data: dict[str, Any], gateway: WriteGateway) -> GateVerdict:
@@ -101,7 +114,15 @@ def _check_keyless(cmd_data: dict[str, Any], gateway: WriteGateway) -> GateVerdi
         return GateVerdict(True, "ok", _ctx(cmd_data, actor))
     if command == "set_mode" and _is_safe_downgrade(cmd_data.get("args"), gateway):
         return GateVerdict(True, "ok", _ctx(cmd_data, actor))
-    return _refusal(cmd_data, "key_missing")
+    return _unverified_refusal(cmd_data, "key_missing")
+
+
+def _predates_start(cmd_data: dict[str, Any], start_ns: int | None) -> bool:
+    """Return True when a verified envelope was issued before the gate started, less a grace."""
+    if start_ns is None:
+        return False
+    issued = cmd_data["auth"]["issued_at_ns"]
+    return bool(issued < start_ns - _START_GRACE_NS)
 
 
 def _effective_args(cmd: str, args: dict[str, Any], gateway: WriteGateway) -> dict[str, Any]:
@@ -164,10 +185,20 @@ def _authorize_verified(
 class AuthGate:
     """Authenticate command envelopes before they reach the write gateway."""
 
-    def __init__(self, roles: Mapping[str, frozenset[str]], clock: Callable[[], float]) -> None:
-        """Store the role table and a nonce cache that shares the gate's clock."""
+    def __init__(
+        self,
+        roles: Mapping[str, frozenset[str]],
+        clock: Callable[[], float],
+        start_ns: int | None = None,
+    ) -> None:
+        """Store the role table, clock and optional process start time (ns), plus a nonce cache.
+
+        When ``start_ns`` is given, verified envelopes issued more than one second before it are
+        refused as predating the start, so a restart cannot replay envelopes from an earlier run.
+        """
         self._roles: dict[str, frozenset[str]] = dict(roles)
         self._clock = clock
+        self._start_ns = start_ns
         self._key: bytes | None = None
         self._nonces = NonceCache(window_s=_NONCE_WINDOW_S, clock=clock)
 
@@ -188,10 +219,18 @@ class AuthGate:
         """Return the loaded HMAC key, or None when none is loaded."""
         return self._key
 
+    def nonce_snapshot(self) -> dict[str, dict[str, float]]:
+        """Return the live nonces and envelope ids, for saving across a restart."""
+        return self._nonces.snapshot()
+
+    def restore_nonces(self, data: object) -> None:
+        """Reload nonces and ids saved by nonce_snapshot; malformed data is ignored."""
+        self._nonces.restore(data)
+
     def check(self, cmd_data: object, gateway: WriteGateway) -> GateVerdict:
         """Decide whether cmd_data may run against gateway; never raises on any input."""
         if not isinstance(cmd_data, dict):
-            return _refusal(cmd_data, "malformed")
+            return _unverified_refusal(cmd_data, "malformed")
         if "sig" not in cmd_data:
             return _check_unsigned(cmd_data)
         key = self._key
@@ -207,7 +246,9 @@ class AuthGate:
         try:
             valid, reason = verify_envelope(cmd_data, key, now_ns, self._nonces)
         except RecursionError:
-            return _refusal(cmd_data, "malformed")
+            return _unverified_refusal(cmd_data, "malformed")
         if not valid:
-            return _refusal(cmd_data, reason)
+            return _verify_refusal(cmd_data, reason)
+        if _predates_start(cmd_data, self._start_ns):
+            return _refusal(cmd_data, "predates_start")
         return _authorize_verified(cmd_data, gateway, self._roles)

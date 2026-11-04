@@ -41,6 +41,7 @@ def make_env(
     *,
     key: bytes | None = KEY,
     pinned_policy: bool = False,
+    start_floor: bool = False,
 ) -> AuthEnv:
     """Build a test environment with a gateway and service in auth mode.
 
@@ -49,6 +50,7 @@ def make_env(
         mode: Initial gateway mode.
         key: HMAC key for the gateway; None to skip writing the key file.
         pinned_policy: True to write a pinned policy file and load it with start_from_policy_file.
+        start_floor: True to enforce the replay start-time floor in the service.
 
     Returns:
         AuthEnv with a gateway, service, and paths to key and policy files.
@@ -78,7 +80,10 @@ def make_env(
         gateway,
         clock=clock,
         options=gateway_service.ServiceOptions(
-            auth_required=True, key_path=key_path, policy_path=policy_path
+            auth_required=True,
+            key_path=key_path,
+            policy_path=policy_path,
+            enforce_start_floor=start_floor,
         ),
     )
     service.poll_once()

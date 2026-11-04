@@ -6,10 +6,10 @@ import copy
 from pathlib import Path
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_fuzzy.library import load_document
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 EXAMPLE_ID = "mill_feed_supervisor"
 INPUTS = {"mill_power": 3300.0, "p80": 150.0}
@@ -29,7 +29,7 @@ def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="module")
 def client(data_root: Path) -> TestClient:
     """Provide a FastAPI test client wired to the app built from the given data root."""
-    return TestClient(create_app(data_root))
+    return TestClient(create_app_without_auth(data_root))
 
 
 @pytest.fixture(scope="module")

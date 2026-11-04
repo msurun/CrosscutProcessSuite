@@ -94,6 +94,20 @@ def _password_changes(new: str, ctx: AuthContext) -> dict[str, Any]:
     }
 
 
+def _session_cookie(request: Request) -> dict[str, Any]:
+    """Return the Set-Cookie options for the session cookie of this request.
+
+    The cookie is httponly and ``samesite="strict"`` to blunt CSRF and XSS token
+    theft, and ``secure`` only over https so local http development still works.
+    """
+    return {
+        "httponly": True,
+        "samesite": "strict",
+        "path": "/",
+        "secure": request.url.scheme == "https",
+    }
+
+
 class _AuthEndpoints:
     """HTTP endpoint handlers for login, logout, session inspection and re-authentication."""
 
@@ -152,14 +166,7 @@ class _AuthEndpoints:
             self._record_failure(user, ip, "password_change_fail")
             raise HTTPException(status_code=403, detail="current password is incorrect")
         _check_new_password(old, new, self._ctx.config)
-        self._ctx.users.update(principal.username, _password_changes(new, self._ctx))
-        self._ctx.sessions.destroy_user(principal.username, keep=principal.session.key)
-        self._ctx.audit.append(
-            "password_change",
-            actor=principal.username,
-            ip=ip,
-            sid=principal.session.sid,
-        )
+        self._store_password(principal, new, ip)
         return {"ok": True}
 
     def stepup(
@@ -241,6 +248,17 @@ class _AuthEndpoints:
                 locked_until=changes["locked_until"],
             )
 
+    def _store_password(self, principal: Principal, new: str, ip: str) -> None:
+        """Store the new password and end every other session of the caller."""
+        self._ctx.users.update(principal.username, _password_changes(new, self._ctx))
+        self._ctx.sessions.destroy_user(principal.username, keep=principal.session.key)
+        self._ctx.audit.append(
+            "password_change",
+            actor=principal.username,
+            ip=ip,
+            sid=principal.session.sid,
+        )
+
     def _open_session(
         self,
         request: Request,
@@ -253,17 +271,34 @@ class _AuthEndpoints:
         username = str(user["username"])
         fresh = ctx.users.update(username, lockout.success_changes())
         token, session = ctx.sessions.create(username, ip)
-        response.set_cookie(
-            COOKIE_NAME,
-            token,
-            httponly=True,
-            samesite="strict",
-            path="/",
-            secure=request.url.scheme == "https",
-        )
+        response.set_cookie(COOKIE_NAME, token, **_session_cookie(request))
         ctx.audit.append("login_ok", actor=username, ip=ip, sid=session.sid)
         principal = _principal_for(fresh, session, token, ctx.roles)
         return session_payload(principal, ctx)
+
+
+def build_auth_router_for(ctx: AuthContext) -> APIRouter:
+    """Create the ``/auth`` router from an already-built auth context.
+
+    Includes the login, logout, session, password and step-up routes plus the
+    user-administration sub-router.
+
+    Args:
+        ctx: The shared authentication services.
+
+    Returns:
+        The configured ``APIRouter``.
+    """
+    guards = AuthGuards(ctx)
+    endpoints = _AuthEndpoints(ctx, guards)
+    router = APIRouter(tags=["auth"])
+    router.add_api_route("/auth/login", endpoints.login, methods=["POST"])
+    router.add_api_route("/auth/logout", endpoints.logout, methods=["POST"])
+    router.add_api_route("/auth/me", endpoints.me, methods=["GET"])
+    router.add_api_route("/auth/password", endpoints.change_password, methods=["POST"])
+    router.add_api_route("/auth/stepup", endpoints.stepup, methods=["POST"])
+    router.include_router(build_users_router(ctx, guards))
+    return router
 
 
 def build_auth_router(
@@ -272,7 +307,7 @@ def build_auth_router(
     clock: Callable[[], float] = time.time,
     users: UserStore | None = None,
 ) -> APIRouter:
-    """Create the ``/auth`` router and include the user-administration routes.
+    """Create the ``/auth`` router from a data root, building the auth context first.
 
     Args:
         root: Data root holding the ``_auth`` folder.
@@ -283,14 +318,4 @@ def build_auth_router(
     Returns:
         The configured ``APIRouter``.
     """
-    ctx = build_auth_context(root, config, clock, users)
-    guards = AuthGuards(ctx)
-    endpoints = _AuthEndpoints(ctx, guards)
-    router = APIRouter(prefix="/auth", tags=["auth"])
-    router.add_api_route("/login", endpoints.login, methods=["POST"])
-    router.add_api_route("/logout", endpoints.logout, methods=["POST"])
-    router.add_api_route("/me", endpoints.me, methods=["GET"])
-    router.add_api_route("/password", endpoints.change_password, methods=["POST"])
-    router.add_api_route("/stepup", endpoints.stepup, methods=["POST"])
-    router.include_router(build_users_router(ctx, guards))
-    return router
+    return build_auth_router_for(build_auth_context(root, config, clock, users))

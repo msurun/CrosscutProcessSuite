@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from crosscut_gateway import policy_file, policy_pin
-from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext
+from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext, normalize_actor
 from crosscut_gateway.audit import AuditLog
 from crosscut_gateway.interfaces import ControlSystem, WriteDecision, WritePolicy, WriteProposal
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
@@ -390,7 +390,10 @@ class WriteGateway:
     def _is_self_approval(self, key: str) -> bool:
         """Return True when the current actor is the one who proposed the pending key."""
         proposer = self._proposer_actor.get(key)
-        return proposer is not None and proposer == self._actor_name()
+        current = self._actor_name()
+        if proposer is None or current is None:
+            return False
+        return normalize_actor(proposer) == normalize_actor(current)
 
     def _queued_refusal(self, proposal: WriteProposal, key: str) -> WriteDecision | None:
         """Return the recorded refusal when the target or proposal age blocks a queued write."""
@@ -853,6 +856,22 @@ def start_from_policy_file(
     gateway = WriteGateway(plant, targets, effective_mode, audit)
     gateway._mode_cap = effective_mode
     return gateway
+
+
+def safe_gateway(plant: ControlSystem, audit: AuditLog | None = None) -> WriteGateway:
+    """Return a gateway with no targets in mode off.
+
+    This is the fallback used when the policy cannot be loaded while the kill latch is set:
+    nothing can be written, but the service stays able to process a kill_reset.
+
+    Args:
+        plant: Control system abstraction.
+        audit: Optional audit log.
+
+    Returns:
+        A WriteGateway that tracks no targets and refuses every write.
+    """
+    return WriteGateway(plant, {}, "off", audit)
 
 
 def _load_sidecar_policy(path: Path) -> tuple[dict[str, WritePolicy], str]:

@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_connectors.site import load_site
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def test_root(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(test_root: Path) -> TestClient:
     """FastAPI test client bound to the test data root."""
-    return TestClient(create_app(test_root))
+    return TestClient(create_app_without_auth(test_root))
 
 
 def test_catalogue_suggest_with_tag_list(client: TestClient) -> None:

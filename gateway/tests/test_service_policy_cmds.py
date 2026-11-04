@@ -21,7 +21,7 @@ from auth_helpers import (
     rejected_reason,
     send,
 )
-from crosscut_gateway import policy_pin
+from crosscut_gateway import policy_file, policy_pin
 from test_gateway_scenarios import TAG
 
 
@@ -53,6 +53,15 @@ def _json_advisory_doc(extra_tags: tuple[str, ...] = ()) -> dict:
     return json.loads(json.dumps(policy_doc("advisory", extra_tags)))
 
 
+def _draft_digest(env: AuthEnv) -> str:
+    """Return the digest of the saved draft's document, or zeros when no draft exists."""
+    path = _draft_path(env)
+    if not path.exists():
+        return "0" * 64
+    document = json.loads(path.read_text(encoding="utf-8"))["document"]
+    return policy_file.policy_digest(document)
+
+
 def _pin(
     env: AuthEnv,
     actor: str,
@@ -60,9 +69,10 @@ def _pin(
     stepup: bool = True,
     roles: tuple[str, ...] = ("lead",),
 ) -> dict:
-    """Send a policy_pin command as ``actor``, with or without a step-up."""
+    """Send a policy_pin command as ``actor`` for the current draft, with or without a step-up."""
     extra = SignOpts(stepup=True) if stepup else None
-    return send(env, "policy_pin", {}, actor=actor, roles=roles, extra=extra)
+    args = {"digest": _draft_digest(env)}
+    return send(env, "policy_pin", args, actor=actor, roles=roles, extra=extra)
 
 
 def _pinned_with_draft(tmp_path: Path) -> AuthEnv:
@@ -135,6 +145,7 @@ def test_policy_draft_records_document_author_and_time(tmp_path: Path) -> None:
     draft = json.loads(_draft_path(env).read_text(encoding="utf-8"))
     assert draft["document"] == _json_advisory_doc()
     assert draft["author"] == "alice"
+    assert "draft_sig" in draft
     assert "saved_at" in draft
     assert datetime.fromisoformat(draft["saved_at"]).tzinfo is not None
 

@@ -11,9 +11,9 @@ import shutil
 from pathlib import Path
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 DATASET = "mill_circuit_nominal_seed42"
 PROJECT_FILE = "project.json"
@@ -55,7 +55,7 @@ def data_root(recorded_dataset_dir: Path, tmp_path: Path) -> Path:
 @pytest.fixture()
 def client(data_root: Path) -> TestClient:
     """Create a test HTTP client over the fresh data root."""
-    return TestClient(create_app(data_root))
+    return TestClient(create_app_without_auth(data_root))
 
 
 @pytest.fixture()

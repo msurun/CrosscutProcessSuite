@@ -12,12 +12,12 @@ import threading
 from pathlib import Path
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_connectors.site import save_site
 from crosscut_opcua.server import PlantServer, ServerConfig
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import Scenario
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 
 def _free_port() -> int:
@@ -81,7 +81,7 @@ def site_with_sources(tmp_path: Path, opcua_server: str) -> tuple[TestClient, Pa
         ],
     }
     save_site(tmp_path, site_doc)
-    client = TestClient(create_app(tmp_path))
+    client = TestClient(create_app_without_auth(tmp_path))
     return client, tmp_path
 
 

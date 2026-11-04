@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-from crosscut_api.app import create_app
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 START = datetime(2026, 3, 1, 6, 0, tzinfo=UTC)
 ROUTES = Path(__file__).resolve().parents[1] / "src" / "crosscut_api" / "intake_routes.py"
@@ -61,7 +61,7 @@ def root(tmp_path: Path) -> Path:
 def client(root: Path) -> TestClient:
     """A client of an app whose data root exists but holds no dataset."""
     root.mkdir()
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def body(text: str, **extra: Any) -> dict[str, Any]:

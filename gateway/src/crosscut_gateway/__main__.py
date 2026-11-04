@@ -19,8 +19,9 @@ from types import FrameType
 from typing import cast
 
 from crosscut_gateway.audit import AuditLog
-from crosscut_gateway.engine import Mode, start_from_policy_file
-from crosscut_gateway.keyfile import default_key_path, read_key
+from crosscut_gateway.engine import Mode, WriteGateway, safe_gateway, start_from_policy_file
+from crosscut_gateway.keyfile import default_key_path, key_permission_problem, read_key
+from crosscut_gateway.latch_store import kill_latch_present
 from crosscut_gateway.opcua_plant import OpcUaPlant, PlantMapError
 from crosscut_gateway.policy import PolicyError
 from crosscut_gateway.policy_pin import pin_path_for
@@ -105,9 +106,21 @@ def _missing_input(policy: Path, plant_map: Path) -> str | None:
     pin = pin_path_for(policy)
     if not pin.is_file():
         return f"policy pin file not found: {pin}"
+    return _missing_plant_map(plant_map)
+
+
+def _missing_plant_map(plant_map: Path) -> str | None:
+    """Return a one-line message when the plant map is missing, else None."""
     if not plant_map.is_file():
         return f"plant map file not found: {plant_map}"
     return None
+
+
+def _input_problem(args: argparse.Namespace) -> str | None:
+    """Return the first input problem; a set kill latch waives the policy and pin files."""
+    if kill_latch_present(args.root / "_gateway"):
+        return _missing_plant_map(args.plant_map)
+    return _missing_input(args.policy, args.plant_map)
 
 
 @dataclass(frozen=True)
@@ -123,6 +136,13 @@ class _Inputs:
 
 def _load_key(key_path: Path) -> bytes | None:
     """Return the HMAC key at *key_path*, or report why it is unusable and return None."""
+    problem = key_permission_problem(key_path)
+    if problem is not None:
+        print(
+            f"gateway HMAC key file rejected ({problem}): {key_path} - chmod 600",
+            file=sys.stderr,
+        )
+        return None
     key = read_key(key_path)
     if key is None:
         print(
@@ -134,7 +154,7 @@ def _load_key(key_path: Path) -> bytes | None:
 
 def _prepare(args: argparse.Namespace) -> _Inputs | None:
     """Check the input files and read the HMAC key; return None after reporting a problem."""
-    problem = _missing_input(args.policy, args.plant_map)
+    problem = _input_problem(args)
     if problem is not None:
         print(problem, file=sys.stderr)
         return None
@@ -145,15 +165,27 @@ def _prepare(args: argparse.Namespace) -> _Inputs | None:
     return _Inputs(args.root, args.policy, args.roles, key_path, key)
 
 
+def _start_gateway(
+    inputs: _Inputs, plant: OpcUaPlant, mode: Mode, audit: AuditLog
+) -> WriteGateway:
+    """Start from the pinned policy; with the kill latch set, fall back to the safe gateway."""
+    try:
+        return start_from_policy_file(inputs.policy, plant, mode, audit, key=inputs.key)
+    except (OSError, PolicyError) as exc:
+        if not kill_latch_present(inputs.root / "_gateway"):
+            raise
+        print(f"policy not loaded, kill latch set; safe gateway only: {exc}", file=sys.stderr)
+        return safe_gateway(plant, audit)
+
+
 def _initialize(
     inputs: _Inputs, plant: OpcUaPlant, mode: Mode
 ) -> tuple[GatewayService, threading.Event]:
     """Create audit log, gateway, service, and a stop event wired to signals."""
     audit_path = inputs.root / "_gateway" / "audit.jsonl"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    gateway = start_from_policy_file(
-        inputs.policy, plant, mode, AuditLog(audit_path), key=inputs.key
-    )
+    audit = AuditLog(audit_path, key=inputs.key)
+    gateway = _start_gateway(inputs, plant, mode, audit)
     stop_event = threading.Event()
     _install_signals(stop_event)
     options = ServiceOptions(

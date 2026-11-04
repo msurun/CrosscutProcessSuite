@@ -9,9 +9,9 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from crosscut_api.app import create_app
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 PREFIX = "sim.mc."
 TAGS = ["mill_power", "p80", "mill_feed", "hpgr_power", "feed_moisture"]
@@ -37,7 +37,7 @@ def root(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(root: Path) -> TestClient:
     """A client on the simulated data root."""
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def _dataset_id(client: TestClient) -> str:
@@ -149,9 +149,9 @@ def _refuse_constant(name: str) -> float:
 
 
 def test_scan_finds_a_shifted_tag(root: Path) -> None:
-    dataset = _fitted(TestClient(create_app(root)))
+    dataset = _fitted(TestClient(create_app_without_auth(root)))
     _shift_tag(root)
-    client = TestClient(create_app(root))
+    client = TestClient(create_app_without_auth(root))
     body = client.post(f"/datasets/{dataset}/anomaly/mc/scan", json={}).json()
     assert body["events"], "the shift produced no event"
     event = body["events"][-1]
@@ -163,14 +163,14 @@ def test_scan_finds_a_shifted_tag(root: Path) -> None:
 
 
 def test_bad_quality_samples_are_skipped_not_imputed(root: Path) -> None:
-    dataset = _fitted(TestClient(create_app(root)))
+    dataset = _fitted(TestClient(create_app_without_auth(root)))
     path = next(root.rglob("part-*.parquet"))
     table = pq.read_table(path)
     quality = table["quality"].to_numpy().copy()
     quality[: 6 * len(TAGS) * 20] = 2
     index = table.schema.get_field_index("quality")
     pq.write_table(table.set_column(index, "quality", pa.array(quality)), path)
-    body = TestClient(create_app(root)).post(
+    body = TestClient(create_app_without_auth(root)).post(
         f"/datasets/{dataset}/anomaly/mc/scan", json={}
     ).json()
     assert body["n_skipped"] >= 5 and body["skipped_reasons"]["nan"] >= 5

@@ -12,9 +12,9 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from crosscut_api.app import create_app
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 PREFIX = "sim.mc."
 TAGS = ["mill_power", "p80", "mill_feed", "hpgr_power", "feed_moisture"]
@@ -54,7 +54,7 @@ def _client(root: Path, ramp: bool) -> tuple[TestClient, str]:
     _simulate(root)
     if ramp:
         _write_ramp(root)
-    client = TestClient(create_app(root))
+    client = TestClient(create_app_without_auth(root))
     assert client.put("/anomaly/mc", json=CONFIG).status_code == 200
     return client, client.get("/datasets").json()[0]["id"]
 

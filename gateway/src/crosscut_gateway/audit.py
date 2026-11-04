@@ -2,14 +2,25 @@
 Append-only hash-chained audit log of the Write Gateway.
 Implements ADR 011/012, Phase 2 #46 for secure, verifiable logging.
 Each record is cryptographically linked to the previous one to detect tampering.
+
+When a key is given, each record hash is an HMAC-SHA256 under that key, so records cannot be
+edited, inserted or forged without the key. Records written before keying (plain SHA-256) are
+accepted only as a prefix of the chain, before the first keyed record.
+
+Limitation: the chain does not detect truncation of the tail of the log, nor replacement of the
+whole file by another chain (for example a plain-hash chain while a legacy prefix is allowed).
+Keying protects against editing, inserting and forging records without the key only.
 """
 
 import hashlib
+import hmac
 import json
 from pathlib import Path
 
 GENESIS_HASH = "0" * 64
 RESERVED_KEYS = {"seq", "t_ns", "event", "prev_hash", "hash"}
+_KEYED = "keyed"
+_PLAIN = "plain"
 
 
 class AuditError(ValueError):
@@ -17,40 +28,72 @@ class AuditError(ValueError):
     pass
 
 
-def _compute_hash(record: dict[str, str]) -> str:
-    """
-    Computes the SHA-256 hash of a record's canonical JSON representation.
-    Expects the record without the 'hash' key.
-    """
+def _canonical_bytes(record: dict[str, str]) -> bytes:
+    """Returns the canonical JSON encoding of a record as UTF-8 bytes."""
     canonical_json = json.dumps(
         record,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    return canonical_json.encode("utf-8")
 
 
-def verify_chain(records: list[dict[str, str]]) -> bool:
+def _compute_hash(record: dict[str, str], key: bytes | None = None) -> str:
+    """
+    Computes the hash of a record's canonical JSON representation.
+    Plain SHA-256 when 'key' is None, HMAC-SHA256 under 'key' otherwise.
+    Expects the record without the 'hash' key.
+    """
+    canonical = _canonical_bytes(record)
+    if key is None:
+        return hashlib.sha256(canonical).hexdigest()
+    return hmac.new(key, canonical, hashlib.sha256).hexdigest()
+
+
+def _classify(record: dict[str, str], key: bytes | None) -> str | None:
+    """Returns which hash scheme the record's stored hash matches, or None if neither."""
+    body = {k: v for k, v in record.items() if k != "hash"}
+    stored = record.get("hash")
+    if key is not None and stored == _compute_hash(body, key):
+        return _KEYED
+    if stored == _compute_hash(body):
+        return _PLAIN
+    return None
+
+
+def _scheme_allowed(
+    scheme: str, key: bytes | None, keyed_seen: bool, allow_plain_prefix: bool
+) -> bool:
+    """Decides whether a record hashed with 'scheme' may appear at this point of the chain."""
+    if scheme == _KEYED:
+        return True
+    return key is None or (allow_plain_prefix and not keyed_seen)
+
+
+def verify_chain(
+    records: list[dict[str, str]],
+    key: bytes | None = None,
+    *,
+    allow_plain_prefix: bool = True,
+) -> bool:
     """
     Verifies the cryptographic chain and sequence continuity of a list of records.
     Returns True if valid, False if any link or hash is broken.
+    With a key, plain-hash records are valid only before the first keyed record, and only
+    while allow_plain_prefix is True.
     """
     expected_prev_hash = GENESIS_HASH
+    keyed_seen = False
 
     for index, record in enumerate(records):
-        if record.get("seq") != str(index):
+        if record.get("seq") != str(index) or record.get("prev_hash") != expected_prev_hash:
             return False
-        if record.get("prev_hash") != expected_prev_hash:
+        scheme = _classify(record, key)
+        if scheme is None or not _scheme_allowed(scheme, key, keyed_seen, allow_plain_prefix):
             return False
-
-        record_without_hash = {k: v for k, v in record.items() if k != "hash"}
-        calculated_hash = _compute_hash(record_without_hash)
-
-        if record.get("hash") != calculated_hash:
-            return False
-
-        expected_prev_hash = calculated_hash
+        keyed_seen = keyed_seen or scheme == _KEYED
+        expected_prev_hash = record["hash"]
 
     return True
 
@@ -58,8 +101,9 @@ def verify_chain(records: list[dict[str, str]]) -> bool:
 class AuditLog:
     """Manages an append-only, hash-chained sequence of audit events."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, key: bytes | None = None) -> None:
         self._path = path
+        self._key = key
         self._records: list[dict[str, str]] = []
         self._load_and_verify()
 
@@ -77,7 +121,7 @@ class AuditLog:
                 except json.JSONDecodeError as err:
                     raise AuditError(f"Malformed JSON in audit log: {err}") from err
 
-        if not verify_chain(self._records):
+        if not verify_chain(self._records, self._key):
             raise AuditError("Audit log chain verification failed. File may be tampered.")
 
     def _write_record(self, record: dict[str, str]) -> None:
@@ -110,7 +154,7 @@ class AuditLog:
             "prev_hash": prev_hash,
         }
 
-        record["hash"] = _compute_hash(record)
+        record["hash"] = _compute_hash(record, self._key)
         self._records.append(record)
         self._write_record(record)
 

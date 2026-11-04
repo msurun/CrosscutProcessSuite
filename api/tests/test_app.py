@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from crosscut_api.app import create_app
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
+from open_app import create_app_without_auth
 
 TOP = "sim.wb.top_comp"
 
@@ -27,7 +27,7 @@ def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="module")
 def client(data_root: Path) -> TestClient:
     """Create a test HTTP client backed by an app rooted at the given data directory."""
-    return TestClient(create_app(data_root))
+    return TestClient(create_app_without_auth(data_root))
 
 
 DATASET = "wood_berry_nominal_seed42"
@@ -132,7 +132,7 @@ def loops_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
         str(root),
     ]
     assert run_simulation(argv) == 0
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def test_loops_endpoint_reports_each_discovered_loop_as_json(loops_client: TestClient) -> None:
@@ -198,7 +198,7 @@ def step_test_client(tmp_path_factory: pytest.TempPathFactory) -> TestClient:
     root = tmp_path_factory.mktemp("steps")
     argv = ["--plant", "mill_circuit", "--scenario", "step_test", "--duration", "3h"]
     assert run_simulation([*argv, "--sample-period", "5", "--out", str(root)]) == 0
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def test_tuning_endpoint_finds_the_step_window_and_proposes_settings(
@@ -285,7 +285,7 @@ def fresh_wood_berry_client(tmp_path_factory: pytest.TempPathFactory) -> TestCli
     root = tmp_path_factory.mktemp("wood_berry_fresh")
     argv = ["--plant", "wood_berry", "--scenario", "nominal", "--duration", "10m"]
     assert run_simulation([*argv, "--out", str(root)]) == 0
-    return TestClient(create_app(root))
+    return TestClient(create_app_without_auth(root))
 
 
 def test_a_wood_berry_run_reports_both_composition_loops_with_a_health_value_or_none(

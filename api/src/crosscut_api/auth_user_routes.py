@@ -253,7 +253,7 @@ def build_users_router(ctx: AuthContext, guards: AuthGuards) -> APIRouter:
     endpoints = _UserEndpoints(ctx, guards)
     reads = [Depends(endpoints.read_guard)]
     writes = [Depends(endpoints.write_guard)]
-    router = APIRouter(prefix="/users", tags=["auth"])
+    router = APIRouter(prefix="/auth/users", tags=["auth"])
     router.add_api_route("", endpoints.list_users, methods=["GET"], dependencies=reads)
     router.add_api_route("/{username}", endpoints.get_user, methods=["GET"], dependencies=reads)
     router.add_api_route(

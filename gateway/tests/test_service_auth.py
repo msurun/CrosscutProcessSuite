@@ -82,7 +82,7 @@ def test_unsigned_propose_is_rejected(env: AuthEnv) -> None:
     env.service.poll_once()
     assert rejected_reason(env.root, "unsigned1") == "unsigned_not_allowed"
     assert outbox(env.root, "unsigned1") is None
-    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "unknown"
+    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "unverified:unknown"
 
 
 def test_unsigned_with_claimed_actor_is_rejected(env: AuthEnv) -> None:
@@ -96,7 +96,7 @@ def test_unsigned_with_claimed_actor_is_rejected(env: AuthEnv) -> None:
     drop(env, envelope)
     env.service.poll_once()
     assert rejected_reason(env.root, "unsigned2") == "unsigned_not_allowed"
-    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "mallory"
+    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "unverified:mallory"
 
 
 def test_unsigned_kill_is_accepted(env: AuthEnv) -> None:
@@ -395,11 +395,14 @@ def test_missing_key_set_mode_supervised_is_rejected(tmp_path: Path) -> None:
     assert rejected_reason(env.root, envelope["id"]) == "key_missing"
 
 
-def test_missing_key_set_mode_advisory_is_accepted(tmp_path: Path) -> None:
-    """With no key loaded a set_mode advisory from off is a safe downgrade and is accepted."""
+def test_missing_key_set_mode_advisory_from_off_is_rejected(tmp_path: Path) -> None:
+    """With no key loaded a set_mode advisory from off raises the mode, so it is key_missing."""
     env = make_env(tmp_path, mode="off", key=None)
-    send(env, "set_mode", {"mode": "advisory"}, roles=("lead",))
-    assert env.gateway.mode == "advisory"
+    envelope = signed(env, "set_mode", {"mode": "advisory"}, roles=("lead",))
+    drop(env, envelope)
+    env.service.poll_once()
+    assert rejected_reason(env.root, envelope["id"]) == "key_missing"
+    assert env.gateway.mode == "off"
 
 
 def test_missing_key_unsigned_kill_is_accepted(tmp_path: Path) -> None:
@@ -444,4 +447,4 @@ def test_non_dict_envelope_is_rejected(env: AuthEnv) -> None:
     path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
     env.service.poll_once()
     assert rejected_reason(env.root, "list") == "command must be a JSON object"
-    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "unknown"
+    assert _actor_of(audit_events(env, "auth_reject"), "auth_reject") == "unverified:unknown"

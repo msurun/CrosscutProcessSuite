@@ -8,6 +8,7 @@ or advisory.
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
 import os
 import tempfile
@@ -18,9 +19,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from crosscut_gateway import policy_file, policy_pin
-from crosscut_gateway.actor import ActorContext
+from crosscut_gateway.actor import ActorContext, normalize_actor
 from crosscut_gateway.engine import Mode, WriteGateway
-from crosscut_gateway.envelope import MIN_KEY_BYTES
+from crosscut_gateway.envelope import MIN_KEY_BYTES, EnvelopeError, sign_envelope
 from crosscut_gateway.policy import PolicyError
 from crosscut_gateway.policy_pin import PinSigners
 
@@ -68,6 +69,44 @@ def _dump_json(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+def _draft_signature(body: dict[str, Any], key: bytes) -> str:
+    """Return the HMAC-SHA256 signature of the draft ``body`` under ``key``."""
+    return str(sign_envelope(body, key)["sig"])
+
+
+def _load_object(path: Path) -> dict[str, Any] | None:
+    """Return the JSON object stored at ``path``, or None when missing, unreadable or not one."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _check_draft_signature(raw: dict[str, Any], key: bytes) -> None:
+    """Refuse a draft whose ``draft_sig`` is missing or does not match the rest of the draft."""
+    body = {name: value for name, value in raw.items() if name != "draft_sig"}
+    claimed = raw.get("draft_sig")
+    try:
+        expected = _draft_signature(body, key)
+    except EnvelopeError as err:
+        raise PolicyCommandError("draft_bad_signature") from err
+    if not isinstance(claimed, str) or not hmac.compare_digest(
+        expected.encode("utf-8"), claimed.encode("utf-8", "replace")
+    ):
+        raise PolicyCommandError("draft_bad_signature")
+
+
+def _check_digest(draft: _Draft, args: dict[str, Any]) -> None:
+    """Refuse unless ``args`` names the digest of the reviewed draft, else draft_changed."""
+    claimed = args.get("digest")
+    expected = policy_file.policy_digest(draft.document)
+    if not isinstance(claimed, str) or not hmac.compare_digest(
+        expected.encode("utf-8"), claimed.encode("utf-8", "replace")
+    ):
+        raise PolicyCommandError("draft_changed")
+
+
 class PolicyCommands:
     """Handle the policy_draft, policy_pin and policy_reload gateway commands."""
 
@@ -82,10 +121,16 @@ class PolicyCommands:
         self._key_source = key_source
         self._clock = clock
 
-    def precheck(self, cmd: str, ctx: ActorContext, gateway: WriteGateway) -> str | None:
-        """Return a refusal reason for ``cmd``, or None when it may proceed."""
+    def precheck(
+        self,
+        cmd: str,
+        ctx: ActorContext,
+        gateway: WriteGateway,
+        args: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Return a refusal reason for ``cmd``, or None; ``args`` enables the digest check."""
         if cmd == "policy_pin":
-            return self._pin_refusal(ctx)
+            return self._pin_refusal(ctx, args)
         if cmd == "policy_reload":
             return self._reload_refusal(gateway)
         return None
@@ -99,24 +144,27 @@ class PolicyCommands:
             policy_file.validate_document(document)
         except PolicyError as err:
             raise PolicyCommandError(str(err)) from err
-        saved = {"document": document, "author": ctx.actor, "saved_at": self._now().isoformat()}
+        key = self._require_key()
+        body = {"document": document, "author": ctx.actor, "saved_at": self._now().isoformat()}
+        saved = {**body, "draft_sig": _draft_signature(body, key)}
         _write_atomic(self._paths.draft_path, _dump_json(saved))
         return {"digest": policy_file.policy_digest(document), "author": ctx.actor}
 
     def pin(self, args: dict[str, Any], ctx: ActorContext) -> dict[str, Any]:
-        """Write the drafted policy as the live file and sign its pin as ``ctx.actor``."""
-        del args
+        """Install the reviewed draft as the live policy and sign its pin as ``ctx.actor``."""
         policy_path = self._require_policy_path()
-        draft = self._require_draft(ctx)
         key = self._require_key()
-        _write_atomic(policy_path, _dump_json(draft.document))
+        draft = self._require_draft(ctx, key)
+        _check_digest(draft, args)
+        request = policy_pin.PinRequest(
+            policy_path=policy_path,
+            document=draft.document,
+            key=key,
+            signers=PinSigners(author=draft.author, approver=ctx.actor),
+            now=self._now(),
+        )
         try:
-            pin_doc = policy_pin.create_pin(
-                policy_path,
-                key,
-                PinSigners(author=draft.author, approver=ctx.actor),
-                now=self._now(),
-            )
+            pin_doc = policy_pin.install_policy_with_pin(request)
         except PolicyError as err:
             raise PolicyCommandError(str(err)) from err
         return {"digest": pin_doc["digest"], "author": draft.author, "approver": ctx.actor}
@@ -161,13 +209,10 @@ class PolicyCommands:
             raise PolicyCommandError("key_too_short")
         return key
 
-    def _read_draft(self) -> _Draft | None:
-        """Return the saved draft, or None when it is missing, unreadable or schema-invalid."""
-        try:
-            raw = json.loads(self._paths.draft_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, RecursionError):
-            return None
-        if not isinstance(raw, dict):
+    def _read_draft(self, key: bytes) -> _Draft | None:
+        """Return the signed draft, None when missing or schema-invalid; refuse a bad signature."""
+        raw = _load_object(self._paths.draft_path)
+        if raw is None:
             return None
         document, author = raw.get("document"), raw.get("author")
         if not isinstance(document, dict) or not isinstance(author, str) or not author.strip():
@@ -176,22 +221,25 @@ class PolicyCommands:
             policy_file.validate_document(document)
         except PolicyError:
             return None
+        _check_draft_signature(raw, key)
         return _Draft(document=document, author=author)
 
-    def _require_draft(self, ctx: ActorContext) -> _Draft:
-        """Return the valid draft, refusing a missing draft or one authored by ``ctx.actor``."""
-        draft = self._read_draft()
+    def _require_draft(self, ctx: ActorContext, key: bytes) -> _Draft:
+        """Return the verified draft, refusing a missing draft or one from the same person."""
+        draft = self._read_draft(key)
         if draft is None:
             raise PolicyCommandError("no_draft")
-        if draft.author == ctx.actor:
+        if normalize_actor(draft.author) == normalize_actor(ctx.actor):
             raise PolicyCommandError("author_equals_approver")
         return draft
 
-    def _pin_refusal(self, ctx: ActorContext) -> str | None:
-        """Return the refusal reason for policy_pin, or None."""
+    def _pin_refusal(self, ctx: ActorContext, args: dict[str, Any] | None) -> str | None:
+        """Return the refusal reason for policy_pin, or None; the digest is checked when given."""
         try:
             self._require_policy_path()
-            self._require_draft(ctx)
+            draft = self._require_draft(ctx, self._require_key())
+            if args is not None:
+                _check_digest(draft, args)
         except PolicyCommandError as err:
             return str(err)
         return None

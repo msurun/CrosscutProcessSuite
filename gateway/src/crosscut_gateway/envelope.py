@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -55,6 +56,23 @@ def sign_envelope(env_without_sig: dict[str, Any], key: bytes) -> dict[str, Any]
     signed = dict(env_without_sig)
     signed["sig"] = mac.hexdigest()
     return signed
+
+
+def _newest(entries: dict[str, float], limit: int) -> dict[str, float]:
+    """Return at most ``limit`` entries, the most recent timestamps first."""
+    ordered = sorted(entries.items(), key=lambda item: item[1], reverse=True)
+    return dict(ordered[: max(limit, 0)])
+
+
+def _finite_timestamp(value: object) -> float | None:
+    """Return ``value`` as a finite float when it is a real number, otherwise ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 class NonceCache:
@@ -112,6 +130,35 @@ class NonceCache:
     def __len__(self) -> int:
         """Return the total number of stored nonces plus identifiers."""
         return len(self._nonce_to_ts) + len(self._id_to_ts)
+
+    def snapshot(self, limit: int = 500) -> dict[str, dict[str, float]]:
+        """Return the newest ``limit`` nonces and ids of each kind, after pruning expired ones."""
+        self._prune_expired()
+        return {
+            "nonces": _newest(self._nonce_to_ts, limit),
+            "ids": _newest(self._id_to_ts, limit),
+        }
+
+    def restore(self, data: object) -> None:
+        """Load entries from a snapshot, keeping only those inside the window; never raises."""
+        now = self._clock()
+        self._nonce_to_ts.update(self._window_entries(data, "nonces", now))
+        self._id_to_ts.update(self._window_entries(data, "ids", now))
+
+    def _window_entries(self, data: object, field: str, now: float) -> dict[str, float]:
+        """Return the valid str->timestamp entries of ``field`` that lie within the window."""
+        if not isinstance(data, Mapping):
+            return {}
+        raw = data.get(field)
+        if not isinstance(raw, Mapping):
+            return {}
+        kept: dict[str, float] = {}
+        for key, value in raw.items():
+            ts = _finite_timestamp(value)
+            if isinstance(key, str) and ts is not None:
+                if now - self._window_s < ts <= now + self._window_s:
+                    kept[key] = ts
+        return kept
 
 
 def _is_nonempty_str(value: Any) -> bool:
