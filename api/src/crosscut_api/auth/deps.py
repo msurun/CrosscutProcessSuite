@@ -9,14 +9,14 @@ from __future__ import annotations
 import hmac
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
 
 from crosscut_api.auth.audit import AuthAudit
-from crosscut_api.auth.lockout import IpRateLimiter
+from crosscut_api.auth.lockout import AttemptTracker, IpRateLimiter
 from crosscut_api.auth.roles import RoleTable, load_roles
 from crosscut_api.auth.sessions import AuthConfig, Session, SessionStore
 from crosscut_api.auth.store import JsonUserStore, UserStore, auth_dir
@@ -40,6 +40,7 @@ class AuthContext:
     audit: AuthAudit
     limiter: IpRateLimiter
     root: Path
+    attempts: AttemptTracker = field(default_factory=AttemptTracker)
 
 
 def build_auth_context(
@@ -68,6 +69,7 @@ def build_auth_context(
         audit=AuthAudit(auth_dir(root) / AUDIT_FILE, clock),
         limiter=IpRateLimiter(config.ip_rate_limit, config.ip_rate_window_s, clock),
         root=root,
+        attempts=AttemptTracker(),
     )
 
 

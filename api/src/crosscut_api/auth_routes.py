@@ -11,7 +11,7 @@ import math
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -126,11 +126,18 @@ class _AuthEndpoints:
         ip = self._admit(request)
         username = _field(body, "username")
         password = _field(body, "password")
-        user = self._active_user(username, password, ip)
-        self._ensure_unlocked(user, ip)
+        key = lockout.normalise_username(username)
+        user = self._ctx.users.get(key)
+        record = user if user is not None else self._ctx.attempts.get(key)
+        self._ensure_unlocked(record, username, ip, password)
+        if user is None:
+            self._fail_unknown(key, username, ip, password)
+        if user.get("disabled"):
+            self._fail_disabled(user, ip, password)
         if not passwords.verify_password(password, user["password"]):
             self._record_failure(user, ip, "login_fail", reason="bad_password")
             raise HTTPException(status_code=401, detail="invalid credentials")
+        self._ctx.attempts.clear(key)
         return self._open_session(request, response, user)
 
     def logout(self, request: Request, response: Response) -> dict[str, bool]:
@@ -159,9 +166,11 @@ class _AuthEndpoints:
         """Replace the caller's password and end its other sessions."""
         principal = self._guards.authenticated(request)
         ip = client_ip(request)
+        self._throttle(principal, ip)
         old = _field(body, "old_password")
         new = _field(body, "new_password")
         user = _stored_user(self._ctx, principal.username)
+        self._ensure_unlocked(user, principal.username, ip, old)
         if not passwords.verify_password(old, user["password"]):
             self._record_failure(user, ip, "password_change_fail")
             raise HTTPException(status_code=403, detail="current password is incorrect")
@@ -177,11 +186,14 @@ class _AuthEndpoints:
         """Re-verify the caller's password to mark the session as recently authenticated."""
         principal = self._guards.authenticated(request)
         ip = client_ip(request)
+        self._throttle(principal, ip)
         password = _field(body, "password")
         user = _stored_user(self._ctx, principal.username)
+        self._ensure_unlocked(user, principal.username, ip, password)
         if not passwords.verify_password(password, user["password"]):
             self._record_failure(user, ip, "stepup_fail")
             raise HTTPException(status_code=403, detail="password is incorrect")
+        self._ctx.users.update(principal.username, lockout.success_changes())
         self._ctx.sessions.mark_stepup(principal.session)
         self._ctx.audit.append(
             "stepup_ok",
@@ -203,24 +215,43 @@ class _AuthEndpoints:
             raise HTTPException(status_code=429, detail="too many attempts")
         return ip
 
-    def _active_user(self, username: str, password: str, ip: str) -> dict[str, Any]:
-        """Return the enabled user record; unknown or disabled accounts still burn a hash."""
+    def _throttle(self, principal: Principal, ip: str) -> None:
+        """Apply the per-IP and per-session limits to a re-authentication attempt."""
+        limiter = self._ctx.limiter
+        if limiter.allow(ip) and limiter.allow(f"session:{principal.session.sid}"):
+            return
+        self._ctx.audit.append("rate_limited", actor=principal.username, ip=ip)
+        raise HTTPException(status_code=429, detail="too many attempts")
+
+    def _fail_unknown(self, key: str, username: str, ip: str, password: str) -> NoReturn:
+        """Burn one hash, count the failure against the name, and refuse with 401."""
         ctx = self._ctx
-        user = ctx.users.get(username)
-        if user is not None and not user.get("disabled"):
-            return user
         passwords.dummy_verify(password, ctx.config.scrypt)
-        reason = "unknown_user" if user is None else "disabled"
-        ctx.audit.append("login_fail", actor=_attempted(username), ip=ip, reason=reason)
+        changes, newly_locked = ctx.attempts.record_failure(key, ctx.clock(), ctx.config)
+        ctx.audit.append("login_fail", actor=_attempted(username), ip=ip, reason="unknown_user")
+        self._audit_lockout(username, ip, changes, newly_locked)
         raise HTTPException(status_code=401, detail="invalid credentials")
 
-    def _ensure_unlocked(self, user: dict[str, Any], ip: str) -> None:
-        """Reject the login with 423 and a Retry-After header while the account is locked."""
+    def _fail_disabled(self, user: dict[str, Any], ip: str, password: str) -> NoReturn:
+        """Burn one hash, count the failure against the disabled account, and refuse with 401."""
+        passwords.dummy_verify(password, self._ctx.config.scrypt)
+        self._record_failure(user, ip, "login_fail", reason="disabled")
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    def _ensure_unlocked(
+        self,
+        record: dict[str, Any],
+        who: str,
+        ip: str,
+        password: str,
+    ) -> None:
+        """Burn one hash and refuse with 423 and Retry-After while ``record`` is locked."""
         now = self._ctx.clock()
-        if not lockout.is_locked(user, now):
+        if not lockout.is_locked(record, now):
             return
-        self._ctx.audit.append("login_locked", actor=user["username"], ip=ip)
-        retry_after = math.ceil(lockout.lock_remaining_s(user, now))
+        passwords.dummy_verify(password, self._ctx.config.scrypt)
+        self._ctx.audit.append("login_locked", actor=_attempted(who), ip=ip)
+        retry_after = math.ceil(lockout.lock_remaining_s(record, now))
         raise HTTPException(
             status_code=423,
             detail="account locked",
@@ -240,10 +271,20 @@ class _AuthEndpoints:
         changes, newly_locked = lockout.failure_changes(user, ctx.clock(), ctx.config)
         ctx.users.update(username, changes)
         ctx.audit.append(event, actor=_attempted(username), ip=ip, **fields)
+        self._audit_lockout(username, ip, changes, newly_locked)
+
+    def _audit_lockout(
+        self,
+        who: str,
+        ip: str,
+        changes: dict[str, Any],
+        newly_locked: bool,
+    ) -> None:
+        """Audit a lockout event when the failure just counted locked the name."""
         if newly_locked:
-            ctx.audit.append(
+            self._ctx.audit.append(
                 "lockout",
-                actor=_attempted(username),
+                actor=_attempted(who),
                 ip=ip,
                 locked_until=changes["locked_until"],
             )

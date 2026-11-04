@@ -18,6 +18,7 @@ from crosscut_api.auth.passwords import hash_password, password_problem
 from crosscut_api.auth.store import UserExistsError, UserNotFoundError, new_user_record
 
 PERMISSION = "users.manage"
+ADMIN_ROLE = "admin"
 USERNAME_PATTERN = re.compile(r"[a-z][a-z0-9._-]{2,31}")
 PUBLIC_FIELDS = (
     "username",
@@ -149,6 +150,23 @@ def _update_changes(ctx: AuthContext, body: dict[str, Any], is_self: bool) -> di
     return changes
 
 
+def _other_active_admins(ctx: AuthContext, target: str) -> bool:
+    """Return True when a user other than ``target`` is an enabled administrator."""
+    return any(
+        user["username"] != target
+        and ADMIN_ROLE in user.get("roles", [])
+        and not user.get("disabled")
+        for user in ctx.users.list_users()
+    )
+
+
+def _removes_admin(changes: dict[str, Any] | None) -> bool:
+    """Return True when the changes delete the user, disable it or drop the admin role."""
+    if changes is None or changes.get("disabled") is True:
+        return True
+    return "roles" in changes and ADMIN_ROLE not in changes["roles"]
+
+
 def _update_audit_fields(
     body: dict[str, Any],
     before: dict[str, Any],
@@ -183,6 +201,20 @@ class _UserEndpoints:
             raise HTTPException(status_code=404, detail="user not found")
         return user
 
+    def _protect_last_admin(
+        self, target_user: dict[str, Any], changes: dict[str, Any] | None
+    ) -> None:
+        """Refuse a change that would leave no enabled administrator besides the target."""
+        username = str(target_user["username"])
+        roles = target_user.get("roles", [])
+        is_active_admin = ADMIN_ROLE in roles and not target_user.get("disabled")
+        if (
+            is_active_admin
+            and _removes_admin(changes)
+            and not _other_active_admins(self._ctx, username)
+        ):
+            raise HTTPException(status_code=409, detail="cannot remove the last admin")
+
     def list_users(self) -> dict[str, Any]:
         """Return every user, sorted by username, in the public view."""
         users = sorted(self._ctx.users.list_users(), key=lambda user: str(user["username"]))
@@ -214,6 +246,7 @@ class _UserEndpoints:
         actor = self._actor(request)
         before = self._existing(username)
         changes = _update_changes(self._ctx, body, is_self=actor.username == username)
+        self._protect_last_admin(before, changes)
         try:
             after = self._ctx.users.update(username, changes)
         except UserNotFoundError as exc:
@@ -234,6 +267,7 @@ class _UserEndpoints:
         actor = self._actor(request)
         if actor.username == username:
             raise HTTPException(status_code=403, detail="cannot delete own account")
+        self._protect_last_admin(self._existing(username), None)
         try:
             self._ctx.users.delete(username)
         except UserNotFoundError as exc:

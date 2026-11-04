@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -194,3 +195,56 @@ class IpRateLimiter:
                 return False
             timestamps.append(now)
             return True
+
+
+def normalise_username(name: str) -> str:
+    """Return the canonical form of a username used as a lockout key.
+
+    Args:
+        name: Username as submitted by the client.
+
+    Returns:
+        The NFKC-normalised, whitespace-stripped, case-folded username.
+    """
+    return unicodedata.normalize("NFKC", name).strip().casefold()
+
+
+MAX_TRACKED = 10_000
+
+
+class AttemptTracker:
+    """In-memory lockout state for usernames that have no account.
+
+    Keeps at most ``MAX_TRACKED`` keys; the oldest inserted key is evicted first.
+    """
+
+    def __init__(self) -> None:
+        """Create an empty tracker."""
+        self._records: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> dict[str, Any]:
+        """Return a shallow copy of the stored record for ``key``, or ``{}``."""
+        with self._lock:
+            return dict(self._records.get(key, {}))
+
+    def record_failure(
+        self,
+        key: str,
+        now: float,
+        config: AuthConfig,
+    ) -> tuple[dict[str, Any], bool]:
+        """Apply a failed attempt to ``key`` and return ``(changes, newly_locked)``."""
+        with self._lock:
+            current = self._records.get(key, {})
+            changes, newly_locked = failure_changes(current, now, config)
+            if key not in self._records and len(self._records) >= MAX_TRACKED:
+                self._records.pop(next(iter(self._records)))
+            self._records.setdefault(key, {}).update(changes)
+            return changes, newly_locked
+
+    def clear(self, key: str) -> None:
+        """Forget any lockout state held for ``key``."""
+        with self._lock:
+            self._records.pop(key, None)
+
