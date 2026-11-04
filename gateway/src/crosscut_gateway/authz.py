@@ -65,6 +65,9 @@ _COMMAND_PERMISSIONS: dict[str, str] = {
     "reject": "gw.reject",
     "kill": "gw.kill",
     "kill_reset": "gw.kill.reset",
+    "policy_draft": "policy.edit",
+    "policy_pin": "policy.pin",
+    "policy_reload": "policy.reload",
 }
 
 # The permission suffix for an upward mode change is the mode name itself.

@@ -176,7 +176,9 @@ def test_set_mode_is_audited() -> None:
 def test_set_mode_cannot_exceed_policy_file_cap(tmp_path: Path) -> None:
     """A runtime set_mode cannot exceed the mode pinned in the policy file."""
     path = write_signed_policy(tmp_path / "write-policy.json", "dry_run")
-    gw = engine.start_from_policy_file(path, SimPlant(), "supervised")
+    gw = engine.start_from_policy_file(
+        path, SimPlant(), "supervised", allow_legacy_sidecar=True
+    )
     with pytest.raises(ValueError):
         gw.set_mode("supervised")
     gw.set_mode("advisory")

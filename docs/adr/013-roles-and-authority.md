@@ -1,6 +1,7 @@
 # ADR 013: Roles and authority
 
 Status: **Proposed** (3 owner questions open; the defaults below are implemented as configuration).
+Implementation status 2026-11-03: steps 1 and 5 done (d9376e3); steps 2-4, 6-8 in progress.
 Date: 2026-11-03
 Builds on: ADR 011 (write path) and ADR 012 (writes are a product capability). Tracked as issue #47, owner decision 9.
 
@@ -22,7 +23,7 @@ Roles are explicit permission sets. There is no inheritance: each role lists eve
 
 | Role | Permissions |
 |------|-------------|
-| `viewer` | `data.view`, `gw.view`, `audit.view`, `gw.kill`, `gw.mode.down` |
+| `viewer` | `data.view`, `gw.view`, `audit.view`, `gw.kill`, `gw.mode.down`, `gw.reject` |
 | `operator` | `viewer` + `analysis.run`, `job.stop`, `gw.approve`, `gw.reject`, `gw.re_enable.hold_off` |
 | `engineer` | `operator` + `data.import`, `config.edit`, `connector.use`, `job.manage`, `gw.propose`, `gw.mode.up.advisory`, `gw.mode.up.dry_run`, `gw.mode.up.confirm`, `gw.re_enable.stopped`, `policy.edit` |
 | `lead` | `engineer` + `gw.mode.up.supervised`, `gw.kill.reset`, `policy.pin`, `policy.reload` |
@@ -46,6 +47,7 @@ Code-forced invariants (enforced in code, not configuration):
 - `kill`, `mode.down` and `gw.reject` are held by every human role.
 - The two-person rule cannot be disabled.
 - A roles file that breaks any of these is refused at load, and the shipped default is used instead.
+- The shipped `schemas/auth-roles.default.json` already includes `gw.reject` in `viewer`.
 
 ### 3. Authentication
 

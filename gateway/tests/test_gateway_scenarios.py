@@ -116,7 +116,9 @@ def dry_run_gateway(sim: SimPlant) -> Gateway:
 
 def start_from_policy_file(path: Path, sim: SimPlant) -> Gateway:
     """Start the gateway from a policy file whose sha256 is pinned."""
-    return engine.start_from_policy_file(path, sim, "supervised")
+    return engine.start_from_policy_file(
+        path, sim, "supervised", allow_legacy_sidecar=True
+    )
 
 
 def proposal(value: float, t_ns: int = 0, reason: str = "test") -> WriteProposal:

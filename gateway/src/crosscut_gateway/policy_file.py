@@ -140,3 +140,12 @@ def load_policy_file(
     targets = policy_from_dict(data)
     mode = str(data["mode"])
     return targets, mode, digest
+
+
+def validate_document(data: dict[str, Any]) -> dict[str, WritePolicy]:
+    """Validate a parsed policy document against the schema and return its write policies.
+
+    Raises PolicyError on any schema violation or invalid target definition.
+    """
+    _validate_schema(data)
+    return policy_from_dict(data)

@@ -9,10 +9,13 @@ and kill-switch behaviour.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
-from crosscut_gateway import policy_file
+from crosscut_gateway import policy_file, policy_pin
+from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext
 from crosscut_gateway.audit import AuditLog
 from crosscut_gateway.interfaces import ControlSystem, WriteDecision, WritePolicy, WriteProposal
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
@@ -62,6 +65,7 @@ class WriteGateway:
         self._mode: Mode = mode
         self._mode_cap: Mode = "supervised"
         self._audit = audit or AuditLog()
+        self._actor: ActorContext | None = None
 
         self._now_ns = 0
         self._clock_started = False
@@ -73,6 +77,7 @@ class WriteGateway:
         self._seen_proposals: dict[str, WriteDecision] = {}
         self._proposal_cache: dict[str, WriteProposal] = {}
         self._pending: dict[str, WriteProposal] = {}
+        self._proposer_actor: dict[str, str | None] = {}
 
     # ------------------------------------------------------------------ public API
 
@@ -81,7 +86,52 @@ class WriteGateway:
         """Return the active operating mode (read-only)."""
         return self._mode
 
-    def propose(self, proposal: WriteProposal) -> WriteDecision:
+    @property
+    def mode_cap(self) -> Mode:
+        """Return the most permissive mode allowed by the policy (read-only)."""
+        return self._mode_cap
+
+    @property
+    def killed(self) -> bool:
+        """Return True while the kill switch is engaged (read-only)."""
+        return self._killed
+
+    def target_state(self, tag: object) -> str | None:
+        """Return the state of a target, or None for a non-str or unknown tag."""
+        if not isinstance(tag, str):
+            return None
+        return self._states.get(tag)
+
+    def pending_proposer(self, key: object) -> str | None:
+        """Return the actor that queued a pending proposal, or None when unknown."""
+        if not isinstance(key, str) or key not in self._pending:
+            return None
+        return self._proposer_actor.get(key)
+
+    @contextmanager
+    def _acting(self, ctx: ActorContext | None) -> Iterator[None]:
+        """Attribute audit records written inside the block to ``ctx``; restore on exit."""
+        previous = self._actor
+        self._actor = ctx
+        try:
+            yield
+        finally:
+            self._actor = previous
+
+    def _actor_name(self) -> str | None:
+        """Return the calling actor's name, or None when the call carries no actor."""
+        return None if self._actor is None else self._actor.actor
+
+    def _current_actor(self) -> ActorContext:
+        """Return the actor to attribute audit records to (gateway when none is set)."""
+        return GATEWAY_ACTOR if self._actor is None else self._actor
+
+    def propose(
+        self,
+        proposal: WriteProposal,
+        *,
+        actor_ctx: ActorContext | None = None,
+    ) -> WriteDecision:
         """Process one proposal through the current gateway mode.
 
         Returns a cached decision for duplicate proposals; otherwise the new decision.
@@ -90,6 +140,11 @@ class WriteGateway:
         Raises:
             KeyError: When the proposal tag has no policy.
         """
+        with self._acting(actor_ctx):
+            return self._propose(proposal)
+
+    def _propose(self, proposal: WriteProposal) -> WriteDecision:
+        """Run one proposal through the screening and dispatch steps."""
         key = proposal_key(proposal)
         if key in self._seen_proposals:
             self._audit_duplicate(proposal, self._seen_proposals[key])
@@ -177,6 +232,7 @@ class WriteGateway:
         value = self._effective_value(proposal, decision)
         self._pending[key] = proposal
         self._proposal_cache[key] = proposal
+        self._proposer_actor[key] = self._actor_name()
         self._log_proposal("queued", proposal, "queued", value)
         queued_decision = WriteDecision(accepted=True, reason_code="queued", clamped_value=value)
         self._seen_proposals[key] = queued_decision
@@ -220,8 +276,31 @@ class WriteGateway:
         ):
             self._send_heartbeat_safely()
 
-    def kill(self) -> None:
+    def kill(self, *, actor_ctx: ActorContext | None = None) -> None:
         """Trigger the kill switch. Setpoints are released on the next tick."""
+        with self._acting(actor_ctx):
+            self._kill_all()
+
+    def reset_kill(self, *, actor_ctx: ActorContext | None = None) -> None:
+        """Clear the kill latch and drop to advisory mode (never above the policy cap).
+
+        Safe to call when the kill switch is not engaged. Every target moves to
+        ``stopped:kill`` with holding cleared and must be re-enabled explicitly.
+        """
+        with self._acting(actor_ctx):
+            self._reset_kill()
+
+    def _reset_kill(self) -> None:
+        """Clear the kill latch, stop every target, and audit the reset."""
+        self._killed = False
+        for tag in self._states:
+            self._holding[tag] = False
+            self._set_state(tag, "stopped:kill")
+        self._mode = _more_restrictive("advisory", self._mode_cap)
+        self._log("kill_reset", "", "kill_reset")
+
+    def _kill_all(self) -> None:
+        """Set the kill latch, flush pending proposals and move every target to killed."""
         if not self._killed:
             self._log("kill", "", "killed")
         self._killed = True
@@ -237,17 +316,23 @@ class WriteGateway:
         """Return all audit records in append order."""
         return self._audit.records()
 
-    def release(self, tag: str) -> None:
+    def release(self, tag: str, *, actor_ctx: ActorContext | None = None) -> None:
         """Immediately hand a setpoint back to local control (public helper)."""
-        self._release_target(tag, "manual")
+        with self._acting(actor_ctx):
+            self._release_target(tag, "manual")
 
-    def re_enable(self, tag: str) -> None:
+    def re_enable(self, tag: str, *, actor_ctx: ActorContext | None = None) -> None:
         """Re-enable a target after it was stopped or hold-off has expired.
 
         Raises:
             KeyError: When tag has no policy.
             ValueError: When the target cannot be re-enabled from its current state.
         """
+        with self._acting(actor_ctx):
+            self._re_enable(tag)
+
+    def _re_enable(self, tag: str) -> None:
+        """Validate the target state and move it back to enabled."""
         self._validate_tag(tag)
         state = self._states[tag]
         if state == "killed":
@@ -264,12 +349,19 @@ class WriteGateway:
         """Return proposals that are queued for confirmation in confirm mode."""
         return list(self._pending.values())
 
-    def approve(self, key: str) -> WriteDecision:
+    def approve(self, key: str, *, actor_ctx: ActorContext | None = None) -> WriteDecision:
         """Approve a queued proposal and execute it immediately in supervised mode.
+
+        An approver may not approve a proposal they submitted themselves.
 
         Raises:
             KeyError: When key is not a currently pending proposal.
         """
+        with self._acting(actor_ctx):
+            return self._approve(key)
+
+    def _approve(self, key: str) -> WriteDecision:
+        """Run the approval checks, then execute the pending proposal."""
         proposal = self._pending.get(key)
         if proposal is None:
             raise KeyError(f"unknown pending proposal key: {key}")
@@ -279,7 +371,13 @@ class WriteGateway:
             self._audit_decision(proposal.target_tag, proposal, decision)
             return decision
 
+        if self._is_self_approval(key):
+            decision = WriteDecision(accepted=False, reason_code="self_approval")
+            self._log_proposal("self_approval", proposal, "self_approval")
+            return decision
+
         self._pending.pop(key, None)
+        self._proposer_actor.pop(key, None)
         self._proposal_cache.pop(key, None)
         blocked = self._queued_refusal(proposal, key)
         if blocked is not None:
@@ -288,6 +386,11 @@ class WriteGateway:
         if not decision.accepted:
             return decision
         return self._write(proposal, decision, key)
+
+    def _is_self_approval(self, key: str) -> bool:
+        """Return True when the current actor is the one who proposed the pending key."""
+        proposer = self._proposer_actor.get(key)
+        return proposer is not None and proposer == self._actor_name()
 
     def _queued_refusal(self, proposal: WriteProposal, key: str) -> WriteDecision | None:
         """Return the recorded refusal when the target or proposal age blocks a queued write."""
@@ -301,26 +404,37 @@ class WriteGateway:
             return None
         return self._record(proposal, WriteDecision(accepted=False, reason_code=refusal), key)
 
-    def reject(self, key: str) -> None:
+    def reject(self, key: str, *, actor_ctx: ActorContext | None = None) -> None:
         """Reject a queued proposal without writing.
 
         Raises:
             KeyError: When key is not a currently pending proposal.
         """
+        with self._acting(actor_ctx):
+            self._reject(key)
+
+    def _reject(self, key: str) -> None:
+        """Drop a pending proposal, cache the refusal and audit it."""
         proposal = self._pending.pop(key, None)
         if proposal is None:
             raise KeyError(f"unknown pending proposal key: {key}")
+        self._proposer_actor.pop(key, None)
         self._proposal_cache.pop(key, None)
         decision = WriteDecision(accepted=False, reason_code="rejected")
         self._seen_proposals[key] = decision
         self._log_proposal("rejected", proposal, "rejected")
 
-    def set_mode(self, mode: Mode) -> None:
+    def set_mode(self, mode: Mode, *, actor_ctx: ActorContext | None = None) -> None:
         """Change the operating mode of the gateway.
 
         Raises:
             ValueError: When mode is unknown or exceeds the configured mode cap.
         """
+        with self._acting(actor_ctx):
+            self._set_mode(mode)
+
+    def _set_mode(self, mode: Mode) -> None:
+        """Validate the requested mode against the cap, then switch and audit it."""
         if mode not in _MODE_ORDER:
             raise ValueError(f"unknown mode: {mode}")
         if _MODE_ORDER[mode] > _MODE_ORDER[self._mode_cap]:
@@ -593,6 +707,7 @@ class WriteGateway:
         if keys_to_remove:
             for key in keys_to_remove:
                 proposal = self._pending.pop(key, None)
+                self._proposer_actor.pop(key, None)
                 self._proposal_cache.pop(key, None)
                 if proposal is not None:
                     self._seen_proposals[key] = WriteDecision(
@@ -611,7 +726,7 @@ class WriteGateway:
         self._log_proposal("duplicate", proposal, cached.reason_code, value)
 
     def _log(self, event: str, tag: str, reason: str, value: str = "") -> None:
-        """Append a simple audit record."""
+        """Append a simple audit record, stamped with the acting principal."""
         self._audit.append(
             event,
             {
@@ -620,6 +735,7 @@ class WriteGateway:
                 "proposer": "",
                 "mode": self._mode,
                 "reason_code": reason,
+                **self._current_actor().audit_fields(),
             },
             self._now_ns,
         )
@@ -641,9 +757,58 @@ class WriteGateway:
                 "proposer": proposal.proposer,
                 "mode": self._mode,
                 "reason_code": reason,
+                **self._current_actor().audit_fields(),
             },
             self._now_ns,
         )
+
+    def record_event(self, event: str, ctx: ActorContext, reason: str, value: str = "") -> None:
+        """Append an operator-visible audit event that is not tied to a target."""
+        with self._acting(ctx):
+            self._log(event, "", reason, value)
+
+    def swap_policies(
+        self,
+        policies: dict[str, WritePolicy],
+        cap: Mode,
+        *,
+        digest: str = "",
+        actor_ctx: ActorContext | None = None,
+    ) -> None:
+        """Replace policies and the mode cap; allowed only in mode off or advisory.
+
+        Tags may be added or removed. Removed tags have pending proposals flushed first.
+        The live mode is lowered to ``cap`` when it is above it.
+
+        Raises:
+            ValueError: When the gateway is in a mode above advisory.
+        """
+        with self._acting(actor_ctx):
+            if self._mode not in ("off", "advisory"):
+                raise ValueError("policy reload needs mode off or advisory")
+            self._drop_removed_tags(set(self._policies) - set(policies))
+            self._add_new_tags(set(policies) - set(self._policies))
+            self._policies = dict(policies)
+            self._mode_cap = cap
+            if _MODE_ORDER[self._mode] > _MODE_ORDER[cap]:
+                self._mode = cap
+            self._log("policy_reload", "", "policy_reload", digest)
+
+    def _drop_removed_tags(self, removed: set[str]) -> None:
+        """Flush pending proposals and forget the state of tags a reload removed."""
+        for tag in removed:
+            self._flush_pending_tag(tag)
+            self._states.pop(tag, None)
+            self._holding.pop(tag, None)
+            self._last_written.pop(tag, None)
+            self._last_write_t_ns.pop(tag, None)
+            self._hold_until_ns.pop(tag, None)
+
+    def _add_new_tags(self, added: set[str]) -> None:
+        """Start newly added tags as enabled and not holding."""
+        for tag in added:
+            self._states[tag] = "enabled"
+            self._holding[tag] = False
 
 
 def _more_restrictive(a: Mode, b: Mode) -> Mode:
@@ -656,30 +821,55 @@ def start_from_policy_file(
     plant: ControlSystem,
     mode: Mode,
     audit: AuditLog | None = None,
+    *,
+    key: bytes | None = None,
+    allow_legacy_sidecar: bool = False,
 ) -> WriteGateway:
-    """Build a WriteGateway from a policy file and its pinned SHA-256 digest.
+    """Build a WriteGateway from a pinned policy file.
 
-    The sidecar file ``path.with_suffix(".sha256")`` must contain the expected digest;
-    any mismatch raises ``PolicyError`` before the policy is parsed.
+    By default the file must carry a signed pin verified with ``key``. The unsigned
+    ``allow_legacy_sidecar`` mode checks ``path.with_suffix(".sha256")`` instead and is kept
+    only for older deployments.
 
     Args:
         path: Path to the write-policy JSON file.
         plant: Control system abstraction.
         mode: Requested gateway mode.
         audit: Optional audit log.
+        key: Signing key that verifies the policy pin.
+        allow_legacy_sidecar: Use the legacy SHA-256 sidecar check instead of a pin.
 
     Returns:
         A WriteGateway configured with the effective (more restrictive) mode.
+
+    Raises:
+        PolicyError: When the policy cannot be verified or parsed.
     """
+    if allow_legacy_sidecar:
+        targets, file_mode = _load_sidecar_policy(path)
+    else:
+        targets, file_mode = _load_pinned_policy(path, key)
+    effective_mode = _more_restrictive(mode, file_mode)  # type: ignore[arg-type]
+    gateway = WriteGateway(plant, targets, effective_mode, audit)
+    gateway._mode_cap = effective_mode
+    return gateway
+
+
+def _load_sidecar_policy(path: Path) -> tuple[dict[str, WritePolicy], str]:
+    """Verify the legacy ``.sha256`` sidecar digest, then parse the policy file."""
     digest_path = path.with_suffix(".sha256")
     expected_digest = digest_path.read_text(encoding="utf-8").strip()
     raw_bytes = path.read_bytes()
     actual_digest = hashlib.sha256(raw_bytes).hexdigest()
     if actual_digest.lower() != expected_digest.lower():
         raise PolicyError("policy file hash mismatch")
-
     targets, file_mode, _ = policy_file.load_policy_file(path, None)
-    effective_mode = _more_restrictive(mode, file_mode)  # type: ignore[arg-type]
-    gateway = WriteGateway(plant, targets, effective_mode, audit)
-    gateway._mode_cap = effective_mode
-    return gateway
+    return targets, file_mode
+
+
+def _load_pinned_policy(path: Path, key: bytes | None) -> tuple[dict[str, WritePolicy], str]:
+    """Load a policy file whose signed pin is verified with ``key``."""
+    if key is None:
+        raise PolicyError("a signing key is required to load a pinned policy")
+    targets, file_mode, _ = policy_pin.load_pinned_policy(path, key)
+    return targets, file_mode
