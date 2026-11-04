@@ -1,5 +1,1 @@
-"""Write gateway DESIGN SKELETON (ADR 011): interfaces and a simulator-only test suite.
-
-There is no implementation and no connectivity here. The package must not import any OPC UA
-module; nothing may import this package until ADR 011 is accepted.
-"""
+"""Write gateway (ADR 011/012): engine, policy, audit and service; OPC UA only in opcua_plant.py."""

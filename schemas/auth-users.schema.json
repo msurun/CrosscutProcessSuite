@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/auth-users.schema.json",
+  "title": "Auth users",
+  "description": "User database schema for local authentication and authorization in Crosscut Process Suite.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "users"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Version of this auth users schema layout."
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/user"
+      },
+      "description": "List of configured user accounts."
+    }
+  },
+  "$defs": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "username",
+        "display_name",
+        "roles",
+        "disabled",
+        "must_change_password",
+        "password",
+        "created_at",
+        "password_changed_at",
+        "failed_logins",
+        "locked_until",
+        "source"
+      ],
+      "properties": {
+        "username": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{2,31}$",
+          "description": "Unique username identifying the account."
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Human-readable full name or alias for display."
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Assigned authorization roles for role-based access control."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the user account is administratively disabled."
+        },
+        "must_change_password": {
+          "type": "boolean",
+          "description": "Whether the user is forced to change their password on next login."
+        },
+        "password": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "alg",
+            "n",
+            "r",
+            "p",
+            "salt_b64",
+            "hash_b64"
+          ],
+          "properties": {
+            "alg": {
+              "type": "string",
+              "enum": ["scrypt"],
+              "description": "Password hashing algorithm identifier."
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 1024,
+              "description": "scrypt CPU/memory cost parameter (power of 2)."
+            },
+            "r": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "scrypt block size parameter."
+            },
+            "p": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "scrypt parallelization parameter."
+            },
+            "salt_b64": {
+              "type": "string",
+              "description": "Base64-encoded random cryptographic salt."
+            },
+            "hash_b64": {
+              "type": "string",
+              "description": "Base64-encoded derived scrypt key hash."
+            }
+          },
+          "description": "Password derivation and hash parameters."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the user account was created."
+        },
+        "password_changed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the password was last modified."
+        },
+        "failed_logins": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of consecutive failed login attempts."
+        },
+        "locked_until": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Timestamp until which the account is locked due to failed attempts, or null if not locked."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["local"],
+          "description": "Origin provider of the user account credentials."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "roles": {
+    "viewer": {
+      "description": "Read-only access to data, audit logs, and gateway status with emergency down-mode capability.",
+      "permissions": [
+        "audit.view",
+        "data.view",
+        "gw.kill",
+        "gw.mode.down",
+        "gw.reject",
+        "gw.view"
+      ]
+    },
+    "operator": {
+      "description": "Standard operational role to monitor, trigger analyses, stop jobs, and review gateway requests.",
+      "permissions": [
+        "analysis.run",
+        "audit.view",
+        "data.view",
+        "gw.approve",
+        "gw.kill",
+        "gw.mode.down",
+        "gw.re_enable.hold_off",
+        "gw.reject",
+        "gw.view",
+        "job.stop"
+      ]
+    },
+    "engineer": {
+      "description": "Engineering access to manage jobs, configure connectors, edit policies, and propose gateway changes.",
+      "permissions": [
+        "analysis.run",
+        "audit.view",
+        "config.edit",
+        "connector.use",
+        "data.import",
+        "data.view",
+        "gw.approve",
+        "gw.kill",
+        "gw.mode.down",
+        "gw.mode.up.advisory",
+        "gw.mode.up.confirm",
+        "gw.mode.up.dry_run",
+        "gw.propose",
+        "gw.re_enable.hold_off",
+        "gw.re_enable.stopped",
+        "gw.reject",
+        "gw.view",
+        "job.manage",
+        "job.stop",
+        "policy.edit"
+      ]
+    },
+    "lead": {
+      "description": "Lead engineer with authority to supervise gateway escalations, reset kill states, and pin policies.",
+      "permissions": [
+        "analysis.run",
+        "audit.view",
+        "config.edit",
+        "connector.use",
+        "data.import",
+        "data.view",
+        "gw.approve",
+        "gw.kill",
+        "gw.kill.reset",
+        "gw.mode.down",
+        "gw.mode.up.advisory",
+        "gw.mode.up.confirm",
+        "gw.mode.up.dry_run",
+        "gw.mode.up.supervised",
+        "gw.propose",
+        "gw.re_enable.hold_off",
+        "gw.re_enable.stopped",
+        "gw.reject",
+        "gw.view",
+        "job.manage",
+        "job.stop",
+        "policy.edit",
+        "policy.pin",
+        "policy.reload"
+      ]
+    },
+    "admin": {
+      "description": "System administrator responsible for user management and viewing system state.",
+      "permissions": [
+        "audit.view",
+        "data.view",
+        "gw.kill",
+        "gw.mode.down",
+        "gw.reject",
+        "gw.view",
+        "users.manage"
+      ]
+    },
+    "service": {
+      "description": "Machine-to-machine service principal dedicated to proposing gateway actions.",
+      "permissions": [
+        "gw.propose"
+      ]
+    }
+  }
+}

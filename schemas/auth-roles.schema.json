@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/auth-roles.schema.json",
+  "title": "Auth roles",
+  "description": "Role-based access control (RBAC) role and permission definitions for the Crosscut Write Gateway. Maps role identifiers to their assigned permissions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "roles"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Version of this auth roles schema layout."
+    },
+    "roles": {
+      "type": "object",
+      "description": "Mapping of role identifier to role definition.",
+      "additionalProperties": {
+        "$ref": "#/$defs/role"
+      },
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{1,31}$"
+      }
+    }
+  },
+  "$defs": {
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "permissions"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the role's purpose and scope."
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/permission"
+          },
+          "description": "List of explicit permissions granted to this role."
+        }
+      }
+    },
+    "permission": {
+      "type": "string",
+      "enum": [
+        "data.view",
+        "gw.view",
+        "audit.view",
+        "gw.kill",
+        "gw.mode.down",
+        "analysis.run",
+        "job.stop",
+        "job.manage",
+        "gw.approve",
+        "gw.reject",
+        "gw.re_enable.hold_off",
+        "gw.re_enable.stopped",
+        "data.import",
+        "config.edit",
+        "connector.use",
+        "gw.propose",
+        "gw.mode.up.advisory",
+        "gw.mode.up.dry_run",
+        "gw.mode.up.confirm",
+        "gw.mode.up.supervised",
+        "policy.edit",
+        "gw.kill.reset",
+        "policy.pin",
+        "policy.reload",
+        "users.manage"
+      ],
+      "description": "Fine-grained system and gateway action permission."
+    }
+  }
+}

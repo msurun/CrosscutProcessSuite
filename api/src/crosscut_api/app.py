@@ -35,6 +35,7 @@ from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.anomaly_routes import build_anomaly_router
+from crosscut_api.auth_routes import build_auth_router
 from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
@@ -664,6 +665,7 @@ def create_app(data_root: Path) -> FastAPI:
     app.include_router(build_connector_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_auth_router(store.root))
     # The Write Gateway runs as a separate process (ADR 011/012); the API talks to it only
     # through the file mailbox under <data root>/_gateway/ (FileGatewayClient) and answers 503
     # while the gateway's state file is missing or stale. This module must not import
