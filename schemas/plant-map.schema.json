@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/plant-map.schema.json",
+  "title": "Plant map",
+  "description": "Mapping of OPC UA nodes and control values for a plant. This mapping is DATA that the owner must confirm against the real control system; no vendor semantics are assumed, and the schema does not know what any raw value means.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "endpoint", "heartbeat", "targets"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Version of this plant map schema layout."
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^opc\\.tcp://",
+      "description": "OPC UA endpoint URL, must start with \"opc.tcp://\"."
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "period_s"],
+      "properties": {
+        "node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the node that receives the gateway heartbeat counter."
+        },
+        "period_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Heartbeat period in seconds."
+        },
+        "ack_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional OPC UA NodeId text of the node the control system writes when it sees the heartbeat."
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/target"
+      },
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]+$"
+      },
+      "minProperties": 1,
+      "description": "Mapping from target tag name to its node and control configuration."
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setpoint_node",
+        "readback_node",
+        "mode_node",
+        "source_node",
+        "remote_value",
+        "local_value",
+        "release_value",
+        "mode_values"
+      ],
+      "properties": {
+        "setpoint_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the setpoint node, e.g. \"ns=2;s=Plant.FIC101.SP\" or \"nsu=urn:x;s=Plant.FIC101.SP\". Written by the gateway; units are the engineering units of the tag."
+        },
+        "readback_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the read-back value, in the engineering units of the tag."
+        },
+        "mode_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the loop mode node. Raw value is reverse-mapped through mode_values."
+        },
+        "source_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the node that says who owns the setpoint. May be the same node as mode_node."
+        },
+        "remote_value": {
+          "type": ["integer", "boolean"],
+          "description": "Raw value of source_node meaning the setpoint is owned by remote (gateway) control."
+        },
+        "local_value": {
+          "type": ["integer", "boolean"],
+          "description": "Raw value of source_node meaning the setpoint is owned by local (operator) control."
+        },
+        "release_value": {
+          "type": ["integer", "boolean"],
+          "description": "Raw value written to source_node to hand the setpoint back to local control."
+        },
+        "mode_values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "minProperties": 1,
+          "description": "Mapping from loop mode name to the raw integer value of mode_node."
+        },
+        "take_remote": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "description": "Optional. Raw write that puts the setpoint source into remote control. Without it, write() only touches the setpoint node and the control system stays in local setpoint source.",
+          "properties": {
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OPC UA NodeId text of the node that receives the take value. Defaults to source_node."
+            },
+            "value": {
+              "type": ["integer", "boolean"],
+              "description": "Raw value written to take the setpoint source to remote."
+            },
+            "before_setpoint": {
+              "type": "boolean",
+              "default": true,
+              "description": "Write the take before the setpoint (true) or after it (false)."
+            }
+          }
+        }
+      }
+    }
+  }
+}

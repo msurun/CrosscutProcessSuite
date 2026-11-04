@@ -14,7 +14,7 @@ from typing import Literal
 
 from crosscut_gateway import policy_file
 from crosscut_gateway.audit import AuditLog
-from crosscut_gateway.interfaces import SimControlSystem, WriteDecision, WritePolicy, WriteProposal
+from crosscut_gateway.interfaces import ControlSystem, WriteDecision, WritePolicy, WriteProposal
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
 
 Mode = Literal["off", "advisory", "dry_run", "confirm", "supervised"]
@@ -39,7 +39,7 @@ class WriteGateway:
 
     def __init__(
         self,
-        plant: SimControlSystem,
+        plant: ControlSystem,
         policies: dict[str, WritePolicy],
         mode: Mode,
         audit: AuditLog | None = None,
@@ -653,7 +653,7 @@ def _more_restrictive(a: Mode, b: Mode) -> Mode:
 
 def start_from_policy_file(
     path: Path,
-    plant: SimControlSystem,
+    plant: ControlSystem,
     mode: Mode,
     audit: AuditLog | None = None,
 ) -> WriteGateway:

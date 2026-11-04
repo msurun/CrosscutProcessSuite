@@ -1,4 +1,4 @@
-"""Interfaces of the write gateway (ADR 011): proposals, policy, decisions and two Protocols.
+"""Interfaces of the write gateway (ADR 011): proposals, policy, decisions and three Protocols.
 
 Types only. No behaviour, no connectivity.
 """
@@ -43,15 +43,17 @@ class WriteDecision:
     clamped_value: float | None = None
 
 
-class SimControlSystem(Protocol):
-    """The control system as the gateway sees it (a simulator in the tests)."""
+class ControlSystem(Protocol):
+    """The control system as the gateway sees it: what any adapter, simulated or real,
+    implements."""
 
     def read(self, tag: str) -> float:
         """Current value of a tag."""
         ...
 
     def write(self, tag: str, value: float) -> bool:
-        """Write a setpoint; False if the control system refuses."""
+        """Write a setpoint; False if the control system refuses (bad status);
+        ConnectionError/TimeoutError on transport failure."""
         ...
 
     def heartbeat_seen(self) -> bool:
@@ -70,16 +72,20 @@ class SimControlSystem(Protocol):
         """``"local"`` or ``"remote"``: who currently owns the setpoint."""
         ...
 
+    def release(self, tag: str) -> None:
+        """Hand the setpoint of ``tag`` back to local control."""
+        ...
+
+
+class SimControlSystem(ControlSystem, Protocol):
+    """Simulator-only extension with operator actions."""
+
     def set_mode_by_operator(self, tag: str, mode: str) -> None:
         """An operator changes the loop mode."""
         ...
 
     def set_setpoint_by_operator(self, tag: str, value: float) -> None:
         """An operator changes the setpoint."""
-        ...
-
-    def release(self, tag: str) -> None:
-        """Hand the setpoint of ``tag`` back to local control."""
         ...
 
 

@@ -1,11 +1,12 @@
 """Static guards for the write path (ADR 012).
 
-Only the Write Gateway (gateway/) may write to a control system; analysis packages must
-never import write capability.
+Only the gateway adapter (gateway/src/crosscut_gateway/opcua_plant.py) may write to a control
+system; the gateway package may import OPC UA ONLY in that one module; analysis packages
+(incl. api, connectors-as-writers) must never import write capability.
 
 Scope: loops, fuzzy, supervisor, anomaly, softsensor and the API. The ``opcua`` and
 ``connectors`` packages are excluded on purpose: they are the connectivity layer and may
-legitimately use OPC UA. The gateway skeleton itself must contain no OPC UA import at all.
+legitimately use OPC UA.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ SCOPE = {
     "api": ROOT / "api/src/crosscut_api",
 }
 GATEWAY_SRC = ROOT / "gateway/src/crosscut_gateway"
+ADAPTER = "opcua_plant.py"
 OPCUA_MODULES = frozenset({"asyncua", "opcua"})
 WRITE_NAMES = frozenset(
     {"write_value", "set_value", "call_method", "write_attribute", "WriteValue"}
@@ -68,21 +70,30 @@ def _problems(tree: ast.Module) -> set[str]:
 
 @pytest.mark.parametrize("name", sorted(SCOPE))
 def test_package_has_no_write_capability(name: str) -> None:
-    """No OPC UA import, write call or gateway import in the package."""
+    """No OPC UA import, write call or gateway import in the package;
+    only the gateway adapter may write."""
     files = _files(SCOPE[name])
     assert files, f"no sources found for {name}"
     found = {f.name: p for f in files if (p := _problems(ast.parse(f.read_text("utf-8"))))}
     assert not found, f"{name}: {found}"
 
 
-def test_gateway_skeleton_has_no_opcua_import() -> None:
-    """The skeleton has no connectivity: no OPC UA import and no write call anywhere."""
+def test_only_gateway_adapter_imports_opcua() -> None:
+    """Only the gateway adapter imports OPC UA; only the gateway adapter may write."""
     files = _files(GATEWAY_SRC)
     assert files
     for f in files:
-        tree = ast.parse(f.read_text("utf-8"))
-        assert not _imports(tree) & OPCUA_MODULES, f.name
-        assert not _write_uses(tree), f.name
+        if f.name != ADAPTER:
+            assert not _imports(ast.parse(f.read_text("utf-8"))) & OPCUA_MODULES, f.name
+
+
+def test_only_gateway_adapter_uses_write_calls() -> None:
+    """Only the gateway adapter may write: no other gateway file uses a write call."""
+    files = _files(GATEWAY_SRC)
+    assert files
+    for f in files:
+        if f.name != ADAPTER:
+            assert not _write_uses(ast.parse(f.read_text("utf-8"))), f.name
 
 
 def test_scanner_detects_forbidden_code() -> None:
