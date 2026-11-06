@@ -35,6 +35,59 @@ class WritePolicy:
 
 
 @dataclass(frozen=True)
+class ParamPolicy:
+    """Per-target policy of one PID parameter (schema ``write-policy``, kind ``pid_param``).
+
+    Out-of-range values are refused, never clamped. Units: ``limits`` and
+    ``readback_tolerance`` in the unit ``unit``; ``max_ratio`` dimensionless (> 1);
+    ``min_interval_s`` in seconds.
+    """
+
+    loop: str
+    param: str
+    unit: str
+    vendor_form: str
+    limits: tuple[float, float]
+    max_ratio: float
+    readback_tolerance: float
+    min_interval_s: float
+    allowed_loop_modes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ParamItem:
+    """One parameter change: ``from_value`` read live from the DCS, ``to_value`` proposed.
+
+    Both values are in ``unit``. ``target`` is the policy target tag it is written to.
+    """
+
+    param: str
+    target: str
+    unit: str
+    vendor_form: str
+    from_value: float
+    to_value: float
+
+
+@dataclass(frozen=True)
+class ParamSetProposal:
+    """An atomic set of parameter changes of one loop (data, never a call).
+
+    ``t_ns`` and ``expires_ns`` are UTC nanoseconds; ``rollback_of`` is the id of the
+    reverted proposal or None.
+    """
+
+    proposal_id: str
+    loop_id: str
+    items: tuple[ParamItem, ...]
+    proposer: str
+    t_ns: int
+    expires_ns: int
+    reason: str
+    rollback_of: str | None = None
+
+
+@dataclass(frozen=True)
 class WriteDecision:
     """Outcome of a proposal: accepted or not, a stable reason code, the value actually used."""
 

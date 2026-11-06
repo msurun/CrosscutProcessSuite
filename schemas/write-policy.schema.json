@@ -5,7 +5,11 @@
   "description": "Write policy configuration for the Crosscut Write Gateway (ADR 011, ADR 012). Defines permissible write targets, engineering boundaries, step and rate clamps, allowed loop modes, and watchdog timings. Any proposal outside this policy is rejected.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "mode", "targets"],
+  "required": [
+    "version",
+    "mode",
+    "targets"
+  ],
   "properties": {
     "version": {
       "const": 1,
@@ -13,7 +17,13 @@
     },
     "mode": {
       "type": "string",
-      "enum": ["off", "advisory", "dry_run", "confirm", "supervised"],
+      "enum": [
+        "off",
+        "advisory",
+        "dry_run",
+        "confirm",
+        "supervised"
+      ],
       "description": "Operating mode of the write gateway. Default is never implied; mode must be explicitly specified."
     },
     "targets": {
@@ -36,6 +46,17 @@
       "description": "Unique tag identifier for the write target."
     },
     "target_policy": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/setpoint_target"
+        },
+        {
+          "$ref": "#/$defs/pid_param_target"
+        }
+      ],
+      "description": "Per-target policy, discriminated by kind. A missing kind means setpoint."
+    },
+    "setpoint_target": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -49,6 +70,10 @@
         "readback_tolerance"
       ],
       "properties": {
+        "kind": {
+          "const": "setpoint",
+          "description": "Target kind. Missing kind means setpoint."
+        },
         "limits": {
           "type": "array",
           "items": {
@@ -100,7 +125,134 @@
           "description": "Maximum absolute deviation between written setpoint and read-back value."
         }
       }
+    },
+    "pid_param_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "PID parameter target (ADR 014). Out-of-range values are refused, never clamped. No rate, watchdog or hold-off fields: parameters persist in the DCS and nothing is released.",
+      "required": [
+        "kind",
+        "loop",
+        "param",
+        "unit",
+        "vendor_form",
+        "limits",
+        "max_ratio",
+        "readback_tolerance",
+        "min_interval_s",
+        "allowed_loop_modes"
+      ],
+      "properties": {
+        "kind": {
+          "const": "pid_param"
+        },
+        "loop": {
+          "$ref": "#/$defs/identifier",
+          "description": "Loop identifier the parameter belongs to."
+        },
+        "param": {
+          "enum": [
+            "gain",
+            "ti",
+            "td",
+            "tf"
+          ],
+          "description": "Which PID parameter this target is."
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Unit of the parameter in the DCS (e.g. s, min, %, 1)."
+        },
+        "vendor_form": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key of the vendor form (VENDOR_FORMS) this target is written in."
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "$comment": "limits[0] <= limits[1] is checked in code. gain/ti need limits[0] > 0 and td/tf limits[0] >= 0.",
+          "description": "Permissible range [low, high] of the parameter value, in the unit above. Values outside are refused."
+        },
+        "max_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "Largest change factor r: new/current must lie within [1/r, r]. Dimensionless, > 1."
+        },
+        "readback_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum absolute deviation between written value and read-back, in the unit above."
+        },
+        "min_interval_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum time between applied changes of this parameter, in seconds."
+        },
+        "allowed_loop_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Loop modes in which the parameter may be written."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "param": {
+                "enum": [
+                  "gain",
+                  "ti"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "limits": {
+                "prefixItems": [
+                  {
+                    "exclusiveMinimum": 0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "param": {
+                "enum": [
+                  "td",
+                  "tf"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "limits": {
+                "prefixItems": [
+                  {
+                    "minimum": 0
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
-

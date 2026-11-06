@@ -10,9 +10,16 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from crosscut_gateway.interfaces import WriteDecision, WritePolicy, WriteProposal
+from crosscut_gateway.interfaces import (
+    ParamItem,
+    ParamPolicy,
+    WriteDecision,
+    WritePolicy,
+    WriteProposal,
+)
 
 TAG_MAX_LENGTH = 128
 _TAG_PATTERN = re.compile(r"[A-Za-z0-9_.:-]+")
@@ -102,6 +109,26 @@ def _reject_unknown_fields(tag: str, raw: dict[Any, Any]) -> None:
         raise PolicyError(f"Target '{tag}': unknown field '{unknown[0]}'")
 
 
+KIND_SETPOINT = "setpoint"
+KIND_PID_PARAM = "pid_param"
+_KINDS = (KIND_SETPOINT, KIND_PID_PARAM)
+
+
+def _kind_of(tag: str, raw: Any) -> str:
+    """Return the target kind; a missing ``kind`` means setpoint, an unknown one is an error."""
+    if not isinstance(raw, dict):
+        raise PolicyError(f"Target '{tag}': must be a dictionary")
+    kind = raw.get("kind", KIND_SETPOINT)
+    if not isinstance(kind, str) or kind not in _KINDS:
+        raise PolicyError(f"Target '{tag}': unknown kind {kind!r}")
+    return kind
+
+
+def _without_kind(raw: dict[Any, Any]) -> dict[Any, Any]:
+    """Copy of a setpoint target dictionary without its optional ``kind`` key."""
+    return {key: val for key, val in raw.items() if key != "kind"}
+
+
 def _parse_target(tag: str, raw: Any) -> WritePolicy:
     """Parse one target dictionary into a WritePolicy dataclass."""
     if not isinstance(raw, dict):
@@ -138,11 +165,11 @@ def policy_from_dict(data: dict[str, Any]) -> dict[str, WritePolicy]:
     """
     if not isinstance(data, dict):
         raise PolicyError("Policy data must be a dictionary")
-    raw_targets = _select_targets(data)
     parsed: dict[str, WritePolicy] = {}
-    for tag, target_data in raw_targets.items():
+    for tag, target_data in _select_targets(data).items():
         _check_tag(str(tag))
-        parsed[str(tag)] = _parse_target(str(tag), target_data)
+        if _kind_of(str(tag), target_data) == KIND_SETPOINT:
+            parsed[str(tag)] = _parse_target(str(tag), _without_kind(target_data))
     return parsed
 
 
@@ -303,3 +330,191 @@ def validate_proposal(
     if _last_value_invalid(policy, last_value):
         return WriteDecision(accepted=False, reason_code="last_value_out_of_limits")
     return _evaluate_clamping(policy, proposal, last_value, last_write_t_ns)
+
+
+# --- PID parameter targets (ADR 014): refuse, never clamp --------------------------------
+
+_PARAMS = ("gain", "ti", "td", "tf")
+_PARAM_FIELDS = (
+    "kind", "loop", "param", "unit", "vendor_form", "limits", "max_ratio",
+    "readback_tolerance", "min_interval_s", "allowed_loop_modes",
+)
+_TEXT_MAX_LENGTH = 64
+
+
+def _parse_unit(tag: str, val: Any) -> str:
+    """Validate a unit text: non-empty, trimmed, at most 64 printable characters."""
+    ok = isinstance(val, str) and 1 <= len(val) <= _TEXT_MAX_LENGTH
+    if not ok or val != val.strip() or not val.isprintable():
+        raise PolicyError(f"Target '{tag}': unit must be 1-{_TEXT_MAX_LENGTH} printable characters")
+    return str(val)
+
+
+def _parse_identifier(tag: str, field_name: str, val: Any) -> str:
+    """Validate an identifier text against the tag pattern (ASCII only, no lookalikes)."""
+    if not isinstance(val, str) or not 1 <= len(val) <= TAG_MAX_LENGTH:
+        raise PolicyError(f"Target '{tag}': {field_name} must be a 1-{TAG_MAX_LENGTH} char text")
+    if _TAG_PATTERN.fullmatch(val) is None:
+        raise PolicyError(f"Target '{tag}': {field_name} {val!r} must match [A-Za-z0-9_.:-]")
+    return val
+
+
+def _parse_param_limits(tag: str, param: str, raw: Any) -> tuple[float, float]:
+    """Parse limits and apply the code-fixed lower bound: gain, ti > 0; td, tf >= 0."""
+    lo, hi = _parse_limits(tag, raw)
+    if param in ("gain", "ti") and lo <= 0:
+        raise PolicyError(f"Target '{tag}': {param} limits[0] must be > 0, got {lo}")
+    if param in ("td", "tf") and lo < 0:
+        raise PolicyError(f"Target '{tag}': {param} limits[0] must be >= 0, got {lo}")
+    return lo, hi
+
+
+def _parse_max_ratio(tag: str, val: Any) -> float:
+    """Validate max_ratio: finite and strictly greater than 1 (dimensionless)."""
+    ratio = _parse_float(tag, "max_ratio", val)
+    if ratio <= 1:
+        raise PolicyError(f"Target '{tag}': max_ratio must be > 1, got {ratio}")
+    return ratio
+
+
+def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
+    """Parse one ``pid_param`` target dictionary into a ParamPolicy."""
+    unknown = sorted(str(key) for key in set(raw) - set(_PARAM_FIELDS))
+    if unknown:
+        raise PolicyError(f"Target '{tag}': unknown field '{unknown[0]}'")
+    for req in _PARAM_FIELDS:
+        if req not in raw:
+            raise PolicyError(f"Target '{tag}': missing required field '{req}'")
+    param = raw["param"]
+    if not isinstance(param, str) or param not in _PARAMS:
+        raise PolicyError(f"Target '{tag}': param must be one of {_PARAMS}, got {param!r}")
+    return ParamPolicy(
+        loop=_parse_identifier(tag, "loop", raw["loop"]),
+        param=param,
+        unit=_parse_unit(tag, raw["unit"]),
+        vendor_form=_parse_identifier(tag, "vendor_form", raw["vendor_form"]),
+        limits=_parse_param_limits(tag, param, raw["limits"]),
+        max_ratio=_parse_max_ratio(tag, raw["max_ratio"]),
+        readback_tolerance=_parse_non_negative_float(
+            tag, "readback_tolerance", raw["readback_tolerance"]
+        ),
+        min_interval_s=_parse_non_negative_float(tag, "min_interval_s", raw["min_interval_s"]),
+        allowed_loop_modes=_parse_allowed_modes(tag, raw["allowed_loop_modes"]),
+    )
+
+
+def _reject_duplicate_params(parsed: dict[str, ParamPolicy]) -> None:
+    """Raise PolicyError when two targets claim the same (loop, param) pair."""
+    seen: dict[tuple[str, str], str] = {}
+    for tag, pol in parsed.items():
+        key = (pol.loop, pol.param)
+        if key in seen:
+            raise PolicyError(
+                f"Targets '{seen[key]}' and '{tag}' both define {pol.param} of loop '{pol.loop}'"
+            )
+        seen[key] = tag
+
+
+def params_from_dict(data: dict[str, Any]) -> dict[str, ParamPolicy]:
+    """Convert the ``pid_param`` targets of a policy document into ParamPolicy objects.
+
+    Setpoint targets are ignored here (see ``policy_from_dict``). Unknown keys, non-finite
+    numbers, unordered limits, ``max_ratio`` <= 1, gain/ti limits <= 0, td/tf limits < 0 and a
+    duplicate (loop, param) pair are rejected with PolicyError.
+
+    Units: limits and readback_tolerance in the unit of the parameter (``unit``);
+    max_ratio dimensionless; min_interval_s in seconds.
+    """
+    if not isinstance(data, dict):
+        raise PolicyError("Policy data must be a dictionary")
+    parsed: dict[str, ParamPolicy] = {}
+    for tag, target_data in _select_targets(data).items():
+        _check_tag(str(tag))
+        if _kind_of(str(tag), target_data) == KIND_PID_PARAM:
+            parsed[str(tag)] = _parse_param_target(str(tag), target_data)
+    _reject_duplicate_params(parsed)
+    return parsed
+
+
+def policies_from_dict(
+    data: dict[str, Any],
+) -> tuple[dict[str, WritePolicy], dict[str, ParamPolicy]]:
+    """Return (setpoint policies, PID parameter policies) of one policy document.
+
+    Same input and rules as ``policy_from_dict`` and ``params_from_dict``.
+    """
+    return policy_from_dict(data), params_from_dict(data)
+
+
+def _sign_refusal(param: str, to_value: float) -> list[str]:
+    """Code-fixed sign rules: gain > 0, ti > 0, td >= 0 (the sign is never written)."""
+    if param == "gain" and to_value <= 0:
+        return ["nonpositive_gain"]
+    if param == "ti" and to_value <= 0:
+        return ["nonpositive_ti"]
+    if param == "td" and to_value < 0:
+        return ["negative_td"]
+    return []
+
+
+def _ratio_exceeded(max_ratio: float, to_value: float, current: float) -> bool:
+    """True unless to_value / current lies within [1/r, r]; a non-positive side must be equal."""
+    if current <= 0 or to_value <= 0:
+        return to_value != current
+    return not 1.0 / max_ratio <= to_value / current <= max_ratio
+
+
+def _range_refusals(policy: ParamPolicy, to_value: float, current: float) -> list[str]:
+    """Limit, sign and ratio refusals of a finite value (item units)."""
+    codes: list[str] = []
+    if not policy.limits[0] <= to_value <= policy.limits[1]:
+        codes.append("out_of_limits")
+    codes += _sign_refusal(policy.param, to_value)
+    if _ratio_exceeded(policy.max_ratio, to_value, current):
+        codes.append("ratio_exceeded")
+    return codes
+
+
+def _identity_refusals(policy: ParamPolicy, item: ParamItem) -> list[str]:
+    """Refusals for a parameter, unit or vendor form that differs from the policy."""
+    pairs = (
+        ("param_mismatch", item.param, policy.param),
+        ("unit_mismatch", item.unit, policy.unit),
+        ("form_mismatch", item.vendor_form, policy.vendor_form),
+    )
+    return [code for code, got, want in pairs if got != want]
+
+
+def _check_one_item(policy: ParamPolicy | None, item: ParamItem, current: Any) -> list[str]:
+    """All refusal codes for one item against its target policy (no clamping)."""
+    if policy is None:
+        return ["no_policy"]
+    codes = _identity_refusals(policy, item)
+    if not (_is_finite_number(item.to_value) and _is_finite_number(current)):
+        return ["bad_value", *codes]
+    return codes + _range_refusals(policy, float(item.to_value), float(current))
+
+
+def check_param_items(
+    policy: Mapping[str, ParamPolicy],
+    items: Sequence[ParamItem],
+    current: Mapping[str, float],
+) -> list[str]:
+    """Refusal codes for a parameter set; an empty list means every item passes.
+
+    Nothing is clamped: a value outside the rules is refused. Codes (distinct, in order of
+    first occurrence): no_items, no_policy, bad_value (NaN, inf, bool, non-number or missing
+    live value), param_mismatch, unit_mismatch, form_mismatch, out_of_limits,
+    nonpositive_gain, nonpositive_ti, negative_td, ratio_exceeded.
+
+    Units: item values, ``current`` (live DCS reading by target tag) and policy limits in the
+    unit of the parameter; policy.max_ratio dimensionless.
+    """
+    if not items:
+        return ["no_items"]
+    codes: list[str] = []
+    for item in items:
+        for code in _check_one_item(policy.get(item.target), item, current.get(item.target)):
+            if code not in codes:
+                codes.append(code)
+    return codes

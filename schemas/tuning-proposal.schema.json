@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/tuning-proposal.schema.json",
+  "title": "Tuning proposal",
+  "description": "A proposed change of PID parameters of one loop (ADR 014). Stored by the API in <root>/_tuning/proposals/<id>.json. The gateway audit stays authoritative for what was actually written. Values are data: nothing here writes to a control system.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "version", "loop_id", "created_by", "created_at", "expires_at", "vendor_form",
+    "source", "confidence", "caveats", "items", "preview", "rollback_of", "status",
+    "gateway_key", "applied", "review"
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]+$",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "UTC timestamp, ISO 8601 with a trailing Z."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ratio": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Dimensionless ratio of a model-predicted metric, proposed over current."
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["param", "target", "unit", "from", "to"],
+      "properties": {
+        "param": {"enum": ["gain", "ti", "td", "tf"]},
+        "target": {"$ref": "#/$defs/identifier", "description": "Policy target tag the value is written to."},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Unit of from and to, as in the DCS."},
+        "from": {"type": "number", "description": "Value read live from the DCS when the proposal was created, in the unit above."},
+        "to": {"type": "number", "description": "Proposed value, in the unit above."}
+      }
+    },
+    "preview_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "proposed"],
+      "properties": {
+        "current": {"type": ["number", "null"]},
+        "proposed": {"type": ["number", "null"]}
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Proposal id, a lower-case UUID."
+    },
+    "version": {"const": 1, "description": "Version of this record layout."},
+    "loop_id": {"$ref": "#/$defs/identifier"},
+    "created_by": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"$ref": "#/$defs/utc_timestamp"},
+    "expires_at": {
+      "$ref": "#/$defs/utc_timestamp",
+      "description": "Default 8 hours after created_at; capped in code at 12 hours."
+    },
+    "vendor_form": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "evidence"],
+      "properties": {
+        "key": {"$ref": "#/$defs/identifier", "description": "A key of VENDOR_FORMS."},
+        "evidence": {"enum": ["verified", "partly_verified", "unverified"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "robustness", "model", "window", "report_digest"],
+      "properties": {
+        "method": {"enum": ["simc", "amigo", "amigo_pid", "rollback", "manual"]},
+        "robustness": {"type": "number", "minimum": 0, "maximum": 1, "description": "Robustness slider, 0 fast to 1 robust."},
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["K", "tau_s", "theta_s", "process_kind"],
+          "properties": {
+            "K": {"type": "number", "description": "Process gain, output units per PV unit as identified."},
+            "tau_s": {"type": "number", "minimum": 0, "description": "Time constant, seconds."},
+            "theta_s": {"type": "number", "minimum": 0, "description": "Dead time, seconds."},
+            "process_kind": {"enum": ["self_regulating", "integrating"]}
+          }
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "dataset_id": {"$ref": "#/$defs/identifier"},
+            "history": {"type": "boolean", "const": true, "description": "True when the window comes from the history store instead of a dataset."},
+            "start": {"$ref": "#/$defs/utc_timestamp"},
+            "end": {"$ref": "#/$defs/utc_timestamp"}
+          },
+          "oneOf": [{"required": ["dataset_id"], "not": {"required": ["history"]}}, {"required": ["history"], "not": {"required": ["dataset_id"]}}]
+        },
+        "step_test_id": {"$ref": "#/$defs/identifier"},
+        "report_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "reasons"],
+      "properties": {
+        "level": {"enum": ["high", "medium", "low"]},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "caveats": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "description": "Copied from the VendorForm."
+    },
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"},
+      "minItems": 1,
+      "maxItems": 4
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "iae_ratio", "overshoot_pct", "settling_time_s", "ms"],
+      "description": "Model-simulated comparison, current versus proposed. Always a model prediction.",
+      "properties": {
+        "label": {"const": "model prediction"},
+        "iae_ratio": {"$ref": "#/$defs/ratio"},
+        "overshoot_pct": {"$ref": "#/$defs/preview_pair", "description": "Percent of the step size."},
+        "settling_time_s": {"$ref": "#/$defs/preview_pair", "description": "Seconds."},
+        "ms": {"$ref": "#/$defs/preview_pair", "description": "Peak of the sensitivity function, dimensionless."}
+      }
+    },
+    "rollback_of": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Id of the proposal this one reverts, or null."
+    },
+    "status": {
+      "type": "string",
+      "pattern": "^(draft|queued|applied|rejected|expired|reviewing|refused:[a-z_]+|reviewed:[a-z_]+)$",
+      "description": "draft, queued, applied, rejected, expired, refused:<code>, reviewing, reviewed:<verdict>."
+    },
+    "gateway_key": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}],
+      "description": "Idempotency key returned by the gateway, null before propose."
+    },
+    "applied": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from_read", "to_read", "t", "approver"],
+          "properties": {
+            "from_read": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Values read before the write, by target, in item units."},
+            "to_read": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Values read back after the write, by target, in item units."},
+            "t": {"$ref": "#/$defs/utc_timestamp"},
+            "approver": {"type": "string", "minLength": 1, "maxLength": 128}
+          }
+        }
+      ]
+    },
+    "review": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict"],
+          "properties": {
+            "verdict": {"enum": ["insufficient_data", "worse", "worse_early", "improved", "neutral"]},
+            "t": {"$ref": "#/$defs/utc_timestamp"},
+            "metrics": {"type": "object", "additionalProperties": {"type": ["number", "null"]}}
+          }
+        }
+      ]
+    }
+  }
+}
