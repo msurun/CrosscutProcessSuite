@@ -23,7 +23,13 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from crosscut_api.auth.actor import ActorContext, actor_of
-from crosscut_api.gateway_client import GatewaySigningError
+from crosscut_api.auth.deps import STEP_UP_REQUIRED_DETAIL
+from crosscut_api.gateway_client import (
+    EXPLAINED_FORBIDDEN,
+    GatewayConflict,
+    GatewaySigningError,
+    StepUpRequired,
+)
 
 MODES: tuple[str, ...] = ("off", "advisory", "dry_run", "confirm", "supervised")
 VALID_MODES: frozenset[str] = frozenset(MODES)
@@ -105,7 +111,8 @@ class GatewayClient(Protocol):
 def _gateway_errors(value_error_status: int | None = None) -> Iterator[None]:
     """Translate gateway and permission failures into HTTP errors.
 
-    A ValueError becomes value_error_status when one is given, and propagates otherwise.
+    A gateway state conflict is 409 and a missing step-up 428. Any other ValueError becomes
+    value_error_status when one is given, and propagates otherwise.
     """
     try:
         yield
@@ -113,10 +120,15 @@ def _gateway_errors(value_error_status: int | None = None) -> Iterator[None]:
         raise HTTPException(status_code=503, detail=str(err)) from err
     except TimeoutError as err:
         raise HTTPException(status_code=504, detail="gateway did not answer") from err
+    except StepUpRequired as err:
+        raise HTTPException(status_code=428, detail=STEP_UP_REQUIRED_DETAIL) from err
     except PermissionError as err:
-        raise HTTPException(status_code=403, detail="forbidden") from err
+        detail = str(err) if str(err) in EXPLAINED_FORBIDDEN else "forbidden"
+        raise HTTPException(status_code=403, detail=detail) from err
     except KeyError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err
+    except GatewayConflict as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
     except ValueError as err:
         if value_error_status is None:
             raise
@@ -251,12 +263,22 @@ class _GatewayEndpoints:
             return gw.audit(limit)
 
     def get_policy(self, actor: ActorDep) -> dict[str, Any]:
-        """GET /gateway/policy: The live pinned policy document, its pin and mode cap."""
+        """GET /gateway/policy: The live pinned policy, its pin, mode cap and both digests.
+
+        ``digest`` is the canonical digest of the document; ``file_digest`` is the SHA-256 of the
+        live file bytes, which the verified pin names (``pin.digest``).
+        """
         gw = self._gw()
         with _gateway_errors():
             live = gw.live_policy()
         if live is None:
-            return {"document": None, "pin": None, "mode_cap": None, "digest": None}
+            return {
+                "document": None,
+                "pin": None,
+                "mode_cap": None,
+                "digest": None,
+                "file_digest": None,
+            }
         document = live["document"]
         mode_cap = document.get("mode")
         return {
@@ -264,6 +286,7 @@ class _GatewayEndpoints:
             "pin": live["pin"],
             "mode_cap": mode_cap if isinstance(mode_cap, str) else None,
             "digest": policy_digest(document),
+            "file_digest": live["pin"].get("digest"),
         }
 
     def get_policy_draft(self, actor: ActorDep) -> dict[str, Any]:

@@ -55,12 +55,53 @@ def _read_json_retry(path: Path, attempts: int = 20, delay_s: float = 0.01) -> d
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+class GatewayConflict(ValueError):
+    """The gateway refused a command because of its state or configuration (HTTP 409)."""
+
+
+class StepUpRequired(PermissionError):
+    """The gateway refused a command that needs a fresh step-up (HTTP 428)."""
+
+
+# Stable error codes the gateway writes into an outbox reply when it refuses a command.
+# Both spellings of a code are mapped so the API stays correct if the gateway renames one.
+_FORBIDDEN_CODES = frozenset(
+    {
+        "self_pin",
+        "author_is_approver",
+        "author_equals_approver",
+        "self_approval",
+        "predates_start",
+    }
+)
+_FORBIDDEN_PREFIXES = ("forbidden", "auth_reject", "missing_permission:")
+_STEP_UP_CODES = frozenset({"step_up_required", "stepup_required"})
+_CONFLICT_CODES = frozenset(
+    {
+        "wrong_mode_for_reload",
+        "reload_requires_off_or_advisory",
+        "no_draft",
+        "draft_changed",
+        "draft_bad_signature",
+        "policy_path_not_configured",
+        "mode_step_too_large",
+        "above_cap",
+    }
+)
+# Codes that name the refusal reason and are safe to show to the caller as the 403 detail.
+EXPLAINED_FORBIDDEN = frozenset({"self_pin", "author_is_approver", "author_equals_approver"})
+
+
 def _error_for(error: str) -> Exception:
-    """Map a gateway error message to the exception the caller should receive."""
-    if error.startswith("unknown key"):
+    """Map a gateway error code or message to the exception the caller should receive."""
+    if error.startswith("unknown key") or error == "unknown_key":
         return KeyError(error)
-    if error.startswith(("forbidden", "auth_reject")):
+    if error in _STEP_UP_CODES:
+        return StepUpRequired(error)
+    if error in _FORBIDDEN_CODES or error.startswith(_FORBIDDEN_PREFIXES):
         return PermissionError(error)
+    if error in _CONFLICT_CODES or error.startswith("key_"):
+        return GatewayConflict(error)
     return ValueError(error)
 
 

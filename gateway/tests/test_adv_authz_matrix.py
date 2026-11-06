@@ -312,7 +312,9 @@ def test_denied_commands_never_reach_engine_methods(tmp_path: Path) -> None:
         sent = send(env, cmd, args, actor=actor, roles=roles)
         assert spy.counts[counter] == 0, cmd
         assert rejected_reason(env.root, sent["id"]) == f"missing_permission:{permission}", cmd
-        assert outbox(env.root, sent["id"]) is None, f"{cmd} produced an outbox result"
+        reply = outbox(env.root, sent["id"])
+        assert reply is not None and reply["ok"] is False, f"{cmd} got no refusal reply"
+        assert reply["error"] == f"missing_permission:{permission}", cmd
     assert all(count == 0 for count in spy.counts.values())
     assert env.gateway.mode == mode_before
     assert env.gateway.pending() == []
@@ -393,7 +395,8 @@ def _assert_self_approval_refused(
     app_env = send(env, "approve", {"key": pkey}, actor=approver, roles=("lead",))
     assert spy.counts["approve"] == 0
     assert rejected_reason(env.root, app_env["id"]) == "self_approval"
-    assert outbox(env.root, app_env["id"]) is None
+    reply = outbox(env.root, app_env["id"])
+    assert reply is not None and reply["ok"] is False and reply["error"] == "self_approval"
     pending = env.gateway.pending()
     assert [proposal_key(p) for p in pending] == [pkey], "pending proposal was disturbed"
     assert env.gateway.pending_proposer(pkey) == proposer

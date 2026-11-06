@@ -204,7 +204,10 @@ def test_re_enable_after_control_system_rejection(env) -> None:
 
 
 def test_malformed_commands_go_to_rejected(env) -> None:
-    """Invalid JSON, unknown cmd, missing args and bad id land in rejected without an outbox."""
+    """Invalid JSON, unknown cmd, missing args and bad id land in rejected.
+
+    Only the unknown cmd has a trusted id and is answered in the outbox (unknown_cmd).
+    """
     root, _clock, _plant, _gw, service = env
     bad_json = root / "_gateway" / "inbox" / "bad1.json"
     bad_json.write_text("{not json", encoding="utf-8")
@@ -217,7 +220,9 @@ def test_malformed_commands_go_to_rejected(env) -> None:
         assert (rejected / f"{name}.json").exists()
         assert (rejected / f"{name}.json.reason.txt").exists()
     assert list((root / "_gateway" / "inbox").glob("*.json")) == []
-    assert list((root / "_gateway" / "outbox").glob("*.json")) == []
+    outbox_files = sorted((root / "_gateway" / "outbox").glob("*.json"))
+    assert [path.name for path in outbox_files] == ["bad2.json"]
+    assert outbox_payload(root, "bad2")["error"] == "unknown_cmd"
 
 
 def test_state_json_shape_and_audit_tail_cap(env) -> None:

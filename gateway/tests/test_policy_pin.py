@@ -111,6 +111,18 @@ def test_start_from_policy_file_modes(policy_path: Path) -> None:
         gw.set_mode("confirm")
 
 
+def test_start_below_the_policy_mode_keeps_the_policy_cap(policy_path: Path) -> None:
+    """Starting in advisory under a confirm policy can still be raised to confirm, not beyond."""
+    _write_policy(policy_path, mode="confirm")
+    policy_pin.create_pin(policy_path, KEY, SIGNERS, NOW)
+    gw = engine.start_from_policy_file(policy_path, SimPlant(), "advisory", key=KEY)
+    assert gw.mode == "advisory"
+    assert gw.mode_cap == "confirm"
+    gw.set_mode("confirm")
+    with pytest.raises(ValueError, match="exceeds policy cap"):
+        gw.set_mode("supervised")
+
+
 def test_validate_document_schema(policy_path: Path) -> None:
     """Validates schema correctly."""
     doc = json.loads(policy_path.read_text())

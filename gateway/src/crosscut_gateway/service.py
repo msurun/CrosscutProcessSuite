@@ -6,6 +6,10 @@ Without it (legacy mode) the inbox is trusted, so OS permissions must restrict w
 A KILL file in <root>/_gateway kills the gateway in every mode.
 Seen nonces persist in _gateway/nonce-cache.json; envelopes issued before start are refused.
 The kill latch is _gateway/KILLED, which survives restarts until a signed kill_reset.
+Every refusal of a command whose sender is trusted (verified signature, or legacy mode with a
+valid id) writes the outbox reply {id, ok: false, error: <code>} besides the rejected/ file, so
+the API answers at once. Commands that fail before trust (id invalid or unsafe, unsigned,
+bad signature, stale, replayed, key missing) get no reply; their sender keeps its timeout.
 """
 
 from __future__ import annotations
@@ -64,8 +68,44 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
 }
 
 
+# Refusals of commands whose sender is already authenticated. They get an outbox reply
+# {id, ok: false, error: <reason>} so the caller is answered at once instead of timing out.
+# Refusals before trust (unsigned, key missing, malformed, bad signature, stale, replayed)
+# stay silent: the id is not trusted, so the sender keeps its timeout.
+_REPLIED_REASONS = frozenset(
+    {
+        "self_approval",
+        "stepup_required",
+        "predates_start",
+        "unknown_cmd",
+        "bad_mode",
+        "mode_step_too_large",
+        "above_cap",
+        "author_equals_approver",
+        "reload_requires_off_or_advisory",
+        "policy_path_not_configured",
+        "no_draft",
+        "draft_changed",
+        "draft_bad_signature",
+        "key_missing",
+        "key_too_short",
+    }
+)
+_REPLIED_PREFIX = "missing_permission:"
+
+
+def _is_replied(reason: str) -> bool:
+    """Return True when a refusal for an authenticated caller is answered in the outbox."""
+    return reason in _REPLIED_REASONS or reason.startswith(_REPLIED_PREFIX)
+
+
 class CommandError(ValueError):
-    """Internal error for rejected commands."""
+    """Internal error for rejected commands; ``code`` is the stable code sent in the outbox."""
+
+    def __init__(self, message: str, code: str = "invalid_args") -> None:
+        """Store the message and the stable error code."""
+        super().__init__(message)
+        self.code = code
 
 
 class AuthRejected(Exception):
@@ -76,6 +116,11 @@ class AuthRejected(Exception):
         super().__init__(reason)
         self.reason = reason
         self.ctx = ctx
+
+    @property
+    def answerable(self) -> bool:
+        """Return True when the sender was authenticated, so the refusal gets an outbox reply."""
+        return _is_replied(self.reason)
 
 
 @dataclass(frozen=True)
@@ -298,7 +343,7 @@ class GatewayService:
 
     def _validate_args(self, cmd: str, args: dict[str, Any]) -> None:
         if cmd not in VALIDATION_SCHEMA:
-            raise CommandError(f"unknown cmd: {cmd}")
+            raise CommandError(f"unknown cmd: {cmd}", code="unknown_cmd")
         for name, kind in VALIDATION_SCHEMA[cmd]:
             if name not in args:
                 raise CommandError(f"{cmd}: missing {name}")
@@ -578,8 +623,21 @@ class GatewayService:
         except AuthRejected as exc:
             self._audit_rejection(exc, cmd)
             self._move_to_rejected(filepath, exc.reason)
+            if exc.answerable:
+                self._answer_refusal(cmd_id, exc.reason)
         except CommandError as exc:
             self._move_to_rejected(filepath, str(exc))
+            self._answer_refusal(cmd_id, exc.code)
+
+    def _answer_refusal(self, cmd_id: str, code: str) -> None:
+        """Write the outbox reply of a refused command; a failed write is audited, not raised."""
+        result = {"ok": False, "result": None, "error": code}
+        try:
+            self._write_result(cmd_id, result)
+        except OSError:
+            self._gateway.record_event(
+                "result_write_failed", GATEWAY_ACTOR, "refused", value=cmd_id[:64]
+            )
 
     def _answer(self, filepath: Path, cmd_id: str, result: dict[str, Any]) -> None:
         """Write the outbox answer of an applied command; a failed write is audited, not hidden."""

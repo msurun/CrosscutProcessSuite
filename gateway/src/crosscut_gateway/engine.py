@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from crosscut_gateway import policy_file, policy_pin
 from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext, normalize_actor
@@ -854,7 +854,7 @@ def start_from_policy_file(
         targets, file_mode = _load_pinned_policy(path, key)
     effective_mode = _more_restrictive(mode, file_mode)  # type: ignore[arg-type]
     gateway = WriteGateway(plant, targets, effective_mode, audit)
-    gateway._mode_cap = effective_mode
+    gateway._mode_cap = cast(Mode, file_mode)  # the cap is the policy mode, not the start mode
     return gateway
 
 

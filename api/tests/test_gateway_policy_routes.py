@@ -110,19 +110,26 @@ def test_get_policy_is_all_null_without_a_pinned_policy(client: TestClient) -> N
     """Without a verified live policy every field is null."""
     response = client.get("/gateway/policy")
     assert response.status_code == 200
-    assert response.json() == {"document": None, "pin": None, "mode_cap": None, "digest": None}
+    assert response.json() == {
+        "document": None,
+        "pin": None,
+        "mode_cap": None,
+        "digest": None,
+        "file_digest": None,
+    }
 
 
 def test_get_policy_returns_document_pin_mode_cap_and_digest(
     client: TestClient, fake: PolicyFake
 ) -> None:
-    """The live policy carries its pin, the mode cap and the canonical digest."""
+    """The live policy carries its pin, the mode cap, the canonical and the file digest."""
     fake.live = {"document": DOC, "pin": PIN}
     assert client.get("/gateway/policy").json() == {
         "document": DOC,
         "pin": PIN,
         "mode_cap": "advisory",
         "digest": policy_file.policy_digest(DOC),
+        "file_digest": PIN["digest"],
     }
 
 
