@@ -8,10 +8,11 @@ clamped. Units: values and tolerances in the unit of the parameter.
 from __future__ import annotations
 
 import math
+import struct
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from crosscut_gateway.interfaces import ParamControlSystem, ParamItem, ParamPolicy
 from crosscut_gateway.policy import check_param_items
@@ -46,6 +47,7 @@ class LiveCheck:
 
     codes: tuple[str, ...] = ()
     detail: str = ""
+    current: Mapping[str, float] = field(default_factory=dict)  # values read, by target
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,15 @@ class WriteOutcome:
     failed_target: str = ""
     written: tuple[str, ...] = ()
     revert_failed: tuple[str, ...] = ()
+    read_back: Mapping[str, float] = field(default_factory=dict)  # value read after each write
+
+
+@dataclass
+class _Progress:
+    """What a write sequence has done so far: items written and values read back."""
+
+    done: list[ParamItem] = field(default_factory=list)
+    reads: dict[str, float] = field(default_factory=dict)
 
 
 def detune_rank(item: ParamItem) -> int:
@@ -80,6 +91,22 @@ def within(actual: object, expected: float, tolerance: float) -> bool:
     if isinstance(actual, bool) or not isinstance(actual, (int, float)):
         return False
     return bool(math.isfinite(actual) and abs(actual - expected) <= tolerance)
+
+
+def stored_value(plant: ParamControlSystem, tag: str, value: float) -> float:
+    """The value a read-back should show after writing ``value`` to ``tag``.
+
+    A parameter node of data type Float holds a float32, so the plant returns the written
+    value rounded to float32; the plant may say so with an optional ``param_data_type(tag)``
+    method returning ``"Float"`` or ``"Double"``. Without it, or for Double, ``value`` is exact.
+    """
+    probe: Any = getattr(plant, "param_data_type", None)
+    if not callable(probe) or probe(tag) != "Float":
+        return value
+    try:
+        return float(struct.unpack("f", struct.pack("f", value))[0])
+    except (OverflowError, struct.error):
+        return value
 
 
 def _guard(target: str, call: Callable[[], _T]) -> _T:
@@ -111,12 +138,16 @@ def _read_all(plant: ParamControlSystem, items: Sequence[ParamItem]) -> dict[str
 
 
 def _mismatch(
-    policies: Mapping[str, ParamPolicy], items: Sequence[ParamItem], current: Mapping[str, float]
+    plant: ParamControlSystem,
+    policies: Mapping[str, ParamPolicy],
+    items: Sequence[ParamItem],
+    current: Mapping[str, float],
 ) -> LiveCheck | None:
     """Refuse when a live value differs from the item's ``from`` by more than the tolerance."""
     for item in items:
         tolerance = policies[item.target].readback_tolerance
-        if not within(current[item.target], item.from_value, tolerance):
+        expected = stored_value(plant, item.target, item.from_value)
+        if not within(current[item.target], expected, tolerance):
             read = ";".join(f"{tag}={value}" for tag, value in current.items())
             return LiveCheck(("from_mismatch",), f"read {read}")
     return None
@@ -135,10 +166,10 @@ def live_check(
     if refusal is not None:
         return refusal
     current = _read_all(plant, items)
-    refusal = _mismatch(policies, items, current)
+    refusal = _mismatch(plant, policies, items, current)
     if refusal is not None:
         return refusal
-    return LiveCheck(tuple(check_param_items(policies, items, current)))
+    return LiveCheck(tuple(check_param_items(policies, items, current)), "", current)
 
 
 def _revert_one(plant: ParamControlSystem, policy: ParamPolicy, item: ParamItem) -> bool:
@@ -149,7 +180,8 @@ def _revert_one(plant: ParamControlSystem, policy: ParamPolicy, item: ParamItem)
         read = plant.read_param(item.target)
     except Exception:  # noqa: BLE001 - after a write any failure must count as "not restored"
         return False
-    return within(read, item.from_value, policy.readback_tolerance)
+    expected = stored_value(plant, item.target, item.from_value)
+    return within(read, expected, policy.readback_tolerance)
 
 
 def _revert(
@@ -168,20 +200,36 @@ def _revert(
     return WriteOutcome(False, code, target, tuple(i.target for i in done), failed)
 
 
+def revert_items(
+    plant: ParamControlSystem, policies: Mapping[str, ParamPolicy], items: Sequence[ParamItem]
+) -> tuple[str, ...]:
+    """Best-effort restore of the ``from`` values of ``items`` after an unexpected error.
+
+    Returns the targets that could not be confirmed restored (all of them if the policies fail).
+    """
+    try:
+        return _revert(plant, policies, items, ("plant_error", "")).revert_failed
+    except Exception:  # noqa: BLE001 - whatever fails here, nothing is confirmed restored
+        return tuple(item.target for item in items)
+
+
 def _write_one(
-    plant: ParamControlSystem, policy: ParamPolicy, item: ParamItem, done: list[ParamItem]
+    plant: ParamControlSystem, policy: ParamPolicy, item: ParamItem, progress: _Progress
 ) -> str | None:
     """Write one item and read it back; the failure code, or None. The item joins ``done``
     before the call (a failed call may still have written it) and leaves it when refused."""
-    done.append(item)
+    progress.done.append(item)
     try:
         if not plant.write_param(item.target, item.to_value):
-            done.pop()
+            progress.done.pop()
             return "write_refused"
         read = plant.read_param(item.target)
     except Exception:  # noqa: BLE001 - a half-done write set must be reverted, whatever failed
         return "comm_loss"
-    if within(read, item.to_value, policy.readback_tolerance):
+    if isinstance(read, (int, float)) and not isinstance(read, bool):
+        progress.reads[item.target] = float(read)
+    expected = stored_value(plant, item.target, item.to_value)
+    if within(read, expected, policy.readback_tolerance):
         return None
     return "readback_mismatch"
 
@@ -192,11 +240,12 @@ def write_set(
     """Write all items in de-tuning order with read-back after each.
 
     On a refused write, a read-back mismatch or a transport error the items written so far are
-    restored to their ``from`` values.
+    restored to their ``from`` values. On success ``read_back`` holds the value read per target.
     """
-    done: list[ParamItem] = []
+    progress = _Progress()
     for item in detune_order(items):
-        code = _write_one(plant, policies[item.target], item, done)
+        code = _write_one(plant, policies[item.target], item, progress)
         if code is not None:
-            return _revert(plant, policies, done, (code, item.target))
-    return WriteOutcome(True, "applied", "", tuple(item.target for item in done))
+            return _revert(plant, policies, progress.done, (code, item.target))
+    written = tuple(item.target for item in progress.done)
+    return WriteOutcome(True, "applied", "", written, (), progress.reads)

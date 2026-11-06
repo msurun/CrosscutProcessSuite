@@ -377,6 +377,23 @@ def _parse_max_ratio(tag: str, val: Any) -> float:
     return ratio
 
 
+PARAM_TOLERANCE_MAX_FRACTION = 0.1  # of the span of the limits
+
+
+def _parse_param_tolerance(tag: str, val: Any, limits: tuple[float, float]) -> float:
+    """Validate a parameter read-back tolerance: not negative, at most 10% of the limits span.
+
+    A wider tolerance would let the read-back accept a value that is not the one written.
+    """
+    tolerance = _parse_non_negative_float(tag, "readback_tolerance", val)
+    bound = PARAM_TOLERANCE_MAX_FRACTION * (limits[1] - limits[0])
+    if tolerance > bound:
+        raise PolicyError(
+            f"Target '{tag}': readback_tolerance {tolerance} exceeds 10% of limits span ({bound})"
+        )
+    return tolerance
+
+
 def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
     """Parse one ``pid_param`` target dictionary into a ParamPolicy."""
     unknown = sorted(str(key) for key in set(raw) - set(_PARAM_FIELDS))
@@ -388,16 +405,15 @@ def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
     param = raw["param"]
     if not isinstance(param, str) or param not in _PARAMS:
         raise PolicyError(f"Target '{tag}': param must be one of {_PARAMS}, got {param!r}")
+    limits = _parse_param_limits(tag, param, raw["limits"])
     return ParamPolicy(
         loop=_parse_identifier(tag, "loop", raw["loop"]),
         param=param,
         unit=_parse_unit(tag, raw["unit"]),
         vendor_form=_parse_identifier(tag, "vendor_form", raw["vendor_form"]),
-        limits=_parse_param_limits(tag, param, raw["limits"]),
+        limits=limits,
         max_ratio=_parse_max_ratio(tag, raw["max_ratio"]),
-        readback_tolerance=_parse_non_negative_float(
-            tag, "readback_tolerance", raw["readback_tolerance"]
-        ),
+        readback_tolerance=_parse_param_tolerance(tag, raw["readback_tolerance"], limits),
         min_interval_s=_parse_non_negative_float(tag, "min_interval_s", raw["min_interval_s"]),
         allowed_loop_modes=_parse_allowed_modes(tag, raw["allowed_loop_modes"]),
     )

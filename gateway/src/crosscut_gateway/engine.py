@@ -334,7 +334,6 @@ class WriteGateway:
             self._release_all_killed()
             return
 
-        self._params.tick()
         for tag in self._states:
             if not self._holding.get(tag, False):
                 continue
@@ -346,6 +345,7 @@ class WriteGateway:
             for tag in self._states
         ):
             self._send_heartbeat_safely()
+        self._params.tick()  # after the setpoint checks and the heartbeat, never before them
 
     def kill(self, *, actor_ctx: ActorContext | None = None) -> None:
         """Trigger the kill switch. Setpoints are released on the next tick."""
@@ -384,6 +384,10 @@ class WriteGateway:
     def status(self) -> dict[str, str]:
         """Return the current per-target state for all policy tags."""
         return {**self._states, **self._params.states()}
+
+    def alarms(self) -> dict[str, str]:
+        """Return the open DCS alarms of parameter targets (tag -> ``check_dcs``)."""
+        return self._params.alarms()
 
     def audit_records(self) -> list[dict[str, str]]:
         """Return all audit records in append order."""

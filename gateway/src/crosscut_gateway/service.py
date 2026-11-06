@@ -417,6 +417,7 @@ class GatewayService:
     def _handle_approve(
         self, args: dict[str, Any], ctx: ActorContext | None
     ) -> dict[str, Any]:
+        self._handle_kill_file()  # a KILL file that appeared since the poll started wins
         return asdict(self._gateway.approve(args["key"], actor_ctx=ctx))
 
     def _handle_reject(
@@ -525,6 +526,7 @@ class GatewayService:
             "updated_at_utc": datetime.fromtimestamp(now, tz=UTC).isoformat(),
             "mode": self._gateway.mode,
             "targets": self._gateway.status(),
+            "alarms": self._gateway.alarms(),
             "pending": self._get_pending_entries(),
             "pending_params": self._get_pending_params(),
             "audit_tail": audit_tail,

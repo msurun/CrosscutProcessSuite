@@ -9,9 +9,10 @@ heartbeat: the values persist in the control system. Every transport error fails
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from crosscut_gateway.actor import normalize_actor
@@ -20,12 +21,13 @@ from crosscut_gateway.engine_params_apply import (
     ParamCommError,
     WriteOutcome,
     live_check,
+    revert_items,
+    stored_value,
     within,
     write_set,
 )
 from crosscut_gateway.interfaces import (
     ParamControlSystem,
-    ParamItem,
     ParamPolicy,
     ParamSetProposal,
     WriteDecision,
@@ -58,13 +60,16 @@ def _num(value: object) -> str:
 def param_set_key(proposal: ParamSetProposal) -> str:
     """SHA-256 hex over the canonical (proposal_id, items, proposer, t_ns): the idempotency key.
 
-    ``reason``, ``expires_ns`` and ``rollback_of`` are not part of it. Units: t_ns in ns.
+    ``rollback_of`` is part of it (a rollback is a different proposal); ``reason`` and
+    ``expires_ns`` are not. Units: t_ns in ns.
     """
     items = [
         [i.param, i.target, i.unit, i.vendor_form, _num(i.from_value), _num(i.to_value)]
         for i in proposal.items
     ]
-    fields = [proposal.proposal_id, items, proposal.proposer, int(proposal.t_ns)]
+    fields = [
+        proposal.proposal_id, items, proposal.proposer, int(proposal.t_ns), proposal.rollback_of
+    ]
     payload = json.dumps(fields, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -117,6 +122,7 @@ class ParamManager:
         self._ids: dict[str, str] = {}
         self._last_applied: dict[str, float] = {}
         self._last_apply_ns: dict[str, int] = {}
+        self._alarms: dict[str, str] = {}
 
     # ------------------------------------------------------------------ queries
 
@@ -131,6 +137,13 @@ class ParamManager:
     def states(self) -> dict[str, str]:
         """Copy of the per-target states."""
         return dict(self._states)
+
+    def alarms(self) -> dict[str, str]:
+        """Targets with an open DCS alarm, by tag; the value is the reason, ``check_dcs``.
+
+        The flag stays until the target is re-enabled (a person looked at the control system).
+        """
+        return dict(self._alarms)
 
     def pending(self) -> list[PendingParams]:
         """Queued parameter sets in arrival order."""
@@ -232,26 +245,28 @@ class ParamManager:
 
     def _screen_timing(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
         """Expiry window and per-loop minimum interval between applies."""
+        if not self._env.clock_started():
+            return "clock_not_started", ""
         now = self._env.now_ns()
         if proposal.expires_ns - proposal.t_ns > PARAM_EXPIRY_MAX_NS:
             return "expiry_too_long", ""
-        if not self._env.clock_started():
-            return None
         if proposal.expires_ns <= now:
             return "expired", ""
         if proposal.t_ns > now + PARAM_MAX_FUTURE_NS:
             return "bad_time", ""
-        return self._interval_refusal(proposal.loop_id, proposal.items)
+        return self._interval_refusal(proposal.loop_id)
 
-    def _interval_refusal(
-        self, loop_id: str, items: tuple[ParamItem, ...]
-    ) -> tuple[str, str] | None:
-        """Refuse an apply that follows the previous apply of the loop too closely."""
+    def _interval_refusal(self, loop_id: str) -> tuple[str, str] | None:
+        """Refuse an apply that follows the previous apply of the loop too closely.
+
+        The wait is the largest ``min_interval_s`` of ALL parameter policies of the loop, not
+        only of the items of the new set (a Td-only set after a gain change must wait too).
+        """
         last = self._last_apply_ns.get(loop_id)
         if last is None:
             return None
-        known = [self._policies[i.target] for i in items if i.target in self._policies]
-        wait_s = max((policy.min_interval_s for policy in known), default=0.0)
+        loop_policies = [p for p in self._policies.values() if p.loop == loop_id]
+        wait_s = max((policy.min_interval_s for policy in loop_policies), default=0.0)
         if self._env.now_ns() - last < wait_s * 1e9:
             return "min_interval", ""
         return None
@@ -339,6 +354,15 @@ class ParamManager:
         refusal = self._gate_time(proposal)
         if refusal is not None:
             return self._drop_refused(pending, refusal)
+        return self._approver_refusal(pending)
+
+    def _approver_refusal(self, pending: PendingParams) -> WriteDecision | None:
+        """Refuse an approval without a named actor and a self-approval; the set stays queued."""
+        proposal = pending.proposal
+        current = self._env.actor()
+        if current is None or not current.strip():
+            self._emit("param_decision", proposal, pending.key, "actor_required")
+            return WriteDecision(accepted=False, reason_code="actor_required")
         if self._is_self_approval(pending):
             self._emit("param_self_approval", proposal, pending.key, "self_approval")
             return WriteDecision(accepted=False, reason_code="self_approval")
@@ -355,10 +379,12 @@ class ParamManager:
         return None
 
     def _gate_time(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
-        """Refuse an expired set or one that follows the previous apply too closely."""
-        if self._env.clock_started() and proposal.expires_ns <= self._env.now_ns():
+        """Refuse before the clock runs, an expired set, or one too soon after the last apply."""
+        if not self._env.clock_started():
+            return "clock_not_started", ""
+        if proposal.expires_ns <= self._env.now_ns():
             return "expired", ""
-        return self._interval_refusal(proposal.loop_id, proposal.items)
+        return self._interval_refusal(proposal.loop_id)
 
     def _is_self_approval(self, pending: PendingParams) -> bool:
         """True when the current actor is the one who queued the set."""
@@ -387,19 +413,67 @@ class ParamManager:
     # ------------------------------------------------------------------ apply
 
     def _apply(self, pending: PendingParams) -> WriteDecision:
-        """Live checks, then the ordered writes; any failure leaves the loop as it was."""
+        """Live checks, then the ordered writes; every outcome is decided and audited.
+
+        The set is already off the queue, so any unexpected error ends in a ``plant_error``
+        refusal instead of a set that vanishes without a decision.
+        """
         assert self._plant is not None
         proposal, key = pending.proposal, pending.key
+        if self._env.killed():  # last look before the first write
+            return self._refuse(proposal, key, ("killed", ""))
+        try:
+            refusal, from_read = self._live_phase(proposal, key)
+        except Exception as exc:  # noqa: BLE001 - nothing written yet; fail closed
+            return self._plant_error(proposal, key, exc, wrote=False)
+        if refusal is not None:
+            return refusal
+        try:
+            outcome = write_set(self._plant, self._policies, proposal.items)
+        except Exception as exc:  # noqa: BLE001 - writes may have happened: revert and stop
+            return self._plant_error(proposal, key, exc, wrote=True)
+        if outcome.ok:
+            return self._applied(proposal, key, (from_read, outcome.read_back))
+        return self._failed(proposal, key, outcome)
+
+    def _live_phase(
+        self, proposal: ParamSetProposal, key: str
+    ) -> tuple[WriteDecision | None, Mapping[str, float]]:
+        """Run the live checks: a refusal (or None) and the values read from the plant."""
+        assert self._plant is not None
         try:
             check = live_check(self._plant, self._policies, proposal.items)
         except ParamCommError as exc:
-            return self._comm_refusal(proposal, key, exc.target)
+            return self._comm_refusal(proposal, key, exc.target), {}
         if check.codes:
-            return self._refuse(proposal, key, (check.codes[0], check.detail))
-        outcome = write_set(self._plant, self._policies, proposal.items)
-        if outcome.ok:
-            return self._applied(proposal, key)
-        return self._failed(proposal, key, outcome)
+            return self._refuse(proposal, key, (check.codes[0], check.detail)), {}
+        return None, check.current
+
+    def _plant_error(
+        self, proposal: ParamSetProposal, key: str, exc: Exception, wrote: bool
+    ) -> WriteDecision:
+        """Refuse after an unexpected error; stop the targets if anything may be written."""
+        failed: tuple[str, ...] = ()
+        if wrote:
+            assert self._plant is not None
+            failed = revert_items(self._plant, self._policies, proposal.items)
+            for item in proposal.items:
+                self._set_state(item.target, "stopped:comm")
+        name = type(exc).__name__
+        self._emit("plant_error", proposal, key, "plant_error", value=name)
+        self._raise_alarm(failed, (proposal, key), "revert_failed")
+        return self._refuse(proposal, key, ("plant_error", name))
+
+    def _raise_alarm(
+        self, tags: Sequence[str], origin: tuple[ParamSetProposal, str], reason: str
+    ) -> None:
+        """Flag ``tags`` as ``check_dcs`` (visible in ``alarms()``) and audit the alarm."""
+        if not tags:
+            return
+        for tag in tags:
+            self._alarms[tag] = "check_dcs"
+        proposal, key = origin
+        self._emit("alarm_check_dcs", proposal, key, reason, tag=",".join(tags))
 
     def _comm_refusal(self, proposal: ParamSetProposal, key: str, target: str) -> WriteDecision:
         """Fail closed after a transport error before any write: stop ``target`` and refuse."""
@@ -407,17 +481,58 @@ class ParamManager:
         self._emit("comm_loss", proposal, key, "comm_loss", tag=target)
         return self._refuse(proposal, key, ("comm_loss", target))
 
-    def _applied(self, proposal: ParamSetProposal, key: str) -> WriteDecision:
-        """Remember the applied values for read-back and audit every item as param_write."""
+    def _applied(
+        self,
+        proposal: ParamSetProposal,
+        key: str,
+        read: tuple[Mapping[str, float], Mapping[str, float]],
+    ) -> WriteDecision:
+        """Update the state first, then audit; a failing audit stops the targets and alarms.
+
+        ``read`` holds the values read before (from) and after (to) the writes.
+        """
+        assert self._plant is not None
         for item in proposal.items:
-            self._last_applied[item.target] = item.to_value
-            self._emit(
-                "param_write", proposal, key, "applied", tag=item.target,
-                applied_from=str(item.from_value), applied_to=str(item.to_value),
-            )
+            self._last_applied[item.target] = stored_value(self._plant, item.target, item.to_value)
         self._last_apply_ns[proposal.loop_id] = self._env.now_ns()
         decision = WriteDecision(accepted=True, reason_code="applied")
         self._seen[key] = decision
+        if self._audit_applied(proposal, key, read):
+            return decision
+        return self._audit_failed(proposal, key)
+
+    def _audit_applied(
+        self,
+        proposal: ParamSetProposal,
+        key: str,
+        read: tuple[Mapping[str, float], Mapping[str, float]],
+    ) -> bool:
+        """Audit every item as ``param_write`` with the values read; False if any audit failed."""
+        from_read, to_read = read
+        ok = True
+        for item in proposal.items:
+            before = from_read.get(item.target, item.from_value)
+            after = to_read.get(item.target, item.to_value)
+            try:
+                self._emit(
+                    "param_write", proposal, key, "applied", tag=item.target,
+                    applied_from=str(before), applied_to=str(after),
+                )
+            except Exception:  # noqa: BLE001 - keep auditing the other items, then fail closed
+                ok = False
+        return ok
+
+    def _audit_failed(self, proposal: ParamSetProposal, key: str) -> WriteDecision:
+        """The tuning is in the plant but its audit failed: stop the targets and raise the alarm."""
+        decision = WriteDecision(accepted=True, reason_code="applied_unaudited")
+        self._seen[key] = decision
+        tags = tuple(item.target for item in proposal.items)
+        for tag in tags:
+            self._alarms[tag] = "check_dcs"
+            with contextlib.suppress(Exception):
+                self._set_state(tag, "stopped:comm")
+        with contextlib.suppress(Exception):  # the audit sink is what failed; the flag remains
+            self._raise_alarm(tags, (proposal, key), "audit_failed")
         return decision
 
     def _failed(
@@ -434,9 +549,7 @@ class ParamManager:
                 "partial_revert", proposal, key, outcome.code, tag=outcome.failed_target,
                 written=",".join(outcome.written), revert_failed=",".join(outcome.revert_failed),
             )
-        if outcome.revert_failed:
-            tags = ",".join(outcome.revert_failed)
-            self._emit("alarm_check_dcs", proposal, key, "revert_failed", tag=tags)
+        self._raise_alarm(outcome.revert_failed, (proposal, key), "revert_failed")
         return self._refuse(proposal, key, (code, outcome.failed_target))
 
     # ------------------------------------------------------------------ tick and lifecycle
@@ -450,7 +563,20 @@ class ParamManager:
             return
         for tag in list(self._last_applied):
             if self._states.get(tag) == "enabled":
-                self._check_readback(self._plant, tag)
+                self._guarded_readback(self._plant, tag)
+
+    def _guarded_readback(self, plant: ParamControlSystem, tag: str) -> None:
+        """Read back one target; any unexpected error stops that target and is audited."""
+        try:
+            self._check_readback(plant, tag)
+        except Exception as exc:  # noqa: BLE001 - one bad tag must not break the gateway tick
+            self._last_applied.pop(tag, None)
+            with contextlib.suppress(Exception):
+                self._set_state(tag, "stopped:comm")
+            with contextlib.suppress(Exception):
+                self._emit_tag(
+                    "param_tick_error", tag, "param_tick_error", value=type(exc).__name__
+                )
 
     def _check_readback(self, plant: ParamControlSystem, tag: str) -> None:
         """Compare one target with its last applied value."""
@@ -482,6 +608,7 @@ class ParamManager:
         """After a kill reset every target needs an explicit re-enable."""
         for tag in self._states:
             self._states[tag] = "stopped:kill"
+        self._flush_all("kill_reset")
         self._last_applied.clear()
 
     def re_enable(self, tag: str) -> None:
@@ -499,6 +626,7 @@ class ParamManager:
         if state != "hold_off" and not state.startswith("stopped:"):
             raise ValueError(f"cannot re-enable from state '{state}'")
         self._states[tag] = "enabled"
+        self._alarms.pop(tag, None)
         self._emit_tag("re_enable", tag, "re_enable")
 
     def swap_policies(self, policies: dict[str, ParamPolicy]) -> None:
@@ -510,6 +638,7 @@ class ParamManager:
         for tag in set(self._states) - set(policies):
             del self._states[tag]
             self._last_applied.pop(tag, None)
+            self._alarms.pop(tag, None)
         for tag in set(policies) - set(self._states):
             self._states[tag] = "enabled"
         self._policies = dict(policies)
