@@ -9,6 +9,11 @@ Without a ``take_remote`` entry in the plant map, a write only touches the setpo
 node, so a real control system stays in local setpoint source and the engine's next
 tick sees "local" (operator takeover, hold_off) after every write. ``take_remote`` is
 plant-map data that makes ``write()`` put the source into remote first.
+
+Targets are of two kinds (ADR 014): setpoint targets (``setpoint_node``) used with
+``read``/``write``/``release``/``setpoint_source``, and ``pid_param`` targets
+(``param_node``) used with ``read_param``/``write_param``. ``loop_mode`` works for both.
+Using a method of one kind on a tag of the other raises ``ValueError``.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json
+import math
 import threading
 import time
 from collections.abc import Coroutine, Mapping
@@ -31,6 +37,12 @@ PLANT_MAP_SCHEMA_NAME = "plant-map.schema.json"
 MAX_PARENT_WALK = 10  # levels searched upwards for the schemas/ directory
 DEFAULT_TIMEOUT_S = 2.0  # OPC UA call budget, in seconds
 HEARTBEAT_COUNTER_MAX = 2**31 - 1  # OPC UA Int32 maximum; the counter wraps back to 1
+FLOAT32_MAX = 3.4028234663852886e38  # largest finite value an OPC UA Float can hold
+# Variant type used to write a pid_param target; always the CONFIGURED one, never inferred.
+PARAM_VARIANT_TYPES: Mapping[str, ua.VariantType] = {
+    "Float": ua.VariantType.Float,
+    "Double": ua.VariantType.Double,
+}
 T = TypeVar("T")
 
 # Status codes that mean "the session or the socket is gone", not "the server said no".
@@ -175,7 +187,7 @@ class OpcUaPlant:
             ConnectionError: on transport failure or a status code that is not good.
             TimeoutError: if the server does not answer within the timeout.
         """
-        target = self._target(tag)
+        target = self._setpoint_target(tag)
         return self._call(self._read_async(target["readback_node"]))
 
     def write(self, tag: str, value: float) -> bool:
@@ -194,8 +206,9 @@ class OpcUaPlant:
             KeyError: if ``tag`` is not in the plant map.
             ConnectionError: on transport failure.
             TimeoutError: if the server does not answer within the timeout.
+            ValueError: if ``tag`` is a pid_param target.
         """
-        target = self._target(tag)
+        target = self._setpoint_target(tag)
         take = target.get("take_remote")
         if take is None:
             return self._write_setpoint(target, value)
@@ -248,6 +261,47 @@ class OpcUaPlant:
         self._heartbeat_counter = counter
         self._last_heartbeat_s = time.monotonic()
 
+    def read_param(self, tag: str) -> float:
+        """Current read-back value of the pid_param target ``tag``, as a float.
+
+        Reads ``readback_node`` (``param_node`` when the map gives none). Fails closed:
+        a bad status, a non-numeric value, NaN or infinity raises ``ConnectionError``.
+
+        Raises:
+            KeyError: if ``tag`` is not in the plant map.
+            ValueError: if ``tag`` is a setpoint target.
+            ConnectionError: on transport failure or an unusable value.
+            TimeoutError: if the server does not answer within the timeout.
+        """
+        target = self._param_target(tag)
+        node_text = target.get("readback_node", target["param_node"])
+        return self._call(self._read_param_async(node_text))
+
+    def write_param(self, tag: str, value: float) -> bool:
+        """Write ``value`` to the parameter node of ``tag`` as its configured data type.
+
+        The variant type is the plant map's ``data_type`` (Float or Double); it is never
+        taken from the node. Nothing is written, and False is returned, when ``value``
+        is not a finite real number, or when it lies outside the float32 range for a
+        ``Float`` target (no silent saturation or rounding to infinity).
+
+        Returns:
+            True if the server accepted the write; False if the value was refused locally
+            or by the server (for example ``BadTypeMismatch`` or ``BadNotWritable``).
+
+        Raises:
+            KeyError: if ``tag`` is not in the plant map.
+            ValueError: if ``tag`` is a setpoint target.
+            ConnectionError: on transport failure.
+            TimeoutError: if the server does not answer within the timeout.
+        """
+        target = self._param_target(tag)
+        variant_type = PARAM_VARIANT_TYPES[target["data_type"]]
+        number = _param_number(value, variant_type)
+        if number is None:
+            return False
+        return self._call(self._write_param_async(target["param_node"], number, variant_type))
+
     def loop_mode(self, tag: str) -> str:
         """Current loop mode name of ``tag``, or ``"UNKNOWN:<raw>"`` if unmapped."""
         target = self._target(tag)
@@ -259,7 +313,7 @@ class OpcUaPlant:
         Any raw value other than ``remote_value`` or ``local_value`` is treated as
         ``"local"``: an unrecognised state must never be read as gateway ownership.
         """
-        target = self._target(tag)
+        target = self._setpoint_target(tag)
         return self._call(self._source_async(target))
 
     def release(self, tag: str) -> None:
@@ -269,7 +323,7 @@ class OpcUaPlant:
             ConnectionError: on any failure, including a server refusal.
             TimeoutError: if the server does not answer within the timeout.
         """
-        target = self._target(tag)
+        target = self._setpoint_target(tag)
         self._call(self._release_async(target))
 
     def _target(self, tag: str) -> Mapping[str, Any]:
@@ -279,6 +333,20 @@ class OpcUaPlant:
             return targets[tag]
         except KeyError as error:
             raise KeyError(tag) from error
+
+    def _setpoint_target(self, tag: str) -> Mapping[str, Any]:
+        """Return the entry of ``tag``; ValueError if it is a pid_param target."""
+        target = self._target(tag)
+        if "setpoint_node" not in target:
+            raise ValueError(f"tag {tag!r} is a pid_param target; use read_param/write_param")
+        return target
+
+    def _param_target(self, tag: str) -> Mapping[str, Any]:
+        """Return the entry of ``tag``; ValueError if it is a setpoint target."""
+        target = self._target(tag)
+        if "param_node" not in target:
+            raise ValueError(f"tag {tag!r} is a setpoint target; use read/write")
+        return target
 
     def _is_heartbeat_too_soon(self) -> bool:
         """True when less than one heartbeat period has passed since the last send."""
@@ -384,6 +452,29 @@ class OpcUaPlant:
         except (AttributeError, TypeError, ValueError) as error:
             raise ConnectionError("read-back value is not a number") from error
 
+    async def _read_param_async(self, node_text: str) -> float:
+        """Read one DataValue; a bad status or an unusable number raises ConnectionError."""
+        node = await self._node(node_text)
+        try:
+            data_value = await self._protected(node.read_data_value())
+        except ua.UaStatusCodeError as error:
+            raise ConnectionError(f"parameter read-back status is not good: {error}") from error
+        if not data_value.StatusCode.is_good():
+            raise ConnectionError("parameter read-back status code is not good")
+        raw = data_value.Value.Value if data_value.Value is not None else None
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ConnectionError("parameter read-back value is not a number")
+        if not math.isfinite(raw):
+            raise ConnectionError("parameter read-back value is not finite")
+        return float(raw)
+
+    async def _write_param_async(
+        self, node_text: str, number: float, variant_type: ua.VariantType
+    ) -> bool:
+        """Write ``number`` as ``variant_type``; False when the server refuses it."""
+        node = await self._node(node_text)
+        return await self._write_or_refuse(node, ua.Variant(number, variant_type))
+
     async def _write_or_refuse(self, node: Node, variant: ua.Variant) -> bool:
         """Write ``variant`` to ``node``; False when the server refuses the value."""
         try:
@@ -460,6 +551,21 @@ def _is_transport_status(status_code: int) -> bool:
     """True when ``status_code`` means the session or socket is gone, not "refused"."""
     name, _documentation = get_name_and_doc(status_code)
     return name in TRANSPORT_STATUS_NAMES
+
+
+def _param_number(value: object, variant_type: ua.VariantType) -> float | None:
+    """``value`` as a float that ``variant_type`` can hold, or None when it must not be written."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    if not math.isfinite(number):
+        return None
+    if variant_type == ua.VariantType.Float and abs(number) > FLOAT32_MAX:
+        return None
+    return number
 
 
 def _raw_equal(left: object, right: object) -> bool:
