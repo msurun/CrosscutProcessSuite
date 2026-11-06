@@ -1031,3 +1031,24 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Rollback exemption for `min_interval` and `max_ratio` (ADR 014 section 6): `ParamManager` audits and remembers `applied_from` baseline readings; a verified rollback proposal matching this baseline skips cooling interval checks and ratio caps while maintaining strict limits and signs.
 - Operator escape for `applying` proposals without ledger evidence: `POST /tuning/proposals/{id}/escape` (and `POST /reject?escape=true`) allows authorized operators (`gw.reject`) to discard stalled `applying` records when no plant write evidence exists in `state.json` / ledger. If write evidence is present, the record settles to `applied` and refuses rejection (409 `already_applied`).
 - Open: pilot DCS and PidCC unit (ADR 014 question 1); who approves tuning (default engineer/lead); step-test assistant OUT writes not in scope; RougherSim L5 rows still pending (needs M7 hooks); ADR 013 owner questions (lead role holder, kiosk kill, session lengths, admin password reset without a second admin); key protection on Windows/OneDrive.
+
+## 2026-11-06 - Phase 6 #51 Supervisor advice as setpoint write proposals (module: supervisor/write-path, Phase 6)
+
+- ADR 014 section 7 / ADR 012: Advisory supervisor connected to Write Gateway's setpoint propose path (`WriteProposal`, `confirm` then `supervised` mode).
+- Schema `schemas/supervisor.schema.json` & `crosscut_supervisor.config`: Extended supervisor `mode` enum to `["off", "advisory", "confirm", "supervised"]`, added optional `target_tag` string property.
+- Pure translation module `supervisor/src/crosscut_supervisor/proposal.py`:
+  - `SetpointProposal` dataclass with `to_gateway_args()`.
+  - Pure `signed_change(advice: Advice) -> float | None` and `build_setpoint_proposal(...) -> SetpointProposal | None`.
+  - Educational comments with `# In plain words:` and units adhering to ForemanKit clean code conventions.
+- Gateway client `FileGatewayClient.propose(args, actor)`: sends signed `propose` command to mailbox inbox, receives validated decision.
+- API endpoints (`api/src/crosscut_api/supervisor_routes.py`):
+  - `POST /supervisors/{sid}/propose`: resolves target tag from config/site/override, calculates setpoint move from logged advice ID or explicit params, sends proposal to Write Gateway.
+  - Added `propose: bool = False` flag to `POST /datasets/{dataset_id}/supervisor/{sid}/advise` to automatically propose on generation.
+  - Added `("POST", "/supervisors/{sid}/propose"): "gw.propose"` to `ROUTE_PERMISSIONS`.
+- Integration test suite `api/tests/test_supervisor_gateway_propose.py`:
+  - Mode refusal when supervisor is `off` (HTTP 409).
+  - `confirm` mode: proposal queued in Write Gateway `pending` queue; plant write executed upon operator approval.
+  - `supervised` mode: proposal directly executed on plant.
+  - Operator action always wins: plant override puts gateway into hold-off, refusing supervisor setpoint proposals.
+  - Proposing from logged `advice_id` in audit log.
+  - Advise endpoint with `propose=True`.

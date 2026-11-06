@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from auth_support import write_key_file
+from crosscut_api.auth.actor import local_actor
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_gateway.engine import WriteGateway
@@ -339,6 +340,24 @@ def test_put_mode_changes_the_published_mode(live: LiveService) -> None:
     response = live.client.put("/gateway/mode", json={"mode": "supervised"})
     assert response.status_code == 200
     _poll(lambda: _mode_is(live.client, "supervised"), "the mode to become supervised")
+
+
+def test_file_gateway_client_propose_in_confirm_mode(live: LiveService) -> None:
+    """FileGatewayClient.propose sends signed propose command and returns decision."""
+    _wait_status(live.client)
+    gw_client = FileGatewayClient(live.root)
+    actor = local_actor("127.0.0.1")
+    args = {
+        "target_tag": TAG,
+        "value": 55.0,
+        "proposer": "test_actor",
+        "t_ns": time.time_ns(),
+        "reason": "Test proposal",
+    }
+    decision = gw_client.propose(args, actor)
+    assert decision["accepted"] is True
+    assert decision["reason_code"] == "queued"
+
 
 
 def test_signed_command_without_key_file_answers_503(live: LiveService) -> None:

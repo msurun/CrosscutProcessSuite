@@ -125,3 +125,15 @@ def test_bundled_mill_feed_advisor_example_is_valid() -> None:
     system = system_from_dict(json.loads(system_path.read_text(encoding="utf-8")))
     check_against_system(config, system)
     assert config.target_loop == "mill_feed" and config.mode == "advisory"
+
+
+@pytest.mark.parametrize("mode", ["off", "advisory", "confirm", "supervised"])
+def test_valid_modes_accepted(mode: str) -> None:
+    config = load_config(_doc(mode=mode))
+    assert config.mode == mode
+
+
+def test_target_tag_optional_field() -> None:
+    config = load_config(_doc(target_tag="FIC101.SP"))
+    assert config.target_tag == "FIC101.SP"
+

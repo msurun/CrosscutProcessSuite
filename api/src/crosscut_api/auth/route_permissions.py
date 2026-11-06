@@ -147,6 +147,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/gateway/policy/pin"): "policy.pin",
     ("POST", "/gateway/policy/reload"): "policy.reload",
 
+    # supervisor proposals (ADR 014 section 7, #51): proposing setpoint advice needs gw.propose
+    ("POST", "/supervisors/{sid}/propose"): "gw.propose",
+
     # tuning proposals (ADR 014): propose and roll back need gw.propose, approve its own
     # permission (second person, engineer or lead), reject is open to the operator
     ("POST", "/loops/{loop_id}/tuning/proposals"): "gw.propose",

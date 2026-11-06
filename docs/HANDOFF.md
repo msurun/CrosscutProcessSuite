@@ -42,7 +42,7 @@ Next engineering steps:
 2. Real-vendor validation of `take_remote` and PidCC units.
 3. Rollback exemption of min_interval/max_ratio (done: verified rollback restores audited baseline without interval/ratio blocks).
 4. Operator escape for `applying` records with no ledger evidence (done: POST /tuning/proposals/{id}/escape unblocks stalled applying records when no write evidence exists in gateway audit).
-5. Supervisor advice as proposals (#51).
+5. Supervisor advice as proposals (#51) (done: supervisor advice flows to Write Gateway in confirm and supervised modes per ADR 014 sec 7; operator action always wins).
 6. Module 1 release (P3).
 
 ## Real plant data

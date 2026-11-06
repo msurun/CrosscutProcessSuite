@@ -13,14 +13,14 @@ from typing import Any
 
 from crosscut_fuzzy.model import FuzzySystem
 
-MODES = ("off", "advisory")
+MODES = ("off", "advisory", "confirm", "supervised")
 BLOCK_STATES = frozenset({"manual", "saturated", "flatline", "unknown"})
 WARN_STATES = frozenset({"oscillating"})
 _REQUIRED = (
     "schema_version", "id", "fuzzy_system_id", "output_id", "target_loop", "mode", "gates",
     "silent_band", "min_activation", "min_interval_s", "display_clamp",
 )
-_OPTIONAL = ("description", "fuzzy_version_id")
+_OPTIONAL = ("description", "fuzzy_version_id", "target_tag")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -55,6 +55,7 @@ class SupervisorConfig:
     display_clamp: tuple[float, float]
     description: str = ""
     fuzzy_version_id: str | None = None
+    target_tag: str | None = None
 
 
 def load_config(doc: Mapping[str, Any]) -> SupervisorConfig:
@@ -82,6 +83,7 @@ def load_config(doc: Mapping[str, Any]) -> SupervisorConfig:
         display_clamp=_clamp(doc),
         description=_optional_text(doc, "description") or "",
         fuzzy_version_id=_optional_text(doc, "fuzzy_version_id"),
+        target_tag=_optional_text(doc, "target_tag"),
     )
     _cross_check(config)
     return config

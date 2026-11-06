@@ -45,7 +45,7 @@ from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
-from crosscut_api.gateway_client import gateway_provider
+from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_api.intake_routes import build_intake_router
 from crosscut_api.onboarding_routes import build_onboarding_router
@@ -690,12 +690,12 @@ def _new_app(
 
 def _mount_routers(app: FastAPI, store: DatasetStore) -> None:
     """Include every data router on ``app``, in their original order."""
-    _mount_data_routers(app, store)
     # The Write Gateway runs as a separate process (ADR 011/012); the API talks to it only
     # through the file mailbox under <data root>/_gateway/ (FileGatewayClient) and answers 503
     # while the gateway's state file is missing or stale. This module must not import
     # crosscut_gateway.
     provider = gateway_provider(store.root)
+    _mount_data_routers(app, store, provider)
     app.include_router(build_gateway_router(provider))
     # Tuning proposals (ADR 014): records under <root>/_tuning, commands through the same mailbox.
     sources = Sources(store.root, store.load_wide, store.loops_of)
@@ -705,12 +705,18 @@ def _mount_routers(app: FastAPI, store: DatasetStore) -> None:
     app.include_router(_loop_router(store))
 
 
-def _mount_data_routers(app: FastAPI, store: DatasetStore) -> None:
+def _mount_data_routers(
+    app: FastAPI,
+    store: DatasetStore,
+    provider: Callable[[], FileGatewayClient | None] | None = None,
+) -> None:
     """Include the analysis, intake and configuration routers on ``app``."""
     # The fuzzy rule-base endpoints (replay, backtest) need the same loaded tables, so they
     # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
-    app.include_router(build_supervisor_router(store.root, store.load_seconds, store.loops_of))
+    app.include_router(
+        build_supervisor_router(store.root, store.load_seconds, store.loops_of, provider)
+    )
     app.include_router(build_anomaly_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_softsensor_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_intake_router(store.root, store.loops_of))

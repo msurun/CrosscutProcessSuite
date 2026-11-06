@@ -263,6 +263,26 @@ class FileGatewayClient:
             raise TypeError("unexpected result for approve command")
         return result
 
+    def propose(
+        self, args: dict[str, Any], actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Send a signed propose command; return the decision {accepted, reason_code}.
+
+        # In plain words:
+        Submits a setpoint write proposal (target tag, proposed value, proposer name,
+        timestamp in nanoseconds, and explanation) to the Write Gateway via the file mailbox.
+        The gateway validates the proposal against rate, step, and clamp limits and
+        either queues it for confirmation or writes it directly if in supervised mode.
+
+        Args:
+            args: target_tag, value, proposer, t_ns, reason.
+            actor: The actor who proposes (e.g. operator, engineer, or service).
+        """
+        result = self._send_command("propose", args, actor)
+        if not isinstance(result, dict):
+            raise TypeError("unexpected result for propose command")
+        return result
+
     def propose_params(
         self, args: dict[str, Any], actor: ActorContext | None = None
     ) -> dict[str, Any]:
