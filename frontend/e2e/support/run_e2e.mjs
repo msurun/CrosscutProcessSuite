@@ -4,6 +4,9 @@
 // Only the temp directory is created and removed. Windows and Linux.
 // E2E_AUTH=1 starts the API with authentication ON after creating a first admin with the auth CLI
 // (E2E_ADMIN_USER / E2E_ADMIN_PASSWORD are passed to the specs); by default auth is off.
+// E2E_GATEWAY=1 implies E2E_AUTH=1, adds one user per role (E2E_USERS) and starts the real Write
+// Gateway stack (start_gateway_stack.py: OPC UA server, gateway process, control channel); its
+// description is passed to the specs as E2E_GW_* variables (used by gateway-live.spec.ts).
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -15,7 +18,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const frontend = resolve(here, "../..");
 const repo = resolve(frontend, "..");
 // The e2e suite runs with auth disabled (specs do not log in); E2E_AUTH=1 turns it on for auth.spec.ts.
-const AUTH_ON = process.env.E2E_AUTH === "1";
+const GATEWAY_ON = process.env.E2E_GATEWAY === "1";
+const AUTH_ON = process.env.E2E_AUTH === "1" || GATEWAY_ON;
+const ROLE_USERS = [
+  ["e2e-engineer", "engineer"],
+  ["e2e-operator", "operator"],
+  ["e2e-lead", "lead"],
+  ["e2e-viewer", "viewer"],
+];
 const ADMIN_USER = "e2e-admin";
 const ADMIN_PASSWORD = "e2e-admin-correct-horse-1";
 const API_HEAD = "import sys,uvicorn;from pathlib import Path;from crosscut_api.app import create_app;" +
@@ -112,6 +122,54 @@ function initAdmin(python, root) {
   if (done.status !== 0) throw new Error("auth_cli init failed");
 }
 
+/** Adds one user per role with the auth CLI; returns {name: {role, password}}. */
+function addRoleUsers(python, root) {
+  const env = { ...process.env, CROSSCUT_AUTH_SCRYPT_N: "1024" };
+  const users = {};
+  for (const [name, role] of ROLE_USERS) {
+    const password = `${role}-pass-e2e-123456`;
+    const file = join(dirname(root), `${name}-password.txt`);
+    writeFileSync(file, `${password}\n`);
+    const args = ["-m", "crosscut_api.auth_cli", "add-user", "--root", root, "--username", name, "--roles", role, "--password-file", file];
+    if (spawnSync(python, args, { env, stdio: "inherit" }).status !== 0) throw new Error(`add-user ${name} failed`);
+    users[name] = { role, password };
+  }
+  return users;
+}
+
+/** Resolves with the first JSON line the child prints; rejects when it exits first or after 120 s. */
+function firstJsonLine(child, label) {
+  return new Promise((ok, fail) => {
+    let buffer = "";
+    const timer = setTimeout(() => fail(new Error(`${label} printed no description`)), 120_000);
+    child.once("exit", (code) => fail(new Error(`${label} exited early (code ${code})`)));
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk;
+      const line = buffer.split(/\r?\n/).find((text) => text.startsWith("{"));
+      if (line === undefined) return;
+      clearTimeout(timer);
+      ok(JSON.parse(line));
+    });
+  });
+}
+
+/** Starts the gateway stack on `root`; returns the E2E_GW_* variables for the specs. */
+async function startGatewayStack(python, root, children) {
+  const script = join(here, "start_gateway_stack.py");
+  const stack = spawn(python, [script, "--root", root], { stdio: ["pipe", "pipe", "inherit"] });
+  children.push(stack);
+  const info = await firstJsonLine(stack, "gateway stack");
+  return {
+    E2E_GW_ROOT: info.root,
+    E2E_GW_TAG: info.tag,
+    E2E_GW_CONTROL_URL: info.control_url,
+    E2E_GW_OPCUA: info.opcua_endpoint,
+    E2E_GW_INITIAL_SP: String(info.initial_setpoint),
+    E2E_GW_HOLD_OFF_S: String(info.hold_off_s),
+    E2E_GW_PROPOSE_SCRIPT: join(here, "gateway_propose.py"),
+  };
+}
+
 async function main() {
   const python = findPython();
   const root = join(mkdtempSync(join(tmpdir(), "crosscut-e2e-")), "data");
@@ -120,6 +178,7 @@ async function main() {
     const made = spawnSync(python, [join(here, "make_e2e_root.py"), root], { stdio: "inherit" });
     if (made.status !== 0) throw new Error("make_e2e_root.py failed");
     if (AUTH_ON) initAdmin(python, root);
+    const users = GATEWAY_ON ? addRoleUsers(python, root) : {};
     const [apiPort, uiPort] = [await freePort(), await freePort()];
     const api = spawn(python, ["-c", API_CODE, root, String(apiPort)], { stdio: "inherit" });
     children.push(api);
@@ -133,6 +192,10 @@ async function main() {
     const pw = join(frontend, "node_modules/@playwright/test/cli.js");
     const testEnv = { ...process.env, E2E_BASE_URL: base, E2E_DATA_ROOT: root, E2E_PYTHON: python, E2E_OPCUA_ENDPOINT: opcuaEndpoint };
     if (AUTH_ON) Object.assign(testEnv, { E2E_AUTH: "1", E2E_ADMIN_USER: ADMIN_USER, E2E_ADMIN_PASSWORD: ADMIN_PASSWORD });
+    if (GATEWAY_ON) {
+      Object.assign(testEnv, await startGatewayStack(python, root, children));
+      Object.assign(testEnv, { E2E_GATEWAY: "1", E2E_USERS: JSON.stringify(users) });
+    }
     const run = spawnSync(process.execPath, [pw, "test", ...process.argv.slice(2)], { cwd: frontend, env: testEnv, stdio: "inherit" });
     return run.status ?? 1;
   } finally {

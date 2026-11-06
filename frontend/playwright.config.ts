@@ -5,6 +5,8 @@ import { defineConfig } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+const GATEWAY_LIVE = process.env.E2E_GATEWAY === "1";
+
 /** Finds a Chromium executable: E2E_CHROMIUM, else the newest in the Playwright cache. */
 function findChromium(): string | undefined {
   if (process.env.E2E_CHROMIUM) return process.env.E2E_CHROMIUM;
@@ -26,8 +28,12 @@ export default defineConfig({
     launchOptions: { executablePath: findChromium() },
   },
   // Specs share one data root (site.json): runtime.spec.ts runs alone, after all the others.
-  projects: [
-    { name: "main", testIgnore: /runtime\.spec\.ts/ },
-    { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["main"] },
-  ],
+  // gateway-live.spec.ts needs the real gateway stack (E2E_GATEWAY=1, started by run_e2e.mjs): with
+  // that switch it is the only project, so no other spec runs against a live gateway.
+  projects: GATEWAY_LIVE
+    ? [{ name: "gateway-live", testMatch: /gateway-live\.spec\.ts/ }]
+    : [
+        { name: "main", testIgnore: /(runtime|gateway-live)\.spec\.ts/ },
+        { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["main"] },
+      ],
 });
