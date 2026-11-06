@@ -524,3 +524,13 @@ def test_no_param_control_system_fails_loudly_at_construction() -> None:
         engine.WriteGateway(
             SimPlant(), {TAG: POLICY}, "confirm", params=ParamConfig(dict(PARAMS))  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize("actor", [None, ActorContext(actor=""), ActorContext(actor="  \t ")])
+@pytest.mark.parametrize("mode", ["advisory", "dry_run", "confirm"])
+def test_proposal_without_proposer_is_refused(mode: str, actor: ActorContext | None) -> None:
+    gw, _ = make(mode)
+    decision = gw.propose_params(pset(it(KP, 3.0)), actor_ctx=actor)
+    assert not decision.accepted and decision.reason_code == "proposer_required"
+    assert gw.pending_params() == []
+    assert events(gw, "param_decision")[-1]["reason_code"] == "proposer_required"

@@ -42,7 +42,7 @@ from test_service_params import SECOND_ENGINEER, make_param_env, pending_key, pr
 
 
 def _fail_audit_of(gw: engine.WriteGateway, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
-    """Make the file write of audit records ``name`` raise OSError (record stays in memory)."""
+    """Make the file write of audit records ``name`` raise OSError (record not kept in memory)."""
     original = gw._audit._write_record
 
     def flaky(record: dict[str, str]) -> None:
@@ -63,7 +63,7 @@ def test_audit_failure_after_write_stops_target_keeps_state_and_alarms(
     assert plant.params[KP] == 3.0 and decision.accepted
     assert gw.status()[KP] == "stopped:comm"
     assert gw.alarms()[KP] == "check_dcs"
-    assert events(gw, "param_write")[0]["applied_to"] == "3.0"  # in-memory record kept
+    assert events(gw, "param_write") == []  # failed record is not kept in memory
     gw.re_enable(KP)
     soon = pset(it(KP, 2.5, 3.0), pid="p2")
     assert gw.propose_params(soon, actor_ctx=ALICE).reason_code == "min_interval"

@@ -302,6 +302,18 @@ class OpcUaPlant:
             return False
         return self._call(self._write_param_async(target["param_node"], number, variant_type))
 
+    def param_data_type(self, tag: str) -> str:
+        """The configured data type (``"Float"`` or ``"Double"``) of the pid_param ``tag``.
+
+        Never touches the network. The engine uses it to compare a read-back with the
+        float32-rounded value of a Float target.
+
+        Raises:
+            KeyError: if ``tag`` is not in the plant map.
+            ValueError: if ``tag`` is a setpoint target.
+        """
+        return str(self._param_target(tag)["data_type"])
+
     def param_tags(self) -> frozenset[str]:
         """Tags of the plant map's pid_param targets; never touches the network."""
         targets: Mapping[str, Mapping[str, Any]] = self._plant_map["targets"]

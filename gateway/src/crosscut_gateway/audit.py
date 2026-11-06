@@ -15,6 +15,7 @@ Keying protects against editing, inserting and forging records without the key o
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 
 GENESIS_HASH = "0" * 64
@@ -26,6 +27,13 @@ _PLAIN = "plain"
 class AuditError(ValueError):
     """Raised when the audit log chain is broken, tampered, or improperly used."""
     pass
+
+
+class AuditWriteError(AuditError, OSError):
+    """The record could not be written to disk; the in-memory chain is left unchanged.
+
+    It is also an OSError, so callers that fail closed on I/O errors keep working.
+    """
 
 
 def _canonical_bytes(record: dict[str, str]) -> bytes:
@@ -98,6 +106,23 @@ def verify_chain(
     return True
 
 
+def _fsync_quietly(descriptor: int) -> None:
+    """Best-effort fsync: a file system that cannot sync is not an error."""
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+
+
+def _truncate_quietly(path: Path, size: int) -> None:
+    """Best effort: cut a partly written line off the end of the file."""
+    try:
+        if path.exists() and path.stat().st_size > size:
+            os.truncate(path, size)
+    except OSError:
+        pass
+
+
 class AuditLog:
     """Manages an append-only, hash-chained sequence of audit events."""
 
@@ -125,15 +150,25 @@ class AuditLog:
             raise AuditError("Audit log chain verification failed. File may be tampered.")
 
     def _write_record(self, record: dict[str, str]) -> None:
-        """Appends a single JSON line to the audit log file on disk."""
+        """Appends a single JSON line to the audit log file on disk (flush and fsync).
+
+        Raises:
+            AuditWriteError: If the line could not be written; the file is cut back to its
+                previous size (best effort) and nothing is kept in memory.
+        """
         if not self._path:
             return
-
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8", newline="\n") as file:
-            json_line = json.dumps(record, ensure_ascii=False)
-            file.write(f"{json_line}\n")
-            file.flush()
+        json_line = json.dumps(record, ensure_ascii=False)
+        size = self._path.stat().st_size if self._path.exists() else 0
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8", newline="\n") as file:
+                file.write(f"{json_line}\n")
+                file.flush()
+                _fsync_quietly(file.fileno())
+        except OSError as err:
+            _truncate_quietly(self._path, size)
+            raise AuditWriteError(f"Audit record could not be written: {err}") from err
 
     def append(self, event: str, fields: dict[str, str], t_ns: int) -> dict[str, str]:
         """
@@ -155,8 +190,8 @@ class AuditLog:
         }
 
         record["hash"] = _compute_hash(record, self._key)
-        self._records.append(record)
         self._write_record(record)
+        self._records.append(record)
 
         return record.copy()
 

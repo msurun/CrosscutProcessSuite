@@ -91,7 +91,7 @@ def parse_propose_params(args: dict[str, Any]) -> ParamSetProposal:
         proposal_id=_text("proposal_id", args.get("proposal_id")),
         loop_id=_text("loop_id", args.get("loop_id")),
         items=tuple(parse_item(index, raw) for index, raw in enumerate(items)),
-        proposer=_text("proposer", args.get("proposer"), blank=True),
+        proposer=_text("proposer", args.get("proposer")),
         t_ns=_ns("t_ns", args.get("t_ns")),
         expires_ns=_ns("expires_ns", args.get("expires_ns")),
         reason=_text("reason", args.get("reason"), limit=MAX_REASON, blank=True),

@@ -14,6 +14,10 @@ from typing import Any
 
 import pytest
 from asyncua import ua
+from crosscut_gateway import engine
+from crosscut_gateway.actor import ActorContext
+from crosscut_gateway.engine_params import ParamConfig
+from crosscut_gateway.interfaces import ParamItem, ParamPolicy, ParamSetProposal
 from crosscut_gateway.opcua_plant import OpcUaPlant, PlantMapError, validate_plant_map
 from test_opcua_plant import (
     PlantFactory,
@@ -44,6 +48,8 @@ PARAM_NODES = (
     ParamNode("PF", 1.5, ua.VariantType.Float),
     ParamNode("PF.RB", 1.5, ua.VariantType.Float, writable=False),
     ParamNode("PD", 2.5, ua.VariantType.Double),
+    ParamNode("PF.TIGHT", 1.5, ua.VariantType.Float),
+    ParamNode("PD.TIGHT", 1.5, ua.VariantType.Double),
     ParamNode("PD.AS_FLOAT", 3.5, ua.VariantType.Double),
     ParamNode("PF.AS_DOUBLE", 4.5, ua.VariantType.Float),
     ParamNode("P.RO", 1.0, ua.VariantType.Double, writable=False),
@@ -378,3 +384,68 @@ def test_setpoint_target_with_param_keys_is_rejected(server: ServerControl) -> N
 def test_param_target_without_readback_node_is_valid(server: ServerControl) -> None:
     """readback_node is optional."""
     validate_plant_map(_with_param(server, readback_node=None))
+
+
+# ---------------------------------------------------------------- param_data_type + engine
+
+TIGHT_TOL = 1e-9  # far below one float32 step at 3.3
+_NS = 1_000_000_000
+_NOW = 10_000 * _NS
+_ALICE = ActorContext(actor="alice", roles=("engineer",))
+_BOB = ActorContext(actor="bob", roles=("engineer",))
+
+
+def test_param_data_type_reports_configuration(plant: OpcUaPlant) -> None:
+    """The configured data_type is returned without touching the network."""
+    assert plant.param_data_type(FLOAT_TAG) == "Float"
+    assert plant.param_data_type(DOUBLE_TAG) == "Double"
+    with pytest.raises(ValueError):
+        plant.param_data_type(SP_TAG)
+    with pytest.raises(KeyError):
+        plant.param_data_type("NO.SUCH")
+
+
+def _tight_policy() -> ParamPolicy:
+    return ParamPolicy(
+        loop="L1", param="gain", unit="1", vendor_form="siemens_pid", limits=(0.1, 10.0),
+        max_ratio=3.0, readback_tolerance=TIGHT_TOL, min_interval_s=0.0,
+        allowed_loop_modes=("AUTO",),
+    )
+
+
+def _apply_through_gateway(
+    server: ServerControl, make_plant: PlantFactory, node: str, data_type: str
+) -> tuple[engine.WriteGateway, OpcUaPlant]:
+    """Propose 1.5 -> 3.3 on a target with a tiny tolerance and approve it; return both."""
+    plant_map = make_map(server)
+    plant_map["targets"]["T.GAIN"] = _param_entry(server, node, data_type)
+    plant = make_plant(plant_map)
+    server.set_node("FIC101.MODE", 1)  # AUTO
+    config = ParamConfig({"T.GAIN": _tight_policy()})
+    gateway = engine.WriteGateway(plant, {}, "confirm", params=config)
+    gateway.tick(_NOW)
+    item = ParamItem("gain", "T.GAIN", "1", "siemens_pid", 1.5, 3.3)
+    proposal = ParamSetProposal("p1", "L1", (item,), "alice", _NOW, _NOW + 3600 * _NS, "tune")
+    assert gateway.propose_params(proposal, actor_ctx=_ALICE).reason_code == "queued"
+    key = gateway.pending_params()[0].key
+    assert gateway.approve(key, actor_ctx=_BOB).reason_code == "applied"
+    return gateway, plant
+
+
+def test_float_target_applies_with_tolerance_below_float32_step(
+    server: ServerControl, make_plant: PlantFactory
+) -> None:
+    """3.3 is stored as float32 by the server; the engine compares with the rounded value."""
+    gateway, plant = _apply_through_gateway(server, make_plant, "PF.TIGHT", "Float")
+    assert plant.read_param("T.GAIN") != 3.3
+    assert math.isclose(plant.read_param("T.GAIN"), 3.3, abs_tol=FLOAT_TOL)
+    assert gateway.status()["T.GAIN"] == "enabled"
+
+
+def test_double_target_applies_exactly_with_tight_tolerance(
+    server: ServerControl, make_plant: PlantFactory
+) -> None:
+    """Control: a Double target reads back exactly 3.3."""
+    gateway, plant = _apply_through_gateway(server, make_plant, "PD.TIGHT", "Double")
+    assert plant.read_param("T.GAIN") == 3.3
+    assert gateway.status()["T.GAIN"] == "enabled"

@@ -174,7 +174,7 @@ def test_engine_refusals_reach_the_caller(tmp_path: Path) -> None:
     assert state(env)["pending_params"] == []
 
 
-def test_legacy_mode_without_gate_still_works(tmp_path: Path) -> None:
+def test_legacy_mode_without_gate_refuses_proposal_without_actor(tmp_path: Path) -> None:
     clock, plant = FakeClock(), ParamPlant()
     gateway = engine.WriteGateway(
         plant, {TAG: POLICY}, "confirm", params=ParamConfig(dict(PARAMS))  # type: ignore[arg-type]
@@ -186,7 +186,7 @@ def test_legacy_mode_without_gate_still_works(tmp_path: Path) -> None:
     (inbox / "c1.json").write_text(json.dumps(command), encoding="utf-8")
     service.poll_once()
     reply = json.loads((tmp_path / "_gateway" / "outbox" / "c1.json").read_text(encoding="utf-8"))
-    assert reply["result"]["reason_code"] == "queued"
+    assert reply["result"]["reason_code"] == "proposer_required"
 
 
 def args_for(clock: FakeClock) -> dict[str, Any]:
@@ -239,3 +239,13 @@ def test_missing_argument_is_invalid_args(tmp_path: Path) -> None:
     sent = send(env, "propose_params", body, **ENGINEER)
     reply = outbox(env.root, sent["id"])
     assert reply is not None and reply["error"] == "invalid_args"
+
+
+@pytest.mark.parametrize("proposer", ["", "   ", None])
+def test_blank_or_missing_proposer_is_invalid_args(tmp_path: Path, proposer: str | None) -> None:
+    env = make_param_env(tmp_path)
+    over: dict[str, Any] = {"proposer": proposer}
+    sent = propose(env, **over)
+    reply = outbox(env.root, sent["id"])
+    assert reply is not None and reply["ok"] is False
+    assert state(env)["pending_params"] == []

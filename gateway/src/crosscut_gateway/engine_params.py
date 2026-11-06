@@ -204,6 +204,7 @@ class ParamManager:
         checks = (
             self._screen_mode,
             self._screen_origin,
+            self._screen_proposer,
             self._screen_shape,
             self._screen_targets,
             self._screen_timing,
@@ -230,6 +231,13 @@ class ParamManager:
         for name in (self._env.actor(), proposal.proposer):
             if name is not None and normalize_actor(name).startswith(_SERVICE_PREFIX):
                 return "service_cannot_propose_tuning", ""
+        return None
+
+    def _screen_proposer(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
+        """A set without a named proposer is refused: self-approval could not be compared."""
+        actor = self._env.actor()
+        if actor is None or not normalize_actor(actor):
+            return "proposer_required", ""
         return None
 
     def _screen_shape(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
