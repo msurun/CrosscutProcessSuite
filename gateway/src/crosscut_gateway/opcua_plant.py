@@ -444,13 +444,23 @@ class OpcUaPlant:
     async def _read_async(self, readback_node: str) -> float:
         """Read one DataValue and return its numeric value, in engineering units."""
         node = await self._node(readback_node)
-        data_value = await self._protected(node.read_data_value())
+        data_value = await self._read_node(node.read_data_value())
         if not data_value.StatusCode.is_good():
             raise ConnectionError("read-back status code is not good")
         try:
-            return float(data_value.Value.Value)
+            number = float(data_value.Value.Value)
         except (AttributeError, TypeError, ValueError) as error:
             raise ConnectionError("read-back value is not a number") from error
+        if not math.isfinite(number):
+            raise ConnectionError("read-back value is not finite")
+        return number
+
+    async def _read_node(self, awaitable: Any) -> Any:
+        """Await a node read under the call budget; a bad status code raises ConnectionError."""
+        try:
+            return await self._protected(awaitable)
+        except ua.UaStatusCodeError as error:
+            raise ConnectionError(f"OPC UA read status is not good: {error}") from error
 
     async def _read_param_async(self, node_text: str) -> float:
         """Read one DataValue; a bad status or an unusable number raises ConnectionError."""
@@ -490,20 +500,20 @@ class OpcUaPlant:
     async def _heartbeat_async(self, heartbeat_node: str, counter: int) -> None:
         """Write ``counter`` to the heartbeat node, keeping the node's own type."""
         node = await self._node(heartbeat_node)
-        variant_type = await self._protected(node.read_data_type_as_variant_type())
+        variant_type = await self._read_node(node.read_data_type_as_variant_type())
         variant = ua.Variant(counter, variant_type)
         await self._write_or_raise(node, variant)
 
     async def _heartbeat_seen_async(self, ack_node: str) -> bool:
         """Read the acknowledgement node and return its value as a boolean."""
         node = await self._node(ack_node)
-        value = await self._protected(node.read_value())
+        value = await self._read_node(node.read_value())
         return bool(value)
 
     async def _loop_mode_async(self, target: Mapping[str, Any]) -> str:
         """Read the mode node and reverse-map its raw integer to a mode name."""
         node = await self._node(target["mode_node"])
-        raw = await self._protected(node.read_value())
+        raw = await self._read_node(node.read_value())
         mode_values: Mapping[str, int] = target["mode_values"]
         for mode_name, mode_value in mode_values.items():
             if _raw_equal(mode_value, raw):
@@ -513,7 +523,7 @@ class OpcUaPlant:
     async def _source_async(self, target: Mapping[str, Any]) -> str:
         """Read the source node and classify the owner of the setpoint."""
         node = await self._node(target["source_node"])
-        raw = await self._protected(node.read_value())
+        raw = await self._read_node(node.read_value())
         if _raw_equal(raw, target["remote_value"]):
             return "remote"
         return "local"
@@ -521,14 +531,14 @@ class OpcUaPlant:
     async def _take_async(self, node_text: str, raw_value: object) -> bool:
         """Write ``raw_value`` to ``node_text``, keeping the node's type; False when refused."""
         node = await self._node(node_text)
-        variant_type = await self._protected(node.read_data_type_as_variant_type())
+        variant_type = await self._read_node(node.read_data_type_as_variant_type())
         variant = ua.Variant(raw_value, variant_type)
         return await self._write_or_refuse(node, variant)
 
     async def _release_async(self, target: Mapping[str, Any]) -> None:
         """Write the release value to the source node, keeping the node's own type."""
         node = await self._node(target["source_node"])
-        variant_type = await self._protected(node.read_data_type_as_variant_type())
+        variant_type = await self._read_node(node.read_data_type_as_variant_type())
         variant = ua.Variant(target["release_value"], variant_type)
         try:
             await self._protected(node.write_value(variant))
