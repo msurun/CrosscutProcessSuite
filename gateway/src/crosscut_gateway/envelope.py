@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from crosscut_gateway.actor import is_valid_actor_name
 from crosscut_gateway.policy_file import canonical_bytes
 
 MIN_KEY_BYTES = 32
@@ -190,7 +191,7 @@ def _auth_is_valid(auth: Any) -> bool:
     """Validate the ``auth`` dictionary according to the envelope specification."""
     if not isinstance(auth, dict):
         return False
-    if not _is_nonempty_str(auth.get("actor")):
+    if not is_valid_actor_name(auth.get("actor")):
         return False
     if not _is_roles_list(auth.get("roles")):
         return False

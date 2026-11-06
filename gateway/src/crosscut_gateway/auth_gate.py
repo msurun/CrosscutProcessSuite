@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from crosscut_gateway.actor import ActorContext
+from crosscut_gateway.actor import ActorContext, normalize_actor
 from crosscut_gateway.authz import MODES, AuthRequest, authorize
 from crosscut_gateway.envelope import MIN_KEY_BYTES, NonceCache, verify_envelope
 from crosscut_gateway.policy_file import canonical_bytes
@@ -139,7 +139,7 @@ def _policy_denial(
     """Return the refusal reason for the approve and policy_pin rules, or None when they pass."""
     if cmd == "approve":
         proposer = gateway.pending_proposer(args.get("key"))
-        if proposer is not None and proposer == auth["actor"]:
+        if proposer is not None and normalize_actor(proposer) == normalize_actor(auth["actor"]):
             return "self_approval"
     if cmd == "policy_pin" and auth.get("stepup") is not True:
         return "stepup_required"
