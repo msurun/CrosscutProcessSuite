@@ -13,7 +13,7 @@ import hmac
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -190,20 +190,29 @@ def verify_pin(policy_path: Path, key: bytes) -> str:
     return fields["digest"]
 
 
+def load_pinned_policies(policy_path: Path, key: bytes) -> policy_file.LoadedPolicy:
+    """Verify the pin, then load every target kind; the digest is the pinned digest.
+
+    The file digest is re-checked after loading so a file replaced between verification
+    and parsing is rejected rather than loaded.
+    """
+    pinned_digest = verify_pin(policy_path, key)
+    loaded = policy_file.load_policy_documents(policy_path, None)
+    if not _digests_equal(pinned_digest, file_digest(policy_path)):
+        raise PinError("digest_mismatch")
+    return replace(loaded, digest=pinned_digest)
+
+
 def load_pinned_policy(
     policy_path: Path,
     key: bytes,
 ) -> tuple[dict[str, WritePolicy], str, str]:
     """Verify the pin, then load the policy file; return (targets, mode, pinned digest).
 
-    The file digest is re-checked after loading so a file replaced between verification
-    and parsing is rejected rather than loaded.
+    Setpoint targets only; ``load_pinned_policies`` also returns the parameter targets.
     """
-    pinned_digest = verify_pin(policy_path, key)
-    targets, mode, _ = policy_file.load_policy_file(policy_path, None)
-    if not _digests_equal(pinned_digest, file_digest(policy_path)):
-        raise PinError("digest_mismatch")
-    return targets, mode, pinned_digest
+    loaded = load_pinned_policies(policy_path, key)
+    return loaded.targets, loaded.mode, loaded.digest
 
 
 def _policy_bytes(document: dict[str, Any]) -> bytes:

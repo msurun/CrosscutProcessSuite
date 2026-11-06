@@ -170,6 +170,20 @@ Therefore `readback_node` must show the **setpoint as the DCS holds it**: use th
 
 ---
 
+## 7a. Tuning Parameters (Phase 3)
+
+PID parameters (gain, `ti`, `td`, `tf`) are separate `pid_param` targets in `write-policy.json` and the plant map (ADR 014). The example files carry one, `FIC101.KP`. The policy target is only half of it: the plant map needs a `pid_param` target (`param_node`, `data_type`, `mode_node`) with the same tag. At start-up (exit 2) and at `policy_reload` (reply with the error) the gateway refuses any mismatch: a policy parameter target the plant cannot read and write, one missing from the plant map, a plant-map `pid_param` target without a policy, or a tag that is a setpoint on one side and a parameter on the other. Nothing is dropped silently.
+
+- **Confirm only.** A parameter set is never written directly. `supervised` behaves as `confirm` for parameters (cap `confirm`); `advisory` and `dry_run` only record. Every set waits in `pending_params` for a person.
+- **Who approves.** An engineer or lead with `gw.approve.tuning` approves, and never the proposer (`self_approval`). An operator may reject but not approve. The `service` principal cannot propose tuning.
+- **`from_mismatch`.** At approval the gateway reads each parameter again. If a live value differs from the proposal's `from` by more than `readback_tolerance`, the loop was retuned since the proposal: the set is refused, nothing is written, and the values read are in the audit record. Propose again from the current values.
+- **Refusal, not clamping.** A value outside `limits`, a change larger than `max_ratio` times the current value, a wrong sign or a wrong unit refuses the whole set. The gateway never writes a reduced value.
+- **External change gives `hold_off`.** Each cycle the gateway reads back every applied parameter. A value that moved (an operator retuned at the DCS) puts the target in `hold_off` with an audit record `param_changed_externally`; the gateway never writes it back and never releases anything. The target is enabled again with `re_enable` (permission `gw.re_enable.hold_off`), and the next set starts from a new baseline.
+- **State after a failure.** A transport error or a failed write or read-back sets the target `stopped:comm` or `stopped:readback`, and values already written in the set are reverted in detune order. If a revert fails too, the audit shows `alarm_check_dcs`: check the loop at the DCS first. Only then `re_enable` (permission `gw.re_enable.stopped`, engineer or lead). A kill drops every queued set and leaves all targets `stopped:kill` after the reset until each is re-enabled.
+- **Reload.** `policy_reload` swaps setpoint and parameter policies together, only in `off` or `advisory`, and is refused with `reload_blocked_param_pending` while a parameter set is queued: approve or reject it first. A swap that is refused changes nothing.
+
+---
+
 ## 8. Key Rotation and Lost Key Impact
 
 The HMAC key signs command envelopes, the policy pin and the audit chain. Changing it has consequences.

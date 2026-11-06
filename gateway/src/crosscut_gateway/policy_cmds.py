@@ -180,15 +180,21 @@ class PolicyCommands:
         policy_path = self._require_policy_path()
         key = self._require_key()
         try:
-            targets, mode, digest = policy_pin.load_pinned_policy(policy_path, key)
+            loaded = policy_pin.load_pinned_policies(policy_path, key)
         except PolicyError as err:
             raise PolicyCommandError(str(err)) from err
         try:
             # The schema restricts the policy file's mode to the Mode literals.
-            gateway.swap_policies(targets, cast(Mode, mode), digest=digest, actor_ctx=ctx)
+            gateway.swap_policies(
+                loaded.targets,
+                cast(Mode, loaded.mode),
+                digest=loaded.digest,
+                actor_ctx=ctx,
+                params=loaded.params,
+            )
         except ValueError as err:
             raise PolicyCommandError(str(err)) from err
-        return {"digest": digest}
+        return {"digest": loaded.digest}
 
     def _now(self) -> datetime:
         """Return the current UTC time from the injected clock."""
@@ -250,4 +256,6 @@ class PolicyCommands:
             return "policy_path_not_configured"
         if gateway.mode not in _RELOAD_MODES:
             return "reload_requires_off_or_advisory"
+        if gateway.pending_params():
+            return "reload_blocked_param_pending"
         return None

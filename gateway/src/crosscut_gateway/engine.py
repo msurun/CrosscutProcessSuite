@@ -24,9 +24,11 @@ from crosscut_gateway.engine_params import (
     ParamManager,
     PendingParams,
 )
+from crosscut_gateway.engine_wiring import check_param_wiring
 from crosscut_gateway.interfaces import (
     ControlSystem,
     ParamControlSystem,
+    ParamPolicy,
     ParamSetProposal,
     WriteDecision,
     WritePolicy,
@@ -74,14 +76,17 @@ class WriteGateway:
                 ``plant`` when that implements ``ParamControlSystem``.
 
         Raises:
-            ValueError: When mode is not one of the defined Mode values, or a parameter target
-                shares its tag with a setpoint target.
+            ValueError: When mode is not one of the defined Mode values, a parameter target
+                shares its tag with a setpoint target, or parameter targets have no plant that
+                can read and write parameters.
         """
         if mode not in _MODE_ORDER:
             raise ValueError(f"unknown mode: {mode}")
         params = _complete_params(plant, params)
         if set(params.policies) & set(policies):
             raise ValueError("a tag cannot be both a setpoint and a parameter target")
+        if params.policies and params.plant is None:
+            raise ValueError("parameter targets need a plant that reads and writes parameters")
         self._plant = plant
         self._policies = policies
         self._mode: Mode = mode
@@ -853,20 +858,27 @@ class WriteGateway:
         *,
         digest: str = "",
         actor_ctx: ActorContext | None = None,
+        params: dict[str, ParamPolicy] | None = None,
     ) -> None:
-        """Replace policies and the mode cap; allowed only in mode off or advisory.
+        """Replace setpoint and parameter policies and the mode cap; only in off or advisory.
 
-        Tags may be added or removed. Removed tags have pending proposals flushed first.
-        The live mode is lowered to ``cap`` when it is above it.
+        ``params=None`` keeps the current parameter policies. Everything is checked before
+        anything changes, so a refused swap leaves the gateway as it was. Tags may be added or
+        removed; removed tags have pending proposals flushed first, and queued parameter sets
+        are always dropped with audit. The live mode is lowered to ``cap`` when above it.
 
         Raises:
-            ValueError: When the gateway is in a mode above advisory.
+            ValueError: When the gateway is in a mode above advisory, a tag would be both a
+                setpoint and a parameter target, or the parameter targets do not fit the plant.
         """
         with self._acting(actor_ctx):
             if self._mode not in ("off", "advisory"):
                 raise ValueError("policy reload needs mode off or advisory")
+            new_params = self._params.policies() if params is None else params
+            check_param_wiring(self._plant, policies, new_params)
             self._drop_removed_tags(set(self._policies) - set(policies))
             self._add_new_tags(set(policies) - set(self._policies))
+            self._params.swap_policies(new_params)
             self._policies = dict(policies)
             self._mode_cap = cap
             if _MODE_ORDER[self._mode] > _MODE_ORDER[cap]:
@@ -933,12 +945,14 @@ def start_from_policy_file(
         PolicyError: When the policy cannot be verified or parsed.
     """
     if allow_legacy_sidecar:
-        targets, file_mode = _load_sidecar_policy(path)
+        loaded = _load_sidecar_policy(path)
     else:
-        targets, file_mode = _load_pinned_policy(path, key)
-    effective_mode = _more_restrictive(mode, file_mode)  # type: ignore[arg-type]
-    gateway = WriteGateway(plant, targets, effective_mode, audit)
-    gateway._mode_cap = cast(Mode, file_mode)  # the cap is the policy mode, not the start mode
+        loaded = _load_pinned_policy(path, key)
+    check_param_wiring(plant, loaded.targets, loaded.params)
+    effective_mode = _more_restrictive(mode, loaded.mode)  # type: ignore[arg-type]
+    config = ParamConfig(loaded.params, plant if isinstance(plant, ParamControlSystem) else None)
+    gateway = WriteGateway(plant, loaded.targets, effective_mode, audit, params=config)
+    gateway._mode_cap = cast(Mode, loaded.mode)  # the cap is the policy mode, not the start mode
     return gateway
 
 
@@ -958,7 +972,7 @@ def safe_gateway(plant: ControlSystem, audit: AuditLog | None = None) -> WriteGa
     return WriteGateway(plant, {}, "off", audit)
 
 
-def _load_sidecar_policy(path: Path) -> tuple[dict[str, WritePolicy], str]:
+def _load_sidecar_policy(path: Path) -> policy_file.LoadedPolicy:
     """Verify the legacy ``.sha256`` sidecar digest, then parse the policy file."""
     digest_path = path.with_suffix(".sha256")
     expected_digest = digest_path.read_text(encoding="utf-8").strip()
@@ -966,13 +980,11 @@ def _load_sidecar_policy(path: Path) -> tuple[dict[str, WritePolicy], str]:
     actual_digest = hashlib.sha256(raw_bytes).hexdigest()
     if actual_digest.lower() != expected_digest.lower():
         raise PolicyError("policy file hash mismatch")
-    targets, file_mode, _ = policy_file.load_policy_file(path, None)
-    return targets, file_mode
+    return policy_file.load_policy_documents(path, None)
 
 
-def _load_pinned_policy(path: Path, key: bytes | None) -> tuple[dict[str, WritePolicy], str]:
+def _load_pinned_policy(path: Path, key: bytes | None) -> policy_file.LoadedPolicy:
     """Load a policy file whose signed pin is verified with ``key``."""
     if key is None:
         raise PolicyError("a signing key is required to load a pinned policy")
-    targets, file_mode, _ = policy_pin.load_pinned_policy(path, key)
-    return targets, file_mode
+    return policy_pin.load_pinned_policies(path, key)

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-from crosscut_gateway.interfaces import WritePolicy
-from crosscut_gateway.policy import PolicyError, policy_from_dict
+from crosscut_gateway.interfaces import ParamPolicy, WritePolicy
+from crosscut_gateway.policy import PolicyError, policies_from_dict
 
 
 def canonical_bytes(data: dict[str, Any]) -> bytes:
@@ -118,6 +119,30 @@ def _verify_digest(digest: str, expected_digest: str | None) -> None:
         raise PolicyError(msg)
 
 
+@dataclass(frozen=True)
+class LoadedPolicy:
+    """A verified policy document: setpoint and parameter targets, gateway mode and digest."""
+
+    targets: dict[str, WritePolicy]
+    params: dict[str, ParamPolicy]
+    mode: str
+    digest: str
+
+
+def load_policy_documents(path: Path, expected_digest: str | None = None) -> LoadedPolicy:
+    """Load, validate against schema, verify digest, and parse every kind of target.
+
+    Same checks as ``load_policy_file``; additionally returns the ``pid_param`` targets.
+    Raises PolicyError on any failure.
+    """
+    data = _read_and_parse_json(path)
+    _validate_schema(data)
+    digest = policy_digest(data)
+    _verify_digest(digest, expected_digest)
+    targets, params = policies_from_dict(data)
+    return LoadedPolicy(targets, params, str(data["mode"]), digest)
+
+
 def load_policy_file(
     path: Path,
     expected_digest: str | None = None,
@@ -131,21 +156,18 @@ def load_policy_file(
 
     Returns
     -------
-    tuple of (targets mapping, gateway mode string, computed SHA-256 digest hex).
+    tuple of (setpoint targets mapping, gateway mode string, computed SHA-256 digest hex).
+    The parameter targets are returned by ``load_policy_documents``.
     """
-    data = _read_and_parse_json(path)
-    _validate_schema(data)
-    digest = policy_digest(data)
-    _verify_digest(digest, expected_digest)
-    targets = policy_from_dict(data)
-    mode = str(data["mode"])
-    return targets, mode, digest
+    loaded = load_policy_documents(path, expected_digest)
+    return loaded.targets, loaded.mode, loaded.digest
 
 
 def validate_document(data: dict[str, Any]) -> dict[str, WritePolicy]:
     """Validate a parsed policy document against the schema and return its write policies.
 
+    Setpoint and parameter targets are both parsed, so a bad ``pid_param`` target is refused.
     Raises PolicyError on any schema violation or invalid target definition.
     """
     _validate_schema(data)
-    return policy_from_dict(data)
+    return policies_from_dict(data)[0]

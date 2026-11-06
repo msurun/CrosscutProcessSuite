@@ -517,8 +517,10 @@ def test_tag_cannot_be_both_kinds() -> None:
         engine.WriteGateway(plant, {TAG: POLICY}, "confirm", params=ParamConfig(clash))  # type: ignore[arg-type]
 
 
-def test_no_param_control_system_refuses() -> None:
-    gw = engine.WriteGateway(SimPlant(), {TAG: POLICY}, "confirm", params=ParamConfig(dict(PARAMS)))  # type: ignore[arg-type]
-    gw.tick(NOW)
+def test_no_param_control_system_fails_loudly_at_construction() -> None:
+    """Parameter targets without a plant that can handle them are refused, not ignored."""
     assert not isinstance(SimPlant(), ParamControlSystem)
-    assert gw.propose_params(pset(it(KP, 3.0)), actor_ctx=ALICE).reason_code == "no_param_plant"
+    with pytest.raises(ValueError, match="need a plant that reads and writes parameters"):
+        engine.WriteGateway(
+            SimPlant(), {TAG: POLICY}, "confirm", params=ParamConfig(dict(PARAMS))  # type: ignore[arg-type]
+        )

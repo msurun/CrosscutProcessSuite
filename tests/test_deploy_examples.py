@@ -16,6 +16,10 @@ from unittest.mock import patch
 
 import jsonschema
 from crosscut_gateway import __main__ as gw_main
+from crosscut_gateway.engine_wiring import check_param_wiring
+from crosscut_gateway.opcua_plant import OpcUaPlant
+from crosscut_gateway.policy import policies_from_dict
+from crosscut_loops.vendor_forms import VENDOR_FORMS
 
 # Directory anchors relative to the suite repository root
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -201,10 +205,40 @@ def test_plant_map_readback_node_is_a_setpoint_node() -> None:
     """The gateway compares read-back with the written setpoint, so it must not be the PV."""
     example = _load_json(PLANT_MAP_EXAMPLE)
 
-    for tag, target in example["targets"].items():
+    setpoint_targets = {t: v for t, v in example["targets"].items() if "setpoint_node" in v}
+    assert setpoint_targets, "the example must keep its setpoint targets"
+    for tag, target in setpoint_targets.items():
         allowed = {target[key] for key in SETPOINT_RELATED_KEYS}
         assert target["readback_node"] in allowed, f"{tag}: readback_node is not a setpoint node"
         assert not target["readback_node"].endswith(".PV"), tag
+
+
+def test_examples_carry_one_matching_pid_param_target() -> None:
+    """Policy and plant map each hold the same single pid_param target, in a known vendor form."""
+    policy = _load_json(WRITE_POLICY_EXAMPLE)
+    plant_map = _load_json(PLANT_MAP_EXAMPLE)
+
+    setpoints, params = policies_from_dict(policy)
+    assert list(params) == ["FIC101.KP"]
+    only = params["FIC101.KP"]
+    assert only.vendor_form in VENDOR_FORMS
+    assert only.param == "gain" and only.max_ratio == 1.5 and only.limits[0] > 0
+    assert policy["targets"]["FIC101.KP"]["kind"] == "pid_param"
+    plant = OpcUaPlant(plant_map)  # builds the adapter only; nothing connects
+    try:
+        assert plant.param_tags() == frozenset(params)
+        check_param_wiring(plant, setpoints, params)
+    finally:
+        plant.close()
+
+
+def test_runbook_documents_tuning_parameters() -> None:
+    """The runbook explains the confirm-only parameter path and its recovery."""
+    runbook = (REPO_ROOT / "docs" / "GATEWAY_RUNBOOK.md").read_text(encoding="utf-8")
+
+    for phrase in ("Tuning Parameters (Phase 3)", "gw.approve.tuning", "from_mismatch",
+                   "hold_off", "re_enable", "reload_blocked_param_pending"):
+        assert phrase in runbook, phrase
 
 
 def test_run_gateway_cmd_has_no_restart_loop() -> None:

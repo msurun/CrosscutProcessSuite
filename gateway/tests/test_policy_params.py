@@ -98,11 +98,11 @@ def test_policy_schema_accepts_pid_param_and_mixed() -> None:
 
 
 def test_policy_schema_accepts_existing_example() -> None:
-    """The shipped example policy stays valid and parses to setpoint policies only."""
+    """The shipped example policy stays valid: two setpoints and one gain target."""
     data = json.loads(EXAMPLE_POLICY.read_text(encoding="utf-8"))
     assert _validator(POLICY_SCHEMA).is_valid(data)
     assert set(policy_from_dict(data)) == {"FIC101.SP", "TIC201.SP"}
-    assert params_from_dict(data) == {}
+    assert set(params_from_dict(data)) == {"FIC101.KP"}
 
 
 @pytest.mark.parametrize("field", list(GAIN))

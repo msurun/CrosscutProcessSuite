@@ -302,6 +302,11 @@ class OpcUaPlant:
             return False
         return self._call(self._write_param_async(target["param_node"], number, variant_type))
 
+    def param_tags(self) -> frozenset[str]:
+        """Tags of the plant map's pid_param targets; never touches the network."""
+        targets: Mapping[str, Mapping[str, Any]] = self._plant_map["targets"]
+        return frozenset(tag for tag, entry in targets.items() if "param_node" in entry)
+
     def loop_mode(self, tag: str) -> str:
         """Current loop mode name of ``tag``, or ``"UNKNOWN:<raw>"`` if unmapped."""
         target = self._target(tag)

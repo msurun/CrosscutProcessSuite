@@ -90,6 +90,7 @@ _REPLIED_REASONS = frozenset(
         "above_cap",
         "author_equals_approver",
         "reload_requires_off_or_advisory",
+        "reload_blocked_param_pending",
         "policy_path_not_configured",
         "no_draft",
         "draft_changed",

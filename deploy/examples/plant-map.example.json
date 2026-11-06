@@ -44,6 +44,17 @@
         "value": 1,
         "before_setpoint": true
       }
+    },
+    "FIC101.KP": {
+      "param_node": "ns=2;s=Plant.FIC101.KP",
+      "readback_node": "ns=2;s=Plant.FIC101.KP",
+      "data_type": "Double",
+      "mode_node": "ns=2;s=Plant.FIC101.MODE",
+      "mode_values": {
+        "MAN": 0,
+        "AUTO": 1,
+        "CAS": 2
+      }
     }
   }
 }

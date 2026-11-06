@@ -120,6 +120,10 @@ class ParamManager:
 
     # ------------------------------------------------------------------ queries
 
+    def policies(self) -> dict[str, ParamPolicy]:
+        """Copy of the parameter policies by target tag."""
+        return dict(self._policies)
+
     def has_target(self, tag: object) -> bool:
         """True when ``tag`` is a parameter target."""
         return isinstance(tag, str) and tag in self._states
@@ -496,6 +500,19 @@ class ParamManager:
             raise ValueError(f"cannot re-enable from state '{state}'")
         self._states[tag] = "enabled"
         self._emit_tag("re_enable", tag, "re_enable")
+
+    def swap_policies(self, policies: dict[str, ParamPolicy]) -> None:
+        """Replace the parameter policies; every queued set is dropped with audit first.
+
+        Kept targets keep their state, new ones start enabled, removed ones are forgotten.
+        """
+        self._flush_all("policy_reload")
+        for tag in set(self._states) - set(policies):
+            del self._states[tag]
+            self._last_applied.pop(tag, None)
+        for tag in set(policies) - set(self._states):
+            self._states[tag] = "enabled"
+        self._policies = dict(policies)
 
     def _set_state(self, tag: str, state: str) -> None:
         """Change a target's state; queued sets that use it are flushed when it leaves enabled."""

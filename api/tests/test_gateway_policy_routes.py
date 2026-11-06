@@ -186,3 +186,23 @@ def test_file_client_reads_draft_without_signature_and_live_from_state(tmp_path:
     assert client.live_policy() == state["policy"]
     (gateway_dir / "state.json").write_text(json.dumps({"policy": None}), encoding="utf-8")
     assert client.live_policy() is None
+
+
+def test_get_policy_serves_a_pid_param_target_from_state(tmp_path: Path) -> None:
+    """A live policy with a pid_param target passes through state.json and GET /gateway/policy."""
+    param = {
+        "kind": "pid_param", "loop": "FIC101", "param": "gain", "unit": "1",
+        "vendor_form": "siemens_pid_compact", "limits": [0.5, 5.0], "max_ratio": 1.5,
+        "readback_tolerance": 0.001, "min_interval_s": 300.0, "allowed_loop_modes": ["AUTO"],
+    }
+    document = {"version": 1, "mode": "confirm", "targets": {"FIC101.KP": param}}
+    gateway_dir = tmp_path / "_gateway"
+    gateway_dir.mkdir()
+    state = {"policy": {"document": document, "pin": PIN}}
+    (gateway_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    app = FastAPI()
+    app.include_router(build_gateway_router(lambda: FileGatewayClient(tmp_path)))
+    body = TestClient(app).get("/gateway/policy").json()
+    assert body["document"]["targets"]["FIC101.KP"] == param
+    assert body["mode_cap"] == "confirm"
+    assert body["digest"] == policy_file.policy_digest(document)
