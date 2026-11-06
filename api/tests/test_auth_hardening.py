@@ -146,13 +146,17 @@ def test_stepup_locks_after_five_failures_then_recovers(
     """Five wrong step-up passwords lock step-up, even for the right one, until expiry."""
     payload = login(client, "op1")
     for _ in range(5):
-        assert _post_stepup(client, payload, WRONG_PASSWORD).status_code == 403
+        wrong = _post_stepup(client, payload, WRONG_PASSWORD)
+        assert wrong.status_code == 403
+        assert wrong.json()["detail"] == "wrong_password"
     locked = _post_stepup(client, payload)
     assert locked.status_code == 423
     assert int(locked.headers["retry-after"]) > 0
     clock.advance(LOCK_WAIT_S)
     assert _post_stepup(client, payload).status_code == 200
-    assert _post_stepup(client, payload, WRONG_PASSWORD).status_code == 403
+    again = _post_stepup(client, payload, WRONG_PASSWORD)
+    assert again.status_code == 403
+    assert again.json()["detail"] == "wrong_password"
 
 
 def test_password_change_locks_after_five_failures_then_recovers(
@@ -162,12 +166,16 @@ def test_password_change_locks_after_five_failures_then_recovers(
     """Five wrong old passwords lock password change, even for the right one, until expiry."""
     payload = login(client, "op1")
     for _ in range(5):
-        assert _post_password(client, payload, WRONG_PASSWORD).status_code == 403
+        wrong = _post_password(client, payload, WRONG_PASSWORD)
+        assert wrong.status_code == 403
+        assert wrong.json()["detail"] == "wrong_password"
     locked = _post_password(client, payload, PASSWORD)
     assert locked.status_code == 423
     assert int(locked.headers["retry-after"]) > 0
     clock.advance(LOCK_WAIT_S)
-    assert _post_password(client, payload, WRONG_PASSWORD).status_code == 403
+    again = _post_password(client, payload, WRONG_PASSWORD)
+    assert again.status_code == 403
+    assert again.json()["detail"] == "wrong_password"
     assert _post_password(client, payload, PASSWORD).status_code == 200
 
 
@@ -183,7 +191,9 @@ def test_failure_counter_is_shared_across_login_stepup_and_password(
     for _ in range(3):
         assert _post_login(second, "op1", WRONG_PASSWORD).status_code == 401
     for _ in range(2):
-        assert _post_stepup(first, payload, WRONG_PASSWORD).status_code == 403
+        wrong = _post_stepup(first, payload, WRONG_PASSWORD)
+        assert wrong.status_code == 403
+        assert wrong.json()["detail"] == "wrong_password"
     assert _post_login(first, "op1", PASSWORD).status_code == 423
 
 

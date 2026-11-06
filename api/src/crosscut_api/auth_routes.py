@@ -173,7 +173,7 @@ class _AuthEndpoints:
         self._ensure_unlocked(user, principal.username, ip, old)
         if not passwords.verify_password(old, user["password"]):
             self._record_failure(user, ip, "password_change_fail")
-            raise HTTPException(status_code=403, detail="current password is incorrect")
+            raise HTTPException(status_code=403, detail="wrong_password")
         _check_new_password(old, new, self._ctx.config)
         self._store_password(principal, new, ip)
         return {"ok": True}
@@ -192,7 +192,7 @@ class _AuthEndpoints:
         self._ensure_unlocked(user, principal.username, ip, password)
         if not passwords.verify_password(password, user["password"]):
             self._record_failure(user, ip, "stepup_fail")
-            raise HTTPException(status_code=403, detail="password is incorrect")
+            raise HTTPException(status_code=403, detail="wrong_password")
         self._ctx.users.update(principal.username, lockout.success_changes())
         self._ctx.sessions.mark_stepup(principal.session)
         self._ctx.audit.append(

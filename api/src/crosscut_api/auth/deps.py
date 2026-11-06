@@ -25,6 +25,8 @@ COOKIE_NAME = "cc_session"
 CSRF_HEADER = "X-Crosscut-CSRF"
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 AUDIT_FILE = "auth-audit.jsonl"
+STEP_UP_REQUIRED_DETAIL = "step_up_required"
+PASSWORD_CHANGE_REQUIRED_DETAIL = "password_change_required"
 _DEFAULT_CONFIG = AuthConfig()
 
 
@@ -197,10 +199,10 @@ def _ensure_allowed(principal: Principal, permission: str) -> None:
     """Raise 403 when the principal must change its password or lacks the permission.
 
     Raises:
-        HTTPException: 403 with a reason when access is denied.
+        HTTPException: 403 with detail ``password_change_required`` or ``forbidden``.
     """
     if principal.must_change_password:
-        raise HTTPException(status_code=403, detail="password change required")
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED_DETAIL)
     if permission not in principal.permissions:
         raise HTTPException(status_code=403, detail="forbidden")
 
@@ -256,13 +258,16 @@ class AuthGuards:
         return dependency
 
     def require_stepup(self, permission: str) -> Callable[[Request], Principal]:
-        """Return a dependency that requires ``permission`` and a recent step-up login."""
+        """Return a dependency that requires ``permission`` and a recent step-up login.
+
+        A stale step-up is refused with 428 and detail ``step_up_required``.
+        """
 
         def dependency(request: Request) -> Principal:
             """Run the permission and step-up checks for one request."""
             principal = self._checked(request, permission)
             if not self._ctx.sessions.stepup_valid(principal.session):
-                raise HTTPException(status_code=403, detail="step-up required")
+                raise HTTPException(status_code=428, detail=STEP_UP_REQUIRED_DETAIL)
             return principal
 
         return dependency

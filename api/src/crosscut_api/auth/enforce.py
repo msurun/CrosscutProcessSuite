@@ -12,10 +12,18 @@ from collections.abc import Callable
 from fastapi import HTTPException, Request
 
 from crosscut_api.auth.actor import STEPUP_PERMISSIONS, actor_from_principal
-from crosscut_api.auth.deps import SAFE_METHODS, AuthContext, AuthGuards, Principal, client_ip
+from crosscut_api.auth.deps import (
+    PASSWORD_CHANGE_REQUIRED_DETAIL,
+    SAFE_METHODS,
+    STEP_UP_REQUIRED_DETAIL,
+    AuthContext,
+    AuthGuards,
+    Principal,
+    client_ip,
+)
 from crosscut_api.auth.route_permissions import AUTHENTICATED, PUBLIC_ROUTES, AnyOf, requirement_for
 
-STEPUP_ERROR_DETAIL = "step_up_required"
+STEPUP_ERROR_DETAIL = STEP_UP_REQUIRED_DETAIL
 
 
 def _route_key(request: Request) -> tuple[str, str]:
@@ -43,11 +51,11 @@ def _check_requirement(principal: Principal, requirement: str | AnyOf) -> None:
         requirement: A single permission name or an ``AnyOf`` set.
 
     Raises:
-        HTTPException: 403 ``"password change required"`` when the user must rotate
+        HTTPException: 403 ``"password_change_required"`` when the user must rotate
             the password; 403 ``"forbidden"`` when the permission is missing.
     """
     if principal.must_change_password:
-        raise HTTPException(status_code=403, detail="password change required")
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED_DETAIL)
     if isinstance(requirement, str):
         allowed = requirement in principal.permissions
     elif isinstance(requirement, AnyOf):

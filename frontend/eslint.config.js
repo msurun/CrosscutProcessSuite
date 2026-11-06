@@ -4,6 +4,16 @@ import tseslint from "typescript-eslint";
 
 const TOUCHED = [
   "src/App.tsx",
+  "src/AuthContext.tsx",
+  "src/ChangePasswordPage.tsx",
+  "src/LoginPage.tsx",
+  "src/UsersPage.tsx",
+  "src/authApi.ts",
+  "src/usersForms.tsx",
+  "src/components/ModalDialog.tsx",
+  "src/components/RoleBadge.tsx",
+  "src/components/StepUpDialog.tsx",
+  "src/components/DisabledReason.tsx",
   "src/api.ts",
   "src/components/BacktestPanel.tsx",
   "src/components/BenefitPage.tsx",

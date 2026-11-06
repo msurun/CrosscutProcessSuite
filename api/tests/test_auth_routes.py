@@ -18,7 +18,6 @@ from auth_support import (
     login,
     make_app,
     seed_users,
-    stepup,
 )
 from crosscut_api.auth.audit import read_records
 from crosscut_api.auth.deps import AUDIT_FILE
@@ -172,6 +171,7 @@ def test_logout_ends_session_and_checks_csrf(client: TestClient) -> None:
 
     response = client.post("/auth/logout", headers=csrf(payload))
     assert response.status_code == 200
+    assert response.json() == {"ok": True}
     assert client.get("/auth/me").status_code == 401
 
 
@@ -184,6 +184,7 @@ def test_password_change_rejects_wrong_old_and_short_new(client: TestClient) -> 
         headers=csrf(payload),
     )
     assert wrong_old.status_code == 403
+    assert wrong_old.json()["detail"] == "wrong_password"
     too_short = client.post(
         "/auth/password",
         json={"old_password": PASSWORD, "new_password": "short"},
@@ -226,15 +227,19 @@ def test_stepup_wrong_password_then_ok_then_expires(client: TestClient, clock: F
         headers=csrf(payload),
     )
     assert wrong.status_code == 403
+    assert wrong.json()["detail"] == "wrong_password"
 
-    stepup(client, payload)
+    good = client.post("/auth/stepup", json={"password": PASSWORD}, headers=csrf(payload))
+    assert good.status_code == 200
+    assert good.json()["ok"] is True
+    assert good.json()["valid_for_s"] > 0
     created = client.post("/auth/users", json=USERS_BODY, headers=csrf(payload))
     assert created.status_code == 201
 
     clock.advance(301)
     expired = client.post("/auth/users", json=USERS_BODY, headers=csrf(payload))
-    assert expired.status_code == 403
-    assert expired.json()["detail"] == "step-up required"
+    assert expired.status_code == 428
+    assert expired.json()["detail"] == "step_up_required"
 
 
 def test_uninitialised_store_returns_503(tmp_path: Path, clock: FakeClock) -> None:

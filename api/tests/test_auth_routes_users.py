@@ -121,12 +121,21 @@ def test_permission_matrix_limits_listing_to_admins(app: FastAPI) -> None:
     assert all("password" not in user for user in users)
 
 
+def test_listing_items_carry_account_metadata(app: FastAPI) -> None:
+    """Each listed user carries the account metadata keys the admin screen reads."""
+    admin, _ = _stepped_up(app)
+    users = admin.get(USERS_PATH).json()["users"]
+    expected = {"created_at", "password_changed_at", "failed_logins", "locked_until", "source"}
+    for user in users:
+        assert expected <= user.keys(), user["username"]
+
+
 def test_create_user_requires_step_up(app: FastAPI) -> None:
     """Creating a user is refused without a recent step-up and works after one."""
     admin, payload = _signed_in(app, "admin1")
     blocked = admin.post(USERS_PATH, json=NEW_USER, headers=csrf(payload))
-    assert blocked.status_code == 403
-    assert blocked.json()["detail"] == "step-up required"
+    assert blocked.status_code == 428
+    assert blocked.json()["detail"] == "step_up_required"
     stepup(admin, payload)
     created = admin.post(USERS_PATH, json=NEW_USER, headers=csrf(payload))
     assert created.status_code == 201
@@ -204,6 +213,37 @@ def test_admin_password_reset_forces_change_and_revokes_sessions(app: FastAPI) -
     assert operator.get("/auth/me").status_code == 401
     reset_login = login(TestClient(app), "op1", NEW_PASSWORD)
     assert reset_login["must_change_password"] is True
+
+
+def test_must_change_flag_is_reported_by_login_and_me(app: FastAPI) -> None:
+    """Login and /auth/me report must_change_password: false normally, true after an admin reset."""
+    plain = TestClient(app)
+    assert login(plain, "view1")["must_change_password"] is False
+    assert plain.get("/auth/me").json()["must_change_password"] is False
+    admin, payload = _stepped_up(app)
+    assert _patch(admin, payload, "view1", {"password": NEW_PASSWORD}).status_code == 200
+    flagged = TestClient(app)
+    assert login(flagged, "view1", NEW_PASSWORD)["must_change_password"] is True
+    assert flagged.get("/auth/me").json()["must_change_password"] is True
+
+
+def test_flagged_user_is_refused_protected_routes_until_password_changed(app: FastAPI) -> None:
+    """A flagged administrator gets 403 password_change_required until /auth/password clears it."""
+    admin, payload = _stepped_up(app)
+    assert _patch(admin, payload, "admin2", {"password": NEW_PASSWORD}).status_code == 200
+    flagged = TestClient(app)
+    session = login(flagged, "admin2", NEW_PASSWORD)
+    blocked = flagged.get(USERS_PATH)
+    assert blocked.status_code == 403
+    assert blocked.json() == {"detail": "password_change_required"}
+    changed = flagged.post(
+        "/auth/password",
+        json={"old_password": NEW_PASSWORD, "new_password": "third pass 7 long"},
+        headers=csrf(session),
+    )
+    assert changed.status_code == 200
+    assert flagged.get("/auth/me").json()["must_change_password"] is False
+    assert flagged.get(USERS_PATH).status_code == 200
 
 
 def test_delete_removes_user_and_later_lookup_returns_404(app: FastAPI) -> None:

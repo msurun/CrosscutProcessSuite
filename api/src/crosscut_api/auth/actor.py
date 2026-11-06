@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
-from crosscut_api.auth.deps import Principal, client_ip
+from crosscut_api.auth.deps import STEP_UP_REQUIRED_DETAIL, Principal, client_ip
 
 STEPUP_PERMISSIONS: frozenset[str] = frozenset(
     {"gw.mode.up.supervised", "policy.pin", "gw.kill.reset", "users.manage"}
@@ -57,7 +57,7 @@ class ActorContext:
             HTTPException: 428 when the actor does not have a valid step-up.
         """
         if not self.stepup:
-            raise HTTPException(status_code=428, detail="step_up_required")
+            raise HTTPException(status_code=428, detail=STEP_UP_REQUIRED_DETAIL)
 
 def local_actor(source_ip: str) -> ActorContext:
     """Return the actor context for a local actor.
