@@ -20,7 +20,8 @@ _REQUIRED = (
     "schema_version", "id", "fuzzy_system_id", "output_id", "target_loop", "mode", "gates",
     "silent_band", "min_activation", "min_interval_s", "display_clamp",
 )
-_OPTIONAL = ("description", "fuzzy_version_id", "target_tag")
+_OPTIONAL = ("description", "fuzzy_version_id", "target_tag", "max_step", "max_advice_age_s")
+DEFAULT_MAX_ADVICE_AGE_S = 300.0
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -56,6 +57,8 @@ class SupervisorConfig:
     description: str = ""
     fuzzy_version_id: str | None = None
     target_tag: str | None = None
+    max_step: float | None = None
+    max_advice_age_s: float = DEFAULT_MAX_ADVICE_AGE_S
 
 
 def load_config(doc: Mapping[str, Any]) -> SupervisorConfig:
@@ -84,6 +87,8 @@ def load_config(doc: Mapping[str, Any]) -> SupervisorConfig:
         description=_optional_text(doc, "description") or "",
         fuzzy_version_id=_optional_text(doc, "fuzzy_version_id"),
         target_tag=_optional_text(doc, "target_tag"),
+        max_step=_optional_positive(doc, "max_step"),
+        max_advice_age_s=_optional_positive(doc, "max_advice_age_s") or DEFAULT_MAX_ADVICE_AGE_S,
     )
     _cross_check(config)
     return config
@@ -128,6 +133,16 @@ def _optional_text(doc: Mapping[str, Any], key: str) -> str | None:
             raise SupervisorConfigError(f"{key}: must be a string")
         return str(doc[key])
     return _text(doc, key)
+
+
+def _optional_positive(doc: Mapping[str, Any], key: str) -> float | None:
+    """An optional number that must be above zero."""
+    if key not in doc:
+        return None
+    value = _as_number(doc[key], key)
+    if not value > 0.0 or value == float("inf"):
+        raise SupervisorConfigError(f"{key}: must be a positive finite number")
+    return value
 
 
 def _pattern(doc: Mapping[str, Any], key: str, pattern: re.Pattern[str]) -> str:

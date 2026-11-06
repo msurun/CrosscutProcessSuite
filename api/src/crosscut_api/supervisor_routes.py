@@ -1,16 +1,15 @@
 """HTTP routes of the advisory supervisor (ADR 010): configs, one-off advice, replay, audit log.
 
 Configs are kept in ``<data root>/_supervisor``, advisory logs in ``<data root>/_advisory/<id>``.
-The only writes are a config (PUT) and log appends (replay with ``record`` and ack). Nothing
-here reaches a plant: the supervisor advises, a human decides.
+The writes are a config (PUT), log appends (replay with ``record`` and ack) and, only through
+``POST /supervisors/{sid}/propose`` (see supervisor_propose), setpoint proposals to the Write
+Gateway. Dataset replay and advice never reach the gateway: the supervisor advises, a human decides.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
-import math
-import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -21,7 +20,6 @@ from crosscut_fuzzy.library import load_document
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
 from crosscut_fuzzy.versions import load_version
 from crosscut_loops.overview import LoopTags
-from crosscut_supervisor.advise import Advice
 from crosscut_supervisor.audit import AckRequest, AuditError, AuditLog, ack
 from crosscut_supervisor.config import (
     SupervisorConfig,
@@ -29,7 +27,7 @@ from crosscut_supervisor.config import (
     check_against_system,
     load_config,
 )
-from crosscut_supervisor.proposal import build_setpoint_proposal
+from crosscut_supervisor.proposal import ProposalContext
 from crosscut_supervisor.replay import (
     ReplayData,
     ReplayError,
@@ -40,15 +38,33 @@ from crosscut_supervisor.replay import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.gateway_client import FileGatewayClient
+from crosscut_api.supervisor_live import catalog_sp_tag, read_live_sp
+from crosscut_api.supervisor_propose import (
+    ProposedStore,
+    SupervisorProposeRequest,
+    advice_record,
+    already_proposed,
+    build_or_409,
+    check_fresh,
+    check_modes,
+    delta_of,
+    gateway_mode_of,
+    manual_delta,
+    refuse,
+    require_actor,
+    send_once,
+    write_json_atomic,
+)
 
 CONFIG_DIR_NAME = "_supervisor"
 LOG_DIR_NAME = "_advisory"
 FUZZY_DIR_NAME = "_fuzzy"
 SID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+RESERVED_SIDS = frozenset({"proposed"})  # proposed.json lives beside the configs
 DEFAULT_WINDOW_S = 1800.0
 DEFAULT_STEP_S = 300.0
 Sid = Annotated[str, PathParam(pattern=SID_PATTERN)]
@@ -60,21 +76,11 @@ T = TypeVar("T")
 
 
 class AdviseRequest(BaseModel):
-    """The moment to advise at, and whether to submit setpoint write proposals."""
+    """The moment to advise at. There is no ``propose`` here: replay never reaches the gateway."""
+
+    model_config = ConfigDict(extra="forbid")
 
     t_s: float | None = None
-    propose: bool = False
-
-
-class SupervisorProposeRequest(BaseModel):
-    """Parameters to propose supervisor advice as a setpoint write proposal (ADR 014 section 7)."""
-
-    current_sp: float
-    target_tag: str | None = None
-    advice_id: str | None = None
-    direction: str | None = None
-    magnitude: float | None = None
-    reason: str | None = None
 
 
 class SupervisorReplayRequest(BaseModel):
@@ -110,16 +116,19 @@ class _SupervisorEndpoints:
         self.load_seconds = load_seconds
         self.load_loops = load_loops
         self.gateway_provider = gateway_provider
+        self._proposed = ProposedStore(root)
 
     def list_supervisors(self) -> list[str]:
         """Ids of the saved supervisor configurations, sorted."""
         folder = self.root / CONFIG_DIR_NAME
-        return sorted(path.stem for path in folder.glob("*.json")) if folder.is_dir() else []
+        if not folder.is_dir():
+            return []
+        return sorted(p.stem for p in folder.glob("*.json") if p.stem not in RESERVED_SIDS)
 
     def get_supervisor(self, sid: Sid) -> dict[str, Any]:
         """One saved configuration as stored (404 when unknown)."""
         path = self._config_path(sid)
-        if not path.is_file():
+        if sid in RESERVED_SIDS or not path.is_file():
             raise HTTPException(status_code=404, detail=f"unknown supervisor: {sid}")
         document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         return document
@@ -127,125 +136,85 @@ class _SupervisorEndpoints:
     def put_supervisor(self, sid: Sid, document: dict[str, Any]) -> dict[str, Any]:
         """Validate and save a configuration (422 with the reason when it is not acceptable)."""
         config = _config_or_422(document)
+        if sid in RESERVED_SIDS:
+            raise HTTPException(status_code=422, detail=f"id: {sid!r} is reserved")
         if config.id != sid:
             raise HTTPException(status_code=422, detail=f"id: {config.id!r} does not match {sid!r}")
         system = self._system_or_none(config)
         if system is not None:
             _check_or_422(config, system)
-        _write_json_atomic(self._config_path(sid), document)
+        write_json_atomic(self._config_path(sid), document)
         return document
 
     def post_advise(
-        self,
-        dataset_id: str,
-        sid: Sid,
-        request: AdviseRequest,
-        actor: ActorDep = None,
+        self, dataset_id: str, sid: Sid, request: AdviseRequest
     ) -> dict[str, Any]:
-        """Advise once on the window ending at ``t_s``; optionally propose write to gateway."""
+        """Advise once on the window ending at ``t_s``; advice only, nothing is proposed."""
         config, system = self._config_and_system(sid)
         data = self._data(dataset_id, request.t_s)
-        t_end = float(data.t_s[-1])
-        window = (t_end, DEFAULT_WINDOW_S)
+        window = (float(data.t_s[-1]), DEFAULT_WINDOW_S)
         advice, gate = _guarded(
             lambda: advise_at(system, config, (data, self._loops(dataset_id, config)), window)
         )
-        proposal_result: dict[str, Any] | None = None
-        if request.propose and advice is not None and advice.direction != "hold":
-            proposal_result = self._propose_advice_on_dataset(config, advice, data, actor)
         return {
             "advice": None if advice is None else advice.to_record(),
             "gate": {"state": gate.state, "reasons": list(gate.reasons)},
-            "proposal": proposal_result,
         }
-
-    def _propose_advice_on_dataset(
-        self,
-        config: SupervisorConfig,
-        advice: Advice,
-        data: ReplayData,
-        actor: ActorContext | None,
-    ) -> dict[str, Any]:
-        """Propose an evaluated advice on a dataset to the Write Gateway."""
-        client = self._gateway_client()
-        target_tag = self._resolve_target_tag(config, None)
-        current_sp = self._read_sp_from_data(data, target_tag, config.target_loop)
-        actor_ctx = actor or ActorContext(actor=f"supervisor:{config.id}", roles=("operator",))
-        proposal = build_setpoint_proposal(
-            advice=advice,
-            current_sp=current_sp,
-            target_tag=target_tag,
-            proposer=actor_ctx.actor,
-        )
-        if proposal is None:
-            return {"accepted": False, "reason_code": "hold"}
-        args = proposal.to_gateway_args()
-        decision = client.propose(args, actor_ctx)
-        return {"proposal": args, "decision": decision}
-
-    def _read_sp_from_data(
-        self, data: ReplayData, target_tag: str, target_loop: str
-    ) -> float:
-        """Read the current setpoint from the dataset series for target_tag or loop."""
-        for candidate in (target_tag, f"{target_loop}.SP", f"{target_loop}_sp"):
-            if candidate in data.columns and len(data.columns[candidate]) > 0:
-                val = float(data.columns[candidate][-1])
-                if not math.isnan(val):
-                    return val
-        return 0.0
 
     def post_propose(
-        self,
-        sid: Sid,
-        body: SupervisorProposeRequest,
-        actor: ActorDep = None,
+        self, sid: Sid, body: SupervisorProposeRequest, actor: ActorDep
     ) -> dict[str, Any]:
-        """Propose supervisor advice as a setpoint write proposal to Write Gateway.
+        """Propose logged advice as a setpoint write proposal (rules: supervisor_propose).
 
-        Follows ADR 014 section 7: proposals flow to Write Gateway in confirm or
-        supervised mode.
-
-        # In plain words:
-        Resolves the setpoint target tag and recommended adjustment from either a logged
-        advice record or explicit parameters. Adds the signed delta to current_sp, binds
-        the reason from the dominant fuzzy rule, and sends the proposal to Write Gateway.
-        In confirm mode this queues the proposal for operator review; in supervised mode
-        it writes directly to the control system.
+        The new setpoint is the live setpoint (site connector) plus the advised delta. In confirm
+        mode the proposal queues for human approval; in supervised mode it is applied directly.
         """
+        who = require_actor(actor)
         config = _config_or_422(self.get_supervisor(sid))
-        if config.mode == "off":
-            raise HTTPException(status_code=409, detail="supervisor mode is off")
-
         client = self._gateway_client()
-        target_tag = self._resolve_target_tag(config, body.target_tag)
-        delta_sp, reason_text, advice_id, t_ns = self._resolve_delta_and_reason(sid, body)
-        new_sp = body.current_sp + delta_sp
-        actor_ctx = actor or ActorContext(
-            actor=f"supervisor:{sid}",
-            roles=("operator",),
-            session="0" * 16,
-            source_ip="127.0.0.1",
-            stepup=False,
-            permissions=None,
-        )
-
-        proposal_args = {
-            "target_tag": target_tag,
-            "value": new_sp,
-            "proposer": actor_ctx.actor or f"supervisor:{sid}",
-            "t_ns": time.time_ns(),
-            "reason": reason_text,
-        }
-        try:
-            decision = client.propose(proposal_args, actor_ctx)
-        except Exception as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
+        check_modes(config.mode, gateway_mode_of(client), who)
+        if config.max_step is None:
+            raise refuse(409, "max_step_unset")
+        advice_id, delta, sentence = self._resolve_move(sid, config, body)
+        self._refuse_if_proposed(advice_id)
+        ctx = self._context(config, who, config.max_step)
+        proposal = build_or_409(advice_id, delta, sentence, ctx)
+        decision = send_once(client, self._proposed, proposal, who)
         return {
-            "proposal": proposal_args,
+            "proposal": proposal.to_gateway_args(),
             "decision": decision,
             "advice_id": advice_id,
+            "mode": config.mode,
+            "queues_for_approval": config.mode == "confirm",
         }
+
+    def _resolve_move(
+        self, sid: str, config: SupervisorConfig, body: SupervisorProposeRequest
+    ) -> tuple[str, float, str]:
+        """(advice id, signed delta, reason sentence) of a fresh advice or a bounded manual move."""
+        if body.direction is not None:
+            delta, sentence, advice_id = manual_delta(body, float(config.max_step or 0.0))
+            return advice_id, delta, sentence
+        record = advice_record(self._log(sid), body.advice_id)
+        if record.get("target_loop") != config.target_loop:
+            raise refuse(409, "advice_loop_mismatch")
+        check_fresh(record, config, time.time_ns())
+        delta, sentence = delta_of(record)
+        return str(record["advice_id"]), delta, sentence
+
+    def _refuse_if_proposed(self, advice_id: str) -> None:
+        """409 ``already_proposed`` with the previous result when the advice was sent before."""
+        previous = self._proposed.get(advice_id)
+        if previous is not None:
+            raise already_proposed(previous)
+
+    def _context(
+        self, config: SupervisorConfig, actor: ActorContext, max_step: float
+    ) -> ProposalContext:
+        """Live setpoint, target tag and send time for the proposal (409 when unavailable)."""
+        tag = self._resolve_target_tag(config)
+        live = read_live_sp(self.root, tag)
+        return ProposalContext(live, tag, actor.actor, max_step, time.time_ns())
 
     def _gateway_client(self) -> FileGatewayClient:
         """Return the active Write Gateway client or raise HTTP 503."""
@@ -256,70 +225,12 @@ class _SupervisorEndpoints:
             raise HTTPException(status_code=503, detail="Write Gateway is offline or stale")
         return client
 
-    def _resolve_target_tag(self, config: SupervisorConfig, override: str | None) -> str:
-        """Resolve the setpoint target tag from override, config, or site catalog."""
-        if override:
-            return override
-        if config.target_tag:
-            return config.target_tag
-        sp_tag = self._lookup_site_sp(config.target_loop)
-        if sp_tag:
-            return sp_tag
-        return config.target_loop
-
-    def _lookup_site_sp(self, loop_id: str) -> str | None:
-        """Look up the setpoint tag of a loop from the site catalog if present."""
-        site_file = self.root / "_site" / "site.json"
-        if not site_file.is_file():
-            return None
-        try:
-            site_doc = json.loads(site_file.read_text(encoding="utf-8"))
-            for loop in site_doc.get("loops", []):
-                if loop.get("id") == loop_id or loop.get("name") == loop_id:
-                    return loop.get("sp") or None
-        except Exception:
-            return None
-        return None
-
-    def _resolve_delta_and_reason(
-        self, sid: str, body: SupervisorProposeRequest
-    ) -> tuple[float, str, str, int]:
-        """Extract signed setpoint delta, reason, advice_id, and timestamp."""
-        if body.advice_id:
-            return self._delta_from_advice_id(sid, body.advice_id)
-        if body.direction and body.magnitude is not None:
-            mag = float(body.magnitude)
-            delta = mag if body.direction == "increase" else (
-                -mag if body.direction == "decrease" else 0.0
-            )
-            if delta == 0.0:
-                raise HTTPException(status_code=422, detail="direction is hold or delta is zero")
-            now_ns = time.time_ns()
-            reason = body.reason or f"Supervisor {sid} proposal: {body.direction} {body.magnitude}"
-            return delta, reason, f"manual-{now_ns}", now_ns
-        return self._delta_from_latest_advice(sid)
-
-    def _delta_from_advice_id(self, sid: str, advice_id: str) -> tuple[float, str, str, int]:
-        """Extract delta and reason from a specific advice record in the audit log."""
-        record = self._log(sid).find_advice(advice_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail=f"unknown advice: {advice_id}")
-        direction, mag = record.get("direction", "hold"), record.get("magnitude")
-        if direction == "hold" or mag is None or mag <= 0:
-            raise HTTPException(status_code=422, detail="advice is hold or has no magnitude")
-        delta = float(mag) if direction == "increase" else -float(mag)
-        explanations = record.get("explanation", [])
-        reason = explanations[0]["sentence"] if explanations else f"Supervisor {sid} advice"
-        return delta, reason, advice_id, int(record.get("t_ns", time.time_ns()))
-
-    def _delta_from_latest_advice(self, sid: str) -> tuple[float, str, str, int]:
-        """Extract delta and reason from the latest advice record in the audit log."""
-        records = [r for r in self._log(sid).records() if r.get("kind") == "advice"]
-        if not records:
-            raise HTTPException(status_code=422, detail="no advice records in audit log")
-        last = records[-1]
-        advice_id = str(last.get("advice_id", ""))
-        return self._delta_from_advice_id(sid, advice_id)
+    def _resolve_target_tag(self, config: SupervisorConfig) -> str:
+        """The setpoint tag from the supervisor config or the site catalogue, never a request."""
+        tag = config.target_tag or catalog_sp_tag(self.root, config.target_loop)
+        if not tag:
+            raise refuse(409, "no_target_tag")
+        return tag
 
     def post_replay(
         self, dataset_id: str, sid: Sid, request: SupervisorReplayRequest
@@ -473,11 +384,3 @@ def _guarded(action: Callable[[], T]) -> T:
         return action()
     except (ReplayError, FuzzyModelError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-
-
-def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
-    """Write a JSON file so a reader never sees half of it (temporary file, then replace)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(temporary, path)

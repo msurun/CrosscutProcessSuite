@@ -7,6 +7,7 @@ any network I/O or direct control system writes (pure function design).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,7 +22,7 @@ class SetpointProposal:
         target_tag: Setpoint tag name in the DCS or plant (e.g. 'FIC101.SP').
         value: Absolute target setpoint value in physical engineering units (e.g. t/h, %).
         proposer: Identity of the proposing agent or supervisor (e.g. 'supervisor:mill_feed').
-        t_ns: UTC nanosecond timestamp of the advice evaluation.
+        t_ns: UTC nanosecond timestamp of the real send time.
         reason: Human-readable explanation sentence describing why the setpoint is moved.
         advice_id: Hex-encoded SHA-256 identifier of the source advice.
     """
@@ -64,6 +65,72 @@ def signed_change(advice: Advice) -> float | None:
     return advice.magnitude if advice.direction == "increase" else -advice.magnitude
 
 
+class ProposalRefusal(ValueError):
+    """A proposal that must not be sent; ``code`` is the stable machine-readable reason."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+REASON_MAX_CHARS = 300
+
+
+@dataclass(frozen=True)
+class ProposalContext:
+    """Live facts a proposal is built from: the live setpoint read from the plant, never a guess.
+
+    Attributes:
+        live_sp: Setpoint read live from the plant or gateway just now.
+        target_tag: Setpoint tag from the supervisor config or site catalogue.
+        proposer: Identity written to the gateway audit.
+        max_step: Largest allowed absolute setpoint move (config max_step).
+        t_ns: Real send time in nanoseconds (the gateway min_interval needs it).
+    """
+
+    live_sp: float
+    target_tag: str
+    proposer: str
+    max_step: float
+    t_ns: int
+
+
+def advice_reason(advice_id: str, sentence: str) -> str:
+    """Audit reason that links the gateway record to the advice: ``advice:<id> <sentence>``."""
+    return f"advice:{advice_id} {sentence}"[:REASON_MAX_CHARS]
+
+
+def checked_value(live_sp: float, delta: float, max_step: float) -> float:
+    """The new setpoint ``live_sp + delta`` after the safety checks.
+
+    Raises:
+        ProposalRefusal: ``delta_too_large`` above max_step, ``sign_mismatch`` when the move
+            does not go the way of the advice (or inputs are not finite).
+    """
+    if not (math.isfinite(live_sp) and math.isfinite(delta)):
+        raise ProposalRefusal("sign_mismatch")
+    if abs(delta) > max_step:
+        raise ProposalRefusal("delta_too_large")
+    value = live_sp + delta
+    if math.copysign(1.0, value - live_sp) != math.copysign(1.0, delta) or value == live_sp:
+        raise ProposalRefusal("sign_mismatch")
+    return value
+
+
+def build_from_delta(
+    advice_id: str, delta: float, sentence: str, ctx: ProposalContext
+) -> SetpointProposal:
+    """Proposal moving the live setpoint by ``delta`` (raises ProposalRefusal when unsafe)."""
+    return SetpointProposal(
+        target_tag=ctx.target_tag,
+        value=checked_value(ctx.live_sp, delta, ctx.max_step),
+        proposer=ctx.proposer,
+        t_ns=ctx.t_ns,
+        reason=advice_reason(advice_id, sentence),
+        advice_id=advice_id,
+    )
+
+
 def _format_reason(advice: Advice) -> str:
     """Extract or format an intuitive reason string from the advice explanation."""
     if advice.explanation:
@@ -71,42 +138,17 @@ def _format_reason(advice: Advice) -> str:
     return f"Supervisor {advice.target_loop} advice: {advice.direction} {advice.magnitude}"
 
 
-def build_setpoint_proposal(
-    advice: Advice,
-    current_sp: float,
-    target_tag: str,
-    proposer: str | None = None,
-) -> SetpointProposal | None:
-    """Build a SetpointProposal from an advice record and the current setpoint value.
+def build_setpoint_proposal(advice: Advice, ctx: ProposalContext) -> SetpointProposal | None:
+    """Build a SetpointProposal from an advice and the live context; None when advice is hold.
 
     # In plain words:
-    The fuzzy supervisor calculates an incremental change (delta), but the Write Gateway
-    and DCS setpoint controllers expect an absolute target setpoint value. This function
-    adds the signed delta to the current setpoint, constructs an auditable reason from
-    the dominant fuzzy rule, and binds the supervisor's identifier.
+    The supervisor advises an incremental change, the gateway wants an absolute setpoint.
+    The delta is added to the LIVE setpoint only (ctx.live_sp), never to a historical value.
 
-    Args:
-        advice: Evaluated supervisor advice.
-        current_sp: Current setpoint read from the plant or dataset in engineering units.
-        target_tag: Tag address of the setpoint target.
-        proposer: Optional proposer string (defaults to 'supervisor:<target_loop>').
-
-    Returns:
-        SetpointProposal ready for submission to Write Gateway, or None if advice is hold.
+    Raises:
+        ProposalRefusal: when the move is above max_step or goes the wrong way.
     """
     delta_sp = signed_change(advice)
     if delta_sp is None:
         return None
-
-    new_sp_value = current_sp + delta_sp
-    effective_proposer = proposer or f"supervisor:{advice.target_loop}"
-    reason_text = _format_reason(advice)
-
-    return SetpointProposal(
-        target_tag=target_tag,
-        value=new_sp_value,
-        proposer=effective_proposer,
-        t_ns=advice.t_ns,
-        reason=reason_text,
-        advice_id=advice.advice_id,
-    )
+    return build_from_delta(advice.advice_id, delta_sp, _format_reason(advice), ctx)

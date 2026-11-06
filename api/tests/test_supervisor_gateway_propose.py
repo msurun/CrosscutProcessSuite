@@ -6,7 +6,7 @@ Tests the full advisory-to-write pathway:
 - Direct writes in supervised mode
 - Operator override priority (operator action always wins)
 - Policy clamp to engineering limits and step limits
-- Automatic propose flag on advise endpoint
+- Dataset replay and advise can never propose (live setpoint only, fresh advice only)
 """
 
 from __future__ import annotations
@@ -14,17 +14,20 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 from auth_support import write_key_file
+from crosscut_connectors.base import LiveValue
+from crosscut_connectors.site import save_site
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WritePolicy
 from crosscut_gateway.service import GatewayService, serve
 from crosscut_sim.run import main as run_simulation
+from crosscut_supervisor.audit import AuditLog
 from fastapi.testclient import TestClient
 from open_app import create_app_without_auth
 
@@ -58,6 +61,7 @@ CONFIG: dict[str, Any] = {
     "min_activation": 0.0,
     "min_interval_s": 0,
     "display_clamp": [-10, 10],
+    "max_step": 10.0,
 }
 
 
@@ -139,8 +143,36 @@ def _run_gateway(root: Path, plant: SimPlant) -> tuple[threading.Event, threadin
     return stop_event, thread
 
 
+def _install_live_site(root: Path, plant: SimPlant, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A site whose loop SP is TAG, read live from the simulated plant through a fake connector."""
+
+    class PlantConnector:
+        def read_live(self, tags: list[str]) -> dict[str, LiveValue]:
+            return {t: LiveValue(plant.read(t), 0, "now") for t in tags if t == TAG}
+
+    monkeypatch.setattr(
+        "crosscut_api.supervisor_live.connector_from_source", lambda _source: PlantConnector()
+    )
+    names = (TAG, "FIC101.PV", "FIC101.OUT")
+    save_site(root, {
+        "schema_version": 1, "site": {"name": "t"}, "tags": [{"id": n} for n in names],
+        "loops": [{"id": "mill_feed", "pv": names[1], "sp": TAG, "out": names[2]}],
+        "sources": [{"id": "dcs", "driver": "opcua", "endpoint": "opc.tcp://x"}],
+    })
+
+
+def _advice(root: Path, advice_id: str, direction: str, magnitude: float) -> str:
+    """Log a fresh advice for mill_feed; return its id."""
+    AuditLog(root / "_advisory" / "mill-feed" / "log.jsonl").append({
+        "kind": "advice", "advice_id": advice_id, "t_ns": time.time_ns(),
+        "target_loop": "mill_feed", "direction": direction, "magnitude": magnitude,
+        "explanation": [{"rule_id": "r", "sentence": "feed is off", "weight": 1.0}],
+    })
+    return advice_id
+
+
 @pytest.fixture
-def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LiveTestbed:
+def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[LiveTestbed]:
     """Fixture providing simulated mill dataset, running gateway and API client."""
     monkeypatch.delenv("CROSSCUT_SECRETS_DIR", raising=False)
     _install_signing_key(tmp_path)
@@ -148,6 +180,7 @@ def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LiveTestbed:
     assert run_simulation([*argv, "--out", str(tmp_path)]) == 0
 
     plant = SimPlant()
+    _install_live_site(tmp_path, plant, monkeypatch)
     stop_event, thread = _run_gateway(tmp_path, plant)
     client = TestClient(create_app_without_auth(tmp_path))
     testbed = LiveTestbed(client, plant, tmp_path, stop_event, thread)
@@ -171,7 +204,7 @@ def _wait_gateway(client: TestClient) -> None:
 
 
 def _dataset_id(client: TestClient) -> str:
-    return client.get("/datasets").json()[0]["id"]
+    return str(client.get("/datasets").json()[0]["id"])
 
 
 def test_supervisor_propose_refuses_when_mode_is_off(live_env: LiveTestbed) -> None:
@@ -180,8 +213,7 @@ def test_supervisor_propose_refuses_when_mode_is_off(live_env: LiveTestbed) -> N
     assert live_env.client.put("/supervisors/mill-feed", json=off_cfg).status_code == 200
 
     resp = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 50.0, "direction": "increase", "magnitude": 5.0},
+        "/supervisors/mill-feed/propose", json={"direction": "increase", "magnitude": 5.0}
     )
     assert resp.status_code == 409
     assert "mode is off" in resp.json()["detail"]
@@ -192,13 +224,13 @@ def test_supervisor_propose_in_confirm_mode_queues_for_approval(live_env: LiveTe
     assert live_env.client.put("/supervisors/mill-feed", json=CONFIG).status_code == 200
 
     resp = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 50.0, "direction": "increase", "magnitude": 5.0},
+        "/supervisors/mill-feed/propose", json={"direction": "increase", "magnitude": 5.0}
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["proposal"]["value"] == 55.0
+    assert data["proposal"]["value"] == 55.0  # live SP 50 + 5
     assert data["proposal"]["target_tag"] == TAG
+    assert data["queues_for_approval"] is True
     assert data["decision"]["accepted"] is True
     assert data["decision"]["reason_code"] == "queued"
 
@@ -212,21 +244,24 @@ def test_supervisor_propose_in_confirm_mode_queues_for_approval(live_env: LiveTe
     assert live_env.plant.values[TAG] == 55.0
 
 
-def test_supervisor_propose_in_supervised_mode_writes_directly(live_env: LiveTestbed) -> None:
-    _wait_gateway(live_env.client)
+def _go_supervised(live_env: LiveTestbed) -> None:
     live_env.client.put("/gateway/mode", json={"mode": "supervised"})
     _poll(lambda: live_env.client.get("/gateway/status").json()["mode"] == "supervised", "mode")
-
     sup_cfg = {**CONFIG, "mode": "supervised"}
     assert live_env.client.put("/supervisors/mill-feed", json=sup_cfg).status_code == 200
 
+
+def test_supervisor_propose_in_supervised_mode_writes_directly(live_env: LiveTestbed) -> None:
+    _wait_gateway(live_env.client)
+    _go_supervised(live_env)
+
     resp = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 50.0, "direction": "increase", "magnitude": 6.0},
+        "/supervisors/mill-feed/propose", json={"direction": "increase", "magnitude": 6.0}
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["proposal"]["value"] == 56.0
+    assert data["queues_for_approval"] is False
     assert data["decision"]["accepted"] is True
     assert data["decision"]["reason_code"] == "ok"
 
@@ -236,33 +271,25 @@ def test_supervisor_propose_in_supervised_mode_writes_directly(live_env: LiveTes
 
 def test_supervisor_propose_operator_action_always_wins(live_env: LiveTestbed) -> None:
     _wait_gateway(live_env.client)
-    live_env.client.put("/gateway/mode", json={"mode": "supervised"})
-    _poll(lambda: live_env.client.get("/gateway/status").json()["mode"] == "supervised", "mode")
+    _go_supervised(live_env)
 
-    sup_cfg = {**CONFIG, "mode": "supervised"}
-    assert live_env.client.put("/supervisors/mill-feed", json=sup_cfg).status_code == 200
-
-    # First write to establish gateway hold on the target tag
     resp1 = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 50.0, "direction": "increase", "magnitude": 2.0},
+        "/supervisors/mill-feed/propose", json={"direction": "increase", "magnitude": 2.0}
     )
     assert resp1.status_code == 200
     assert resp1.json()["decision"]["accepted"] is True
     _poll(lambda: len(live_env.plant.writes) >= 1, "first write")
 
-    # Operator overrides the setpoint on the plant locally
     time.sleep(0.05)
     live_env.plant.set_setpoint_by_operator(TAG, 52.0)
     time.sleep(0.05)
 
-    # Supervisor attempts to propose a setpoint write
     resp2 = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 52.0, "direction": "increase", "magnitude": 4.0},
+        "/supervisors/mill-feed/propose", json={"direction": "increase", "magnitude": 4.0}
     )
     assert resp2.status_code == 200
     data = resp2.json()
+    assert data["proposal"]["value"] == 56.0  # the LIVE 52 + 4, not a stale base
     # Write Gateway MUST refuse due to operator override: operator action always wins!
     assert data["decision"]["accepted"] is False
     assert data["decision"]["reason_code"] in {"operator_override", "target_hold_off"}
@@ -272,47 +299,30 @@ def test_supervisor_propose_operator_action_always_wins(live_env: LiveTestbed) -
 def test_supervisor_propose_from_logged_advice_id(live_env: LiveTestbed) -> None:
     _wait_gateway(live_env.client)
     assert live_env.client.put("/supervisors/mill-feed", json=CONFIG).status_code == 200
-    dataset = _dataset_id(live_env.client)
+    advice_id = _advice(live_env.root, "adv-live-1", "decrease", 3.0)
 
-    # Replay with record=True to generate advice in audit log
-    replay_resp = live_env.client.post(
-        f"/datasets/{dataset}/supervisor/mill-feed/replay",
-        json={"window_s": 600, "step_s": 600, "record": True},
-    )
-    advices = replay_resp.json()["advices"]
-    active_advices = [
-        a for a in advices
-        if a["direction"] != "hold" and (a.get("magnitude") or 0.0) >= 0.1
-    ]
-    assert len(active_advices) > 0
-    target_advice = active_advices[0]
-
-    resp = live_env.client.post(
-        "/supervisors/mill-feed/propose",
-        json={"current_sp": 50.0, "advice_id": target_advice["advice_id"]},
-    )
+    resp = live_env.client.post("/supervisors/mill-feed/propose", json={"advice_id": advice_id})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["advice_id"] == target_advice["advice_id"]
-    mag = target_advice["magnitude"]
-    expected_val = 50.0 + (mag if target_advice["direction"] == "increase" else -mag)
-    assert data["proposal"]["value"] == expected_val
+    assert data["advice_id"] == advice_id
+    assert data["proposal"]["value"] == 47.0
+    assert data["proposal"]["reason"].startswith("advice:adv-live-1 ")
     assert data["decision"]["accepted"] is True
 
+    again = live_env.client.post("/supervisors/mill-feed/propose", json={"advice_id": advice_id})
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "already_proposed"
+    pending = live_env.client.get("/gateway/pending").json()
+    assert len(pending) == 1
 
-def test_advise_endpoint_with_propose_flag(live_env: LiveTestbed) -> None:
+
+def test_advise_endpoint_never_proposes(live_env: LiveTestbed) -> None:
     _wait_gateway(live_env.client)
     assert live_env.client.put("/supervisors/mill-feed", json=CONFIG).status_code == 200
     dataset = _dataset_id(live_env.client)
+    url = f"/datasets/{dataset}/supervisor/mill-feed/advise"
 
-    resp = live_env.client.post(
-        f"/datasets/{dataset}/supervisor/mill-feed/advise",
-        json={"propose": True},
-    )
+    assert live_env.client.post(url, json={"propose": True}).status_code == 422
+    resp = live_env.client.post(url, json={})
     assert resp.status_code == 200
-    body = resp.json()
-    assert "advice" in body
-    assert "gate" in body
-    if body["advice"] and body["advice"]["direction"] != "hold":
-        assert body["proposal"] is not None
-        assert "decision" in body["proposal"]
+    assert "proposal" not in resp.json()
+    assert live_env.client.get("/gateway/pending").json() == []

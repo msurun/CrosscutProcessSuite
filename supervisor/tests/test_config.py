@@ -137,3 +137,21 @@ def test_target_tag_optional_field() -> None:
     config = load_config(_doc(target_tag="FIC101.SP"))
     assert config.target_tag == "FIC101.SP"
 
+
+
+def test_max_step_and_advice_age_defaults() -> None:
+    config = load_config(_doc())
+    assert config.max_step is None
+    assert config.max_advice_age_s == 300.0
+
+
+def test_max_step_and_advice_age_accepted() -> None:
+    config = load_config(_doc(max_step=5, max_advice_age_s=60))
+    assert (config.max_step, config.max_advice_age_s) == (5.0, 60.0)
+
+
+@pytest.mark.parametrize("key", ["max_step", "max_advice_age_s"])
+@pytest.mark.parametrize("bad", [0, -1, True, "5", float("inf")])
+def test_max_step_and_advice_age_rejected(key: str, bad: Any) -> None:
+    with pytest.raises(SupervisorConfigError):
+        load_config(_doc(**{key: bad}))
