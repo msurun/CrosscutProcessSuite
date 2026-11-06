@@ -1,0 +1,39 @@
+# systemd unit for the Crosscut Write Gateway.
+# The Write Gateway is the sole process with authority to write to the plant (ADR 011, 012).
+# Install: copy to /etc/systemd/system/, then `systemctl daemon-reload` and
+# `systemctl enable --now crosscut-gateway`. See deploy/README.md and docs/GATEWAY_RUNBOOK.md
+# (section 1 creates the accounts, the policy folder and the key permissions this unit relies on).
+
+[Unit]
+Description=Crosscut Write Gateway (OPC UA write path)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Dedicated account crosscut-gw; group crosscut-sec lets it read the HMAC key
+# (<root>/_secrets/gateway-hmac.key, owner root:crosscut-sec, mode 0640).
+User=crosscut-gw
+Group=crosscut-sec
+WorkingDirectory=/opt/crosscut
+# The live policy and its pin (policy.pin.json) sit in one folder: policy_pin writes both there.
+# That folder must exist, owned by crosscut-gw, and lie inside ReadWritePaths below.
+ExecStart=/opt/crosscut/.venv/bin/python -m crosscut_gateway --root /var/lib/crosscut --policy /var/lib/crosscut/_gateway/policy/write-policy.json --plant-map /var/lib/crosscut/plant-map.json --mode advisory
+Restart=on-failure
+RestartSec=5
+# Exit code 2 = configuration error (missing policy, pin, plant map or key; invalid pin). Retrying
+# cannot fix it, so do not loop: an operator fixes the cause and starts the service.
+RestartPreventExitStatus=2
+# UMask 0027, not 0077: the API account (member of crosscut-sec) must read state.json and the
+# outbox that the gateway writes. Nothing is readable by "other".
+UMask=0027
+# Hardening: the whole file system is read-only except the paths listed in ReadWritePaths.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# The gateway writes only below <root>/_gateway: state.json, audit.jsonl, inbox/outbox/rejected,
+# the KILLED latch, the nonce cache, policy-draft.json and the policy folder (policy/).
+ReadWritePaths=/var/lib/crosscut/_gateway
+
+[Install]
+WantedBy=multi-user.target

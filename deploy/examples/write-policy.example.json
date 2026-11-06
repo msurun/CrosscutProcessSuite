@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "mode": "advisory",
+  "targets": {
+    "FIC101.SP": {
+      "limits": [0.0, 50.0],
+      "max_step": 1.0,
+      "max_rate_per_s": 0.2,
+      "min_interval_s": 5.0,
+      "allowed_loop_modes": ["CAS"],
+      "hold_off_s": 60.0,
+      "watchdog_s": 5.0,
+      "readback_tolerance": 0.5
+    },
+    "TIC201.SP": {
+      "limits": [20.0, 80.0],
+      "max_step": 0.5,
+      "max_rate_per_s": 0.1,
+      "min_interval_s": 10.0,
+      "allowed_loop_modes": ["CAS"],
+      "hold_off_s": 120.0,
+      "watchdog_s": 5.0,
+      "readback_tolerance": 0.2
+    }
+  }
+}

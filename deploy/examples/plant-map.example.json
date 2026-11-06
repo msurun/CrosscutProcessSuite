@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "endpoint": "opc.tcp://127.0.0.1:4840/freeopcua/server/",
+  "heartbeat": {
+    "node": "ns=2;s=Plant.Watchdog.GatewayCounter",
+    "period_s": 1.0,
+    "ack_node": "ns=2;s=Plant.Watchdog.DcsAck"
+  },
+  "targets": {
+    "FIC101.SP": {
+      "setpoint_node": "ns=2;s=Plant.FIC101.SP",
+      "readback_node": "ns=2;s=Plant.FIC101.SP",
+      "mode_node": "ns=2;s=Plant.FIC101.MODE",
+      "source_node": "ns=2;s=Plant.FIC101.SP_SOURCE",
+      "remote_value": 1,
+      "local_value": 0,
+      "release_value": 0,
+      "mode_values": {
+        "MAN": 0,
+        "AUTO": 1,
+        "CAS": 2
+      },
+      "take_remote": {
+        "node": "ns=2;s=Plant.FIC101.SP_SOURCE",
+        "value": 1,
+        "before_setpoint": true
+      }
+    },
+    "TIC201.SP": {
+      "setpoint_node": "ns=2;s=Plant.TIC201.SP",
+      "readback_node": "ns=2;s=Plant.TIC201.SP",
+      "mode_node": "ns=2;s=Plant.TIC201.MODE",
+      "source_node": "ns=2;s=Plant.TIC201.SP_SOURCE",
+      "remote_value": 1,
+      "local_value": 0,
+      "release_value": 0,
+      "mode_values": {
+        "MAN": 0,
+        "AUTO": 1,
+        "CAS": 2
+      },
+      "take_remote": {
+        "node": "ns=2;s=Plant.TIC201.SP_SOURCE",
+        "value": 1,
+        "before_setpoint": true
+      }
+    }
+  }
+}
