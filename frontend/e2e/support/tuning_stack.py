@@ -41,18 +41,20 @@ TUNING_NODES: dict[str, tuple[Any, ua.VariantType]] = {
     "ti": (INITIAL_TI_S, ua.VariantType.Float),
 }
 MODE_VALUES = {"MAN": 0, "AUTO": 1, "CAS": 2}
-RATIO_LIMIT = 6.0
+RATIO_LIMIT = 6.0  # wide: the forward change and its rollback have the same ratio
+MIN_INTERVAL_S = 60.0  # a rollback seconds after the apply is refused unless it is exempt
 KPI_JOB, REVIEW_JOB = "tuning-kpi", "tuning-review"
 KPI_PERIOD_S, REVIEW_PERIOD_S, KPI_WINDOW_S = 0.5, 2.0, 600
 LIVE_VARIANTS = ("loop_pv", "loop_sp", "loop_out", "loop_mode")
 
 
 def _param_policy(param: str, unit: str, limits: list[float]) -> dict[str, Any]:
-    """One pid_param policy target of the loop (refuse, never clamp; a wide ratio, no interval)."""
+    """One pid_param policy target of the loop (refuse, never clamp; 60 s between applies)."""
     return {
         "kind": "pid_param", "loop": LOOP_ID, "param": param, "unit": unit,
         "vendor_form": "siemens_pid_compact", "limits": limits, "max_ratio": RATIO_LIMIT,
-        "readback_tolerance": 0.001, "min_interval_s": 0.0, "allowed_loop_modes": ["AUTO"],
+        "readback_tolerance": 0.001, "min_interval_s": MIN_INTERVAL_S,
+        "allowed_loop_modes": ["AUTO"],
     }  # fmt: skip
 
 

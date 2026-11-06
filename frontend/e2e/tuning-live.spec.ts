@@ -27,8 +27,12 @@ const LOOP = TUNING_INFO.loop_id ?? "TUNE1";
 const GAIN_TAG = TUNING_INFO.gain_tag ?? "E2E.TUNE1.KP";
 const TI_TAG = TUNING_INFO.ti_tag ?? "E2E.TUNE1.TI";
 const DATASET = TUNING_INFO.dataset_id ?? "tuning_live_demo";
+const INITIAL_KP = TUNING_INFO.initial_kp ?? 1.0;
+const INITIAL_TI = TUNING_INFO.initial_ti ?? 10.0;
 const URL_TUNING = `/#/d/${DATASET}/tuning`;
 const STEP = { timeout: 30_000 };
+const MIN_RELATIVE_MOVE = { gain: 0.25, ti: 0.15 }; // SIMC moves gain ~+60 %, Ti ~-21 %
+const REVIEW_WAIT = { timeout: 280_000 }; // after-window ends ~3 min after the apply
 
 test.describe.configure({ mode: "serial" });
 test.skip(ENV.E2E_GATEWAY !== "1", "needs the real gateway stack (E2E_GATEWAY=1)");
@@ -154,8 +158,9 @@ test("engineer sets up gateway state and creates tuning proposal: queued with SI
   expect(tiItem).toBeDefined();
   expect(gainItem.from).toBe(1.0);
   expect(tiItem.from).toBe(10.0);
-  expect(gainItem.to).toBeGreaterThan(0.1);
-  expect(tiItem.to).toBeGreaterThan(1.0);
+  // SIMC must move the detuned loop clearly, not by a rounding step
+  expect(Math.abs(gainItem.to - gainItem.from) / gainItem.from).toBeGreaterThan(MIN_RELATIVE_MOVE.gain);
+  expect(Math.abs(tiItem.to - tiItem.from) / tiItem.from).toBeGreaterThan(MIN_RELATIVE_MOVE.ti);
   proposedKp = gainItem.to;
   proposedTi = tiItem.to;
 
@@ -223,19 +228,20 @@ test("lead approves via modal: atomic write to OPC UA server, state becomes appl
   await expect.poll(async () => (await nodes()).kp, STEP).toBeCloseTo(proposedKp, 2);
   await expect.poll(async () => (await nodes()).ti, STEP).toBeCloseTo(proposedTi, 2);
 
-  // Verify audit log has param_write records with actor e2e-lead
+  // The audit has exactly one param_write per target for THIS proposal, by the approver
   const audit = await auditRecords(lead);
-  const writes = audit.records.filter((r) => r.event === "param_write");
-  expect(writes.length).toBeGreaterThanOrEqual(2);
-  expect(writes.map((r) => r.actor)).toContain("e2e-lead");
-});
-
-test("simulated process continues running with updated tuning parameters", async () => {
-  const current = await nodes();
-  expect(current.loop_pv).toBeGreaterThan(0);
-  expect(current.loop_out).toBeGreaterThanOrEqual(0);
-  expect(current.loop_out).toBeLessThanOrEqual(100);
-  expect(Number.isFinite(current.loop_pv)).toBe(true);
+  const writes = audit.records.filter((r) => r.event === "param_write" && r.proposal_id === proposalId);
+  expect(writes.map((r) => r.tag).sort()).toEqual([GAIN_TAG, TI_TAG].sort());
+  for (const w of writes) {
+    expect(w.actor).toBe("e2e-lead");
+    const target = w.tag === GAIN_TAG ? proposedKp : proposedTi;
+    const before = w.tag === GAIN_TAG ? INITIAL_KP : INITIAL_TI;
+    expect(Number(w.applied_from)).toBeCloseTo(before, 3);
+    expect(Number(w.applied_to)).toBeCloseTo(target, 2);
+    expect(Math.abs(Number(w.applied_to) - Number(w.applied_from))).toBeGreaterThan(
+      before * (w.tag === GAIN_TAG ? MIN_RELATIVE_MOVE.gain : MIN_RELATIVE_MOVE.ti),
+    );
+  }
 });
 
 test("rollback creates a reverse proposal and restoring initial parameters succeeds", async ({ browser }) => {
@@ -275,7 +281,26 @@ test("rollback creates a reverse proposal and restoring initial parameters succe
     return res.body.status;
   }, STEP).toBe("applied");
 
-  // The plant nodes on OPC UA return to initial values (1.0 and 10.0)
-  await expect.poll(async () => (await nodes()).kp, STEP).toBeCloseTo(1.0, 2);
-  await expect.poll(async () => (await nodes()).ti, STEP).toBeCloseTo(10.0, 2);
+  // The plant nodes on OPC UA return to the initial values. The policy demands 60 s between
+  // applies, so this only works because the gateway verified the rollback against its own ledger.
+  await expect.poll(async () => (await nodes()).kp, STEP).toBeCloseTo(INITIAL_KP, 2);
+  await expect.poll(async () => (await nodes()).ti, STEP).toBeCloseTo(INITIAL_TI, 2);
+  const rollbackWrites = (await auditRecords(lead)).records.filter(
+    (r) => r.event === "param_write" && r.proposal_id === rollbackId,
+  );
+  expect(rollbackWrites.map((r) => r.tag).sort()).toEqual([GAIN_TAG, TI_TAG].sort());
+  expect(rollbackWrites.every((r) => r.rollback_of === proposalId)).toBe(true);
+
+  // A rollback of the applied rollback is refused (the exemption is for one step back only)
+  const again = await api(engineer, "POST", `/tuning/proposals/${rollbackId}/rollback`);
+  expect(again.status).toBe(409);
+  expect(again.body.detail).toBe("rollback_of_rollback");
+});
+
+test("the review of the rolled-back set ends as insufficient_data (the loop was retuned)", async ({ browser }) => {
+  test.setTimeout(300_000);
+  const lead = await signedInPage(browser, "e2e-lead");
+  await expect
+    .poll(async () => (await api(lead, "GET", `/tuning/proposals/${proposalId}`)).body.review?.verdict ?? null, REVIEW_WAIT)
+    .toBe("insufficient_data");
 });

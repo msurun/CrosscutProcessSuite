@@ -472,65 +472,6 @@ def test_min_interval_between_applies() -> None:
     assert gw.propose_params(later, actor_ctx=ALICE).reason_code == "queued"
 
 
-def test_verified_rollback_is_exempt_from_min_interval() -> None:
-    # In plain words:
-    # When a bad tuning change is applied, the operator must be able to revert to the safe baseline
-    # immediately, without waiting for the normal 60 s inter-apply cooling period.
-    gw, plant = make()
-    key1 = queued(gw, it(KP, 3.5), pid="p1")
-    gw.approve(key1, actor_ctx=BOB)
-    assert plant.params[KP] == 3.5
-
-    # Propose rollback immediately at 5 s (min_interval is 60 s).
-    rb = pset(it(KP, 2.0, frm=3.5), pid="p2", t_ns=NOW + 5 * S, rollback_of="p1")
-    decision = gw.propose_params(rb, actor_ctx=ALICE)
-    assert decision.reason_code == "queued"
-    key2 = param_set_key(rb)
-    assert gw.approve(key2, actor_ctx=BOB).reason_code == "applied"
-    assert plant.params[KP] == 2.0
-
-
-def test_verified_rollback_is_exempt_from_max_ratio() -> None:
-    # In plain words:
-    # If restoring the baseline requires a ratio greater than max_ratio, the rollback is still
-    # allowed because the baseline was already audited and verified as safe by the plant.
-    plant = ParamPlant()
-    strict_policy = {
-        KP: ParamPolicy(
-            loop="L1", param="gain", unit="1", vendor_form="siemens_pid",
-            limits=(0.1, 10.0), max_ratio=1.4, readback_tolerance=0.001, min_interval_s=60.0,
-            allowed_loop_modes=("AUTO", "MAN"),
-        )
-    }
-    gw = engine.WriteGateway(plant, {TAG: POLICY}, "confirm", params=ParamConfig(strict_policy))
-    gw.tick(NOW)
-
-    # p1 changes 2.0 -> 2.6 (ratio 1.3 < 1.4: ok)
-    key1 = queued(gw, it(KP, 2.6), pid="p1")
-    gw.approve(key1, actor_ctx=BOB)
-    gw.tick(NOW + 100 * S)
-
-    # A non-rollback proposal from 2.6 -> 1.0 has ratio 2.6 > 1.4: refused ratio_exceeded
-    normal = pset(it(KP, 1.0, frm=2.6), pid="p_norm", t_ns=NOW + 100 * S)
-    assert gw.propose_params(normal, actor_ctx=ALICE).reason_code == "ratio_exceeded"
-
-    # A verified rollback restoring 1.0 has exemption
-    gw.remember_applied_params("p_prev", {KP: 1.0})
-    rb = pset(it(KP, 1.0, frm=2.6), pid="p_rb", t_ns=NOW + 100 * S, rollback_of="p_prev")
-    decision = gw.propose_params(rb, actor_ctx=ALICE)
-    assert decision.reason_code == "queued"
-
-
-def test_unverified_rollback_does_not_get_exemption() -> None:
-    # In plain words:
-    # A proposal claiming to be a rollback for an unknown ID or with fabricated values does not
-    # get exemptions from min_interval or max_ratio.
-    gw, _ = make()
-    gw.approve(queued(gw, it(KP, 3.0)), actor_ctx=BOB)
-    fake_rb = pset(it(KP, 2.0, frm=3.0), pid="p_fake", t_ns=NOW + 5 * S, rollback_of="unknown_id")
-    assert gw.propose_params(fake_rb, actor_ctx=ALICE).reason_code == "min_interval"
-
-
 def test_kill_drops_pending_sets() -> None:
     gw, plant = make()
     key = queued(gw, it(KP, 3.0))

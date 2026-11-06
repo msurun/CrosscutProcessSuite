@@ -8,8 +8,9 @@ the gateway key of the record. The gateway decides and writes; this module only 
 record in step with what the gateway reports. It must not import crosscut_gateway.
 
 Error codes (HTTPException detail): 404 unknown_proposal / unknown_loop, 409 no_kpi_job,
-no_live_values, no_param_targets, not_queued, applying, not_applied, applied_unverified,
-foreign_pending, 422 the ProposalRefused code, 403 self_approval or forbidden, 428 step-up,
+no_live_values, no_param_targets, not_queued, applying, not_applying, not_applied,
+applied_unverified, rollback_of_rollback, gateway_state_unknown (escape), foreign_pending,
+422 the ProposalRefused code, 403 self_approval or forbidden, 428 step-up,
 503 gateway not running / gateway_state_unreadable (nothing is changed then), 504 the gateway
 did not answer an approve (the record is then ``applying``, never expired).
 """
@@ -19,7 +20,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
@@ -37,6 +38,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.auth.audit import AuthAudit
+from crosscut_api.auth.deps import AUDIT_FILE
+from crosscut_api.auth.store import auth_dir
 from crosscut_api.gateway_routes import _gateway_errors as gateway_errors
 from crosscut_api.tuning_build import (
     ConnectorFactory,
@@ -49,6 +53,7 @@ from crosscut_api.tuning_build import (
     site_loop,
     wanted_targets,
 )
+from crosscut_api.tuning_escape import MIN_REASON, EscapeVerdict, decide_escape
 from crosscut_api.tuning_gateway import (
     FORBIDDEN_REFUSALS,
     KEEPS_QUEUED,
@@ -56,6 +61,7 @@ from crosscut_api.tuning_gateway import (
     GatewaySnapshot,
     applied_from_snapshot,
     decision_status,
+    ns_to_iso,
     param_targets,
     propose_args,
     queued_key,
@@ -134,6 +140,12 @@ class RollbackBody(BaseModel):
     """Optional reason text of a rollback."""
 
     reason: str = Field(default="rollback", min_length=1, max_length=1000)
+
+
+class EscapeBody(BaseModel):
+    """Why an operator settles a stalled applying record (stored and audited)."""
+
+    reason: str = Field(min_length=MIN_REASON, max_length=1000)
 
 
 class TuningGateway(Protocol):
@@ -526,18 +538,13 @@ class _Endpoints:
 
     # -- reject / rollback -----------------------------------------------------------------
 
-    def post_reject(
-        self, proposal_id: str, actor: ActorDep, escape: bool = False
-    ) -> Record:
-        """POST /tuning/proposals/{id}/reject: discard an open or stalled applying proposal."""
+    def post_reject(self, proposal_id: str, actor: ActorDep) -> Record:
+        """POST /tuning/proposals/{id}/reject: discard a draft or queued proposal."""
         actor.require("gw.reject")
         with _store_errors(), self.store.exclusive(proposal_id) as locked:
             record = locked.record
             if record["status"] == "applying":
-                if not escape:
-                    raise HTTPException(status_code=409, detail="applying")
-                saved = self._escape_applying(locked, actor)
-                return self._view(saved)
+                raise HTTPException(status_code=409, detail="applying")
             if record["status"] not in ("draft", "queued"):
                 raise HTTPException(status_code=409, detail="not_open")
             key = record["gateway_key"] or self._held_key(record)
@@ -546,31 +553,56 @@ class _Endpoints:
             saved = locked.save({**record, "status": "rejected"})
         return self._view(saved)
 
-    def post_escape(self, proposal_id: str, actor: ActorDep) -> Record:
-        """POST /tuning/proposals/{id}/escape: operator escape for stalled applying proposal."""
-        return self.post_reject(proposal_id, actor, escape=True)
-
-    def _escape_applying(self, locked: LockedRecord, actor: ActorContext) -> Record:
-        """Allow an operator/lead to reject a stalled applying record if no ledger evidence exists.
+    def post_escape(self, proposal_id: str, body: EscapeBody, actor: ActorDep) -> Record:
+        """POST /tuning/proposals/{id}/escape: settle a stalled ``applying`` record.
 
         # In plain words:
-        # If approve timed out (HTTP 504) or the gateway crashed/restarted, a proposal can get stuck
-        # in 'applying' forever. If the gateway audit log proves the change was actually applied,
-        # we refuse rejection and settle it to 'applied'. If there is no ledger evidence, the
-        # operator is allowed to escape and reject the proposal so the loop is not blocked.
+        # After a timed-out approve the gateway may still apply the set. Only gateway evidence
+        # settles the record: applied (200, applied record), a terminal decision or a long-past
+        # expiry with the key no longer pending (rejected), else 409 gateway_state_unknown.
+        # Who, why and when are stored in the record and written to the auth audit first.
         """
-        snap = self._snapshot()
-        if snap is None:
-            raise HTTPException(status_code=503, detail="gateway_state_unreadable")
-        block = applied_from_snapshot(snap, locked.record, "")
-        if block is not None:
-            locked.save({**locked.record, "status": "applied", "applied": block})
-            raise HTTPException(status_code=409, detail="already_applied")
-        key = locked.record.get("gateway_key")
-        if key and any(e.get("key") == key for e in snap.pending):
-            with suppress(HTTPException):
-                self._reject_at_gateway(locked, actor, key)
-        return locked.save({**locked.record, "status": "rejected"})
+        actor.require("gw.approve.tuning")
+        actor.require_stepup()
+        with _store_errors(), self.store.exclusive(proposal_id) as locked:
+            if locked.record["status"] != "applying":
+                raise HTTPException(status_code=409, detail="not_applying")
+            snap = self._snapshot()
+            if snap is None:
+                raise HTTPException(status_code=503, detail="gateway_state_unreadable")
+            verdict = decide_escape(locked.record, snap, self._now_ns())
+            if verdict is None:
+                raise HTTPException(status_code=409, detail="gateway_state_unknown")
+            saved = locked.save(self._escaped(locked.record, verdict, (actor, body.reason)))
+        return self._view(saved)
+
+    def _escaped(
+        self, record: Record, verdict: EscapeVerdict, who: tuple[ActorContext, str]
+    ) -> Record:
+        """The record after the escape; the audit line is written first (503 if it cannot be)."""
+        actor, reason = who
+        stamp = ns_to_iso(self._now_ns())
+        self._audit_escape(record, verdict, who)
+        escape = {"actor": actor.actor, "reason": reason, "t": stamp, "evidence": verdict.evidence}
+        out = {**record, "status": verdict.status, "escape": escape}
+        if verdict.applied is not None:
+            out["applied"] = verdict.applied
+        return out
+
+    def _audit_escape(
+        self, record: Record, verdict: EscapeVerdict, who: tuple[ActorContext, str]
+    ) -> None:
+        """Append the escape to the API auth audit log; no audit line, no escape."""
+        actor, reason = who
+        audit = AuthAudit(auth_dir(self.deps.sources.root) / AUDIT_FILE, self.deps.clock)
+        try:
+            audit.append(
+                "tuning_escape", actor=actor.actor, proposal_id=record["id"],
+                gateway_key=record["gateway_key"], outcome=verdict.status,
+                evidence=verdict.evidence, reason=reason, source_ip=actor.source_ip,
+            )
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=503, detail="audit_unavailable") from error
 
     def _held_key(self, record: Record) -> str | None:
         """The key of the set the gateway holds for a record with no key (None = holds none).
@@ -609,6 +641,8 @@ class _Endpoints:
         with _store_errors():
             original = self.store.get(proposal_id)
         self._require_status(original, "applied")
+        if original.get("rollback_of"):
+            raise HTTPException(status_code=409, detail="rollback_of_rollback")
         original = self._fresh_applied(original)
         if not trusted_applied(original):
             raise HTTPException(status_code=409, detail="applied_unverified")

@@ -12,7 +12,6 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -27,6 +26,7 @@ from crosscut_gateway.engine_params_apply import (
     within,
     write_set,
 )
+from crosscut_gateway.engine_params_ledger import AppliedLedger
 from crosscut_gateway.interfaces import (
     ParamControlSystem,
     ParamPolicy,
@@ -123,38 +123,36 @@ class ParamManager:
         self._ids: dict[str, str] = {}
         self._last_applied: dict[str, float] = {}
         self._last_apply_ns: dict[str, int] = {}
-        self._applied_from: dict[str, dict[str, float]] = {}
+        self._ledger = AppliedLedger()
         self._alarms: dict[str, str] = {}
 
-    def remember_applied(self, proposal_id: str, applied_from: Mapping[str, float]) -> None:
-        """Record the audited 'from' baseline values read for an applied proposal."""
-        if proposal_id:
-            entry = self._applied_from.setdefault(proposal_id, {})
-            for tag, val in applied_from.items():
-                if val is not None and isinstance(val, (int, float)) and math.isfinite(val):
-                    entry[str(tag)] = float(val)
+    def replay_audit(self, records: Sequence[Mapping[str, str]]) -> None:
+        """Rebuild the applied-set ledger from the audit records (after a restart)."""
+        self._ledger.replay(records)
 
-    def is_verified_rollback(self, proposal: ParamSetProposal) -> bool:
-        """True when proposal reverts an applied set and its targets match audited baseline.
+    def _same_value(self, tag: str, left: float, right: float) -> bool:
+        """Exact equality of two stored values; for Float targets also after float32 rounding."""
+        if left == right:
+            return True
+        if self._plant is None:
+            return False
+        return stored_value(self._plant, tag, left) == stored_value(self._plant, tag, right)
+
+    def rollback_refusal(self, proposal: ParamSetProposal) -> str | None:
+        """Why a proposal gets no rollback exemption (None = exempt); ledger data only.
 
         # In plain words:
-        # ADR 014 section 6: an approved rollback is exempt from min_interval and max_ratio ONLY
-        # if the gateway confirms that the proposed target values match the audited original values
-        # read from the plant before the reverted proposal was applied. Limits still apply.
+        # ADR 014 section 6: a rollback skips min_interval and max_ratio ONLY when the gateway's
+        # own audited ledger shows it restores the latest, not yet reverted, applied set (not a
+        # rollback itself) with exactly the audited values. Limits and signs always apply.
         """
         if not proposal.rollback_of:
-            return False
-        orig = self._applied_from.get(proposal.rollback_of)
-        if not orig or len(proposal.items) != len(orig):
-            return False
-        for item in proposal.items:
-            if item.target not in orig:
-                return False
-            policy = self._policies.get(item.target)
-            tol = policy.readback_tolerance if policy is not None else 1e-4
-            if not within(item.to_value, orig[item.target], tol):
-                return False
-        return True
+            return "not_a_rollback"
+        return self._ledger.rollback_refusal(proposal, self._same_value)
+
+    def is_verified_rollback(self, proposal: ParamSetProposal) -> bool:
+        """True when the gateway's own ledger verifies the rollback (see rollback_refusal)."""
+        return self.rollback_refusal(proposal) is None
 
     # ------------------------------------------------------------------ queries
 
@@ -494,6 +492,9 @@ class ParamManager:
             return self._comm_refusal(proposal, key, exc.target), {}
         if check.codes:
             return self._refuse(proposal, key, (check.codes[0], check.detail)), {}
+        unread = [item.target for item in proposal.items if item.target not in check.current]
+        if unread:  # a from value that was not read cannot be checked: refuse, never assume
+            return self._refuse(proposal, key, ("from_unread", unread[0])), {}
         return None, check.current
 
     def _plant_error(
@@ -539,17 +540,14 @@ class ParamManager:
         ``read`` holds the values read before (from) and after (to) the writes.
         """
         assert self._plant is not None
-        from_read, _ = read
         for item in proposal.items:
             self._last_applied[item.target] = stored_value(self._plant, item.target, item.to_value)
         self._last_apply_ns[proposal.loop_id] = self._env.now_ns()
-        self.remember_applied(
-            proposal.proposal_id,
-            {item.target: from_read.get(item.target, item.from_value) for item in proposal.items},
-        )
         decision = WriteDecision(accepted=True, reason_code="applied")
         self._seen[key] = decision
-        if self._audit_applied(proposal, key, read):
+        audited = self._audit_applied(proposal, key, read)
+        self._ledger.record(proposal, read, audited)  # only what was read, only after the audit
+        if audited:
             return decision
         return self._audit_failed(proposal, key)
 
@@ -563,12 +561,16 @@ class ParamManager:
         from_read, to_read = read
         ok = True
         for item in proposal.items:
-            before = from_read.get(item.target, item.from_value)
-            after = to_read.get(item.target, item.to_value)
+            if item.target not in from_read or item.target not in to_read:
+                ok = False  # a value that was not read is never replaced by proposal data
+                continue
             try:
                 self._emit(
                     "param_write", proposal, key, "applied", tag=item.target,
-                    applied_from=str(before), applied_to=str(after),
+                    applied_from=str(from_read[item.target]),
+                    applied_to=str(to_read[item.target]),
+                    set_size=str(len(proposal.items)),
+                    rollback_of=proposal.rollback_of or "",
                 )
             except Exception:  # noqa: BLE001 - keep auditing the other items, then fail closed
                 ok = False

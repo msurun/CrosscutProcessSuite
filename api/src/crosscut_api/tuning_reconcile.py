@@ -35,6 +35,8 @@ def plan(record: Record, snap: GatewaySnapshot, now_ns: int) -> Record | None:
     status = record["status"]
     if status == "applied":
         return _flag_external(record, snap)
+    if status == "rejected" and "escape" in record:
+        return _correct_escape(record, snap)
     if status in ("queued", "applying"):
         block = applied_from_snapshot(snap, record, "")
         if block is not None:
@@ -71,3 +73,11 @@ def _flag_external(record: Record, snap: GatewaySnapshot) -> Record | None:
     if applied.get("invalid") or not external_change(snap.events, record):
         return None
     return {**record, "applied": {**applied, "invalid": INVALID_REASON}}
+
+
+def _correct_escape(record: Record, snap: GatewaySnapshot) -> Record | None:
+    """An escape rejection the gateway audit proves wrong becomes applied, flagged as corrected."""
+    block = applied_from_snapshot(snap, record, "")
+    if block is None:
+        return None
+    return {**record, "status": "applied", "applied": block, "corrected_from": "rejected"}

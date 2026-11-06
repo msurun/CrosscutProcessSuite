@@ -426,6 +426,22 @@
         }
       ]
     },
+    "escape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "reason", "t", "evidence"],
+      "description": "Operator escape of a stalled applying record: who, why, when and the gateway evidence that allowed it.",
+      "properties": {
+        "actor": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 10, "maxLength": 1000},
+        "t": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "minLength": 1}
+      }
+    },
+    "corrected_from": {
+      "const": "rejected",
+      "description": "Set when an escape rejection was later proven wrong by the gateway audit (the set was applied)."
+    },
     "review": {
       "oneOf": [
         {

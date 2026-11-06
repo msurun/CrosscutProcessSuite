@@ -38,7 +38,9 @@ LOCK_POLL_S = 0.01
 READ_ATTEMPTS = 20
 TERMINAL = ("rejected", "expired")
 # Fields that change during the life of a record; everything else is frozen at creation.
-MUTABLE_FIELDS = frozenset({"status", "gateway_key", "applied", "review"})
+MUTABLE_FIELDS = frozenset(
+    {"status", "gateway_key", "applied", "review", "escape", "corrected_from"}
+)
 ROLLBACK_VERDICTS = ("worse", "worse_early")
 
 Record = dict[str, Any]
@@ -90,12 +92,23 @@ def _validator(schema_dir: str) -> Draft202012Validator:
 
 def check_change(old: Record, new: Record) -> None:
     """Raise TransitionRefused unless ``new`` is an allowed successor of ``old``."""
-    if not transition_allowed(old["status"], new["status"]):
+    if not (_is_correction(old, new) or transition_allowed(old["status"], new["status"])):
         raise TransitionRefused(f"status {old['status']} -> {new['status']}")
     for name in set(old) | set(new):
         if name not in MUTABLE_FIELDS and old.get(name) != new.get(name):
             raise TransitionRefused(f"field {name} is frozen")
     _check_applied(old.get("applied"), new.get("applied"))
+
+
+def _is_correction(old: Record, new: Record) -> bool:
+    """True for rejected -> applied of an ESCAPED record, flagged ``corrected_from: rejected``."""
+    return (
+        old["status"] == "rejected"
+        and new["status"] == "applied"
+        and "escape" in old
+        and new.get("corrected_from") == "rejected"
+        and new.get("applied") is not None
+    )
 
 
 def _check_applied(old: Record | None, new: Record | None) -> None:

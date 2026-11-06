@@ -9,8 +9,8 @@ and kill-switch behaviour.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, cast
 
@@ -163,22 +163,9 @@ class WriteGateway:
         with self._acting(actor_ctx):
             return self._params.propose(proposal)
 
-    def remember_applied_params(
-        self, proposal_id: str, applied_from: Mapping[str, float]
-    ) -> None:
-        """Register audited 'from' baseline values read for an applied proposal (ADR 014)."""
-        self._params.remember_applied(proposal_id, applied_from)
-
     def _replay_param_audits(self) -> None:
-        """Replay past applied param writes from audit log to restore rollback baselines."""
-        for record in self._audit.records():
-            if record.get("event") == "param_write":
-                pid = str(record.get("proposal_id", ""))
-                tag = str(record.get("tag", ""))
-                val = record.get("applied_from")
-                if pid and tag and val is not None:
-                    with suppress(ValueError):
-                        self._params.remember_applied(pid, {tag: float(val)})
+        """Rebuild the rollback ledger of applied param sets from the audit log."""
+        self._params.replay_audit(self._audit.records())
 
     def _param_env(self) -> ParamEnv:
         """Return the view of this gateway that the parameter manager works with."""
