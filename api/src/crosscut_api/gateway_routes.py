@@ -135,6 +135,23 @@ def _gateway_errors(value_error_status: int | None = None) -> Iterator[None]:
         raise HTTPException(status_code=value_error_status, detail=str(err)) from err
 
 
+def _refuse_param_set(gw: GatewayClient, key: str) -> None:
+    """409 use_tuning_endpoint when ``key`` is a queued PID parameter set (kind pid_param).
+
+    A parameter set belongs to a tuning proposal record; approving or rejecting it here would
+    leave the record out of step with the gateway. The keys come from state.json pending_params.
+    """
+    lister = getattr(gw, "pending_params", None)
+    if lister is None:
+        return
+    try:
+        held = any(entry.get("key") == key for entry in lister())
+    except (OSError, ValueError, TypeError) as err:
+        raise HTTPException(status_code=503, detail="gateway state unreadable") from err
+    if held:
+        raise HTTPException(status_code=409, detail="use_tuning_endpoint")
+
+
 def _resolve_gateway(provider: Callable[[], GatewayClient | None]) -> GatewayClient:
     """Resolve the running gateway from the provider, or raise HTTP 503."""
     gateway = provider()
@@ -214,12 +231,14 @@ class _GatewayEndpoints:
         """POST /gateway/pending/{key}/approve: Approve and execute queued proposal."""
         gw = self._gw()
         with _gateway_errors():
+            _refuse_param_set(gw, key)
             return gw.approve(key, actor=actor)
 
     def post_reject(self, key: str, actor: ActorDep) -> dict[str, Any]:
         """POST /gateway/pending/{key}/reject: Discard queued proposal without writing."""
         gw = self._gw()
         with _gateway_errors():
+            _refuse_param_set(gw, key)
             gw.reject(key, actor=actor)
         return {"ok": True}
 

@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import pytest
 from crosscut_runtime.history import HistoryStore, history_path
+from crosscut_runtime.jobs import tuning_review
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob, utc_to_epoch
 from crosscut_runtime.store import RuntimeStore
 from jsonschema import Draft202012Validator
@@ -385,3 +386,112 @@ def test_invalid_review_file_is_skipped_and_logged(tmp_path: Path) -> None:
     path = write_record(tmp_path, record())
     path.with_name(f"{UUID_A}.review.json").write_text('{"final": true}', encoding="utf-8")
     assert setup.job.run() == {"reviewed": [], "pending": [], "errors": 1}
+
+
+# --- gateway param events and unverified applied blocks ------------------------------------
+
+NS = 1_000_000_000
+TARGET = ITEM["target"]
+
+
+def write_state(root: Path, events: list[dict[str, str]] | str) -> None:
+    """Write <root>/_gateway/state.json with the given param events (or raw text)."""
+    folder = root / "_gateway"
+    folder.mkdir(parents=True, exist_ok=True)
+    text = events if isinstance(events, str) else json.dumps({"param_events": events})
+    (folder / "state.json").write_text(text, encoding="utf-8")
+
+
+def external(after_s: float, tag: str = TARGET) -> dict[str, str]:
+    """A param_changed_externally event ``after_s`` seconds after the apply."""
+    stamp = str(int((T_APPLY + after_s) * NS))
+    return {"event": "param_changed_externally", "tag": tag, "target": tag, "t_ns": stamp}
+
+
+def write_event(after_s: float, key: str = "other") -> dict[str, str]:
+    """A param_write event of another set on the same target."""
+    stamp = str(int((T_APPLY + after_s) * NS))
+    return {"event": "param_write", "tag": TARGET, "key": key, "t_ns": stamp}
+
+
+def review_of(setup: Setup, path: Path) -> dict[str, Any]:
+    """The record merged with its review file."""
+    return setup.load(path)
+
+
+def test_external_change_in_the_gateway_events_is_found_by_the_job(tmp_path: Path) -> None:
+    setup = Setup(tmp_path, now=T_APPLY + 60.0)
+    write_state(tmp_path, [external(30)])
+    path = write_record(tmp_path, record())
+    assert setup.job.run()["reviewed"] == [UUID_A]
+    stored = review_of(setup, path)
+    assert stored["status"] == "reviewed:insufficient_data"
+    assert stored["review"]["reasons"] == ["param_changed_externally"]
+
+
+@pytest.mark.parametrize(
+    "events",
+    [[external(-30)], [external(30, "OTHER.TAG")], [write_event(10), external(30)]],
+    ids=["before_apply", "other_target", "superseded_by_later_write"],
+)
+def test_events_that_do_not_invalidate(tmp_path: Path, events: list[dict[str, str]]) -> None:
+    setup = Setup(tmp_path, now=T_APPLY + 60.0)
+    write_state(tmp_path, events)
+    write_record(tmp_path, record())
+    assert setup.job.run()["reviewed"] == []
+
+
+@pytest.mark.parametrize("flag", ["audit_unverified", "audit_chain_broken"])
+def test_unverified_applied_block_is_insufficient_data_applied_unverified(
+    tmp_path: Path, flag: str
+) -> None:
+    setup = Setup(tmp_path, now=T_APPLY + 60.0)
+    doc = record()
+    doc["applied"] = {"from_read": {TARGET: None}, "to_read": {TARGET: None}, "t": APPLIED_AT,
+                      "approver": "bob", "invalid": flag}  # fmt: skip
+    path = write_record(tmp_path, doc)
+    assert setup.job.run()["reviewed"] == [UUID_A]
+    stored = review_of(setup, path)
+    assert stored["review"]["reasons"] == ["applied_unverified"]
+    assert stored["status"] == "reviewed:insufficient_data"
+
+
+def test_unreadable_gateway_state_keeps_the_record_waiting(tmp_path: Path) -> None:
+    setup = Setup(tmp_path, now=T_APPLY + 60.0)
+    write_state(tmp_path, "{ not json")
+    path = write_record(tmp_path, record())
+    assert setup.job.run()["pending"] == [UUID_A]
+    assert not path.with_name(f"{path.stem}.review.json").exists()
+
+
+def test_replace_retries_a_permission_error_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, target = tmp_path / "a.tmp", tmp_path / "a.json"
+    source.write_text("x", encoding="utf-8")
+    real, calls = os.replace, []
+
+    def flaky(src: Any, dst: Any) -> None:
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError("reader has the file open")
+        real(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    tuning_review.replace_with_retry(source, target)
+    assert target.read_text(encoding="utf-8") == "x" and len(calls) == 3
+
+
+def test_replace_gives_up_after_the_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "a.tmp"
+    source.write_text("x", encoding="utf-8")
+
+    def locked(_src: Any, _dst: Any) -> None:
+        raise PermissionError("held")
+
+    monkeypatch.setattr(os, "replace", locked)
+    monkeypatch.setattr(tuning_review, "REPLACE_DELAY_S", 0.0)
+    with pytest.raises(PermissionError):
+        tuning_review.replace_with_retry(source, tmp_path / "a.json")

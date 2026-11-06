@@ -408,14 +408,6 @@ def test_external_change_marks_the_applied_record_invalid_on_get(world: World) -
     assert viewer.call("GET", f"/tuning/proposals/{created['id']}").json() == shown
 
 
-def test_audit_lagging_behind_falls_back_to_the_item_values(world: World) -> None:
-    created = propose(world)
-    world.gateway.audit = lambda limit: {"records": [], "chain_ok": True}  # type: ignore[method-assign]
-    response = approve(world, created["id"])
-    assert response.status_code == 200
-    assert response.json()["applied"]["to_read"][KP] == pytest.approx(1.25)
-
-
 # --- pure helpers and guards -------------------------------------------------------------------
 
 

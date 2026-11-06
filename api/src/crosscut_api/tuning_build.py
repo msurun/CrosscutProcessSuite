@@ -9,7 +9,7 @@ The API reads the DCS only through a connector (read-only); nothing here writes 
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,18 +126,36 @@ def read_current(
 ) -> dict[str, float]:
     """Read the current parameter values live through the source's connector.
 
+    The tag ids read are exactly the policy target ids of the gateway, and each must be in the
+    tag list of the source (site tags with that source, or without a source); otherwise the
+    plant map and the gateway policy disagree and nothing is read.
+
+    Limitation: the values come from the historian / live connector of the KPI job, the
+    gateway re-reads the parameters from the DCS itself and refuses a stale proposal with
+    ``from_mismatch``. The record's ``from`` is therefore a hint, never an authority.
+
     Raises:
-        HTTPException: 409 no_live_values when the source is unknown, the read fails, or a value
-            is missing or not of good quality.
+        HTTPException: 409 no_live_values when the source is unknown, a target tag is not in the
+            source's tag list, the read fails, or a value is missing or not of good quality.
     """
     source = next((s for s in site.get("sources", []) if s.get("id") == source_id), None)
-    if source is None or not targets:
+    if source is None or not targets or not _in_tag_list(site, source_id, targets.values()):
         raise _refuse(409, "no_live_values")
     try:
         live = factory(source).read_live(list(targets.values()))
     except (ConnectorError, OSError, TimeoutError, ValueError):
         raise _refuse(409, "no_live_values") from None
     return _good_values(live, targets)
+
+
+def _in_tag_list(site: dict[str, Any], source_id: str, wanted: Iterable[str]) -> bool:
+    """True when every wanted tag id is a site tag of the source (a tag without source counts)."""
+    known = {
+        str(tag.get("id"))
+        for tag in site.get("tags", [])
+        if tag.get("source") in (None, source_id)
+    }
+    return all(tag in known for tag in wanted)
 
 
 def _good_values(live: dict[str, Any], targets: dict[str, str]) -> dict[str, float]:

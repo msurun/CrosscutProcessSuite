@@ -603,6 +603,7 @@ class ParamManager:
         self._emit_tag(
             "param_changed_externally", tag, "param_changed_externally",
             value=str(actual), expected=str(expected), review="invalid",
+            loop=self._policies[tag].loop,
         )
 
     def kill(self) -> None:

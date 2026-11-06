@@ -108,6 +108,14 @@ def test_create_refuses_a_duplicate_a_non_draft_and_an_invalid_record(store: Pro
         ("queued", "expired", True),
         ("queued", "refused:from_mismatch", True),
         ("queued", "draft", False),
+        ("queued", "applying", True),
+        ("applying", "applying", True),
+        ("applying", "applied", True),
+        ("applying", "expired", False),
+        ("applying", "rejected", False),
+        ("applying", "refused:x", False),
+        ("applying", "queued", False),
+        ("draft", "applying", False),
         ("applied", "applied", True),
         ("applied", "queued", False),
         ("applied", "rejected", False),
@@ -273,3 +281,76 @@ def test_check_change_allows_a_late_gateway_key_on_a_draft() -> None:
     old = make_record()
     check_change(old, {**old, "gateway_key": "b" * 64})
     check_change(old, {**old, "status": "queued", "gateway_key": "b" * 64})
+
+
+def test_replace_is_retried_while_a_reader_holds_the_file(
+    store: ProposalStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = queued(store)
+    real, calls = os.replace, []
+
+    def flaky(src: Any, dst: Any) -> None:
+        calls.append(1)
+        if len(calls) < 4:
+            raise PermissionError("the review job has the file open")
+        real(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    with store.exclusive(record["id"]) as locked:
+        locked.save({**record, "status": "rejected"})
+    monkeypatch.undo()
+    assert len(calls) == 4 and store.get(record["id"])["status"] == "rejected"
+    assert list(store.dir.glob("*.tmp")) == []
+
+
+def test_a_fresh_lock_is_never_dropped_as_stale(tmp_path: Path) -> None:
+    lock = tmp_path / "x.lock"
+    lock.write_text("owner", encoding="utf-8")
+    tuning_store._drop_if_stale(lock)
+    assert lock.exists()
+
+
+def test_a_stale_lock_is_broken_by_exactly_one_waiter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Threads race to break an old lock file: the critical section is never entered twice."""
+    monkeypatch.setattr(tuning_store, "LOCK_STALE_S", 5.0)
+    monkeypatch.setattr(tuning_store, "LOCK_TIMEOUT_S", 20.0)
+    lock = tmp_path / "x.lock"
+    lock.write_text("dead owner", encoding="utf-8")
+    old = time.time() - 3600
+    os.utime(lock, (old, old))
+    state = {"inside": 0, "max": 0, "entries": 0}
+    guard = threading.Lock()
+
+    def work() -> None:
+        for _ in range(5):
+            with tuning_store._file_lock(lock):
+                with guard:
+                    state["inside"] += 1
+                    state["max"] = max(state["max"], state["inside"])
+                    state["entries"] += 1
+                time.sleep(0.002)
+                with guard:
+                    state["inside"] -= 1
+
+    threads = [threading.Thread(target=work) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert state["max"] == 1 and state["entries"] == 40
+    assert not lock.exists() and list(tmp_path.glob("*.break")) == []
+
+
+def test_a_lock_released_by_a_slow_owner_does_not_remove_the_lock_of_the_next_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owner token: a waiter that broke our stale lock owns the file now, not us."""
+    monkeypatch.setattr(tuning_store, "LOCK_STALE_S", 0.05)
+    lock = tmp_path / "x.lock"
+    with tuning_store._file_lock(lock):
+        time.sleep(0.12)  # we outlive the stale limit ...
+        lock.unlink()  # ... and another waiter broke the lock and took it
+        lock.write_text("someone else", encoding="utf-8")
+    assert lock.read_text(encoding="utf-8") == "someone else"

@@ -8,8 +8,10 @@ the gateway key of the record. The gateway decides and writes; this module only 
 record in step with what the gateway reports. It must not import crosscut_gateway.
 
 Error codes (HTTPException detail): 404 unknown_proposal / unknown_loop, 409 no_kpi_job,
-no_live_values, no_param_targets, not_queued, not_applied, 422 the ProposalRefused code,
-403 self_approval or forbidden, 428 step-up, 503 gateway not running.
+no_live_values, no_param_targets, not_queued, applying, not_applied, applied_unverified,
+foreign_pending, 422 the ProposalRefused code, 403 self_approval or forbidden, 428 step-up,
+503 gateway not running / gateway_state_unreadable (nothing is changed then), 504 the gateway
+did not answer an approve (the record is then ``applying``, never expired).
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from crosscut_loops.tuning_proposal import (
     build_proposal,
     build_rollback,
 )
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from crosscut_api.auth.actor import ActorContext, actor_of
@@ -50,15 +52,19 @@ from crosscut_api.tuning_build import (
 from crosscut_api.tuning_gateway import (
     FORBIDDEN_REFUSALS,
     KEEPS_QUEUED,
-    applied_block,
+    ForeignPending,
+    GatewaySnapshot,
+    applied_from_snapshot,
     decision_status,
-    external_change,
-    ns_to_iso,
     param_targets,
     propose_args,
     queued_key,
     safe_code,
+    snapshot_of,
+    trusted_applied,
+    unverified_block,
 )
+from crosscut_api.tuning_reconcile import plan
 from crosscut_api.tuning_store import (
     LockedRecord,
     ProposalNotFound,
@@ -71,10 +77,12 @@ from crosscut_api.tuning_store import (
 
 ActorDep = Annotated[ActorContext, Depends(actor_of)]
 IDENTIFIER = r"^[A-Za-z0-9_.:-]+$"
-AUDIT_LIMIT = 1000
+MAX_LIMIT = 200
+DEFAULT_LIMIT = 100
+MAX_RECONCILE = 50
+GET_LOCK_TIMEOUT_S = 2.0
 POLL_S = 0.05
 REFUSAL_STATUSES = (403, 409, 422)
-Snapshot = tuple[list[dict[str, Any]], list[dict[str, Any]]]
 
 
 class HistoryWindow(BaseModel):
@@ -137,8 +145,8 @@ class TuningGateway(Protocol):
     def pending_params(self) -> list[dict[str, Any]]:
         """The queued PID parameter sets, each with its key and proposal_id."""
 
-    def audit(self, limit: int) -> dict[str, Any]:
-        """The newest audit records and the chain flag."""
+    def snapshot(self) -> dict[str, Any]:
+        """Pending sets, applied map, param events and chain flag from one read of state."""
 
     def propose_params(
         self, args: dict[str, Any], actor: ActorContext | None = None
@@ -201,6 +209,14 @@ def _proposal_refused(error: ProposalRefused) -> HTTPException:
     return HTTPException(status_code=422, detail={"code": error.code, "message": error.message})
 
 
+class _Settled(Exception):
+    """The gateway had already applied the set: carries the record stored as applied."""
+
+    def __init__(self, record: Record) -> None:
+        super().__init__("already applied")
+        self.record = record
+
+
 class _Endpoints:
     """Route handlers bound to the collaborators."""
 
@@ -226,12 +242,18 @@ class _Endpoints:
         return Stamp(str(uuid.uuid4()), actor.actor, now)
 
     def _view(self, record: Record) -> Record:
-        """The record merged with its review file."""
-        return merged_view(record, self.store.read_review(record["id"]))
+        """The record merged with its review file (only an applied record has one)."""
+        review = self.store.read_review(record["id"]) if record["status"] == "applied" else None
+        return merged_view(record, review)
 
-    def _change(self, proposal_id: str, mutate: Callable[[Record], Record | None]) -> Record:
+    def _change(
+        self,
+        proposal_id: str,
+        mutate: Callable[[Record], Record | None],
+        timeout_s: float | None = None,
+    ) -> Record:
         """Apply ``mutate`` to the record under its lock; None from it means no change."""
-        with self.store.exclusive(proposal_id) as locked:
+        with self.store.exclusive(proposal_id, timeout_s) as locked:
             new = mutate(locked.record)
             return locked.record if new is None else locked.save(new)
 
@@ -307,7 +329,7 @@ class _Endpoints:
         status = decision_status(decision)
         key = None
         if status == "queued":
-            key = _poll(lambda: queued_key(gateway.pending_params(), record["id"]), self._wait)
+            key = self._wait_for_key(gateway, record)
             status = "queued" if key else "draft"  # no key visible yet: GET reconciles it later
         with _store_errors():
             saved = self._change(
@@ -315,17 +337,52 @@ class _Endpoints:
             )
         return {**self._view(saved), "decision": decision}
 
+    def _wait_for_key(self, gateway: TuningGateway, record: Record) -> str | None:
+        """The key of the set the gateway queued for the record; 409 when the set is not ours."""
+        try:
+            key: str | None = _poll(
+                lambda: queued_key(gateway.pending_params(), record), self._wait
+            )
+        except ForeignPending as error:
+            with _store_errors():
+                self._close(record["id"], "refused:foreign_pending")
+            raise HTTPException(status_code=409, detail="foreign_pending") from error
+        return key
+
     # -- read ------------------------------------------------------------------------------
 
-    def get_proposals(self, loop_id: str | None = None, status: str | None = None) -> list[Record]:
-        """GET /tuning/proposals: records (newest first), filtered by loop and status."""
-        snapshot = self._snapshot()
-        views = [self._view(self._refresh(r, snapshot)) for r in self.store.list_records()]
+    def get_proposals(
+        self,
+        loop_id: str | None = None,
+        status: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[Record]:
+        """GET /tuning/proposals: records (newest first), filtered, one page.
+
+        Reconciles at most MAX_RECONCILE records that really need it (and only when the gateway
+        state is readable); the others show their stored state. Nothing else is written.
+        """
+        records = self.store.list_records()
         if loop_id is not None:
-            views = [v for v in views if v["loop_id"] == loop_id]
+            records = [r for r in records if r["loop_id"] == loop_id]
+        views = [self._view(r) for r in self._reconciled(records)]
         if status is not None:
             views = [v for v in views if _has_status(v["status"], status)]
-        return views
+        return views[offset : offset + limit]
+
+    def _reconciled(self, records: list[Record]) -> list[Record]:
+        """The records, the first MAX_RECONCILE that need it brought in step with the gateway."""
+        snap = self._snapshot()
+        if snap is None:
+            return records
+        budget, out = MAX_RECONCILE, []
+        for record in records:
+            if budget > 0 and plan(record, snap, self._now_ns()) is not None:
+                budget -= 1
+                record = self._refresh(record, snap)
+            out.append(record)
+        return out
 
     def get_proposal(self, proposal_id: str) -> Record:
         """GET /tuning/proposals/{id}: the record merged with its review."""
@@ -333,69 +390,44 @@ class _Endpoints:
             record = self.store.get(proposal_id)
         return self._view(self._refresh(record, self._snapshot()))
 
-    def _snapshot(self) -> Snapshot | None:
-        """(pending parameter sets, audit records) of the gateway, or None when unreadable."""
+    def _snapshot(self) -> GatewaySnapshot | None:
+        """One consistent read of the gateway state, or None when it is down or unreadable."""
         gateway = self.deps.provider()
         if gateway is None:
             return None
         try:
-            return gateway.pending_params(), list(gateway.audit(AUDIT_LIMIT)["records"])
+            return snapshot_of(gateway.snapshot())
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
-    def _refresh(self, record: Record, snapshot: Snapshot | None) -> Record:
-        """Bring a record in step with the gateway: late key, lost queue entry, outside change."""
-        if snapshot is None:
+    def _refresh(self, record: Record, snap: GatewaySnapshot | None) -> Record:
+        """Bring a record in step with the gateway under a short lock; busy = stored state."""
+        if snap is None or plan(record, snap, self._now_ns()) is None:
             return record
         try:
-            return self._change(record["id"], self._reconciler(*snapshot))
+            return self._change(
+                record["id"], lambda r: plan(r, snap, self._now_ns()), GET_LOCK_TIMEOUT_S
+            )
         except (ProposalNotFound, TransitionRefused, StoreBusy):
             return record
 
-    def _reconciler(
-        self, pending: list[dict[str, Any]], audit: list[dict[str, Any]]
-    ) -> Callable[[Record], Record | None]:
-        """The change that reconciles one record with a gateway snapshot (None = nothing)."""
-
-        def mutate(record: Record) -> Record | None:
-            status = record["status"]
-            key = queued_key(pending, record["id"])
-            if status == "draft" and key is not None:
-                return {**record, "status": "queued", "gateway_key": key}
-            if status == "queued" and key is None and self._expired(record):
-                return {**record, "status": "expired"}
-            if status == "applied":
-                return self._flag_external(record, audit)
-            return None
-
-        return mutate
-
-    def _expired(self, record: Record) -> bool:
-        """True when the record's expiry time has passed."""
-        return bool(ns_to_iso(self._now_ns()) >= record["expires_at"])
-
-    @staticmethod
-    def _flag_external(record: Record, audit: list[dict[str, Any]]) -> Record | None:
-        """Set applied.invalid when the audit shows the DCS value changed outside the path."""
-        applied = record["applied"]
-        if applied.get("invalid") or not external_change(audit, record):
-            return None
-        return {**record, "applied": {**applied, "invalid": "param_changed_externally"}}
-
-    # -- approve / reject / rollback -------------------------------------------------------
+    # -- approve ---------------------------------------------------------------------------
 
     def post_approve(self, proposal_id: str, actor: ActorDep) -> Record:
         """POST /tuning/proposals/{id}/approve: a second person approves; the gateway applies."""
         actor.require("gw.approve.tuning")
         gateway = self._gw()
         with _store_errors(), self.store.exclusive(proposal_id) as locked:
+            if locked.record["status"] == "applying":
+                return self._view(self._settle_applying(locked))
             record = locked.record
             self._require_status(record, "queued")
             if record["created_by"] == actor.actor:
                 raise HTTPException(status_code=403, detail="self_approval")
-            self._approve_at_gateway(gateway, locked, actor)
-            applied = self._applied_values(gateway, record, actor)
-            saved = locked.save({**record, "status": "applied", "applied": applied})
+            try:
+                saved = self._approve_and_store(gateway, locked, actor)
+            except _Settled as done:
+                saved = done.record
         return self._view(saved)
 
     @staticmethod
@@ -406,19 +438,62 @@ class _Endpoints:
         if expected == "queued" and not record["gateway_key"]:
             raise HTTPException(status_code=409, detail="no_gateway_key")
 
+    def _settle_applying(self, locked: LockedRecord) -> Record:
+        """Reconcile an applying record with the audit; 409 applying while it is still unknown."""
+        snap = self._snapshot()
+        change = None if snap is None else plan(locked.record, snap, self._now_ns())
+        if change is None:
+            raise HTTPException(status_code=409, detail="applying")
+        return locked.save(change)
+
+    def _approve_and_store(
+        self, gateway: TuningGateway, locked: LockedRecord, actor: ActorContext
+    ) -> Record:
+        """Send approve and store applied (audit values), or applying while the audit lags."""
+        decision = self._approve_at_gateway(gateway, locked, actor)
+        block = self._applied_block(gateway, locked.record, (actor, decision))
+        if block is None:  # accepted, but the ledger does not show it yet: never made up
+            return locked.save({**locked.record, "status": "applying"})
+        return locked.save({**locked.record, "status": "applied", "applied": block})
+
     def _approve_at_gateway(
         self, gateway: TuningGateway, locked: LockedRecord, actor: ActorContext
-    ) -> None:
+    ) -> dict[str, Any]:
         """Send approve for the record's key; map refusals to HTTP and to the record status."""
         try:
             with gateway_errors():
                 decision = gateway.approve(locked.record["gateway_key"], actor=actor)
         except HTTPException as error:
-            if error.status_code == 404:  # the gateway no longer holds the set
-                locked.save({**locked.record, "status": "expired"})
+            if error.status_code == 504:  # the gateway may still apply it: never expired
+                locked.save({**locked.record, "status": "applying"})
+            elif error.status_code == 404:  # the gateway no longer holds the set
+                self._unknown_key(locked)
             raise
         if not decision.get("accepted"):
             self._refused_approve(locked, str(decision.get("reason_code", "refused")))
+        return decision
+
+    def _unknown_key(self, locked: LockedRecord) -> None:
+        """The gateway does not know the key: applied (the ledger says so) or expired, else 503.
+
+        Raises _Settled when the ledger shows the set was applied; stores expired and returns when
+        the settled gateway state shows it was not; 503 when that state cannot be read.
+        """
+        snap: GatewaySnapshot | None = _poll(lambda: self._settled(locked.record), self._wait)
+        if snap is None:
+            raise HTTPException(status_code=503, detail="gateway_state_unreadable")
+        change = plan(locked.record, snap, self._now_ns())
+        if change is not None and change["status"] == "applied":
+            raise _Settled(locked.save(change))
+        locked.save({**locked.record, "status": "expired"})
+
+    def _settled(self, record: Record) -> GatewaySnapshot | None:
+        """A readable snapshot that no longer holds the key as pending, or shows the set applied."""
+        snap = self._snapshot()
+        if snap is None:
+            return None
+        held = any(e.get("key") == record["gateway_key"] for e in snap.pending)
+        return None if held and str(record["id"]) not in snap.applied else snap
 
     @staticmethod
     def _refused_approve(locked: LockedRecord, code: str) -> None:
@@ -430,28 +505,26 @@ class _Endpoints:
             locked.save({**locked.record, "status": status})
         raise HTTPException(status_code=409, detail=code)
 
-    def _applied_values(
-        self, gateway: TuningGateway, record: Record, actor: ActorContext
-    ) -> Record:
-        """The applied block from the gateway audit (item values when the audit lags behind).
+    def _applied_block(
+        self, gateway: TuningGateway, record: Record, accepted: tuple[ActorContext, dict[str, Any]]
+    ) -> Record | None:
+        """The applied block: from the gateway ledger, or the unverified block, or None.
 
-        The gateway answers accepted only after every write was read back within tolerance, so
-        the item values are a sound fallback when state.json has not caught up with the audit.
+        ``applied_unaudited`` (the gateway wrote but could not audit) stores no values at all.
+        None means the ledger does not show the set yet (state.json lags); it stays applying.
         """
+        actor, decision = accepted
+        if decision.get("reason_code") == "applied_unaudited":
+            return unverified_block(record, actor.actor, self._now_ns())
 
         def probe() -> Record | None:
-            return applied_block(gateway.audit(AUDIT_LIMIT)["records"], record, actor.actor)
+            snap = self._snapshot()
+            return None if snap is None else applied_from_snapshot(snap, record, actor.actor)
 
         block: Record | None = _poll(probe, self._wait)
-        if block is not None:
-            return block
-        items = record["items"]
-        return {
-            "from_read": {i["target"]: i["from"] for i in items},
-            "to_read": {i["target"]: i["to"] for i in items},
-            "t": ns_to_iso(self._now_ns()),
-            "approver": actor.actor,
-        }
+        return block
+
+    # -- reject / rollback -----------------------------------------------------------------
 
     def post_reject(self, proposal_id: str, actor: ActorDep) -> Record:
         """POST /tuning/proposals/{id}/reject: discard a draft or queued proposal."""
@@ -460,20 +533,38 @@ class _Endpoints:
             record = locked.record
             if record["status"] not in ("draft", "queued"):
                 raise HTTPException(status_code=409, detail="not_open")
-            if record["gateway_key"]:
-                self._reject_at_gateway(locked, actor)
+            key = record["gateway_key"] or self._held_key(record)
+            if key:
+                self._reject_at_gateway(locked, actor, key)
             saved = locked.save({**record, "status": "rejected"})
         return self._view(saved)
 
-    def _reject_at_gateway(self, locked: LockedRecord, actor: ActorContext) -> None:
+    def _held_key(self, record: Record) -> str | None:
+        """The key of the set the gateway holds for a record with no key (None = holds none).
+
+        503 when the gateway state cannot be read: rejecting locally while the gateway still
+        holds the set would leave a live proposal nobody can see.
+        """
+        snap = self._snapshot()
+        if snap is None:
+            raise HTTPException(status_code=503, detail="gateway_state_unreadable")
+        try:
+            return queued_key(snap.pending, record)
+        except ForeignPending as error:
+            raise HTTPException(status_code=409, detail="foreign_pending") from error
+
+    def _reject_at_gateway(self, locked: LockedRecord, actor: ActorContext, key: str) -> None:
         """Send reject for the key; a key the gateway no longer holds closes the record."""
         gateway = self._gw()
         try:
             with gateway_errors():
-                gateway.reject(locked.record["gateway_key"], actor=actor)
+                gateway.reject(key, actor=actor)
         except HTTPException as error:
             if error.status_code == 404:
-                locked.save({**locked.record, "status": "expired"})
+                try:
+                    self._unknown_key(locked)
+                except _Settled as done:
+                    raise HTTPException(status_code=409, detail="not_open") from done
             raise
 
     def post_rollback(
@@ -485,12 +576,22 @@ class _Endpoints:
         with _store_errors():
             original = self.store.get(proposal_id)
         self._require_status(original, "applied")
+        original = self._fresh_applied(original)
+        if not trusted_applied(original):
+            raise HTTPException(status_code=409, detail="applied_unverified")
         try:
             record = build_rollback(original, self._stamp(actor))
         except ProposalRefused as error:
             raise _proposal_refused(error) from error
         reason = (body or RollbackBody()).reason
         return self._store_and_send(gateway, record, (actor, reason))
+
+    def _fresh_applied(self, record: Record) -> Record:
+        """The record after an outside-change check against the gateway now (503 if unreadable)."""
+        snap = self._snapshot()
+        if snap is None:
+            raise HTTPException(status_code=503, detail="gateway_state_unreadable")
+        return self._refresh(record, snap)
 
 
 def build_tuning_proposal_router(deps: TuningDeps) -> APIRouter:

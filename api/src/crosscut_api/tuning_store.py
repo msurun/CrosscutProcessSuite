@@ -4,8 +4,10 @@
 writes the KPI review to the separate <id>.review.json (schema tuning-review) and never touches
 the record. Every change of a record goes through `ProposalStore.exclusive`: a per-record lock
 (thread lock plus lock file, so several API processes agree) around read, check and atomic
-replace. The status only moves forward (draft -> queued -> applied, or to a terminal state) and a
-terminal state is never overwritten; the content of a record is frozen after creation.
+replace. The status only moves forward (draft -> queued -> applying -> applied, or to a terminal
+state) and a terminal state is never overwritten; the content of a record is frozen after creation.
+``applying`` means approve was sent but the gateway audit has not confirmed the outcome yet: it can
+only become ``applied`` (never expired or rejected, the gateway may have written the values).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from crosscut_runtime.jobs.tuning_review import replace_with_retry
 from crosscut_runtime.store import schemas_dir
 from jsonschema import Draft202012Validator
 
@@ -30,6 +33,7 @@ REVIEW_SUFFIX = ".review.json"
 RECORD_SCHEMA_FILE = "tuning-proposal.schema.json"
 LOCK_TIMEOUT_S = 10.0
 LOCK_STALE_S = 60.0
+LOCK_BREAK_STALE_S = 5.0
 LOCK_POLL_S = 0.01
 READ_ATTEMPTS = 20
 TERMINAL = ("rejected", "expired")
@@ -71,7 +75,9 @@ def transition_allowed(old: str, new: str) -> bool:
     if old == "draft":
         return new in ("queued", *ends) or new.startswith("refused:")
     if old == "queued":
-        return new in ("applied", *ends) or new.startswith("refused:")
+        return new in ("applying", "applied", *ends) or new.startswith("refused:")
+    if old == "applying":
+        return new == "applied"
     return False
 
 
@@ -112,7 +118,7 @@ def _write_atomic(path: Path, document: Record) -> None:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(document, stream, indent=2, ensure_ascii=False)
             stream.write("\n")
-        os.replace(temp_name, path)
+        replace_with_retry(temp_name, path)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(temp_name)
@@ -129,32 +135,83 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _drop_if_stale(lock: Path) -> None:
-    """Remove a lock file older than LOCK_STALE_S (its owner died)."""
-    with contextlib.suppress(OSError):
-        if time.time() - lock.stat().st_mtime > LOCK_STALE_S:
-            lock.unlink()
+def _is_stale(path: Path, limit_s: float) -> bool:
+    """True when the file exists and was last written more than ``limit_s`` seconds ago."""
+    try:
+        return time.time() - path.stat().st_mtime > limit_s
+    except OSError:
+        return False
 
 
 @contextlib.contextmanager
-def _file_lock(lock: Path) -> Iterator[None]:
-    """Hold an exclusive lock file; StoreBusy when it stays taken for LOCK_TIMEOUT_S."""
-    deadline = time.monotonic() + LOCK_TIMEOUT_S
+def _break_mutex(lock: Path) -> Iterator[bool]:
+    """Hold the short-lived mutex that serialises breakers of one lock; False when it is taken."""
+    mutex = lock.with_suffix(".break")
+    try:
+        handle = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except (FileExistsError, PermissionError):
+        if _is_stale(mutex, LOCK_BREAK_STALE_S):  # a breaker died inside its short section
+            with contextlib.suppress(OSError):
+                mutex.unlink()
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        os.close(handle)
+        with contextlib.suppress(OSError):
+            mutex.unlink()
+
+
+def _drop_if_stale(lock: Path) -> None:
+    """Remove a lock file older than LOCK_STALE_S (its owner died).
+
+    Breakers go one at a time through a mutex file and look at the lock again inside it: a waiter
+    that also saw the old lock finds the new owner's fresh lock and leaves it alone. Nobody can
+    create the lock while the stale file exists, so only an owner releasing at that very moment
+    could be confused; the release is token-checked for that case.
+    """
+    if not _is_stale(lock, LOCK_STALE_S):
+        return
+    with _break_mutex(lock) as held:
+        if held and _is_stale(lock, LOCK_STALE_S):
+            with contextlib.suppress(OSError):
+                lock.unlink()
+
+
+def _release(lock: Path, token: str) -> None:
+    """Remove the lock file only while it still carries our owner token."""
+    with contextlib.suppress(OSError):
+        if lock.read_text(encoding="utf-8") == token:
+            lock.unlink()
+
+
+def _take_lock(lock: Path, deadline: float) -> str:
+    """Create the lock file exclusively (content = owner token); StoreBusy after the deadline."""
+    token = uuid.uuid4().hex
     while True:
         try:
             handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: PermissionError while it is deleted
             _drop_if_stale(lock)
             if time.monotonic() > deadline:
                 raise StoreBusy(f"lock {lock.name} is busy") from None
             time.sleep(LOCK_POLL_S)
+            continue
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(token)
+        return token
+
+
+@contextlib.contextmanager
+def _file_lock(lock: Path, timeout_s: float | None = None) -> Iterator[None]:
+    """Hold an exclusive lock file; StoreBusy when it stays taken for the timeout."""
+    wait_s = LOCK_TIMEOUT_S if timeout_s is None else timeout_s
+    token = _take_lock(lock, time.monotonic() + wait_s)
     try:
         yield
     finally:
-        os.close(handle)
-        with contextlib.suppress(OSError):
-            lock.unlink()
+        _release(lock, token)
 
 
 class LockedRecord:
@@ -232,19 +289,25 @@ class ProposalStore:
         return record
 
     @contextlib.contextmanager
-    def exclusive_lock(self, proposal_id: str) -> Iterator[None]:
-        """Hold the thread lock and the lock file of one record."""
+    def exclusive_lock(self, proposal_id: str, timeout_s: float | None = None) -> Iterator[None]:
+        """Hold the thread lock and the lock file of one record (StoreBusy after ``timeout_s``)."""
         lock_file = self.path(proposal_id).with_suffix(".lock")
         with self._guard:
             thread_lock = self._locks.setdefault(proposal_id, threading.Lock())
-        with thread_lock, _file_lock(lock_file):
-            yield
+        wait_s = LOCK_TIMEOUT_S if timeout_s is None else timeout_s
+        if not thread_lock.acquire(timeout=wait_s):
+            raise StoreBusy(f"record {proposal_id} is busy")
+        try:
+            with _file_lock(lock_file, wait_s):
+                yield
+        finally:
+            thread_lock.release()
 
     @contextlib.contextmanager
-    def exclusive(self, proposal_id: str) -> Iterator[LockedRecord]:
+    def exclusive(self, proposal_id: str, timeout_s: float | None = None) -> Iterator[LockedRecord]:
         """Lock a record and yield it; ProposalNotFound when it does not exist."""
         self.dir.mkdir(parents=True, exist_ok=True)
-        with self.exclusive_lock(proposal_id):
+        with self.exclusive_lock(proposal_id, timeout_s):
             yield LockedRecord(self, proposal_id)
 
     def list_records(self) -> list[Record]:
@@ -260,6 +323,13 @@ class ProposalStore:
         return sorted(records, key=lambda r: (r.get("created_at", ""), r["id"]), reverse=True)
 
 
+def _with_review_invalid(applied: Record, review: Record) -> Record:
+    """The applied block, flagged when the review job found an outside change of the DCS value."""
+    if applied.get("invalid") or "param_changed_externally" not in (review.get("reasons") or []):
+        return applied
+    return {**applied, "invalid": "param_changed_externally"}
+
+
 def merged_view(record: Record, review: Record | None) -> Record:
     """The record as the API shows it: status and review derived from the review file.
 
@@ -270,6 +340,7 @@ def merged_view(record: Record, review: Record | None) -> Record:
     if review is not None and record["status"] == "applied":
         view["status"] = review["status"]
         view["review"] = review["review"]
+        view["applied"] = _with_review_invalid(record["applied"], review["review"])
     verdict = (view.get("review") or {}).get("verdict")
     view["rollback_recommended"] = verdict in ROLLBACK_VERDICTS
     return view

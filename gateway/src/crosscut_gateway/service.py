@@ -35,6 +35,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
+from crosscut_gateway.param_ledger import ParamLedger
 from crosscut_gateway.policy import PolicyError, proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
 from crosscut_gateway.service_params import (
@@ -235,6 +236,8 @@ class GatewayService:
             directory.mkdir(parents=True, exist_ok=True)
         self._setup_auth(options)
         self._restore_kill_latch()
+        self._ledger = ParamLedger()
+        self._ledger.update(self._gateway.audit_records())  # rebuilt from the whole audit log
 
     def _restore_kill_latch(self) -> None:
         """Re-engage the kill after a restart while the persisted KILLED latch is present."""
@@ -507,6 +510,7 @@ class GatewayService:
 
     def _get_audit_view(self) -> tuple[list[Any], bool]:
         records = self._gateway.audit_records()
+        self._ledger.update(records)
         return records[-200:], verify_chain(records, self._policy_key())
 
     def _policy_key(self) -> bytes | None:
@@ -530,6 +534,8 @@ class GatewayService:
             "pending": self._get_pending_entries(),
             "pending_params": self._get_pending_params(),
             "audit_tail": audit_tail,
+            "applied_params": self._ledger.applied,
+            "param_events": list(self._ledger.events),
             "chain_ok": chain_ok,
             "auth": self._auth_status(),
             "roles_digest": self._roles_digest,

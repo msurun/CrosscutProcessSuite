@@ -9,6 +9,12 @@ which owns the record. The files are the single source of truth: the job keeps n
 them, so a restart changes nothing. The API derives "reviewing" / "reviewed:<verdict>" from the
 review file.
 
+Before any verdict the job also reads the gateway's param events (<root>/_gateway/state.json,
+``param_events``): a DCS value of the proposal changed outside the write path afterwards makes the
+verdict insufficient_data (param_changed_externally), whether or not the API has flagged the
+record yet. A record whose applied block is not backed by the audit (``applied.invalid``) ends as
+insufficient_data / applied_unverified.
+
 Mode convention: the site loop document carries only the mode TAG, no code mapping, so a mode
 sample counts as closed loop (AUTO or CAS) when it is nonzero and as open loop (MAN) when it is 0,
 which matches the simulator codes MAN=0, AUTO=1, CAS=2.
@@ -45,6 +51,15 @@ REVIEW_VERSION = 1
 MIN_CYCLE_S = 60.0
 OPEN_STATUSES = ("applied", "reviewing")
 EXTERNAL_CHANGE_REASON = "param_changed_externally"
+UNVERIFIED_REASON = "applied_unverified"
+EVENT_WRITE = "param_write"
+EVENT_EXTERNAL = "param_changed_externally"
+NS_PER_S = 1_000_000_000
+GATEWAY_STATE_PARTS = ("_gateway", "state.json")
+STATE_READ_ATTEMPTS = 5
+# os.replace is retried this often (a reader on Windows may hold the target for a moment).
+REPLACE_ATTEMPTS = 40
+REPLACE_DELAY_S = 0.025
 # A before-value with an absolute size below this (signal units) counts as zero in a ratio.
 ZERO_EPS = 1e-12
 
@@ -186,6 +201,62 @@ def _timing(record: dict[str, Any]) -> Timing:
     return Timing(before, after, max(theta + tau, MIN_CYCLE_S))
 
 
+def replace_with_retry(source: Path | str, target: Path | str) -> None:
+    """os.replace, retried with a short backoff while Windows refuses it (PermissionError)."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_DELAY_S)
+
+
+def _superseded(events: list[dict[str, Any]], tag: str, span: tuple[int, int]) -> bool:
+    """True when a param_write on ``tag`` falls strictly between the two instants."""
+    low, high = span
+    return any(
+        e.get("event") == EVENT_WRITE and e.get("tag") == tag and low < int(e["t_ns"]) < high
+        for e in events
+    )
+
+
+def external_change(events: list[dict[str, Any]], record: dict[str, Any]) -> bool:
+    """True when the param events show a target of an applied record changed at the DCS later.
+
+    The event must follow the apply and no later write of the same target by another set may lie
+    between them (that write is the newer baseline).
+    """
+    own = str(record["gateway_key"])
+    others = [e for e in events if e.get("key") != own]
+    applied_ns = int(utc_to_epoch(record["applied"]["t"])) * NS_PER_S
+    targets = {item["target"] for item in record["items"]}
+    for event in events:
+        tag = str(event.get("tag"))
+        if event.get("event") != EVENT_EXTERNAL or tag not in targets:
+            continue
+        when = int(event["t_ns"])
+        if when >= applied_ns and not _superseded(others, tag, (applied_ns, when)):
+            return True
+    return False
+
+
+def gateway_param_events(root: Path) -> list[dict[str, Any]] | None:
+    """The param_events of the gateway state; [] without a gateway, None when unreadable."""
+    path = root.joinpath(*GATEWAY_STATE_PARTS)
+    for attempt in range(STATE_READ_ATTEMPTS):
+        try:
+            events = json.loads(path.read_text(encoding="utf-8")).get("param_events", [])
+        except FileNotFoundError:
+            return []
+        except (OSError, ValueError, AttributeError):
+            time.sleep(REPLACE_DELAY_S * (attempt + 1))
+            continue
+        return events if isinstance(events, list) else None
+    return None
+
+
 def _write_atomic(path: Path, document: dict[str, Any]) -> None:
     """Replace a JSON file atomically (temp file in the same folder, then os.replace)."""
     handle, temp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
@@ -193,7 +264,7 @@ def _write_atomic(path: Path, document: dict[str, Any]) -> None:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(document, stream, indent=2, ensure_ascii=False)
             stream.write("\n")
-        os.replace(temp_name, path)
+        replace_with_retry(temp_name, path)
     except Exception:
         os.unlink(temp_name)
         raise
@@ -308,10 +379,11 @@ class TuningReviewJob:
     ) -> Evaluation | None:
         """Decide what the record gets now; None means keep waiting (nothing to write)."""
         now_s = self._clock()
-        applied = record["applied"] or {}
-        if applied.get("invalid"):
-            review = _review_block("insufficient_data", [EXTERNAL_CHANGE_REASON], now_s)
-            return Evaluation(review, True)
+        invalid = self._invalid_reason(record)
+        if invalid == "":
+            return None  # the gateway state is unreadable: wait, do not guess
+        if invalid:
+            return Evaluation(_review_block("insufficient_data", [invalid], now_s), True)
         tags = loop_tags(loop_doc)
         if tags is None:
             review = _review_block("insufficient_data", ["loop_tags_missing"], now_s)
@@ -320,6 +392,17 @@ class TuningReviewJob:
         if now_s >= timing.after[1]:
             return self._final(record, tags, timing, now_s)
         return self._early(record, tags, timing, now_s)
+
+    def _invalid_reason(self, record: dict[str, Any]) -> str | None:
+        """Why the record cannot be reviewed (a reason code), None when it can, "" if unknown."""
+        flag = (record["applied"] or {}).get("invalid")
+        if flag:
+            external = flag is True or flag == EXTERNAL_CHANGE_REASON
+            return EXTERNAL_CHANGE_REASON if external else UNVERIFIED_REASON
+        events = gateway_param_events(self._root)
+        if events is None:
+            return ""
+        return EXTERNAL_CHANGE_REASON if external_change(events, record) else None
 
     def _final(
         self, record: dict[str, Any], tags: LoopTags, timing: Timing, now_s: float

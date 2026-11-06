@@ -52,7 +52,8 @@ BODY: dict[str, Any] = {
 
 def site_document() -> dict[str, Any]:
     """A site with source ``dcs``, the loop FIC-101 and the PV tag with its range."""
-    tags = [{"id": t} for t in ("FIC101.PV", "FIC101.SP", "FIC101.OUT", "FIC101.MODE")]
+    names = ("FIC101.PV", "FIC101.SP", "FIC101.OUT", "FIC101.MODE", KP, TI)
+    tags = [{"id": t} for t in names]
     tags[0]["eng_limits"] = {"min": 0.0, "max": 200.0}
     loop = {"id": LOOP, "pv": "FIC101.PV", "sp": "FIC101.SP", "out": "FIC101.OUT",
             "mode": "FIC101.MODE", "vendor": "siemens_pid_compact"}  # fmt: skip
@@ -111,6 +112,11 @@ class FakeGateway:
         self.refuse_propose: str | None = None
         self.refuse_approve: str | None = None
         self.sent: list[dict[str, Any]] = []
+        self.chain_ok = True
+        self.state_down = False  # state.json unreadable: snapshot() raises
+        self.hide_applied = False  # state.json lags behind the audit: no applied_params yet
+        self.timeout_after_apply = False  # the set is applied, but the reply never arrives
+        self.unaudited = False  # the set is applied, the audit sink failed
 
     def live_policy(self) -> dict[str, Any] | None:
         """The pinned live policy with the two parameter targets."""
@@ -118,12 +124,33 @@ class FakeGateway:
 
     def pending_params(self) -> list[dict[str, Any]]:
         """Summaries of the queued sets, like state.json pending_params."""
-        return [{"key": k, "kind": "pid_param", "proposal_id": e["args"]["proposal_id"]}
-                for k, e in self.pending.items()]  # fmt: skip
+        return [{"key": k, "kind": "pid_param", "proposal_id": e["args"]["proposal_id"],
+                 "loop_id": e["args"]["loop_id"], "proposer": e["proposer"],
+                 "items": e["args"]["items"]} for k, e in self.pending.items()]  # fmt: skip
 
     def audit(self, limit: int) -> dict[str, Any]:
         """The newest audit records."""
-        return {"records": list(self.audit_log)[-limit:], "chain_ok": True}
+        return {"records": list(self.audit_log)[-limit:], "chain_ok": self.chain_ok}
+
+    def snapshot(self) -> dict[str, Any]:
+        """One consistent read like state.json: pending sets, applied map, param events."""
+        if self.state_down:
+            raise OSError("state.json unreadable")
+        applied: dict[str, Any] = {}
+        for row in ([] if self.hide_applied else self.audit_log):
+            if row["event"] != "param_write":
+                continue
+            entry = applied.setdefault(row["proposal_id"], {
+                "key": row["key"], "applied_from": {}, "applied_to": {}, "t_ns": 0,
+                "approver": row["actor"], "status": "applied"})  # fmt: skip
+            entry["applied_from"][row["tag"]] = float(row["applied_from"])
+            entry["applied_to"][row["tag"]] = float(row["applied_to"])
+            entry["t_ns"] = max(entry["t_ns"], int(row["t_ns"]))
+        events = [
+            {**r, "target": r["tag"]} for r in self.audit_log if r["event"].startswith("param_")
+        ]
+        return {"pending_params": self.pending_params(), "applied_params": applied,
+                "param_events": events[-200:], "chain_ok": self.chain_ok}  # fmt: skip
 
     def propose_params(
         self, args: dict[str, Any], actor: ActorContext | None = None
@@ -152,20 +179,27 @@ class FakeGateway:
                 return {"accepted": False, "reason_code": "self_approval"}
             time.sleep(self.apply_delay_s)
             del self.pending[key]
-            return self._apply(key, entry["args"])
+            result = self._apply(key, entry["args"], actor.actor)
+        if self.timeout_after_apply and result["accepted"]:
+            raise TimeoutError("gateway did not answer")
+        return result
 
-    def _apply(self, key: str, args: dict[str, Any]) -> dict[str, Any]:
+    def _apply(self, key: str, args: dict[str, Any], approver: str) -> dict[str, Any]:
         """Write the items when the plant still holds every ``from`` value (else from_mismatch)."""
         items = args["items"]
         if self.refuse_approve or any(self.values[i["target"]] != i["from"] for i in items):
             return {"accepted": False, "reason_code": self.refuse_approve or "from_mismatch"}
         for item in items:
-            self.audit_log.append(self._write_record(key, item))
+            if not self.unaudited:
+                self.audit_log.append(self._write_record(key, item, args["proposal_id"], approver))
             self.values[item["target"]] = item["to"]
         self.apply_count += 1
-        return {"accepted": True, "reason_code": "applied", "clamped_value": None}
+        reason = "applied_unaudited" if self.unaudited else "applied"
+        return {"accepted": True, "reason_code": reason, "clamped_value": None}
 
-    def _write_record(self, key: str, item: dict[str, Any]) -> dict[str, str]:
+    def _write_record(
+        self, key: str, item: dict[str, Any], proposal_id: str, approver: str
+    ) -> dict[str, str]:
         """An audit record of event param_write, as the real gateway writes it."""
         return {
             "seq": str(len(self.audit_log)),
@@ -173,6 +207,8 @@ class FakeGateway:
             "event": "param_write",
             "tag": item["target"],
             "key": key,
+            "proposal_id": proposal_id,
+            "actor": approver,
             "applied_from": str(item["from"]),
             "applied_to": str(item["to"]),
         }

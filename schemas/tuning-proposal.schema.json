@@ -347,8 +347,8 @@
     },
     "status": {
       "type": "string",
-      "pattern": "^(draft|queued|applied|rejected|expired|reviewing|refused:[a-z_]+|reviewed:[a-z_]+)$",
-      "description": "draft, queued, applied, rejected, expired, refused:<code>, reviewing, reviewed:<verdict>."
+      "pattern": "^(draft|queued|applying|applied|rejected|expired|reviewing|refused:[a-z_]+|reviewed:[a-z_]+)$",
+      "description": "draft, queued, applying (approve sent, outcome not yet confirmed by the gateway audit; never expired), applied, rejected, expired, refused:<code>, reviewing, reviewed:<verdict>."
     },
     "gateway_key": {
       "oneOf": [
@@ -379,14 +379,20 @@
             "from_read": {
               "type": "object",
               "additionalProperties": {
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
-              "description": "Values read before the write, by target, in item units."
+              "description": "Values read before the write, by target, in item units; null when the audit could not confirm them (invalid is then set)."
             },
             "to_read": {
               "type": "object",
               "additionalProperties": {
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "description": "Values read back after the write, by target, in item units."
             },
@@ -398,12 +404,23 @@
               "minLength": 1,
               "maxLength": 128
             },
+            "source": {
+              "enum": [
+                "audit",
+                "gateway_reply"
+              ],
+              "description": "Where the values come from: the gateway audit (applied_params of state.json), or only the gateway reply (applied_unaudited: no values, invalid is audit_unverified)."
+            },
+            "chain_ok": {
+              "type": "boolean",
+              "description": "True when the audit hash chain verified when the values were taken from it. A rollback is built only from source audit with chain_ok true."
+            },
             "invalid": {
               "type": [
                 "boolean",
                 "string"
               ],
-              "description": "Set by the API when the DCS value was changed outside the write path (gateway audit param_changed_externally); true or a reason text. The KPI review then ends as insufficient_data."
+              "description": "Set when the applied values cannot be trusted: param_changed_externally (the DCS value was changed outside the write path), audit_unverified (the gateway applied but could not audit), audit_chain_broken. The KPI review then ends as insufficient_data and a rollback is refused."
             }
           }
         }

@@ -221,6 +221,24 @@ class FileGatewayClient:
         pending = self._read_state().get("pending_params", [])
         return pending if isinstance(pending, list) else []
 
+    def snapshot(self) -> dict[str, Any]:
+        """Return pending parameter sets, applied map, param events and chain flag in one read.
+
+        All four come from one parse of state.json, so a set that left ``pending_params`` is
+        already in ``applied_params`` of the same snapshot. ``applied_params`` and
+        ``param_events`` are the gateway's bounded persistent ledger (not the 200-row audit
+        tail); ``chain_ok`` is True only for a literal true.
+        """
+        state = self._read_state()
+        pending, applied = state.get("pending_params"), state.get("applied_params")
+        events = state.get("param_events")
+        return {
+            "pending_params": pending if isinstance(pending, list) else [],
+            "applied_params": applied if isinstance(applied, dict) else {},
+            "param_events": events if isinstance(events, list) else [],
+            "chain_ok": state.get("chain_ok") is True,
+        }
+
     def draft_policy(self) -> dict[str, Any] | None:
         """Return the saved draft record (document, author, saved_at), or None without one.
 
