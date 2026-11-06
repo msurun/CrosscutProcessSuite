@@ -6,6 +6,7 @@ Imported by sibling test modules as ``from auth_support import ...``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 START_TIME = 1_800_000_000.0
+
+
+def write_key_file(path: Path, key: bytes) -> Path:
+    """Write key to path with owner-only mode, as the gateway refuses loose key files on POSIX."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(key)
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+    return path
+
+
 TEST_CONFIG = AuthConfig(scrypt=ScryptParams(n=1024))
 PASSWORD = "correct horse 1"
 DEFAULT_USERS: dict[str, list[str]] = {

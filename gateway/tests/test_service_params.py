@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from auth_helpers import KEY, AuthEnv, audit_events, outbox, rejected_reason, send
+from auth_helpers import (
+    KEY,
+    AuthEnv,
+    audit_events,
+    outbox,
+    rejected_reason,
+    send,
+    write_key_file,
+)
 from crosscut_gateway import engine, keyfile
 from crosscut_gateway import service as gateway_service
 from crosscut_gateway.engine_params import ParamConfig
@@ -26,8 +34,7 @@ def make_param_env(tmp_path: Path, mode: str = "confirm") -> AuthEnv:
     """A signed-auth service on a gateway with setpoint and PID parameter targets."""
     clock, plant = FakeClock(), ParamPlant()
     key_path = tmp_path / "_secrets" / keyfile.KEY_FILE_NAME
-    key_path.parent.mkdir(parents=True)
-    key_path.write_bytes(KEY)
+    write_key_file(key_path, KEY)
     gateway = engine.WriteGateway(
         plant, {TAG: POLICY}, mode, params=ParamConfig(dict(PARAMS))  # type: ignore[arg-type]
     )

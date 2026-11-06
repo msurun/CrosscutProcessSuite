@@ -16,6 +16,8 @@ from crosscut_gateway.auth_gate import AuthGate
 from crosscut_gateway.envelope import NonceCache, sign_envelope
 
 KEY = bytes(range(1, 33))
+# Deeper than the JSON encoder recursion limit on every platform and Python version.
+DEEP_NESTING = 200_000
 NS_PER_S = 1_000_000_000
 START_S = 1_700_000_000.0
 NOW_NS = 1_700_000_000 * NS_PER_S
@@ -186,7 +188,7 @@ def test_recursion_in_envelope_is_malformed_and_unverified() -> None:
     """An envelope too deeply nested to canonicalise is refused as malformed and unverified."""
     deep: dict[str, Any] = {}
     cursor = deep
-    for _ in range(3000):
+    for _ in range(DEEP_NESTING):
         nxt: dict[str, Any] = {}
         cursor["k"] = nxt
         cursor = nxt

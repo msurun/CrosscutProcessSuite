@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from auth_support import write_key_file
 from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.gateway_client import FileGatewayClient, StepUpRequired, _error_for
 from crosscut_api.gateway_routes import build_gateway_router, policy_digest
@@ -90,8 +91,7 @@ def _start(root: Path, *, with_policy: bool) -> tuple[Live, threading.Event, thr
     """Start the gateway thread on root and build the API over it."""
     key = os.urandom(32)
     key_file = root / "_secrets" / "gateway-hmac.key"
-    key_file.parent.mkdir(parents=True, exist_ok=True)
-    key_file.write_bytes(key)
+    write_key_file(key_file, key)
     policy_path = _write_pinned_policy(root, key) if with_policy else None
     options = ServiceOptions(auth_required=True, key_path=key_file, policy_path=policy_path)
     service = GatewayService(

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from auth_support import write_key_file
 from crosscut_api.auth.actor import ActorContext
 from crosscut_api.auth.signing import (
     Signer,
@@ -59,8 +60,7 @@ def key() -> bytes:
 
 def _write_key(folder: Path, key_bytes: bytes) -> None:
     """Write key_bytes to the gateway key file inside folder."""
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / KEY_FILE).write_bytes(key_bytes)
+    write_key_file(folder / KEY_FILE, key_bytes)
 
 
 def _client(root: Path) -> FileGatewayClient:

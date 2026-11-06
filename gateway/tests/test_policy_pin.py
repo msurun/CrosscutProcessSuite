@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from auth_helpers import write_key_file
 from crosscut_gateway import engine, keyfile, policy, policy_file, policy_pin
 from test_gateway_scenarios import POLICY, TAG, SimPlant
 
@@ -141,5 +142,5 @@ def test_keyfile_logic(tmp_path: Path, monkeypatch: Any) -> None:
     assert keyfile.read_key(key_path) is None
     key_path.write_bytes(b"too short")
     assert keyfile.read_key(key_path) is None
-    key_path.write_bytes(KEY)
+    write_key_file(key_path, KEY)
     assert keyfile.read_key(key_path) == KEY

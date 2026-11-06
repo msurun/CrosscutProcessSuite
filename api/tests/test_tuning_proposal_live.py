@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from auth_support import write_key_file
 from crosscut_api.gateway_client import FileGatewayClient
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.engine_params import ParamConfig
@@ -123,8 +124,7 @@ def live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Live]:
     monkeypatch.delenv("CROSSCUT_SECRETS_DIR", raising=False)
     patch_report(monkeypatch)
     key_file = tmp_path / "_secrets" / "gateway-hmac.key"
-    key_file.parent.mkdir(parents=True)
-    key_file.write_bytes(os.urandom(32))
+    write_key_file(key_file, os.urandom(32))
     plant = ParamPlant()
     policies = {
         KP: param_policy("gain", "OUT/PV", (0.1, 10.0)),

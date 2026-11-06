@@ -50,3 +50,12 @@ def test_loose_key_file_is_refused(tmp_path: Path, mode: int) -> None:
     path.chmod(mode)
     assert keyfile.read_key(path) is None
     assert keyfile.key_acl_status(path) == "insecure"
+
+
+def test_write_key_file_helper_yields_an_accepted_key(tmp_path: Path) -> None:
+    """The shared test helper must always produce a key file the gateway accepts."""
+    from auth_helpers import write_key_file
+
+    path = write_key_file(tmp_path / "_secrets" / "gateway-hmac.key", KEY)
+    assert keyfile.read_key(path) == KEY
+    assert keyfile.key_permission_problem(path) is None

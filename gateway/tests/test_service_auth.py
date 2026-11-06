@@ -22,6 +22,7 @@ from auth_helpers import (
     rejected_reason,
     send,
     signed,
+    write_key_file,
 )
 
 FORGED_KEY = b"\xff" * 32
@@ -422,8 +423,7 @@ def test_short_key_is_treated_as_missing(tmp_path: Path) -> None:
 def test_key_appears_later_is_loaded(tmp_path: Path) -> None:
     """Writing the key after startup flips auth to ok and lets a signed propose through."""
     env = make_env(tmp_path, key=None)
-    env.key_path.parent.mkdir(parents=True, exist_ok=True)
-    env.key_path.write_bytes(KEY)
+    write_key_file(env.key_path, KEY)
     env.service.poll_once()
     envelope = send(env, "propose", propose_args(env), roles=("engineer",))
     assert _state(env)["auth"] == "ok"

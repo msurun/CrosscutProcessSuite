@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from auth_support import write_key_file
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_gateway.engine import WriteGateway
@@ -144,7 +145,7 @@ def _install_signing_key(root: Path) -> Path:
     """Write a random 32-byte HMAC key under root/_secrets and return its path."""
     key_file = root / "_secrets" / "gateway-hmac.key"
     key_file.parent.mkdir(parents=True, exist_ok=True)
-    key_file.write_bytes(os.urandom(32))
+    write_key_file(key_file, os.urandom(32))
     return key_file
 
 

@@ -6,6 +6,7 @@ Provides helpers to build test environments, sign envelopes, and inspect results
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,6 +21,15 @@ from test_gateway_service import FakeClock
 Mode = Literal["off", "advisory", "dry_run", "confirm", "supervised"]
 
 KEY: bytes = bytes(range(1, 33))
+
+
+def write_key_file(path: Path, key: bytes) -> Path:
+    """Write key to path with owner-only mode, as the gateway refuses loose key files on POSIX."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(key)
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+    return path
 
 
 @dataclass
@@ -59,8 +69,7 @@ def make_env(
     plant = SimPlant()
     key_path = tmp_path / "_secrets" / keyfile.KEY_FILE_NAME
     if key is not None:
-        key_path.parent.mkdir(parents=True, exist_ok=True)
-        key_path.write_bytes(key)
+        write_key_file(key_path, key)
     policy_path = None
     if pinned_policy:
         policy_path = tmp_path / "policy" / "write-policy.json"

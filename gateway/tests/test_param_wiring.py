@@ -14,7 +14,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from auth_helpers import KEY, AuthEnv, SignOpts, audit_events, outbox, rejected_reason, send
+from auth_helpers import (
+    KEY,
+    AuthEnv,
+    SignOpts,
+    audit_events,
+    outbox,
+    rejected_reason,
+    send,
+    write_key_file,
+)
 from crosscut_gateway import engine, keyfile, policy_file, policy_pin
 from crosscut_gateway import service as gateway_service
 from crosscut_gateway.opcua_plant import OpcUaPlant
@@ -99,8 +108,7 @@ def rig(tmp_path: Path, server: ServerControl) -> Iterator[Rig]:
     policy_path = write_policy(tmp_path, policy_document(), clock)
     gateway = engine.start_from_policy_file(policy_path, plant, "confirm", key=KEY)
     key_path = tmp_path / "_secrets" / keyfile.KEY_FILE_NAME
-    key_path.parent.mkdir(parents=True)
-    key_path.write_bytes(KEY)
+    write_key_file(key_path, KEY)
     options = gateway_service.ServiceOptions(
         auth_required=True, key_path=key_path, policy_path=policy_path, enforce_start_floor=False
     )
