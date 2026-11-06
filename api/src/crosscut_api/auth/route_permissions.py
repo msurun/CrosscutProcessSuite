@@ -29,7 +29,7 @@ Requirement = str | AnyOf
 
 # Public routes that bypass permission checks entirely.
 PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/auth/login"), ("GET", "/health")}
+    {("POST", "/auth/login"), ("GET", "/auth/config"), ("GET", "/health")}
 )
 
 # Mapping from (HTTP method, path) to the required permission.

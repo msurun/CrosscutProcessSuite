@@ -40,7 +40,7 @@ describe("fetchTags", () => {
 
     await fetchTags("ds-1");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/datasets/ds-1/tags");
+    expect(fetchMock).toHaveBeenCalledWith("/api/datasets/ds-1/tags", { credentials: "same-origin" });
   });
 });
 
@@ -51,7 +51,7 @@ describe("fetchSeries", () => {
     await fetchSeries("ds-1", ["a/b", "c d"]);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/datasets/ds-1/series?tag=a%2Fb&tag=c+d",
+      "/api/datasets/ds-1/series?tag=a%2Fb&tag=c+d", { credentials: "same-origin" }
     );
   });
 
@@ -60,7 +60,7 @@ describe("fetchSeries", () => {
 
     await fetchSeries("ds-1", ["a"]);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/datasets/ds-1/series?tag=a");
+    expect(fetchMock).toHaveBeenCalledWith("/api/datasets/ds-1/series?tag=a", { credentials: "same-origin" });
   });
 
   it("includes start, end and max_points when given", async () => {
@@ -69,7 +69,7 @@ describe("fetchSeries", () => {
     await fetchSeries("ds-1", ["a"], { startNs: 10, endNs: 20, maxPoints: 5 });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/datasets/ds-1/series?tag=a&start=10&end=20&max_points=5",
+      "/api/datasets/ds-1/series?tag=a&start=10&end=20&max_points=5", { credentials: "same-origin" }
     );
   });
 

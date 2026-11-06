@@ -59,7 +59,7 @@ function UserActionButtons({ user, isSelf, onEditRoles, onToggleDisabled, onRese
         <button type="button" onClick={() => onResetPassword(user)} data-testid={`reset-pwd-${name}`}>{t("auth.users.resetPassword")}</button>
       </SelfGuarded>
       <SelfGuarded isSelf={isSelf} reason={t("auth.users.cannotDeleteSelf")} t={t}>
-        <button type="button" onClick={() => onDelete(user)} data-testid={`delete-${name}`} style={{ color: "#d32f2f" }}>{t("auth.users.delete")}</button>
+        <button type="button" onClick={() => onDelete(user)} data-testid={`delete-${name}`} style={{ color: "var(--status-problem)" }}>{t("auth.users.delete")}</button>
       </SelfGuarded>
     </div>
   );

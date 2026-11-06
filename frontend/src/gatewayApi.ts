@@ -5,6 +5,8 @@
  * target re-enabling, emergency shutdown, and audit log queries.
  */
 
+import { apiFetch } from "./http";
+
 export type GatewayMode = "off" | "advisory" | "dry_run" | "confirm" | "supervised";
 
 export type GatewayTargetState =
@@ -87,7 +89,7 @@ async function readDetail(response: Response): Promise<string> {
 }
 
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (!response.ok) {
     const message = await readDetail(response);
     throw new GatewayApiError(response.status, message);

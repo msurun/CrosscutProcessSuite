@@ -22,6 +22,7 @@ const listeners = vi.hoisted(() => ({
 }));
 const api = vi.hoisted(() => ({
   fetchMe: vi.fn(),
+  fetchAuthConfig: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
   stepUp: vi.fn(),
@@ -85,8 +86,41 @@ function canOf(p: string): { allowed: boolean; reason: string; requiredRole?: st
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.fetchAuthConfig.mockRejectedValue(new ApiError(500, "no config"));
   listeners.unauthorized.clear();
   listeners.passwordChange.clear();
+});
+
+describe("status from /auth/config", () => {
+  it("auth off -> disabled, every permission allowed", async () => {
+    api.fetchMe.mockRejectedValue(new ApiError(401, "unauthorized"));
+    api.fetchAuthConfig.mockResolvedValue({ auth_enabled: false, initialised: false });
+    renderAuth(["users.manage", "gw.mode.up.supervised"]);
+    await waitFor(() => expect(current.status).toBe("disabled"));
+    expect(canOf("users.manage").allowed).toBe(true);
+    expect(canOf("gw.mode.up.supervised").allowed).toBe(true);
+  });
+
+  it("auth on but no users file -> uninitialised", async () => {
+    api.fetchMe.mockRejectedValue(new ApiError(401, "unauthorized"));
+    api.fetchAuthConfig.mockResolvedValue({ auth_enabled: true, initialised: false });
+    renderAuth();
+    await waitFor(() => expect(current.status).toBe("uninitialised"));
+  });
+
+  it("auth on and initialised -> anonymous", async () => {
+    api.fetchMe.mockRejectedValue(new ApiError(401, "unauthorized"));
+    api.fetchAuthConfig.mockResolvedValue({ auth_enabled: true, initialised: true });
+    renderAuth();
+    await waitFor(() => expect(current.status).toBe("anonymous"));
+  });
+
+  it("auth off never calls /auth/me", async () => {
+    api.fetchAuthConfig.mockResolvedValue({ auth_enabled: false, initialised: false });
+    renderAuth();
+    await waitFor(() => expect(current.status).toBe("disabled"));
+    expect(api.fetchMe).not.toHaveBeenCalled();
+  });
 });
 
 describe("status from /auth/me", () => {

@@ -4,6 +4,7 @@
  * All timestamps are UTC nanoseconds. Numbers may be null when a bucket has no samples.
  */
 
+import { apiFetch } from "./http";
 import type { FuzzyDocument } from "./fuzzy";
 import type { JsonDocument, SchemaObject } from "./schemaFormModel";
 
@@ -113,7 +114,7 @@ function isRecordWithStringDetail(value: unknown): value is Record<'detail', str
  * @throws {ApiError} When the response status is not ok, with the server `detail` as message.
  */
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     throw new ApiError(response.status, await readErrorMessage(response));
   }
@@ -464,7 +465,7 @@ export interface FuzzyReplay {
 }
 
 async function sendJson<T>(method: string, url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -1595,7 +1596,7 @@ export async function patchRuntimeJob(jobId: string, patch: Partial<RuntimeJob>)
 
 /** Remove a job by id. @throws {ApiError} 404 when it does not exist. */
 export async function deleteRuntimeJob(jobId: string): Promise<RuntimeJobsDocument> {
-  const response = await fetch(runtimeJobUrl(jobId), { method: "DELETE" });
+  const response = await apiFetch(runtimeJobUrl(jobId), { method: "DELETE" });
   if (!response.ok) {
     throw new ApiError(response.status, await readErrorMessage(response));
   }

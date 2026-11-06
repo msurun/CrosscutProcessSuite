@@ -2,8 +2,10 @@
 // API and Vite on free ports, then the OPC UA test server (wood_berry) and the crosscut_runtime service
 // on that root, runs `playwright test` (extra CLI args are passed on) and always stops the servers.
 // Only the temp directory is created and removed. Windows and Linux.
+// E2E_AUTH=1 starts the API with authentication ON after creating a first admin with the auth CLI
+// (E2E_ADMIN_USER / E2E_ADMIN_PASSWORD are passed to the specs); by default auth is off.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,9 +14,16 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const frontend = resolve(here, "../..");
 const repo = resolve(frontend, "..");
-// The e2e suite runs with auth disabled (specs do not log in); a separate auth spec will enable it.
-const API_CODE = "import sys,uvicorn;from pathlib import Path;from crosscut_api.app import create_app;" +
-  "uvicorn.run(create_app(Path(sys.argv[1]),auth_enabled=False),host='127.0.0.1',port=int(sys.argv[2]),log_level='warning')";
+// The e2e suite runs with auth disabled (specs do not log in); E2E_AUTH=1 turns it on for auth.spec.ts.
+const AUTH_ON = process.env.E2E_AUTH === "1";
+const ADMIN_USER = "e2e-admin";
+const ADMIN_PASSWORD = "e2e-admin-correct-horse-1";
+const API_HEAD = "import sys,uvicorn;from pathlib import Path;from crosscut_api.app import create_app;" +
+  "from crosscut_api.auth.sessions import AuthConfig;from crosscut_api.auth.passwords import ScryptParams;";
+const API_RUN = "host='127.0.0.1',port=int(sys.argv[2]),log_level='warning')";
+const API_CODE = API_HEAD + (AUTH_ON
+  ? "uvicorn.run(create_app(Path(sys.argv[1]),auth_config=AuthConfig(scrypt=ScryptParams(n=1024))),"
+  : "uvicorn.run(create_app(Path(sys.argv[1]),auth_enabled=False),") + API_RUN;
 
 /** The interpreter: E2E_PYTHON, else the repo venv, else `python`. */
 function findPython() {
@@ -92,6 +101,17 @@ async function startBackground(python, root, children) {
   return `opc.tcp://127.0.0.1:${opcuaPort}`;
 }
 
+/** Creates the first admin with `python -m crosscut_api.auth_cli init` (cheap scrypt cost). */
+function initAdmin(python, root) {
+  const passwordFile = join(dirname(root), "admin-password.txt");
+  writeFileSync(passwordFile, `${ADMIN_PASSWORD}
+`);
+  const env = { ...process.env, CROSSCUT_AUTH_SCRYPT_N: "1024" };
+  const args = ["-m", "crosscut_api.auth_cli", "init", "--root", root, "--username", ADMIN_USER, "--password-file", passwordFile];
+  const done = spawnSync(python, args, { env, stdio: "inherit" });
+  if (done.status !== 0) throw new Error("auth_cli init failed");
+}
+
 async function main() {
   const python = findPython();
   const root = join(mkdtempSync(join(tmpdir(), "crosscut-e2e-")), "data");
@@ -99,6 +119,7 @@ async function main() {
   try {
     const made = spawnSync(python, [join(here, "make_e2e_root.py"), root], { stdio: "inherit" });
     if (made.status !== 0) throw new Error("make_e2e_root.py failed");
+    if (AUTH_ON) initAdmin(python, root);
     const [apiPort, uiPort] = [await freePort(), await freePort()];
     const api = spawn(python, ["-c", API_CODE, root, String(apiPort)], { stdio: "inherit" });
     children.push(api);
@@ -111,6 +132,7 @@ async function main() {
     const opcuaEndpoint = await startBackground(python, root, children);
     const pw = join(frontend, "node_modules/@playwright/test/cli.js");
     const testEnv = { ...process.env, E2E_BASE_URL: base, E2E_DATA_ROOT: root, E2E_PYTHON: python, E2E_OPCUA_ENDPOINT: opcuaEndpoint };
+    if (AUTH_ON) Object.assign(testEnv, { E2E_AUTH: "1", E2E_ADMIN_USER: ADMIN_USER, E2E_ADMIN_PASSWORD: ADMIN_PASSWORD });
     const run = spawnSync(process.execPath, [pw, "test", ...process.argv.slice(2)], { cwd: frontend, env: testEnv, stdio: "inherit" });
     return run.status ?? 1;
   } finally {

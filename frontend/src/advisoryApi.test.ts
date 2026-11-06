@@ -37,10 +37,10 @@ describe("supervisor config calls", () => {
   it("lists supervisors and reads one config", async () => {
     const list = stubFetch(respond(["a"]));
     expect(await fetchSupervisors()).toEqual(["a"]);
-    expect(list).toHaveBeenCalledWith("/api/supervisors");
+    expect(list).toHaveBeenCalledWith("/api/supervisors", { credentials: "same-origin" });
     const one = stubFetch(respond(EXAMPLE_CONFIG));
     expect(await fetchSupervisorConfig("mill feed")).toEqual(EXAMPLE_CONFIG);
-    expect(one).toHaveBeenCalledWith("/api/supervisors/mill%20feed");
+    expect(one).toHaveBeenCalledWith("/api/supervisors/mill%20feed", { credentials: "same-origin" });
   });
 
   it("puts a config under its own id", async () => {
@@ -79,7 +79,7 @@ describe("advice calls", () => {
   it("reads the log from an index", async () => {
     const mock = stubFetch(respond({ records: [], total: 0, chain: { ok: true, records: 0, first_broken_index: null, reason: "ok" } }));
     await fetchAdvisoryLog("sv", 4);
-    expect(mock).toHaveBeenCalledWith("/api/supervisors/sv/log?since_index=4");
+    expect(mock).toHaveBeenCalledWith("/api/supervisors/sv/log?since_index=4", { credentials: "same-origin" });
   });
 
   it("ack posts the decision fields in the server's names", async () => {

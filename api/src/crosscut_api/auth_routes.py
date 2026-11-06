@@ -111,10 +111,11 @@ def _session_cookie(request: Request) -> dict[str, Any]:
 class _AuthEndpoints:
     """HTTP endpoint handlers for login, logout, session inspection and re-authentication."""
 
-    def __init__(self, ctx: AuthContext, guards: AuthGuards) -> None:
+    def __init__(self, ctx: AuthContext, guards: AuthGuards, enabled: bool = True) -> None:
         """Bind the handlers to the shared auth context and guards."""
         self._ctx = ctx
         self._guards = guards
+        self._enabled = enabled
 
     def login(
         self,
@@ -152,6 +153,13 @@ class _AuthEndpoints:
             sid=principal.session.sid,
         )
         return {"ok": True}
+
+    def config(self) -> dict[str, bool]:
+        """Tell the (unauthenticated) client whether auth is on and the user file exists."""
+        return {
+            "auth_enabled": self._enabled,
+            "initialised": self._ctx.users.initialised(),
+        }
 
     def me(self, request: Request) -> dict[str, Any]:
         """Describe the signed-in caller and its session."""
@@ -318,7 +326,7 @@ class _AuthEndpoints:
         return session_payload(principal, ctx)
 
 
-def build_auth_router_for(ctx: AuthContext) -> APIRouter:
+def build_auth_router_for(ctx: AuthContext, enabled: bool = True) -> APIRouter:
     """Create the ``/auth`` router from an already-built auth context.
 
     Includes the login, logout, session, password and step-up routes plus the
@@ -326,13 +334,15 @@ def build_auth_router_for(ctx: AuthContext) -> APIRouter:
 
     Args:
         ctx: The shared authentication services.
+        enabled: Whether the app enforces authentication (reported by ``/auth/config``).
 
     Returns:
         The configured ``APIRouter``.
     """
     guards = AuthGuards(ctx)
-    endpoints = _AuthEndpoints(ctx, guards)
+    endpoints = _AuthEndpoints(ctx, guards, enabled)
     router = APIRouter(tags=["auth"])
+    router.add_api_route("/auth/config", endpoints.config, methods=["GET"])
     router.add_api_route("/auth/login", endpoints.login, methods=["POST"])
     router.add_api_route("/auth/logout", endpoints.logout, methods=["POST"])
     router.add_api_route("/auth/me", endpoints.me, methods=["GET"])
@@ -347,6 +357,7 @@ def build_auth_router(
     config: AuthConfig = DEFAULT_CONFIG,
     clock: Callable[[], float] = time.time,
     users: UserStore | None = None,
+    enabled: bool = True,
 ) -> APIRouter:
     """Create the ``/auth`` router from a data root, building the auth context first.
 
@@ -355,8 +366,9 @@ def build_auth_router(
         config: Authentication configuration.
         clock: Source of the current POSIX time.
         users: Optional user store; defaults to a JSON store under ``root``.
+        enabled: Whether the app enforces authentication (reported by ``/auth/config``).
 
     Returns:
         The configured ``APIRouter``.
     """
-    return build_auth_router_for(build_auth_context(root, config, clock, users))
+    return build_auth_router_for(build_auth_context(root, config, clock, users), enabled)

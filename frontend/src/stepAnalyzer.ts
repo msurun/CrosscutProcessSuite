@@ -2,6 +2,7 @@
 // One control loop per call: the server finds the steps, fits FOPDT/IPDT models with
 // uncertainties and returns JSON rows the Steps view renders. This file also parses the
 // logbook text the user types and formats parameter values for the table.
+import { apiFetch } from "./http";
 import type { StatusLevel } from "./components/StatusChip";
 
 /** Prefix of every endpoint used here; the rest of the client uses the same `/api` root. */
@@ -125,7 +126,7 @@ export async function analyzeSteps(
   body: StepsRequest,
 ): Promise<StepsPayload> {
   const url = `${API_PREFIX}/datasets/${encodeURIComponent(datasetId)}/steps`;
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: "auto", logbook: [], ...body }),

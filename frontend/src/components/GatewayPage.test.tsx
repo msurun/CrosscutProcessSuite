@@ -7,6 +7,8 @@
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AuthProvider, DEFAULT_ROLE_PERMISSIONS, useAuth } from "../AuthContext";
+import * as authApi from "../authApi";
 import * as gatewayApi from "../gatewayApi";
 import { GatewayPage } from "../GatewayPage";
 
@@ -59,6 +61,33 @@ function setupGatewaySpies() {
   vi.spyOn(gatewayApi, "fetchGatewayAudit").mockResolvedValue(auditFixture);
 }
 
+/** Renders the page once the (mocked) session of `role` is known; "off" means auth disabled. */
+async function renderAs(role: string) {
+  if (role === "off") {
+    vi.spyOn(authApi, "fetchMe").mockRejectedValue(new authApi.ApiError(401, "no session"));
+    vi.spyOn(authApi, "fetchAuthConfig").mockResolvedValue({ auth_enabled: false, initialised: true });
+  } else {
+    vi.spyOn(authApi, "fetchMe").mockResolvedValue({
+      user: { username: role, display_name: role },
+      roles: [role],
+      permissions: [...(DEFAULT_ROLE_PERMISSIONS[role] ?? [])],
+      csrf: "tok",
+      must_change_password: false,
+    });
+  }
+  function Ready() {
+    const { status } = useAuth();
+    return status === "loading" ? null : <GatewayPage t={mockT} />;
+  }
+  const view = render(
+    <AuthProvider>
+      <Ready />
+    </AuthProvider>,
+  );
+  await screen.findByTestId("gateway-page");
+  return view;
+}
+
 describe("GatewayPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -67,7 +96,7 @@ describe("GatewayPage", () => {
 
   it("renders operating mode, targets table, pending proposals, and audit status", async () => {
     setupGatewaySpies();
-    render(<GatewayPage t={mockT} />);
+    await renderAs("lead");
 
     await waitFor(() => {
       expect(screen.getByTestId("gateway-mode-chip")).toHaveTextContent("confirm");
@@ -91,7 +120,7 @@ describe("GatewayPage", () => {
       clamped_value: null,
     });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("operator");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-approve-prop-key-1")).toBeInTheDocument();
     });
@@ -106,7 +135,7 @@ describe("GatewayPage", () => {
     setupGatewaySpies();
     const rejectSpy = vi.spyOn(gatewayApi, "rejectProposal").mockResolvedValue({ ok: true });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("viewer");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-reject-prop-key-1")).toBeInTheDocument();
     });
@@ -121,7 +150,7 @@ describe("GatewayPage", () => {
     setupGatewaySpies();
     const killSpy = vi.spyOn(gatewayApi, "killGateway").mockResolvedValue({ ok: true });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("viewer");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-kill-button")).toBeInTheDocument();
     });
@@ -140,7 +169,7 @@ describe("GatewayPage", () => {
     setupGatewaySpies();
     const setModeSpy = vi.spyOn(gatewayApi, "setGatewayMode").mockResolvedValue({ ok: true, mode: "supervised" });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("lead");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-mode-select")).toBeInTheDocument();
     });
@@ -159,7 +188,7 @@ describe("GatewayPage", () => {
     setupGatewaySpies();
     const reEnableSpy = vi.spyOn(gatewayApi, "reEnableTarget").mockResolvedValue({ ok: true });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("engineer");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-reenable-TIC102.SP")).toBeInTheDocument();
     });
@@ -175,10 +204,67 @@ describe("GatewayPage", () => {
     vi.spyOn(gatewayApi, "fetchGatewayPending").mockResolvedValue([]);
     vi.spyOn(gatewayApi, "fetchGatewayAudit").mockResolvedValue({ chain_ok: false, records: [] });
 
-    render(<GatewayPage t={mockT} />);
+    await renderAs("viewer");
     await waitFor(() => {
       expect(screen.getByTestId("gateway-error")).toHaveTextContent("503 gateway down");
     });
+  });
+
+  it("viewer: approve and re-enable are aria-disabled with a reason, reject and kill work", async () => {
+    setupGatewaySpies();
+    const approveSpy = vi.spyOn(gatewayApi, "approveProposal");
+    await renderAs("viewer");
+    await screen.findByTestId("gateway-approve-prop-key-1");
+    const approve = screen.getByTestId("gateway-approve-prop-key-1");
+    expect(approve).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(approve);
+    expect(approveSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId("gateway-reenable-TIC102.SP")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("gateway-reject-prop-key-1")).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByTestId("gateway-kill-button")).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByTestId("gateway-kill-button")).toBeEnabled();
+  });
+
+  it("operator: re-enable of a stopped target needs the engineer role, approve is allowed", async () => {
+    setupGatewaySpies();
+    await renderAs("operator");
+    await screen.findByTestId("gateway-approve-prop-key-1");
+    expect(screen.getByTestId("gateway-approve-prop-key-1")).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByTestId("gateway-reenable-TIC102.SP")).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("mode options follow the transition rules (current mode confirm)", async () => {
+    setupGatewaySpies();
+    await renderAs("engineer");
+    await screen.findByTestId("gateway-mode-option-off");
+    const disabled = (mode: string) => (screen.getByTestId(`gateway-mode-option-${mode}`) as HTMLOptionElement).disabled;
+    expect(disabled("off")).toBe(false);
+    expect(disabled("advisory")).toBe(false);
+    expect(disabled("dry_run")).toBe(false);
+    expect(disabled("confirm")).toBe(false);
+    expect(disabled("supervised")).toBe(true);
+    expect(screen.getByTestId("gateway-mode-option-supervised")).toHaveTextContent("auth.reason.requires_role");
+  });
+
+  it("viewer cannot raise the mode but can lower it; a jump up is refused for everybody", async () => {
+    vi.spyOn(gatewayApi, "fetchGatewayStatus").mockResolvedValue({ ...statusFixture, mode: "off" });
+    vi.spyOn(gatewayApi, "fetchGatewayPending").mockResolvedValue([]);
+    vi.spyOn(gatewayApi, "fetchGatewayAudit").mockResolvedValue(auditFixture);
+    await renderAs("lead");
+    await screen.findByTestId("gateway-mode-option-off");
+    const disabled = (mode: string) => (screen.getByTestId(`gateway-mode-option-${mode}`) as HTMLOptionElement).disabled;
+    expect(disabled("advisory")).toBe(false);
+    expect(disabled("dry_run")).toBe(true);
+    expect(screen.getByTestId("gateway-mode-option-dry_run")).toHaveTextContent("gateway.reason.oneStep");
+  });
+
+  it("auth disabled: every control is enabled", async () => {
+    setupGatewaySpies();
+    await renderAs("off");
+    await screen.findByTestId("gateway-approve-prop-key-1");
+    expect(screen.getByTestId("gateway-approve-prop-key-1")).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByTestId("gateway-reenable-TIC102.SP")).not.toHaveAttribute("aria-disabled");
+    expect((screen.getByTestId("gateway-mode-option-supervised") as HTMLOptionElement).disabled).toBe(false);
   });
 
   it("cleans up polling timer on component unmount", async () => {
@@ -186,7 +272,13 @@ describe("GatewayPage", () => {
     const clearIntervalSpy = vi.spyOn(window, "clearInterval");
     setupGatewaySpies();
 
-    const { unmount } = render(<GatewayPage t={mockT} />);
+    vi.spyOn(authApi, "fetchMe").mockRejectedValue(new authApi.ApiError(401, "no session"));
+    vi.spyOn(authApi, "fetchAuthConfig").mockResolvedValue({ auth_enabled: false, initialised: true });
+    const { unmount } = render(
+      <AuthProvider>
+        <GatewayPage t={mockT} />
+      </AuthProvider>,
+    );
     unmount();
 
     expect(clearIntervalSpy).toHaveBeenCalled();

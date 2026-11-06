@@ -1325,5 +1325,11 @@
   "auth.users.usernameInvalid": "Nazwa użytkownika musi zaczynać się małą literą i mieć 3-32 znaki: a-z, 0-9, kropka, podkreślnik lub myślnik.",
   "auth.users.rolesRequired": "Wybierz co najmniej jedną rolę.",
   "auth.users.passwordTooShort": "Hasło musi mieć co najmniej {min} znaków.",
-  "auth.users.locked": "Zablokowane"
+  "auth.users.locked": "Zablokowane",
+  "gateway.reason.oneStep": "Tryb można podnosić tylko o jeden stopień naraz",
+  "nav.users": "Użytkownicy",
+  "auth.loading": "Sprawdzanie sesji...",
+  "auth.uninitialised.title": "Uwierzytelnianie nie jest skonfigurowane",
+  "auth.uninitialised.text": "Nie istnieje jeszcze żaden użytkownik. Utwórz pierwszego administratora poleceniem: python -m crosscut_api.auth_cli init --root <katalog danych>, a potem odśwież stronę.",
+  "auth.badge.label": "Zalogowany użytkownik"
 }

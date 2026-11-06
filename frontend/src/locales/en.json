@@ -1314,5 +1314,11 @@
   "auth.users.usernameInvalid": "Username must start with a lowercase letter and be 3-32 characters of a-z, 0-9, dot, underscore or hyphen.",
   "auth.users.rolesRequired": "Select at least one role.",
   "auth.users.passwordTooShort": "Password must be at least {min} characters long.",
-  "auth.users.locked": "Locked"
+  "auth.users.locked": "Locked",
+  "gateway.reason.oneStep": "The mode can rise only one step at a time",
+  "nav.users": "Users",
+  "auth.loading": "Checking the session...",
+  "auth.uninitialised.title": "Authentication is not set up",
+  "auth.uninitialised.text": "No user exists yet. Create the first administrator with: python -m crosscut_api.auth_cli init --root <data root>, then reload this page.",
+  "auth.badge.label": "Signed-in user"
 }

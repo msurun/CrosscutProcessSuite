@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from "react";
 import {
   ApiError,
+  fetchAuthConfig,
   fetchMe,
   login as apiLogin,
   logout as apiLogout,
@@ -122,7 +123,8 @@ export const PERMISSION_LOWEST_ROLE: Readonly<Record<string, string>> = computeL
 const KNOWN_PERMISSIONS: ReadonlySet<string> = new Set(
   Object.values(DEFAULT_ROLE_PERMISSIONS).flat(),
 );
-export type AuthStatus = "loading" | "anonymous" | "authenticated" | "uninitialised";
+/** "disabled" means the API runs with auth off (dev / e2e): no login, every control enabled. */
+export type AuthStatus = "loading" | "anonymous" | "authenticated" | "uninitialised" | "disabled";
 
 export interface CanResult {
   allowed: boolean;
@@ -222,11 +224,26 @@ function useStepUpManager() {
   return { isStepUpOpen, requestStepUp, resolveStepUp };
 }
 
+/** Reads the public config: "disabled" / "uninitialised" settle the status, null means ask /auth/me. */
+async function statusFromConfig(): Promise<AuthStatus | null> {
+  try {
+    const config = await fetchAuthConfig();
+    if (!config.auth_enabled) return "disabled";
+    return config.initialised ? null : "uninitialised";
+  } catch {
+    return null;
+  }
+}
+
 function useRefreshAction(apply: (s: AuthSession) => void, clear: (st?: AuthStatus) => void) {
   return useCallback(async () => {
+    const settled = await statusFromConfig();
+    if (settled !== null) {
+      clear(settled);
+      return;
+    }
     try {
-      const session = await fetchMe();
-      apply(session);
+      apply(await fetchMe());
     } catch (err: unknown) {
       const is503 = err instanceof ApiError && err.status === 503;
       clear(is503 ? "uninitialised" : "anonymous");
@@ -332,8 +349,10 @@ export function useAuth(): AuthContextValue {
   return context;
 }
 
-export function useCan(permission: string): CanResult {
-  const { status, permissions } = useAuth();
+function evaluateCan(status: AuthStatus, permissions: readonly string[], permission: string): CanResult {
+  if (status === "disabled") {
+    return { allowed: true, reason: "" };
+  }
   if (status !== "authenticated") {
     return { allowed: false, reason: "auth.reason.not_authenticated" };
   }
@@ -348,4 +367,16 @@ export function useCan(permission: string): CanResult {
     reason: "auth.reason.requires_role",
     requiredRole: PERMISSION_LOWEST_ROLE[permission],
   };
+}
+
+/** Checks one permission for the current session (everything is allowed when auth is off). */
+export function useCan(permission: string): CanResult {
+  const { status, permissions } = useAuth();
+  return evaluateCan(status, permissions, permission);
+}
+
+/** Returns a checker for several permissions at once (use when the set is not fixed at render). */
+export function useCanCheck(): (permission: string) => CanResult {
+  const { status, permissions } = useAuth();
+  return (permission) => evaluateCan(status, permissions, permission);
 }

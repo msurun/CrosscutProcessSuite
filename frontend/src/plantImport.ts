@@ -2,6 +2,7 @@
 // Uploads a data file and an optional tag dictionary, then previews or imports a whole plant
 // (several loops at once). Parsing and time-zone handling live on the server; this file only
 // moves bytes, shapes request bodies and turns server note codes into sentences.
+import { apiFetch } from "./http";
 import type { Translate } from "./findings";
 
 /** How the server should read the timestamps of the data file. */
@@ -163,7 +164,7 @@ export async function uploadPlantFile(
   file: File,
 ): Promise<{ upload_id: string; bytes: number }> {
   const url = `${API_PREFIX}/intake/plant/upload?role=${role}`;
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": OCTET_STREAM },
     body: file,
@@ -193,7 +194,7 @@ export async function importPlant(body: {
 
 /** Delete an upload the user no longer needs (also when the page starts over). */
 export async function deletePlantUpload(uploadId: string): Promise<void> {
-  const response = await fetch(`${API_PREFIX}/intake/plant/upload/${encodeURIComponent(uploadId)}`, {
+  const response = await apiFetch(`${API_PREFIX}/intake/plant/upload/${encodeURIComponent(uploadId)}`, {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -226,7 +227,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 /** POST `body` as JSON and parse the reply. @throws {Error} With the server message on a non-2xx status. */
 async function sendJson<T>(method: string, url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

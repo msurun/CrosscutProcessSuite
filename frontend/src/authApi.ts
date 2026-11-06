@@ -127,6 +127,21 @@ export function setStepUpHandler(handler: StepUpHandler | null): void {
   stepUpHandler = handler;
 }
 
+/** Fires the global "session ended" event (used by the shared request layer on a 401). */
+export function notifyUnauthorized(): void {
+  notifyListeners(unauthorizedListeners);
+}
+
+/** Fires the "password change required" event (used by the shared request layer on a 403). */
+export function notifyPasswordChangeRequired(): void {
+  notifyListeners(passwordChangeRequiredListeners);
+}
+
+/** Runs the registered step-up handler; resolves false when none is registered. */
+export async function runStepUpHandler(): Promise<boolean> {
+  return stepUpHandler ? stepUpHandler() : false;
+}
+
 function notifyListeners(listeners: Set<VoidListener>): void {
   for (const listener of listeners) {
     listener();
@@ -314,6 +329,21 @@ async function requestAuth<T>(path: string, options: RequestAuthOptions = {}): P
   }
   const json: unknown = await response.json();
   return json as T;
+}
+
+export interface AuthConfig {
+  auth_enabled: boolean;
+  initialised: boolean;
+}
+
+/** Reads the public auth configuration: is login enforced, and does the user file exist. */
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  const data = await requestAuth<unknown>("/auth/config", { suppressUnauthorizedEvent: true });
+  const obj = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
+  if (typeof obj.auth_enabled !== "boolean" || typeof obj.initialised !== "boolean") {
+    throw new ApiError(500, "Invalid auth config response from server");
+  }
+  return { auth_enabled: obj.auth_enabled, initialised: obj.initialised };
 }
 
 /** Authenticates user credentials and initializes the session. */

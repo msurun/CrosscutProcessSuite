@@ -12,6 +12,12 @@ import {
 } from "./route";
 
 describe("parseHash", () => {
+  it("round-trips the users view", () => {
+    const route = parseHash("#/d/sales/users");
+    expect(route).toEqual({ dataset: "sales", view: "users", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/d/sales/users");
+  });
+
   it("returns the default route for an empty hash", () => {
     expect(parseHash("")).toEqual(DEFAULT_ROUTE);
   });

@@ -1325,5 +1325,11 @@
   "auth.users.usernameInvalid": "El usuario debe empezar con una letra minúscula y tener 3-32 caracteres: a-z, 0-9, punto, guion bajo o guion.",
   "auth.users.rolesRequired": "Seleccione al menos un rol.",
   "auth.users.passwordTooShort": "La contraseña debe tener al menos {min} caracteres.",
-  "auth.users.locked": "Bloqueado"
+  "auth.users.locked": "Bloqueado",
+  "gateway.reason.oneStep": "El modo solo puede subir un escalón cada vez",
+  "nav.users": "Usuarios",
+  "auth.loading": "Comprobando la sesión...",
+  "auth.uninitialised.title": "La autenticación no está configurada",
+  "auth.uninitialised.text": "Todavía no existe ningún usuario. Cree el primer administrador con: python -m crosscut_api.auth_cli init --root <raíz de datos>, y recargue la página.",
+  "auth.badge.label": "Usuario conectado"
 }

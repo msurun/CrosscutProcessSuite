@@ -5,6 +5,7 @@
  * shortcut to the plant site catalogue, and language/theme preference pickers.
  */
 
+import type { ReactNode } from "react";
 import type { ThemePreference } from "../useTheme";
 
 /** The theme options in the order they are offered to the user. */
@@ -39,6 +40,8 @@ export interface TopBarProps {
   onCatalogue?: () => void;
   /** Accessible label for the site catalogue link or button. */
   catalogueLabel?: string;
+  /** Optional account area (the signed-in user badge) shown at the end of the bar. */
+  account?: ReactNode;
 }
 
 /**
@@ -59,6 +62,7 @@ export function TopBar({
   themeNames,
   onCatalogue,
   catalogueLabel,
+  account,
 }: TopBarProps) {
   function handleLanguageChange(event: React.ChangeEvent<HTMLSelectElement>) {
     onLanguage(event.target.value);
@@ -101,6 +105,7 @@ export function TopBar({
           </option>
         ))}
       </select>
+      {account}
     </header>
   );
 }

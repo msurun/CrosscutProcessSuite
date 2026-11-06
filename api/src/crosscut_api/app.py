@@ -678,12 +678,12 @@ def _new_app(
     if not auth_enabled:
         app = FastAPI(title=title)
         app.state.auth_enabled = False
-        return app, build_auth_router(store_root, auth_config)
+        return app, build_auth_router(store_root, auth_config, enabled=False)
     ctx = build_auth_context(store_root, auth_config)
     enforcer = Depends(make_enforcer(AuthGuards(ctx), ctx))
     app = FastAPI(title=title, dependencies=[enforcer])
     app.state.auth_enabled = True
-    return app, build_auth_router_for(ctx)
+    return app, build_auth_router_for(ctx, True)
 
 
 def _mount_routers(app: FastAPI, store: DatasetStore) -> None:

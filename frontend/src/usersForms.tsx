@@ -14,8 +14,8 @@ import type { Translate } from "./findings";
 export const ALL_ROLES = ["viewer", "operator", "engineer", "lead", "admin"] as const;
 export const USERNAME_PATTERN = /^[a-z][a-z0-9._-]{2,31}$/;
 
-const DANGER_STYLE = { color: "#d32f2f" };
-const FIELD_ERROR_STYLE = { color: "#d32f2f", display: "block", fontSize: "0.85em" };
+const DANGER_STYLE = { color: "var(--status-problem)" };
+const FIELD_ERROR_STYLE = { color: "var(--status-problem)", display: "block", fontSize: "0.85em" };
 const BUTTON_ROW_STYLE = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 };
 
 /** Formats a failed request the same way for the page banner and the modal that issued it. */

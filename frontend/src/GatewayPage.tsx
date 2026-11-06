@@ -6,7 +6,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useCan, useCanCheck, type CanResult } from "./AuthContext";
+import { DisabledReason } from "./components/DisabledReason";
 import type { Translate } from "./findings";
+import { MODE_ORDER, ONE_STEP_REASON, modeTransition, reEnablePermission } from "./gatewayRules";
 import {
   approveProposal,
   fetchGatewayAudit,
@@ -70,7 +73,7 @@ function KillConfirmDialog({ onConfirm, onCancel, t }: { onConfirm: () => void; 
       <h4>{t("gateway.kill.confirmTitle")}</h4>
       <p>{t("gateway.kill.confirmText")}</p>
       <div className="toolbar" style={{ marginTop: 8 }}>
-        <button type="button" data-testid="kill-confirm-ok" onClick={onConfirm} style={{ color: "#d32f2f" }}>
+        <button type="button" data-testid="kill-confirm-ok" onClick={onConfirm} style={{ color: "var(--status-problem)" }}>
           {t("gateway.kill.confirmButton")}
         </button>
         <button type="button" onClick={onCancel}>
@@ -78,6 +81,26 @@ function KillConfirmDialog({ onConfirm, onCancel, t }: { onConfirm: () => void; 
         </button>
       </div>
     </div>
+  );
+}
+
+/** Text that explains why a mode option is disabled (empty when it is selectable). */
+function modeReasonText(result: CanResult, t: Translate): string {
+  if (result.allowed) return "";
+  if (result.reason === ONE_STEP_REASON) return t(ONE_STEP_REASON);
+  const role = result.requiredRole ? t(`auth.role.${result.requiredRole}`) : "";
+  return t(result.reason, { role });
+}
+
+function ModeOption({ mode, current, t }: { mode: string; current: string; t: Translate }) {
+  const check = useCanCheck();
+  const result = modeTransition(current, mode, check);
+  const reason = modeReasonText(result, t);
+  const label = result.allowed ? t(`gateway.mode.${mode}`) : `${t(`gateway.mode.${mode}`)} (${reason})`;
+  return (
+    <option value={mode} disabled={!result.allowed} title={reason || undefined} data-testid={`gateway-mode-option-${mode}`}>
+      {label}
+    </option>
   );
 }
 
@@ -91,18 +114,27 @@ function ModeSelector({ mode, onSelect, t }: { mode: string; onSelect: (m: strin
         aria-label={t("gateway.mode.label")}
         onChange={(event) => onSelect(event.target.value)}
       >
-        <option value="off">{t("gateway.mode.off")}</option>
-        <option value="advisory">{t("gateway.mode.advisory")}</option>
-        <option value="dry_run">{t("gateway.mode.dry_run")}</option>
-        <option value="confirm">{t("gateway.mode.confirm")}</option>
-        <option value="supervised">{t("gateway.mode.supervised")}</option>
+        {MODE_ORDER.map((name) => (
+          <ModeOption key={name} mode={name} current={mode} t={t} />
+        ))}
       </select>
     </label>
   );
 }
 
+function ReEnableButton({ tag, state, onReEnable, t }: { tag: string; state: string; onReEnable: (t: string) => void; t: Translate }) {
+  const can = useCan(reEnablePermission(state) ?? "gw.re_enable.stopped");
+  return (
+    <DisabledReason disabled={!can.allowed} reason={can.reason} requiredRole={can.requiredRole} t={t}>
+      <button type="button" data-testid={`gateway-reenable-${tag}`} onClick={() => onReEnable(tag)}>
+        {t("gateway.targets.reEnable")}
+      </button>
+    </DisabledReason>
+  );
+}
+
 function TargetRow({ tag, state, onReEnable, t }: { tag: string; state: string; onReEnable: (t: string) => void; t: Translate }) {
-  const canReEnable = state.startsWith("stopped:") || state === "hold_off";
+  const canReEnable = reEnablePermission(state) !== null;
   return (
     <tr data-testid={`gateway-target-${tag}`}>
       <td>{tag}</td>
@@ -110,11 +142,7 @@ function TargetRow({ tag, state, onReEnable, t }: { tag: string; state: string; 
         <span className={targetStateChipClass(state)}>{state}</span>
       </td>
       <td>
-        {canReEnable && (
-          <button type="button" data-testid={`gateway-reenable-${tag}`} onClick={() => onReEnable(tag)}>
-            {t("gateway.targets.reEnable")}
-          </button>
-        )}
+        {canReEnable && <ReEnableButton tag={tag} state={state} onReEnable={onReEnable} t={t} />}
       </td>
     </tr>
   );
@@ -143,6 +171,17 @@ function TargetTable({ targets, onReEnable, t }: { targets: Record<string, strin
   );
 }
 
+function GatedButton({ permission, testId, label, onClick, t }: { permission: string; testId: string; label: string; onClick: () => void; t: Translate }) {
+  const can = useCan(permission);
+  return (
+    <DisabledReason disabled={!can.allowed} reason={can.reason} requiredRole={can.requiredRole} t={t}>
+      <button type="button" data-testid={testId} onClick={onClick}>
+        {label}
+      </button>
+    </DisabledReason>
+  );
+}
+
 function ProposalRow({
   proposal,
   onApprove,
@@ -162,12 +201,8 @@ function ProposalRow({
       <td>{proposal.reason}</td>
       <td>
         <span className="toolbar">
-          <button type="button" data-testid={`gateway-approve-${proposal.key}`} onClick={() => onApprove(proposal.key)}>
-            {t("gateway.pending.approve")}
-          </button>
-          <button type="button" data-testid={`gateway-reject-${proposal.key}`} onClick={() => onReject(proposal.key)}>
-            {t("gateway.pending.reject")}
-          </button>
+          <GatedButton permission="gw.approve" testId={`gateway-approve-${proposal.key}`} label={t("gateway.pending.approve")} onClick={() => onApprove(proposal.key)} t={t} />
+          <GatedButton permission="gw.reject" testId={`gateway-reject-${proposal.key}`} label={t("gateway.pending.reject")} onClick={() => onReject(proposal.key)} t={t} />
         </span>
       </td>
     </tr>
@@ -264,7 +299,7 @@ function TopControls({
       <button
         type="button"
         data-testid="gateway-kill-button"
-        style={{ color: "#d32f2f", borderColor: "#d32f2f" }}
+        style={{ color: "var(--status-problem)", borderColor: "var(--status-problem)" }}
         onClick={onKillClick}
       >
         {t("gateway.kill.button")}

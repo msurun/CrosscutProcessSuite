@@ -248,3 +248,26 @@ def test_uninitialised_store_returns_503(tmp_path: Path, clock: FakeClock) -> No
     login_response = empty.post("/auth/login", json={"username": "admin1", "password": PASSWORD})
     assert login_response.status_code == 503
     assert empty.get("/auth/me").status_code == 503
+
+
+def test_auth_config_is_public_and_reports_state(client: TestClient) -> None:
+    """GET /auth/config needs no session and reports enabled + initialised."""
+    response = client.get("/auth/config")
+    assert response.status_code == 200
+    assert response.json() == {"auth_enabled": True, "initialised": True}
+
+
+def test_auth_config_uninitialised_root(tmp_path: Path, clock: FakeClock) -> None:
+    """An empty data root reports initialised false (the UI then shows the CLI hint)."""
+    response = TestClient(make_app(tmp_path, clock)).get("/auth/config")
+    assert response.json() == {"auth_enabled": True, "initialised": False}
+
+
+def test_auth_config_reports_disabled_app(tmp_path: Path) -> None:
+    """create_app(auth_enabled=False) reports auth_enabled false and needs no login."""
+    from crosscut_api.app import create_app
+
+    body = TestClient(create_app(tmp_path, auth_enabled=False)).get("/auth/config").json()
+    assert body == {"auth_enabled": False, "initialised": False}
+    enabled = TestClient(create_app(tmp_path)).get("/auth/config").json()
+    assert enabled["auth_enabled"] is True
