@@ -1003,3 +1003,26 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Commits eee8221, b2a2c5b, 967f367, 1874520.
 - Open: OPC UA write adapter (needs owner approval for a new element/package and a guard change, because the gateway must not import OPC UA today); roles/login #47 and the write authority model (owner decision 9) before confirm/supervised on a real plant; policy editor (blocked on roles); tuning to the write path #48; nobody wires the engine to a real plant yet; the inbox must be OS-permission protected until #47; all targets start `enabled`.
 
+
+## 2026-11-03..06 - Phase 2 #46/#47 closed (module: write-path, Phase 2)
+
+- OPC UA adapter in the gateway: the only module allowed to use OPC UA; data-driven plant map; `take_remote`; reads fail closed.
+- Roles and authority (ADR 013): signed envelopes v2 with an HMAC key; gateway-side `authorize`; two-person policy pin; kill latch persisted to disk; keyed audit chain; API auth with sessions, lockout, CSRF and step-up (HTTP 428); default-deny route permissions; Users page.
+- Policy panel: draft, diff, pin, reload.
+- File-mailbox process boundary; e2e on real processes (OPC UA server + gateway + API + browser). Phase 2 exit met.
+- Refusal replies instead of HTTP 504.
+- Reviews: Opus found real defects in every slice. Examples: self-approval bypass by actor-name spelling (found by Antigravity adversarial tests); inbox poisoning; kill latch lost on restart; fuzz tests that were vacuous; key-file permission failures that appeared only on CI Linux.
+
+## 2026-11-05..06 - Phase 3 #48 tuning to write path (module: write-path/loops, Phase 3)
+
+- ADR 014 (tuning write path, PID parameters).
+- Schemas: `pid_param` kind, plant-map parameter targets, tuning-proposal, tuning-review.
+- `engine_params`: confirm-only via `KIND_MODE_CAP`; refuse, do not clamp; de-tuning order; partial revert; external-change hold-off; no release or watchdog for parameters.
+- `gw.approve.tuning` and `propose_params` command; `param_ledger` in `state.json`.
+- OPC UA `read_param` / `write_param` with configured Float/Double.
+- Loops: `tuning_proposal.py` (builder, preview, rollback) and `tuning_review.py` (windows, verdicts).
+- Runtime `tuning_review` job writes `<id>.review.json`.
+- API routes: `/loops/{id}/tuning/proposals` and `/tuning/proposals/*` with forward-only statuses (including `applying`); reconcile from audit; paginated list.
+- Frontend: Tuning view, propose button, kill reset.
+- CI fixed: runtime package in requirements-dev; key files set to 0600 in tests.
+- Open: pilot DCS and PidCC unit (ADR 014 question 1); who approves tuning (default engineer/lead); step-test assistant OUT writes not in scope; rollback exemption of min_interval/max_ratio not implemented (conservative); `applying` records with no ledger evidence need a human check (no operator escape yet); RougherSim L5 rows still pending (needs M7 hooks); ADR 013 owner questions (lead role holder, kiosk kill, session lengths, admin password reset without a second admin); key protection on Windows/OneDrive.

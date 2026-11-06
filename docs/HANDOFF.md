@@ -1,4 +1,4 @@
-# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
+﻿# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md` (product definition, phases 0-8, owner decisions), then this file, then `docs/IMPLEMENTATION_LOG.md` for per-step detail.
 
@@ -25,21 +25,25 @@ Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`
 
 Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps, Catalogue (with Mapping Wizard and Data Sources), Onboarding. Gates: `ruff`, whole-repo `pytest`, `vitest`, `tsc`, `build`, `npm run e2e:all` in `frontend/` (60 Playwright tests with axe). All green.
 
-## Next steps (updated 2026-10-31)
+## Next steps (updated 2026-11-06)
 
-State: Phase 0 done; Phase 1 in progress (`docs/PHASE1_PLAN.md`, #36 split into 36a/36b). Done: plant-word CI guard, PID vendor field (#41, closed), #42 constants moved to configuration, default missing-value code empty. CI is green again after the E501 fix (a768210). Full pytest: no failures (gateway xfails expected).
+State: Phase 0 and Phase 1 done. Phase 2 done against the simulator (gateway engine, OPC UA adapter, roles and authority, API console, policy panel, file-mailbox boundary, e2e on real processes). Phase 3 tuning write path implemented against simulators (ADR 014). Nothing is connected to a real DCS.
 
-1. 36b is DONE and pushed (bfd66e2, tests 0cec67e): signals table (role table in `docs/PHASE1_PLAN.md` #37), equipment, loops, labs, modes in `schemas/site.schema.json`; `connectors/site_refs.py` does the cross-reference checks; `connectors/tests/test_site_refs.py` (24 tests) closes the gap; example site file converted (tag `role`/`loop` removed). Schema coverage in `tests/test_site_schema_catalogue.py`, API round trip in `api/tests/test_site_routes_catalogue.py`.
-2. #45 backend DONE (7bb15a6) and #45 frontend renderer DONE (ec6cab1): `src/schemaFormModel.ts` (pure logic + vitest), `SchemaForm.tsx`, `SchemaField.tsx`, `ConfigEditorPage.tsx`, `api.ts` config functions, locale keys `configEditor.*`.
-3. Phase 1 step 4 (#36 exit criterion) DONE (78acabf): `catalogue` GUI view for site (`route.ts`, `App.tsx`, `TopBar.tsx`, `SitePage.tsx` via `ConfigEditorPage`/`SchemaForm`, strings en/pl/es, route tests, e2e with axe).
-4. Phase 1 step #37 (Mapping Wizard & Role Reconciliation) DONE (29688de): `role_mapping.py` with `suggest_roles` and `loops_from_signals`, `catalogue_routes.py` (`POST /catalogue/suggest`, `GET/PUT /catalogue/mapping`), `DatasetStore.loops_of` serving mapped loops, `CatalogueWizard.tsx` (5 steps reusing `Stepper.tsx`), integration with `SitePage.tsx`, strings en/pl/es, unit tests (9 in `test_role_mapping.py`, 5 in `test_catalogue_routes.py`, 3 in `CatalogueWizard.test.tsx`), e2e test in `catalogue.spec.ts`.
-5. Phase 1 step #43 (Connector Interface & Adapters) DONE (be8657b): read-only `Connector` protocol, `OpcUaConnector` (browse, metadata, read_live), `CsvConnector` (browse, metadata, history), `SqlConnector` (browse, metadata, history), registry (`connector_from_source`), `gateway` static no-write guard for connectors, backend routes (`/sources`, `/sources/{id}/test`, `/sources/{id}/browse`, `/sources/{id}/read-live`), `SourcesPanel.tsx` in frontend with live sampling, strings en/pl/es, unit/integration tests (contract, live read against PlantServer, backend routes, panel unit test, e2e Playwright with axe).
-6. Phase 1 step #39 (Onboarding & Readiness Check) DONE (9092866): site schema `readiness` definition, parameterized `ReadinessConfig` in `loops/readiness.py`, `connectors/onboarding.py` multi-module evaluation (`loops`, `anomaly`, `softsensor`), `GET /datasets/{id}/readiness` endpoint, `OnboardingPage.tsx` with traffic lights and actionable what-to-fix reasons, strings en/pl/es, unit tests, e2e Playwright with axe.
-7. #44 runtime service DONE (Phase 1 exit met). Phase 2 in progress: Write Gateway engine DONE against the simulator; API console, process boundary (file mailbox) and L5 matrix skeleton are DONE; the 12 scenarios still run only against the in-repo simulator. Open: OPC UA write adapter (needs owner approval for a new element/package and a guard change, because the gateway must not import OPC UA today); roles/login #47 and the write authority model (owner decision 9) before confirm/supervised on a real plant; policy editor (blocked on roles); tuning to the write path #48; nobody wires the engine to a real plant yet; the inbox must be OS-permission protected until #47; all targets start `enabled`.
-8. Owner: review `docs/PRODUCT.pl.md` (#34 Blocked); open decisions in PRODUCT.md section 10 (pilot DCS, write authority model, v1 virtual-sensor presets).
-9. RougherSim (#53 harness skeleton, Ready) is worked in its own sessions.
+Owner to-do:
+- Pilot DCS choice and PidCC unit (ADR 014 question 1).
+- Who approves tuning (default engineer/lead).
+- Step-test assistant OUT writes: not in scope; decide before any use.
+- ADR 013 owner questions: lead role holder, kiosk kill, session lengths, admin password reset without a second admin.
+- Key protection on Windows/OneDrive.
+- Open-loop level step test, controller tunings, and the other items in `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`.
 
-Kanban: milestones P4a (virtual-sensor engine, #13 #15 #38) and P4b (asset templates and PdM, empty) exist. 
+Next engineering steps:
+1. L5 rows against RougherSim M7 (tuning hooks; RougherSim L5 rows still pending).
+2. Real-vendor validation of `take_remote` and PidCC units.
+3. Rollback exemption of min_interval/max_ratio (not implemented; conservative for now).
+4. Operator escape for `applying` records with no ledger evidence (a human check is needed until then).
+5. Supervisor advice as proposals (#51).
+6. Module 1 release (P3).
 
 ## Real plant data
 

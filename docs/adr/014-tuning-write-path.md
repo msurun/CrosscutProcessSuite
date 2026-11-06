@@ -1,6 +1,6 @@
-# ADR 014: Tuning write path (PID parameters)
+﻿# ADR 014: Tuning write path (PID parameters)
 
-Status: **Proposed** (3 owner questions open; the defaults below are implemented as configuration).
+Status: **Accepted (implemented; owner questions open)**
 Date: 2026-11-05
 Builds on: ADR 011 (write path), ADR 012 (writes are a product capability), ADR 013 (roles and authority). Tracked as issues #48 and #51, Phase 3.
 

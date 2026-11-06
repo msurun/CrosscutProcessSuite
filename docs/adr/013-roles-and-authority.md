@@ -1,6 +1,6 @@
-# ADR 013: Roles and authority
+﻿# ADR 013: Roles and authority
 
-Status: **Proposed** (3 owner questions open; the defaults below are implemented as configuration).
+Status: **Accepted (implemented; owner questions open)**
 Implementation status 2026-11-03: steps 1 and 5 done (d9376e3); steps 2-4, 6-8 in progress.
 Date: 2026-11-03
 Builds on: ADR 011 (write path) and ADR 012 (writes are a product capability). Tracked as issue #47, owner decision 9.
