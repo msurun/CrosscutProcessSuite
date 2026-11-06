@@ -26,25 +26,43 @@ from crosscut_gateway import audit, engine, latch_store, policy_file, policy_pin
 from crosscut_gateway import service as gateway_service
 from crosscut_gateway.policy_cmds import PolicyPaths
 
+RESTART_GAP_S = 5.0  # inside the 30 s freshness window, past the 1 s start grace
+
 
 def _recreate_service(
-    env: AuthEnv, gw: engine.WriteGateway | None = None
+    env: AuthEnv, gw: engine.WriteGateway | None = None, *, start_floor: bool = True
 ) -> tuple[engine.WriteGateway, gateway_service.GatewayService]:
-    """In plain words: Construct a fresh gateway and service instance over an existing root."""
-    target_gw = gw or engine.WriteGateway(env.plant, env.gateway._policies, "confirm")
+    """In plain words: Construct a fresh gateway and service over an existing root.
+
+    With a pinned policy the new gateway is built through start_from_policy_file, so the signed
+    pin is verified again on every restart. The start-time floor is on by default.
+    """
+    if gw is not None:
+        target_gw = gw
+    elif env.policy_path is not None:
+        target_gw = engine.start_from_policy_file(env.policy_path, env.plant, "confirm", key=KEY)
+    else:
+        target_gw = engine.WriteGateway(env.plant, env.gateway._policies, "confirm")
     opts = gateway_service.ServiceOptions(
         auth_required=True,
         key_path=env.key_path,
         policy_path=env.policy_path,
-        enforce_start_floor=False,
+        enforce_start_floor=start_floor,
     )
-    svc = gateway_service.GatewayService(
-        env.root,
-        target_gw,
-        clock=env.clock,
-        options=opts,
-    )
+    svc = gateway_service.GatewayService(env.root, target_gw, clock=env.clock, options=opts)
     return target_gw, svc
+
+
+def _replay_after_restart(
+    env: AuthEnv, first_env: dict[str, object], *, start_floor: bool = True
+) -> tuple[engine.WriteGateway, str | None]:
+    """In plain words: Restart after the gap, re-drop the old envelope, return its reason."""
+    env.clock.advance(RESTART_GAP_S)
+    new_gw, new_svc = _recreate_service(env, start_floor=start_floor)
+    inbox_file = env.root / "_gateway" / "inbox" / f"{first_env['id']}.json"
+    inbox_file.write_text(json.dumps(first_env), encoding="utf-8")
+    new_svc.poll_once()
+    return new_gw, rejected_reason(env.root, str(first_env["id"]))
 
 
 def test_kill_latch_survives_restart_and_blocks_proposals(tmp_path: Path) -> None:
@@ -80,23 +98,84 @@ def test_kill_latch_survives_restart_and_blocks_proposals(tmp_path: Path) -> Non
     assert new_gw.mode == "advisory"
 
 
-def test_nonce_replay_across_restart_is_refused(tmp_path: Path) -> None:
-    """In plain words: Nonce cache persisted to disk prevents replay of envelopes after restart."""
-    env = make_env(tmp_path, mode="confirm")
-
-    # Send and accept a valid envelope
+@pytest.mark.parametrize("pinned", [False, True], ids=["plain", "pinned_policy"])
+def test_nonce_replay_across_restart_is_refused_by_the_persisted_cache(
+    tmp_path: Path, pinned: bool
+) -> None:
+    """In plain words: nonce-cache.json makes a replay after restart fail as replayed_nonce."""
+    env = make_env(tmp_path, mode="confirm", pinned_policy=pinned)
     first_env = send(env, "propose", propose_args(env, 55.0), actor="alice", roles=("engineer",))
-    assert outbox(env.root, first_env["id"])["ok"] is True
+    assert outbox(env.root, first_env["id"])["ok"] is True  # type: ignore[index]
 
-    # Crash & restart over same root
-    _, new_svc = _recreate_service(env)
+    cache_file = env.root / "_gateway" / latch_store.NONCE_NAME
+    saved = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert first_env["auth"]["nonce"] in saved["nonces"]
+    assert first_env["id"] in saved["ids"]
+    if pinned:
+        assert (env.root / "policy" / policy_pin.PIN_FILE_NAME).exists()
 
-    # Attempt replaying the exact same envelope
-    drop(env, first_env)
+    new_gw, reason = _replay_after_restart(env, first_env)
+
+    assert reason == "replayed_nonce", "persisted nonce cache did not refuse the replay"
+    assert new_gw.pending() == []
+    assert len(env.plant.writes) == 0
+
+
+@pytest.mark.parametrize("pinned", [False, True], ids=["plain", "pinned_policy"])
+def test_without_the_nonce_cache_only_the_start_floor_refuses_the_replay(
+    tmp_path: Path, pinned: bool
+) -> None:
+    """In plain words: Control case, delete the cache file and the start floor is what refuses."""
+    env = make_env(tmp_path, mode="confirm", pinned_policy=pinned)
+    first_env = send(env, "propose", propose_args(env, 55.0), actor="alice", roles=("engineer",))
+    (env.root / "_gateway" / latch_store.NONCE_NAME).unlink()
+
+    new_gw, reason = _replay_after_restart(env, first_env)
+
+    assert reason == "predates_start", f"expected the start floor to refuse, got {reason!r}"
+    assert new_gw.pending() == []
+    assert len(env.plant.writes) == 0
+
+
+def test_without_cache_and_floor_the_replay_would_be_accepted(tmp_path: Path) -> None:
+    """In plain words: Control case, with neither defence the replayed envelope is applied."""
+    env = make_env(tmp_path, mode="confirm")
+    first_env = send(env, "propose", propose_args(env, 55.0), actor="alice", roles=("engineer",))
+    (env.root / "_gateway" / latch_store.NONCE_NAME).unlink()
+
+    new_gw, reason = _replay_after_restart(env, first_env, start_floor=False)
+
+    assert reason is None, "replay should only be stopped by the cache or the floor"
+    assert len(new_gw.pending()) == 1
+
+
+def test_stale_cache_entries_age_out_but_the_start_floor_still_refuses(tmp_path: Path) -> None:
+    """In plain words: After the 120 s window the cache forgets, the floor and freshness refuse."""
+    env = make_env(tmp_path, mode="confirm")
+    first_env = send(env, "propose", propose_args(env, 55.0), actor="alice", roles=("engineer",))
+    env.clock.advance(200.0)
+    new_gw, new_svc = _recreate_service(env)
+    (env.root / "_gateway" / "inbox" / f"{first_env['id']}.json").write_text(
+        json.dumps(first_env), encoding="utf-8"
+    )
     new_svc.poll_once()
+    assert rejected_reason(env.root, str(first_env["id"])) == "stale"
+    assert new_gw.pending() == []
 
-    reason = rejected_reason(env.root, first_env["id"])
-    assert reason in ("replayed_nonce", "replayed_id"), f"Expected replay refusal, got: {reason}"
+
+def test_pinned_policy_swapped_while_stopped_refuses_the_restart(tmp_path: Path) -> None:
+    """In plain words: A policy file edited behind the signed pin stops the restart itself."""
+    env = make_env(tmp_path, mode="confirm", pinned_policy=True)
+    assert env.policy_path is not None
+    tampered = policy_doc(mode="confirm")
+    tampered["targets"]["EVIL.SP"] = tampered["targets"]["FIC101.SP"]
+    env.policy_path.write_text(json.dumps(tampered, indent=2), encoding="utf-8")
+
+    with pytest.raises(policy_pin.PinError, match="digest_mismatch"):
+        _recreate_service(env)
+
+    pin_path = policy_pin.pin_path_for(env.policy_path)
+    assert pin_path.exists(), "the pin file itself must be untouched"
 
 
 def test_corrupt_nonce_cache_on_restart_starts_safely(tmp_path: Path) -> None:

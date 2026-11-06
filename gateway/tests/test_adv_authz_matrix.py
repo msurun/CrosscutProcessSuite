@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from auth_helpers import (
+    AuthEnv,
     make_env,
     outbox,
     propose_args,
@@ -250,54 +251,78 @@ def test_authz_full_cartesian_matrix_matches_oracle() -> None:
         "killed",
     ]
 
+    checked = 0
     for cmd in test_commands:
         for roles in test_role_sets:
             for current_mode in ALL_MODES:
                 for target_state in test_target_states:
                     for target_mode in ALL_MODES:
-                        args = {"mode": target_mode, "tag": "FIC101.SP", "key": "k1"}
-                        req = AuthRequest(
-                            roles=roles,
-                            cmd=cmd,
-                            args=args,
-                            mode=current_mode,
-                            target_state=target_state,
-                        )
-                        actual_ok, actual_reason = authz.authorize(req, roles_table)
-                        expected_ok, expected_reason = oracle_authorize(
-                            roles, cmd, args, current_mode, target_state
-                        )
-                        assert (actual_ok, actual_reason) == (expected_ok, expected_reason)
+                        for cap in _caps_for(cmd):
+                            args = {"mode": target_mode, "tag": "FIC101.SP", "key": "k1"}
+                            if cap is not None:
+                                args["cap"] = cap
+                            req = AuthRequest(
+                                roles=roles,
+                                cmd=cmd,
+                                args=args,
+                                mode=current_mode,
+                                target_state=target_state,
+                            )
+                            actual = authz.authorize(req, roles_table)
+                            expected = oracle_authorize(
+                                roles, cmd, args, current_mode, target_state
+                            )
+                            assert actual == expected, (cmd, roles, current_mode, args)
+                            checked += 1
+    assert checked > 20000
+
+
+def test_matrix_covers_the_above_cap_denial() -> None:
+    """In plain words: The oracle and authorize both produce above_cap for a lead at the cap."""
+    roles_table = authz.load_roles()
+    args = {"mode": "supervised", "cap": "confirm"}
+    req = AuthRequest(
+        roles=("lead",), cmd="set_mode", args=args, mode="confirm", target_state=None
+    )
+    assert authz.authorize(req, roles_table) == (False, "above_cap")
+    assert oracle_authorize(("lead",), "set_mode", args, "confirm", None) == (False, "above_cap")
+
+
+def _caps_for(cmd: str) -> list[str | None]:
+    """In plain words: set_mode is exercised with no cap, every valid cap and an invalid one."""
+    if cmd == "set_mode":
+        return [None, *ALL_MODES, "bogus"]
+    return [None]
 
 
 def test_denied_commands_never_reach_engine_methods(tmp_path: Path) -> None:
-    """In plain words: Ensure unauthorized commands fail closed before reaching the engine."""
+    """In plain words: Unauthorized commands fail closed at the gate with the exact reason."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
-
-    # 1. Propose by viewer (lacks gw.propose)
-    send(env, "propose", propose_args(env), actor="bob", roles=("viewer",))
-    assert spy.counts["propose"] == 0
-
-    # 2. Approve by viewer (lacks gw.approve)
-    send(env, "approve", {"key": "dummy_key"}, actor="bob", roles=("viewer",))
-    assert spy.counts["approve"] == 0
-
-    # 3. Signed kill by service role (lacks gw.kill)
-    send(env, "kill", {}, actor="svc:runtime", roles=("service",))
-    assert spy.counts["kill"] == 0
-
-    # 4. Kill reset by operator (lacks gw.kill.reset)
-    send(env, "kill_reset", {}, actor="bob", roles=("operator",))
-    assert spy.counts["reset_kill"] == 0
-
-    # 5. Re-enable stopped by operator (lacks gw.re_enable.stopped)
-    send(env, "re_enable", {"tag": "FIC101.SP"}, actor="bob", roles=("operator",))
-    assert spy.counts["re_enable"] == 0
+    mode_before = env.gateway.mode
+    cases = [
+        ("propose", propose_args(env), "bob", ("viewer",), "propose", "gw.propose"),
+        ("approve", {"key": "dummy_key"}, "bob", ("viewer",), "approve", "gw.approve"),
+        ("kill", {}, "svc:runtime", ("service",), "kill", "gw.kill"),
+        ("kill_reset", {}, "bob", ("operator",), "reset_kill", "gw.kill.reset"),
+        ("re_enable", {"tag": "FIC101.SP"}, "bob", ("operator",), "re_enable",
+         "gw.re_enable.stopped"),
+    ]
+    for cmd, args, actor, roles, counter, permission in cases:
+        sent = send(env, cmd, args, actor=actor, roles=roles)
+        assert spy.counts[counter] == 0, cmd
+        assert rejected_reason(env.root, sent["id"]) == f"missing_permission:{permission}", cmd
+        assert outbox(env.root, sent["id"]) is None, f"{cmd} produced an outbox result"
+    assert all(count == 0 for count in spy.counts.values())
+    assert env.gateway.mode == mode_before
+    assert env.gateway.pending() == []
+    assert len(env.plant.writes) == 0
+    denied = [r for r in env.gateway.audit_records() if r["event"] == "auth_reject"]
+    assert len(denied) == len(cases)
 
 
 def test_mode_transitions_step_cap_and_down_jumps(tmp_path: Path) -> None:
-    """In plain words: Test mode step-size limits, policy cap violations, and downward jumps."""
+    """In plain words: Test mode step-size limits and downward jumps with exact reasons."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
 
@@ -307,9 +332,15 @@ def test_mode_transitions_step_cap_and_down_jumps(tmp_path: Path) -> None:
     assert env.gateway.mode == "off"
 
     # Upward jump > 1 step (off -> dry_run) by lead is denied
-    send(env, "set_mode", {"mode": "dry_run"}, actor="alice", roles=("lead",))
+    jump = send(env, "set_mode", {"mode": "dry_run"}, actor="alice", roles=("lead",))
+    assert rejected_reason(env.root, jump["id"]) == "mode_step_too_large"
     assert spy.counts["set_mode"] == 1  # Unchanged
     assert env.gateway.mode == "off"
+
+    # Upward by a role without the permission is denied with the permission named
+    weak = send(env, "set_mode", {"mode": "advisory"}, actor="bob", roles=("viewer",))
+    assert rejected_reason(env.root, weak["id"]) == "missing_permission:gw.mode.up.advisory"
+    assert spy.counts["set_mode"] == 1
 
     # Upward within cap (off -> advisory) by lead is allowed
     send(env, "set_mode", {"mode": "advisory"}, actor="alice", roles=("lead",))
@@ -317,60 +348,106 @@ def test_mode_transitions_step_cap_and_down_jumps(tmp_path: Path) -> None:
     assert env.gateway.mode == "advisory"
 
 
+def test_set_mode_above_policy_cap_is_denied_and_envelope_cap_is_ignored(
+    tmp_path: Path,
+) -> None:
+    """In plain words: The gateway's own cap decides; a cap argument cannot move it."""
+    env = make_env(tmp_path, mode="confirm")
+    env.gateway._mode_cap = "confirm"  # what start_from_policy_file does for a capped policy
+    spy = EngineSpy(env.gateway)
+
+    # A forged cap=supervised does not lift the real cap
+    forged = send(
+        env,
+        "set_mode",
+        {"mode": "supervised", "cap": "supervised"},
+        actor="alice",
+        roles=("lead",),
+    )
+    assert rejected_reason(env.root, forged["id"]) == "above_cap"
+    assert spy.counts["set_mode"] == 0
+    assert env.gateway.mode == "confirm"
+
+    # A forged cap=off does not block a legitimate step either
+    down = send(
+        env, "set_mode", {"mode": "dry_run", "cap": "off"}, actor="alice", roles=("lead",)
+    )
+    assert rejected_reason(env.root, down["id"]) is None
+    assert spy.counts["set_mode"] == 1
+    assert env.gateway.mode == "dry_run"
+
+    # Climbing back to the cap is fine, one more step is not
+    up = send(env, "set_mode", {"mode": "confirm"}, actor="alice", roles=("lead",))
+    assert rejected_reason(env.root, up["id"]) is None
+    assert env.gateway.mode == "confirm"
+    over = send(env, "set_mode", {"mode": "supervised"}, actor="alice", roles=("lead",))
+    assert rejected_reason(env.root, over["id"]) == "above_cap"
+    assert spy.counts["set_mode"] == 2
+    assert env.gateway.mode == "confirm"
+
+
+def _assert_self_approval_refused(
+    env: AuthEnv, spy: EngineSpy, pkey: str, approver: str, proposer: str
+) -> None:
+    """In plain words: A same-person approval is refused at the gate and the proposal survives."""
+    app_env = send(env, "approve", {"key": pkey}, actor=approver, roles=("lead",))
+    assert spy.counts["approve"] == 0
+    assert rejected_reason(env.root, app_env["id"]) == "self_approval"
+    assert outbox(env.root, app_env["id"]) is None
+    pending = env.gateway.pending()
+    assert [proposal_key(p) for p in pending] == [pkey], "pending proposal was disturbed"
+    assert env.gateway.pending_proposer(pkey) == proposer
+    assert len(env.plant.writes) == 0
+
+
+def _propose_as(env: AuthEnv, actor: str) -> str:
+    """In plain words: Queue one proposal in confirm mode as actor and return its key."""
+    send(env, "propose", propose_args(env), actor=actor, roles=("engineer",))
+    pending = env.gateway.pending()
+    assert len(pending) == 1
+    return proposal_key(pending[0])
+
+
 def test_self_approval_exact_match_denied_at_gate(tmp_path: Path) -> None:
     """In plain words: Proposer approving their own proposal with exact name match is refused."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
-
-    prop_env = send(env, "propose", propose_args(env), actor="alice", roles=("engineer",))
-    pkey = proposal_key(env.gateway.pending()[0])
-
-    app_env = send(env, "approve", {"key": pkey}, actor="alice", roles=("lead",))
-    assert spy.counts["approve"] == 0
-    assert rejected_reason(env.root, app_env["id"]) == "self_approval"
-    assert outbox(env.root, app_env["id"]) is None
-    assert prop_env is not None
+    pkey = _propose_as(env, "alice")
+    _assert_self_approval_refused(env, spy, pkey, "alice", "alice")
 
 
 def test_self_approval_case_variant_denied_at_gate(tmp_path: Path) -> None:
-    """In plain words: Case-differing approver (Alice vs alice) must be denied at gate."""
+    """In plain words: Case-differing approver (Alice vs alice) is denied at the gate."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
-
-    send(env, "propose", propose_args(env), actor="alice", roles=("engineer",))
-    pkey = proposal_key(env.gateway.pending()[0])
-
-    app_env = send(env, "approve", {"key": pkey}, actor="Alice", roles=("lead",))
-    # Defect: auth_gate uses == and misses the case difference, passing to engine
-    assert spy.counts["approve"] == 0
-    assert rejected_reason(env.root, app_env["id"]) == "self_approval"
+    pkey = _propose_as(env, "alice")
+    _assert_self_approval_refused(env, spy, pkey, "Alice", "alice")
 
 
 def test_self_approval_trailing_spaces_denied_at_gate(tmp_path: Path) -> None:
-    """In plain words: Proposer approving with trailing space must be denied at gate."""
+    """In plain words: Proposer approving with a trailing space is denied at the gate."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
-
-    send(env, "propose", propose_args(env), actor="alice", roles=("engineer",))
-    pkey = proposal_key(env.gateway.pending()[0])
-
-    app_env = send(env, "approve", {"key": pkey}, actor="alice ", roles=("lead",))
-    assert spy.counts["approve"] == 0
-    assert rejected_reason(env.root, app_env["id"]) == "self_approval"
+    pkey = _propose_as(env, "alice")
+    _assert_self_approval_refused(env, spy, pkey, "alice ", "alice")
 
 
 def test_self_approval_unicode_normalization_denied(tmp_path: Path) -> None:
-    """In plain words: Canonical Unicode NFC/NFD equivalence must be enforced."""
+    """In plain words: Canonical Unicode NFC/NFD equivalence is enforced for self-approval."""
     env = make_env(tmp_path, mode="confirm")
     spy = EngineSpy(env.gateway)
-
     actor_nfc = unicodedata.normalize("NFC", "rené")
     actor_nfd = unicodedata.normalize("NFD", "rené")
+    assert actor_nfc != actor_nfd
+    pkey = _propose_as(env, actor_nfc)
+    _assert_self_approval_refused(env, spy, pkey, actor_nfd, actor_nfc)
 
-    send(env, "propose", propose_args(env), actor=actor_nfc, roles=("engineer",))
-    pkey = proposal_key(env.gateway.pending()[0])
 
-    app_env = send(env, "approve", {"key": pkey}, actor=actor_nfd, roles=("lead",))
-    assert spy.counts["approve"] == 0
-    assert len(env.plant.writes) == 0
-    assert rejected_reason(env.root, app_env["id"]) == "self_approval"
+def test_different_approver_still_approves_the_same_proposal(tmp_path: Path) -> None:
+    """In plain words: Positive control, a second person's approval is not blocked."""
+    env = make_env(tmp_path, mode="confirm")
+    spy = EngineSpy(env.gateway)
+    pkey = _propose_as(env, "alice")
+    app_env = send(env, "approve", {"key": pkey}, actor="bob", roles=("lead",))
+    assert rejected_reason(env.root, app_env["id"]) is None
+    assert spy.counts["approve"] == 1

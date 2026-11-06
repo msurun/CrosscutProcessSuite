@@ -18,7 +18,7 @@ from pathlib import Path
 from types import FrameType
 from typing import cast
 
-from crosscut_gateway.audit import AuditLog
+from crosscut_gateway.audit import AuditError, AuditLog
 from crosscut_gateway.engine import Mode, WriteGateway, safe_gateway, start_from_policy_file
 from crosscut_gateway.keyfile import default_key_path, key_permission_problem, read_key
 from crosscut_gateway.latch_store import kill_latch_present
@@ -215,6 +215,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         service, stop_event = _initialize(inputs, plant, cast(Mode, args.mode))
         serve(service, args.interval, stop_event)
         return 0
+    except AuditError as exc:
+        message = " ".join(str(exc).split())
+        print(f"audit log unusable ({message}); move or archive audit.jsonl", file=sys.stderr)
+        return 2
     except (OSError, PolicyError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

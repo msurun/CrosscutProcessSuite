@@ -34,6 +34,10 @@ from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
 from crosscut_gateway.policy import proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
 
+# Longest command id accepted; it becomes the outbox file name, so it must stay well under
+# the file-name limit.
+MAX_ID_LENGTH = 128
+
 # Validation kinds:
 # "str": non-empty string
 # "text": any string
@@ -497,7 +501,9 @@ class GatewayService:
         cmd_id, cmd, args = cmd_data.get("id"), cmd_data.get("cmd"), cmd_data.get("args")
         if not isinstance(cmd_id, str) or not cmd_id:
             raise CommandError("id must be a non-empty string")
-        if not all(char.isalnum() or char in "._-" for char in cmd_id):
+        if len(cmd_id) > MAX_ID_LENGTH or not all(
+            char.isalnum() or char in "._-" for char in cmd_id
+        ):
             raise CommandError("id contains invalid characters")
         if not isinstance(cmd, str):
             raise CommandError("cmd must be a string")
@@ -543,13 +549,24 @@ class GatewayService:
             ctx = self._authenticate(cmd_data)
             self._validate_args(cmd, args)
             result = self._apply(cmd_data, ctx)
-            self._write_result(cmd_id, result)
-            filepath.unlink()
+            self._answer(filepath, cmd_id, result)
         except AuthRejected as exc:
             self._audit_rejection(exc, cmd)
             self._move_to_rejected(filepath, exc.reason)
         except CommandError as exc:
             self._move_to_rejected(filepath, str(exc))
+
+    def _answer(self, filepath: Path, cmd_id: str, result: dict[str, Any]) -> None:
+        """Write the outbox answer of an applied command; a failed write is audited, not hidden."""
+        try:
+            self._write_result(cmd_id, result)
+        except OSError:
+            self._gateway.record_event(
+                "result_write_failed", GATEWAY_ACTOR, "applied", value=cmd_id[:64]
+            )
+            self._move_to_rejected(filepath, "result_write_failed")
+            return
+        filepath.unlink()
 
 
 def serve(service: GatewayService, interval_s: float, stop_event: threading.Event) -> None:

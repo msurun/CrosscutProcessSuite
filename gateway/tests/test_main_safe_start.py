@@ -16,6 +16,7 @@ import pytest
 from crosscut_gateway import __main__ as cli
 from crosscut_gateway import engine
 from crosscut_gateway.actor import ActorContext
+from crosscut_gateway.audit import AuditLog
 from crosscut_gateway.keyfile import default_key_path
 from crosscut_gateway.policy import proposal_key
 from test_engine_hardening import make
@@ -78,6 +79,33 @@ def test_load_key_refuses_insecure_key_file(
     err = capsys.readouterr().err
     assert "gateway HMAC key file rejected" in err
     assert str(path) in err
+
+
+def test_main_reports_audit_key_mismatch_in_one_line_and_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An audit.jsonl written under another key ends main() with exit 2, not a traceback."""
+    key_path = _write_key(tmp_path)
+    audit_path = tmp_path / "_gateway" / "audit.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    AuditLog(audit_path, key=b"o" * 32).append("kill", {"reason": "old"}, 1)
+    policy = tmp_path / "policy.json"
+    plant_map = tmp_path / "plant.json"
+    policy.write_text("{}", encoding="utf-8")
+    plant_map.write_text("{}", encoding="utf-8")
+    inputs = cli._Inputs(tmp_path, policy, None, key_path, b"k" * 32)
+    monkeypatch.setattr(cli, "_prepare", lambda _args: inputs)
+    plant = SimPlant()
+    plant.close = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setattr(cli.OpcUaPlant, "from_file", lambda *_a, **_k: plant)
+
+    code = cli.main(
+        ["--root", str(tmp_path), "--policy", str(policy), "--plant-map", str(plant_map)]
+    )
+
+    err = capsys.readouterr().err.strip()
+    assert code == 2
+    assert err.startswith("audit log unusable") and "\n" not in err
 
 
 def test_safe_gateway_has_no_targets_and_stays_off() -> None:
