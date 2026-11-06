@@ -49,16 +49,20 @@ class WindowMetrics:
     saturation_share: float
 
 
+MIN_WINDOW_S = 1800.0  # shortest before/after window in production (ADR 014 section 5)
+
+
 def window_bounds(
-    t_apply_s: float, theta_s: float, tau_s: float
+    t_apply_s: float, theta_s: float, tau_s: float, min_window_s: float = MIN_WINDOW_S
 ) -> tuple[tuple[float, float], tuple[float, float]]:
     """
     Calculate (before, after) time windows based on process dynamics.
     theta_s: dead time in seconds.
     tau_s: time constant in seconds.
+    min_window_s: shortest window; only a test of a fast process lowers it.
     Returns: ((before_start, before_end), (after_start, after_end)) in seconds.
     """
-    window_s = max(1800.0, 20.0 * (theta_s + tau_s))
+    window_s = max(min_window_s, 20.0 * (theta_s + tau_s))
     settle_time_s = 3.0 * (theta_s + tau_s)
     
     before = (t_apply_s - window_s, t_apply_s)

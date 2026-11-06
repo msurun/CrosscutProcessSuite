@@ -25,6 +25,7 @@ CMakeUserPresets.json
 # Editors / OS
 .idea/
 .vscode/
+.claude/
 .DS_Store
 Thumbs.db
 .agent-prompts/

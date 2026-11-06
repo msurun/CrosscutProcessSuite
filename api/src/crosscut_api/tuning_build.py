@@ -121,6 +121,28 @@ def wanted_targets(method: str, targets: dict[str, str]) -> dict[str, str]:
     return {name: tags for name, tags in targets.items() if name in names}
 
 
+def _tag_addresses(site: dict[str, Any], source_id: str) -> dict[str, str]:
+    """Map site tag id to configured connector address for tags of the given source."""
+    return {
+        str(tag.get("id")): str(tag.get("address"))
+        for tag in site.get("tags", [])
+        if tag.get("source") in (None, source_id) and tag.get("address")
+    }
+
+
+def _read_addressed(
+    connector: Any, tags: list[str], addresses: dict[str, str]
+) -> dict[str, Any]:
+    """Read tags through connector, translating to connector addresses when configured."""
+    # In plain words:
+    # Crosscut tags have abstract IDs (e.g. E2E.TUNE1.KP) mapped to physical DCS addresses (e.g.
+    # OPC UA NodeId ns=2;s=kp). When an address is present, we read by address and remap back.
+    items = [addresses.get(tag, tag) for tag in tags]
+    addr_to_tag = {addresses.get(tag, tag): tag for tag in tags}
+    raw = connector.read_live(items)
+    return {addr_to_tag.get(addr, addr): val for addr, val in raw.items()}
+
+
 def read_current(
     site: dict[str, Any], source_id: str, targets: dict[str, str], factory: ConnectorFactory
 ) -> dict[str, float]:
@@ -141,8 +163,9 @@ def read_current(
     source = next((s for s in site.get("sources", []) if s.get("id") == source_id), None)
     if source is None or not targets or not _in_tag_list(site, source_id, targets.values()):
         raise _refuse(409, "no_live_values")
+    addresses = _tag_addresses(site, source_id)
     try:
-        live = factory(source).read_live(list(targets.values()))
+        live = _read_addressed(factory(source), list(targets.values()), addresses)
     except (ConnectorError, OSError, TimeoutError, ValueError):
         raise _refuse(409, "no_live_values") from None
     return _good_values(live, targets)

@@ -27,6 +27,15 @@ from typing import Any
 from asyncua import Server, ua
 from crosscut_gateway.keyfile import default_key_path, read_key
 from crosscut_gateway.policy_pin import PinRequest, PinSigners, install_policy_with_pin
+from make_tuning_dataset import main as make_tuning_dataset
+from tuning_stack import (
+    TUNING_NODES,
+    install_site_and_jobs,
+    plant_map_targets,
+    policy_targets,
+    simulate,
+    tuning_info,
+)
 
 TAG = "E2E.FIC1.SP"
 NAMESPACE_URI = "urn:crosscut:e2e-gateway"
@@ -39,6 +48,7 @@ NODES: dict[str, tuple[Any, ua.VariantType]] = {
     "mode": (MODE_VALUES["CAS"], ua.VariantType.Int32),
     "source": (SOURCE_LOCAL, ua.VariantType.Int32),
     "heartbeat": (0, ua.VariantType.Int64),
+    **TUNING_NODES,
 }
 POLICY_TARGET = {
     "limits": [0.0, 60.0],
@@ -51,6 +61,9 @@ POLICY_TARGET = {
     "readback_tolerance": 0.5,
 }
 GATEWAY_INTERVAL_S = 0.5
+# The policy mode is the cap of the gateway: supervised lets the tuning spec show that a parameter
+# set is still queued there (KIND_MODE_CAP); every setpoint test starts in advisory as before.
+POLICY_MODE_CAP = "supervised"
 
 
 def free_port() -> int:
@@ -68,6 +81,8 @@ class PlantServer:
         self.index = 0
         self._nodes: dict[str, Any] = {}
         self._server: Server | None = None
+        self._sim_task: asyncio.Future[None] | None = None
+        self.sim_started = (0.0, 0.0)  # (monotonic, wall clock) of the process simulation start
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
@@ -98,6 +113,8 @@ class PlantServer:
             self._nodes[name] = node
         await server.start()
         self._server = server
+        self.sim_started = (time.monotonic(), time.time())
+        self._sim_task = asyncio.ensure_future(simulate(self._nodes, self.sim_started[0]))
 
     def get(self, name: str) -> Any:
         """Read a node value on the server side."""
@@ -114,6 +131,8 @@ class PlantServer:
 
     def stop(self) -> None:
         """Stop the server and its loop thread."""
+        if self._sim_task is not None:
+            self._loop.call_soon_threadsafe(self._sim_task.cancel)
         if self._server is not None:
             self._run(self._server.stop())
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -167,6 +186,7 @@ def plant_map(plant: PlantServer) -> dict[str, Any]:
         "endpoint": plant.endpoint,
         "heartbeat": {"node": plant.node_id("heartbeat"), "period_s": 0.2},
         "targets": {
+            **plant_map_targets(plant.node_id),
             TAG: {
                 "setpoint_node": plant.node_id("setpoint"),
                 "readback_node": plant.node_id("setpoint"),
@@ -195,7 +215,8 @@ def install_files(root: Path, plant: PlantServer) -> tuple[Path, Path]:
     plant_map_path.write_text(json.dumps(plant_map(plant), indent=2), encoding="utf-8")
     policy_path = root / "_gateway" / "policy" / "write-policy.json"
     policy_path.parent.mkdir(parents=True, exist_ok=True)
-    document = {"version": 1, "mode": "confirm", "targets": {TAG: POLICY_TARGET}}
+    targets = {TAG: POLICY_TARGET, **policy_targets()}
+    document = {"version": 1, "mode": POLICY_MODE_CAP, "targets": targets}
     signers = PinSigners("e2e-policy-author", "e2e-policy-approver")
     install_policy_with_pin(PinRequest(policy_path, document, key, signers, datetime.now(UTC)))
     return plant_map_path, policy_path
@@ -250,6 +271,8 @@ def main() -> int:
     try:
         plant.start()
         threading.Thread(target=control.serve_forever, daemon=True).start()
+        make_tuning_dataset(root)
+        install_site_and_jobs(root, plant.endpoint, plant.node_id)
         plant_map_path, policy_path = install_files(root, plant)
         gateway = start_gateway(root, policy_path, plant_map_path)
         wait_for_state(root, gateway)
@@ -262,6 +285,7 @@ def main() -> int:
             "plant_map": str(plant_map_path),
             "initial_setpoint": INITIAL_SETPOINT,
             "hold_off_s": POLICY_TARGET["hold_off_s"],
+            "tuning": tuning_info(plant.sim_started[1]),
         }
         print(json.dumps(info), flush=True)
         sys.stdin.read()  # returns at EOF: the launcher closed our stdin or exited

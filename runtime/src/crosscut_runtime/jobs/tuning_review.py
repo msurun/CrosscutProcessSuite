@@ -50,6 +50,7 @@ REVIEW_VERSION = 1
 # A cycle of the loop is at least this long in seconds, so a fast model never gives a 0 s window.
 MIN_CYCLE_S = 60.0
 OPEN_STATUSES = ("applied", "reviewing")
+MIN_WINDOW_ENV = "CROSSCUT_TUNING_REVIEW_MIN_WINDOW_S"
 EXTERNAL_CHANGE_REASON = "param_changed_externally"
 UNVERIFIED_REASON = "applied_unverified"
 EVENT_WRITE = "param_write"
@@ -190,6 +191,19 @@ def _compared_review(result: dict[str, Any], now_s: float) -> dict[str, Any]:
     return review
 
 
+def min_window_s() -> float:
+    """Shortest review window in seconds: 30 min, or the positive number in the environment.
+
+    ``CROSSCUT_TUNING_REVIEW_MIN_WINDOW_S`` exists for the end-to-end test of a simulated process
+    with a time constant of seconds; a missing, malformed or non-positive value keeps 30 min.
+    """
+    try:
+        value = float(os.environ.get(MIN_WINDOW_ENV, ""))
+    except ValueError:
+        return tr.MIN_WINDOW_S
+    return value if math.isfinite(value) and value > 0.0 else tr.MIN_WINDOW_S
+
+
 def _timing(record: dict[str, Any]) -> Timing:
     """Window geometry from the applied time and the model of the proposal."""
     applied = record.get("applied")
@@ -197,7 +211,7 @@ def _timing(record: dict[str, Any]) -> Timing:
         raise BadRecordError("applied record without an applied block")
     model = record["source"]["model"]
     theta, tau = float(model["theta_s"]), float(model["tau_s"])
-    before, after = tr.window_bounds(utc_to_epoch(applied["t"]), theta, tau)
+    before, after = tr.window_bounds(utc_to_epoch(applied["t"]), theta, tau, min_window_s())
     return Timing(before, after, max(theta + tau, MIN_CYCLE_S))
 
 

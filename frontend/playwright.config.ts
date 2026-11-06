@@ -28,12 +28,17 @@ export default defineConfig({
     launchOptions: { executablePath: findChromium() },
   },
   // Specs share one data root (site.json): runtime.spec.ts runs alone, after all the others.
-  // gateway-live.spec.ts needs the real gateway stack (E2E_GATEWAY=1, started by run_e2e.mjs): with
-  // that switch it is the only project, so no other spec runs against a live gateway.
+  // gateway-live.spec.ts and tuning-live.spec.ts need the real gateway stack (E2E_GATEWAY=1, started
+  // by run_e2e.mjs): with that switch they are the only projects, so no other spec runs against a
+  // live gateway. tuning-live runs after gateway-live (which leaves the stack re-enabled and in
+  // advisory mode) and sets up its own state.
   projects: GATEWAY_LIVE
-    ? [{ name: "gateway-live", testMatch: /gateway-live\.spec\.ts/ }]
+    ? [
+        { name: "gateway-live", testMatch: /gateway-live\.spec\.ts/ },
+        { name: "tuning-live", testMatch: /tuning-live\.spec\.ts/, dependencies: ["gateway-live"] },
+      ]
     : [
-        { name: "main", testIgnore: /(runtime|gateway-live)\.spec\.ts/ },
+        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live)\.spec\.ts/ },
         { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["main"] },
       ],
 });

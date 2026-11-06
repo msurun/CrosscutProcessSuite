@@ -1024,5 +1024,8 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Runtime `tuning_review` job writes `<id>.review.json`.
 - API routes: `/loops/{id}/tuning/proposals` and `/tuning/proposals/*` with forward-only statuses (including `applying`); reconcile from audit; paginated list.
 - Frontend: Tuning view, propose button, kill reset.
-- CI fixed: runtime package in requirements-dev; key files set to 0600 in tests.
+- Live E2E test `frontend/e2e/tuning-live.spec.ts` against live OPC UA server, Write Gateway, API backend and simulated plant: full SIMC propose-approve-apply-rollback cycle verified against OPC UA server nodes (`kp`, `ti`).
+- Fix: `api/src/crosscut_api/tuning_build.py` maps site tag IDs to connector addresses (`_tag_addresses`, `_read_addressed`).
+- Configurable minimum review window (`CROSSCUT_TUNING_REVIEW_MIN_WINDOW_S`) to support fast simulated loops in testing.
+- Full quality gates verified green: `ruff`, whole-repo `pytest` (4286 passed), `vitest` (1099 passed), `tsc`, `build`, normal `npm run e2e:all` (80 passed), and live gateway/tuning E2E (13 passed).
 - Open: pilot DCS and PidCC unit (ADR 014 question 1); who approves tuning (default engineer/lead); step-test assistant OUT writes not in scope; rollback exemption of min_interval/max_ratio not implemented (conservative); `applying` records with no ledger evidence need a human check (no operator escape yet); RougherSim L5 rows still pending (needs M7 hooks); ADR 013 owner questions (lead role holder, kiosk kill, session lengths, admin password reset without a second admin); key protection on Windows/OneDrive.

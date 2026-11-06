@@ -6,7 +6,8 @@
 // (E2E_ADMIN_USER / E2E_ADMIN_PASSWORD are passed to the specs); by default auth is off.
 // E2E_GATEWAY=1 implies E2E_AUTH=1, adds one user per role (E2E_USERS) and starts the real Write
 // Gateway stack (start_gateway_stack.py: OPC UA server, gateway process, control channel); its
-// description is passed to the specs as E2E_GW_* variables (used by gateway-live.spec.ts).
+// description is passed to the specs as E2E_GW_* variables (used by gateway-live.spec.ts and
+// tuning-live.spec.ts; the stack also runs a simulated loop, its history and the tuning review).
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -26,6 +27,7 @@ const ROLE_USERS = [
   ["e2e-lead", "lead"],
   ["e2e-viewer", "viewer"],
 ];
+const REVIEW_WINDOW_S = 120;
 const ADMIN_USER = "e2e-admin";
 const ADMIN_PASSWORD = "e2e-admin-correct-horse-1";
 const API_HEAD = "import sys,uvicorn;from pathlib import Path;from crosscut_api.app import create_app;" +
@@ -107,7 +109,10 @@ async function startBackground(python, root, children) {
   const opcua = spawn(python, ["-m", "crosscut_opcua.server", "--plant", "wood_berry", "--port", String(opcuaPort), "--speed", "20", "--tick", "0.05"], { stdio: "inherit" });
   children.push(opcua);
   await waitForPort(opcuaPort, opcua, "OPC UA server");
-  children.push(spawn(python, ["-m", "crosscut_runtime", "--root", root, "--interval", "0.5"], { stdio: "inherit" }));
+  // The tuning review windows are 30 min in production; the simulated loop of the gateway stack has a
+  // time constant of 8 s, so the review of tuning-live.spec.ts uses windows of REVIEW_WINDOW_S.
+  const env = { ...process.env, CROSSCUT_TUNING_REVIEW_MIN_WINDOW_S: String(REVIEW_WINDOW_S) };
+  children.push(spawn(python, ["-m", "crosscut_runtime", "--root", root, "--interval", "0.5"], { env, stdio: "inherit" }));
   return `opc.tcp://127.0.0.1:${opcuaPort}`;
 }
 
@@ -167,6 +172,7 @@ async function startGatewayStack(python, root, children) {
     E2E_GW_INITIAL_SP: String(info.initial_setpoint),
     E2E_GW_HOLD_OFF_S: String(info.hold_off_s),
     E2E_GW_PROPOSE_SCRIPT: join(here, "gateway_propose.py"),
+    E2E_GW_TUNING: JSON.stringify({ ...info.tuning, review_window_s: REVIEW_WINDOW_S }),
   };
 }
 
