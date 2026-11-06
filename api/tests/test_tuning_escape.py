@@ -13,8 +13,10 @@ from typing import Any
 
 import pytest
 from auth_support import stepup
+from crosscut_api.auth.actor import STEPUP_ROUTES
 from crosscut_api.auth.audit import read_records
 from crosscut_api.auth.deps import AUDIT_FILE
+from crosscut_api.auth.route_permissions import ROUTE_PERMISSIONS
 from crosscut_api.auth.store import auth_dir
 from test_tuning_proposal_routes import approve, propose, record_file
 from tuning_fakes import (
@@ -167,6 +169,19 @@ def test_escape_without_a_fresh_step_up_is_refused(world: World) -> None:
     res = escape(world, created["id"], step=False)
     assert res.status_code == 428
     assert record_file(world, created["id"])["status"] == "applying"
+
+
+def test_escape_operator_is_403_even_without_a_stepup(world: World) -> None:
+    created = stalled(world, expired_s=700, held=False)
+    res = escape(world, created["id"], user="op1", step=False)
+    assert res.status_code == 403
+    assert record_file(world, created["id"])["status"] == "applying"
+
+
+def test_escape_route_is_gated_by_approve_and_stepup() -> None:
+    key = ("POST", "/tuning/proposals/{proposal_id}/escape")
+    assert ROUTE_PERMISSIONS[key] == "gw.approve.tuning"
+    assert key in STEPUP_ROUTES
 
 
 def test_reject_never_settles_an_applying_record(world: World) -> None:

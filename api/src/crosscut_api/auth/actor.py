@@ -15,6 +15,10 @@ from crosscut_api.auth.deps import STEP_UP_REQUIRED_DETAIL, Principal, client_ip
 STEPUP_PERMISSIONS: frozenset[str] = frozenset(
     {"gw.mode.up.supervised", "policy.pin", "gw.kill.reset", "users.manage"}
 )
+# Routes that need a fresh step-up whatever permission they map to (method, path template).
+STEPUP_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {("POST", "/tuning/proposals/{proposal_id}/escape")}
+)
 
 @dataclass(frozen=True)
 class ActorContext:

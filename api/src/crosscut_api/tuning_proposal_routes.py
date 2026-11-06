@@ -38,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.auth.actor_names import same_actor
 from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.auth.deps import AUDIT_FILE
 from crosscut_api.auth.store import auth_dir
@@ -434,7 +435,7 @@ class _Endpoints:
                 return self._view(self._settle_applying(locked))
             record = locked.record
             self._require_status(record, "queued")
-            if record["created_by"] == actor.actor:
+            if same_actor(record["created_by"], actor.actor):
                 raise HTTPException(status_code=403, detail="self_approval")
             try:
                 saved = self._approve_and_store(gateway, locked, actor)

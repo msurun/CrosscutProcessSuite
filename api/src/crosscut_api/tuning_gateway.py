@@ -17,6 +17,8 @@ from typing import Any
 
 from crosscut_runtime.jobs.tuning_review import external_change as events_show_external_change
 
+from crosscut_api.auth.actor_names import same_actor
+
 Record = dict[str, Any]
 NS_PER_S = 1_000_000_000
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -120,7 +122,7 @@ def _same_set(entry: Mapping[str, Any], record: Mapping[str, Any]) -> bool:
     try:
         return (
             entry.get("loop_id") == record["loop_id"]
-            and entry.get("proposer") == record["created_by"]
+            and same_actor(str(entry.get("proposer", "")), record["created_by"])
             and _item_digest(entry["items"]) == _item_digest(record["items"])
         )
     except (KeyError, TypeError, ValueError):

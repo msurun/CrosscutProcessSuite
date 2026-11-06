@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from fastapi import HTTPException, Request
 
-from crosscut_api.auth.actor import STEPUP_PERMISSIONS, actor_from_principal
+from crosscut_api.auth.actor import STEPUP_PERMISSIONS, STEPUP_ROUTES, actor_from_principal
 from crosscut_api.auth.deps import (
     PASSWORD_CHANGE_REQUIRED_DETAIL,
     SAFE_METHODS,
@@ -70,19 +70,21 @@ def _require_stepup(
     ctx: AuthContext,
     principal: Principal,
     requirement: str | AnyOf,
-    method: str,
+    key: tuple[str, str],
 ) -> None:
     """Raise 428 when an unsafe request needs a fresh step-up login.
 
-    Safe methods (GET/HEAD/OPTIONS) never require step-up. Only a plain
-    permission name can appear in ``STEPUP_PERMISSIONS``.
+    Safe methods (GET/HEAD/OPTIONS) never require step-up. A route needs it when its
+    key is in ``STEPUP_ROUTES`` or its plain permission is in ``STEPUP_PERMISSIONS``.
 
     Raises:
         HTTPException: 428 with ``"step_up_required"`` when step-up is stale.
     """
-    if method in SAFE_METHODS:
+    if key[0] in SAFE_METHODS:
         return
-    if not isinstance(requirement, str) or requirement not in STEPUP_PERMISSIONS:
+    by_route = key in STEPUP_ROUTES
+    by_permission = isinstance(requirement, str) and requirement in STEPUP_PERMISSIONS
+    if not (by_route or by_permission):
         return
     if not ctx.sessions.stepup_valid(principal.session):
         raise HTTPException(status_code=428, detail=STEPUP_ERROR_DETAIL)
@@ -122,14 +124,14 @@ def make_enforcer(guards: AuthGuards, ctx: AuthContext) -> Callable[[Request], N
 
     def enforce(request: Request) -> None:
         """Authorise the request and stamp ``request.state.actor``."""
-        method, path = _route_key(request)
-        if _is_public((method, path)):
+        key = _route_key(request)
+        if _is_public(key):
             return
         principal = _authenticate(guards, request)
-        requirement = _resolve_requirement(method, path)
+        requirement = _resolve_requirement(*key)
         if requirement != AUTHENTICATED:
             _check_requirement(principal, requirement)
-        _require_stepup(ctx, principal, requirement, method)
+        _require_stepup(ctx, principal, requirement, key)
         stepup_ok = ctx.sessions.stepup_valid(principal.session)
         request.state.actor = actor_from_principal(principal, stepup_ok, client_ip(request))
 
