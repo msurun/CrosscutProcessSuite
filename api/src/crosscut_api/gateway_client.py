@@ -175,12 +175,21 @@ class FileGatewayClient:
         return {"records": records, "chain_ok": state["chain_ok"]}
 
     def draft_policy(self) -> dict[str, Any] | None:
-        """Return the policy draft document, or None when no draft file exists."""
+        """Return the saved draft record (document, author, saved_at), or None without one.
+
+        The draft signature is left out; the gateway verifies it when the draft is pinned.
+        """
         try:
             text = (self._gateway_dir / "policy-draft.json").read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
-        return json.loads(text)
+        record = json.loads(text)
+        return {name: record[name] for name in ("document", "author", "saved_at")}
+
+    def live_policy(self) -> dict[str, Any] | None:
+        """Return the verified live policy {"document", "pin"} from state.json, or None."""
+        policy = self._read_state().get("policy")
+        return policy if isinstance(policy, dict) else None
 
     def approve(self, key: str, actor: ActorContext | None = None) -> dict[str, Any]:
         """Approve and execute a queued proposal; raises KeyError if unknown."""

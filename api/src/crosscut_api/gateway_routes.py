@@ -1,6 +1,7 @@
 """HTTP routes over the Write Gateway engine (Phase 2, #46).
 
-Provides status inspection, pending proposal approval, mode management, target
+Provides status inspection, the live policy view, pending proposal approval, mode management,
+target
 re-enabling, emergency kill and kill reset, policy draft, pin and reload, and
 cryptographic audit log queries.
 
@@ -12,6 +13,8 @@ are checked here because their permission depends on the current mode or target 
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Protocol
@@ -25,6 +28,16 @@ from crosscut_api.gateway_client import GatewaySigningError
 MODES: tuple[str, ...] = ("off", "advisory", "dry_run", "confirm", "supervised")
 VALID_MODES: frozenset[str] = frozenset(MODES)
 ActorDep = Annotated[ActorContext, Depends(actor_of)]
+
+
+def policy_digest(document: dict[str, Any]) -> str:
+    """Return the digest the gateway expects when pinning a policy document.
+
+    It is the SHA-256 hex digest of the canonical JSON bytes: sorted keys, compact
+    separators and unescaped UTF-8. The API cannot import the gateway, so this mirrors it.
+    """
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class ModeUpdate(BaseModel):
@@ -73,7 +86,10 @@ class GatewayClient(Protocol):
         """Return the newest audit records and the chain integrity flag."""
 
     def draft_policy(self) -> dict[str, Any] | None:
-        """Return the draft policy document, or None when there is no draft."""
+        """Return the draft record {"document", "author", "saved_at"}, or None without one."""
+
+    def live_policy(self) -> dict[str, Any] | None:
+        """Return the verified live policy {"document", "pin"}, or None when not pinned."""
 
     def policy_draft(self, document: dict[str, Any], actor: ActorContext | None = None) -> None:
         """Store a new draft policy document; raises ValueError if refused."""
@@ -234,10 +250,37 @@ class _GatewayEndpoints:
         with _gateway_errors():
             return gw.audit(limit)
 
-    def get_policy_draft(self, actor: ActorDep) -> dict[str, Any]:
-        """GET /gateway/policy/draft: Return the draft policy document."""
+    def get_policy(self, actor: ActorDep) -> dict[str, Any]:
+        """GET /gateway/policy: The live pinned policy document, its pin and mode cap."""
         gw = self._gw()
-        with _gateway_errors(value_error_status=422):
+        with _gateway_errors():
+            live = gw.live_policy()
+        if live is None:
+            return {"document": None, "pin": None, "mode_cap": None, "digest": None}
+        document = live["document"]
+        mode_cap = document.get("mode")
+        return {
+            "document": document,
+            "pin": live["pin"],
+            "mode_cap": mode_cap if isinstance(mode_cap, str) else None,
+            "digest": policy_digest(document),
+        }
+
+    def get_policy_draft(self, actor: ActorDep) -> dict[str, Any]:
+        """GET /gateway/policy/draft: The draft document with author, time and digest."""
+        draft = self._load_draft()
+        document = draft["document"]
+        return {
+            "document": document,
+            "author": draft["author"],
+            "saved_at": draft["saved_at"],
+            "digest": policy_digest(document),
+        }
+
+    def _load_draft(self) -> dict[str, Any]:
+        """Return the stored draft record, or raise 404 "no draft"."""
+        gw = self._gw()
+        with _gateway_errors():
             draft = gw.draft_policy()
         if draft is None:
             raise HTTPException(status_code=404, detail="no draft")
@@ -246,18 +289,28 @@ class _GatewayEndpoints:
     def put_policy_draft(
         self, body: Annotated[dict[str, Any], Body()], actor: ActorDep
     ) -> dict[str, Any]:
-        """PUT /gateway/policy/draft: Store a new draft policy document."""
+        """PUT /gateway/policy/draft: Store a draft; 422 names the target and field at fault."""
         gw = self._gw()
         with _gateway_errors(value_error_status=422):
             gw.policy_draft(body, actor=actor)
-        return {"ok": True}
+        return {"ok": True, "digest": policy_digest(body)}
 
     def post_policy_pin(self, body: PolicyPin, actor: ActorDep) -> dict[str, Any]:
-        """POST /gateway/policy/pin: Pin the policy with the given digest."""
+        """POST /gateway/policy/pin: Pin the reviewed draft; 409 draft_changed if it moved."""
         gw = self._gw()
         with _gateway_errors(value_error_status=409):
+            self._require_reviewed_draft(gw, body.digest)
             gw.policy_pin(body.digest, actor=actor)
         return {"ok": True}
+
+    @staticmethod
+    def _require_reviewed_draft(gw: GatewayClient, digest: str) -> None:
+        """Raise ValueError (409) unless the stored draft still has the reviewed digest."""
+        draft = gw.draft_policy()
+        if draft is None:
+            raise ValueError("no_draft")
+        if policy_digest(draft["document"]) != digest:
+            raise ValueError("draft_changed")
 
     def post_policy_reload(self, actor: ActorDep) -> dict[str, Any]:
         """POST /gateway/policy/reload: Reload the pinned policy."""
@@ -280,6 +333,7 @@ def build_gateway_router(provider: Callable[[], GatewayClient | None]) -> APIRou
     router.add_api_route("/targets/{tag}/re-enable", endpoints.post_re_enable, methods=["POST"])
     router.add_api_route("/mode", endpoints.put_mode, methods=["PUT"])
     router.add_api_route("/audit", endpoints.get_audit, methods=["GET"])
+    router.add_api_route("/policy", endpoints.get_policy, methods=["GET"])
     router.add_api_route("/policy/draft", endpoints.get_policy_draft, methods=["GET"])
     router.add_api_route("/policy/draft", endpoints.put_policy_draft, methods=["PUT"])
     router.add_api_route("/policy/pin", endpoints.post_policy_pin, methods=["POST"])

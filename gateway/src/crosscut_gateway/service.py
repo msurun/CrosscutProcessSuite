@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from crosscut_gateway import latch_store
+from crosscut_gateway import latch_store, policy_pin
 from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext
 from crosscut_gateway.audit import verify_chain
 from crosscut_gateway.auth_gate import AuthGate, roles_digest
@@ -31,7 +31,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
-from crosscut_gateway.policy import proposal_key
+from crosscut_gateway.policy import PolicyError, proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
 
 # Longest command id accepted; it becomes the outbox file name, so it must stay well under
@@ -125,6 +125,29 @@ def _replace_with_retry(
             time.sleep(delay_s)
 
 
+_PIN_VIEW_KEYS = ("digest", "author", "approver", "approved_at")
+
+
+def live_policy_view(policy_path: Path | None, key: bytes | None) -> dict[str, Any] | None:
+    """Return the verified live policy document with its pin fields, or None.
+
+    None when no policy file is configured, no key is loaded, or the pin does not verify
+    (missing, malformed, unsigned, self-approved or not matching the file). The pin
+    signature is left out.
+    """
+    if policy_path is None or key is None:
+        return None
+    try:
+        policy_pin.verify_pin(policy_path, key)
+        document = json.loads(policy_path.read_text(encoding="utf-8-sig"))
+        pin = json.loads(policy_pin.pin_path_for(policy_path).read_text(encoding="utf-8"))
+    except (PolicyError, OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    return {"document": document, "pin": {name: pin[name] for name in _PIN_VIEW_KEYS}}
+
+
 class GatewayService:
     """Service that processes command files from an inbox directory and drives a WriteGateway."""
 
@@ -149,6 +172,7 @@ class GatewayService:
         self._key_path = options.key_path or default_key_path(root)
         self._gate: AuthGate | None = None
         self._roles_digest = ""
+        self._policy_file = options.policy_path
         self._policy = PolicyCommands(
             PolicyPaths(options.policy_path, root / "_gateway" / "policy-draft.json"),
             key_source=self._policy_key,
@@ -433,6 +457,7 @@ class GatewayService:
             "auth": self._auth_status(),
             "roles_digest": self._roles_digest,
             "key_acl": key_acl_status(self._key_path),
+            "policy": live_policy_view(self._policy_file, self._policy_key()),
         }
         self._write_atomic(self._root / "_gateway" / "state.json", state)
 

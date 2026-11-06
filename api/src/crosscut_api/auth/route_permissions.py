@@ -141,6 +141,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/gateway/targets/{tag}/re-enable"): AnyOf(
         ("gw.re_enable.hold_off", "gw.re_enable.stopped")
     ),
+    ("GET", "/gateway/policy"): "gw.view",
     ("GET", "/gateway/policy/draft"): "policy.edit",
     ("PUT", "/gateway/policy/draft"): "policy.edit",
     ("POST", "/gateway/policy/pin"): "policy.pin",

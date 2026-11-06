@@ -24,10 +24,13 @@ from crosscut_api.auth.actor import ActorContext
 from crosscut_api.auth.deps import AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
 from crosscut_api.auth_routes import build_auth_router_for
-from crosscut_api.gateway_routes import build_gateway_router
+from crosscut_api.gateway_routes import build_gateway_router, policy_digest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from httpx import Response
+
+DRAFT_DOC: dict[str, Any] = {"version": 1, "mode": "advisory", "targets": {}}
+DRAFT_DIGEST = policy_digest(DRAFT_DOC)
 
 
 class FakeGateway:
@@ -87,8 +90,13 @@ class FakeGateway:
         return {"records": [], "chain_ok": True}
 
     def draft_policy(self) -> dict[str, Any] | None:
-        """Return a stored draft policy."""
-        return {"limits": 1}
+        """Return a stored draft record."""
+        return {"document": DRAFT_DOC, "author": "eng1", "saved_at": "2026-01-01T00:00:00+00:00"}
+
+    def live_policy(self) -> dict[str, Any] | None:
+        """Return a pinned live policy."""
+        pin = {"digest": "f" * 64, "author": "eng1", "approver": "lead1", "approved_at": "t"}
+        return {"document": DRAFT_DOC, "pin": pin}
 
     def policy_draft(self, document: dict[str, Any], actor: ActorContext | None = None) -> None:
         """Record a draft policy store."""
@@ -178,6 +186,11 @@ def test_viewer_kills_and_lowers_mode_but_cannot_approve_or_raise(world: World) 
     assert send(client, payload, "GET /gateway/status").status_code == 200
     assert send(client, payload, "GET /gateway/audit").status_code == 200
     assert send(client, payload, "POST /gateway/targets/T_HOLD/re-enable").status_code == 403
+    live = send(client, payload, "GET /gateway/policy")
+    assert live.status_code == 200
+    assert live.json()["digest"] == DRAFT_DIGEST
+    assert send(client, payload, "GET /gateway/policy/draft").status_code == 403
+    assert send(client, payload, "PUT /gateway/policy/draft", DRAFT_DOC).status_code == 403
 
 
 def test_operator_approves_rejects_and_re_enables_only_held_target(world: World) -> None:
@@ -188,7 +201,9 @@ def test_operator_approves_rejects_and_re_enables_only_held_target(world: World)
     assert send(client, payload, "PUT /gateway/mode", {"mode": "dry_run"}).status_code == 403
     assert send(client, payload, "POST /gateway/targets/T_HOLD/re-enable").status_code == 200
     assert send(client, payload, "POST /gateway/targets/T_STOP/re-enable").status_code == 403
-    assert send(client, payload, "PUT /gateway/policy/draft", {"x": 1}).status_code == 403
+    assert send(client, payload, "PUT /gateway/policy/draft", DRAFT_DOC).status_code == 403
+    assert send(client, payload, "GET /gateway/policy").status_code == 200
+    assert send(client, payload, "GET /gateway/policy/draft").status_code == 403
 
 
 def test_engineer_edits_draft_and_re_enables_stopped_target(world: World) -> None:
@@ -198,9 +213,13 @@ def test_engineer_edits_draft_and_re_enables_stopped_target(world: World) -> Non
     world.fake.current_mode = "confirm"
     assert send(client, payload, "PUT /gateway/mode", {"mode": "supervised"}).status_code == 403
     assert send(client, payload, "POST /gateway/targets/T_STOP/re-enable").status_code == 200
-    assert send(client, payload, "PUT /gateway/policy/draft", {"x": 1}).status_code == 200
-    assert send(client, payload, "GET /gateway/policy/draft").status_code == 200
-    assert send(client, payload, "POST /gateway/policy/pin", {"digest": "abc"}).status_code == 403
+    assert send(client, payload, "PUT /gateway/policy/draft", DRAFT_DOC).status_code == 200
+    draft = send(client, payload, "GET /gateway/policy/draft")
+    assert draft.status_code == 200
+    assert draft.json()["digest"] == DRAFT_DIGEST
+    assert send(client, payload, "GET /gateway/policy").status_code == 200
+    pin = send(client, payload, "POST /gateway/policy/pin", {"digest": DRAFT_DIGEST})
+    assert pin.status_code == 403
     assert send(client, payload, "POST /gateway/kill/reset").status_code == 403
 
 
@@ -230,12 +249,23 @@ def test_lead_kill_reset_and_pin_need_stepup_but_reload_does_not(world: World) -
     reset = send(client, payload, "POST /gateway/kill/reset")
     assert reset.status_code == 428
     assert reset.json()["detail"] == "step_up_required"
-    pin = send(client, payload, "POST /gateway/policy/pin", {"digest": "abc"})
+    pin = send(client, payload, "POST /gateway/policy/pin", {"digest": DRAFT_DIGEST})
     assert pin.status_code == 428
     stepup(client, payload)
     assert send(client, payload, "POST /gateway/kill/reset").status_code == 200
-    assert send(client, payload, "POST /gateway/policy/pin", {"digest": "abc"}).status_code == 200
+    pinned = send(client, payload, "POST /gateway/policy/pin", {"digest": DRAFT_DIGEST})
+    assert pinned.status_code == 200
     assert ("policy_pin", "lead1") in world.fake.calls
+
+
+def test_lead_pin_of_a_changed_draft_is_409_draft_changed(world: World) -> None:
+    """A pin naming a digest other than the stored draft's is refused with 409 draft_changed."""
+    client, payload = client_as(world, "lead1")
+    stepup(client, payload)
+    pin = send(client, payload, "POST /gateway/policy/pin", {"digest": "0" * 64})
+    assert pin.status_code == 409
+    assert pin.json()["detail"] == "draft_changed"
+    assert ("policy_pin", "lead1") not in world.fake.calls
 
 
 def test_request_without_session_is_refused(world: World) -> None:
