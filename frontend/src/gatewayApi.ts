@@ -128,6 +128,11 @@ export async function killGateway(): Promise<GatewayActionResponse> {
   return requestJson<GatewayActionResponse>(`${API_PREFIX}/gateway/kill`, jsonPostOptions());
 }
 
+/** Clears the emergency kill (permission gw.kill.reset; apiFetch runs the 428 step-up dialog). */
+export async function resetKill(): Promise<GatewayActionResponse> {
+  return requestJson<GatewayActionResponse>(`${API_PREFIX}/gateway/kill/reset`, jsonPostOptions());
+}
+
 export async function reEnableTarget(tag: string): Promise<GatewayActionResponse> {
   const encoded = encodeURIComponent(tag);
   return requestJson<GatewayActionResponse>(`${API_PREFIX}/gateway/targets/${encoded}/re-enable`, jsonPostOptions());

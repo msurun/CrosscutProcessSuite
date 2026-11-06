@@ -5,12 +5,14 @@
  * confirmation dialogs for kill and supervised mode, error reporting, and polling cleanup.
  */
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, DEFAULT_ROLE_PERMISSIONS, useAuth } from "../AuthContext";
 import * as authApi from "../authApi";
 import * as gatewayApi from "../gatewayApi";
 import * as policyApi from "../policyApi";
+import * as tuningApi from "../tuningApi";
+import { makeProposal } from "../tuningTestKit";
 import { GatewayPage } from "../GatewayPage";
 
 const mockT = (key: string, params?: Record<string, string | number>) => {
@@ -60,6 +62,7 @@ function setupGatewaySpies() {
   vi.spyOn(gatewayApi, "fetchGatewayStatus").mockResolvedValue(statusFixture);
   vi.spyOn(gatewayApi, "fetchGatewayPending").mockResolvedValue(proposalsFixture);
   vi.spyOn(gatewayApi, "fetchGatewayAudit").mockResolvedValue(auditFixture);
+  vi.spyOn(tuningApi, "fetchTuningProposals").mockResolvedValue([]);
 }
 
 /** Renders the page once the (mocked) session of `role` is known; "off" means auth disabled. */
@@ -302,5 +305,45 @@ describe("GatewayPage", () => {
     unmount();
 
     expect(clearIntervalSpy).toHaveBeenCalled();
+  });
+  it("shows Reset kill only while a target is killed, disabled with a reason without gw.kill.reset", async () => {
+    setupGatewaySpies();
+    await renderAs("engineer");
+    await screen.findByTestId("gateway-page");
+    expect(screen.queryByTestId("kill-reset-notice")).not.toBeInTheDocument();
+    cleanup();
+    vi.mocked(gatewayApi.fetchGatewayStatus).mockResolvedValue({ ...statusFixture, targets: { "FIC101.SP": "killed" } });
+    await renderAs("engineer");
+    const reset = await screen.findByTestId("gateway-kill-reset-button");
+    expect(reset).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("kill-reset-notice")).toHaveTextContent("gateway.killReset.text");
+  });
+
+  it("lead resets the kill (step-up is handled by apiFetch) and refreshes", async () => {
+    setupGatewaySpies();
+    vi.mocked(gatewayApi.fetchGatewayStatus).mockResolvedValue({ ...statusFixture, targets: { "FIC101.SP": "killed" } });
+    const resetSpy = vi.spyOn(gatewayApi, "resetKill").mockResolvedValue({ ok: true });
+    await renderAs("lead");
+    const reset = await screen.findByTestId("gateway-kill-reset-button");
+    const before = vi.mocked(gatewayApi.fetchGatewayStatus).mock.calls.length;
+    await act(async () => {
+      fireEvent.click(reset);
+    });
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(vi.mocked(gatewayApi.fetchGatewayStatus).mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("shows the queued parameter sets in the pending table with a link to the Tuning view", async () => {
+    setupGatewaySpies();
+    vi.mocked(tuningApi.fetchTuningProposals).mockResolvedValue([
+      makeProposal({ id: "ps1" }),
+      makeProposal({ id: "ps2", status: "applied" }),
+    ]);
+    await renderAs("lead");
+    const row = await screen.findByTestId("gateway-pending-params-ps1");
+    expect(row).toHaveTextContent("gateway.pending.kindParams");
+    expect(row).toHaveTextContent("FIC101");
+    expect(screen.queryByTestId("gateway-pending-params-ps2")).not.toBeInTheDocument();
+    expect(screen.getByText("gateway.pending.reviewParams")).toHaveAttribute("href", expect.stringContaining("/tuning"));
   });
 });

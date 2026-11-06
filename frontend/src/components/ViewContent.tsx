@@ -19,6 +19,7 @@ import { SitePage } from "./SitePage";
 import { SoftSensorPage } from "./SoftSensorPage";
 import { StepsPage } from "./StepsPage";
 import { TrendsPage } from "./TrendsPage";
+import { TuningProposalsPage } from "./TuningProposalsPage";
 
 export interface ViewContentProps {
   route: Route;
@@ -58,6 +59,7 @@ export function ViewContent(props: ViewContentProps) {
     catalogue: <SitePage t={t} />,
     runtime: <RuntimePage t={t} />,
     gateway: <GatewayPage t={t} />,
+    tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
   };
   return <>{global[route.view] ?? (props.datasetMissing ? null : datasetViews(props, route.dataset)[route.view])}</>;

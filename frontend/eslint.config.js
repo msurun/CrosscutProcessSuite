@@ -70,6 +70,12 @@ const TOUCHED = [
   "src/components/policy/PolicyActionToolbar.tsx",
   "src/components/policy/PolicyDiffView.tsx",
   "src/components/policy/TargetEditorRow.tsx",
+  "src/tuningApi.ts",
+  "src/tuningRules.ts",
+  "src/components/TuningProposalsPage.tsx",
+  "src/components/TuningProposalDetail.tsx",
+  "src/components/TuningProposalActions.tsx",
+  "src/components/TuningProposeButton.tsx",
 ];
 
 // The code carries `eslint-disable react-hooks/...` comments; this stub makes the rule name known

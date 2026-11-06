@@ -17,6 +17,7 @@ vi.mock("../api", async () => {
 vi.mock("./TrendPane", () => ({
   TrendPane: (props: { labels: string[] }) => <div role="img" aria-label={props.labels.join("|")} />,
 }));
+vi.mock("./TuningProposeButton", () => ({ TuningProposeButton: () => null }));
 vi.mock("./WindowPicker", () => ({
   WindowPicker: (props: { fitCurve?: unknown }) => (
     <div data-testid="picker" data-fit={props.fitCurve ? "yes" : "no"} />

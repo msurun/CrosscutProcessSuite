@@ -10,6 +10,9 @@ import { useCan, useCanCheck, type CanResult } from "./AuthContext";
 import { DisabledReason } from "./components/DisabledReason";
 import type { Translate } from "./findings";
 import { PolicyPanel } from "./PolicyPanel";
+import { formatHash, parseHash } from "./route";
+import { fetchTuningProposals, type TuningProposal } from "./tuningApi";
+import { formatValue } from "./components/TuningProposalDetail";
 import { MODE_ORDER, ONE_STEP_REASON, modeTransition, reEnablePermission } from "./gatewayRules";
 import {
   approveProposal,
@@ -18,6 +21,7 @@ import {
   fetchGatewayStatus,
   killGateway,
   reEnableTarget,
+  resetKill,
   rejectProposal,
   setGatewayMode,
   type GatewayAuditResponse,
@@ -81,6 +85,27 @@ function KillConfirmDialog({ onConfirm, onCancel, t }: { onConfirm: () => void; 
           {t("gateway.mode.cancelButton")}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** True when at least one target is in the killed state. */
+export function hasKilledTargets(targets: Record<string, string>): boolean {
+  return Object.values(targets).includes("killed");
+}
+
+/** Shown while targets are killed: what Reset does, and the Reset button (permission gw.kill.reset). */
+function KillResetNotice({ onReset, t }: { onReset: () => void; t: Translate }) {
+  const can = useCan("gw.kill.reset");
+  return (
+    <div className="notice notice-warning" role="status" data-testid="kill-reset-notice">
+      <h4>{t("gateway.killReset.title")}</h4>
+      <p>{t("gateway.killReset.text")}</p>
+      <DisabledReason disabled={!can.allowed} reason={can.reason} requiredRole={can.requiredRole} t={t}>
+        <button type="button" data-testid="gateway-kill-reset-button" onClick={onReset}>
+          {t("gateway.killReset.button")}
+        </button>
+      </DisabledReason>
     </div>
   );
 }
@@ -210,18 +235,43 @@ function ProposalRow({
   );
 }
 
+/** Value cell of a parameter set: "gain 1 -> 2; ti 30 -> 40". */
+function paramSummary(p: TuningProposal, t: Translate): string {
+  return p.items.map((i) => `${t(`tuning.proposals.param.${i.param}`)} ${formatValue(i.from, t)} -> ${formatValue(i.to, t)}`).join("; ");
+}
+
+/** A queued PID parameter set: it is approved in the Tuning view, where the whole diff is shown. */
+function ParamSetRow({ proposal, t }: { proposal: TuningProposal; t: Translate }) {
+  const href = formatHash({ ...parseHash(window.location.hash), view: "tuning", loop: null, sub: "detail" });
+  return (
+    <tr data-testid={`gateway-pending-params-${proposal.id}`}>
+      <td>
+        <span className="status-chip status-chip--unused">{t("gateway.pending.kindParams")}</span> {proposal.loop_id}
+      </td>
+      <td>{paramSummary(proposal, t)}</td>
+      <td>{proposal.created_by}</td>
+      <td>{proposal.vendor_form.key}</td>
+      <td>
+        <a href={href}>{t("gateway.pending.reviewParams")}</a>
+      </td>
+    </tr>
+  );
+}
+
 function ProposalTable({
   proposals,
+  paramSets,
   onApprove,
   onReject,
   t,
 }: {
   proposals: GatewayProposal[];
+  paramSets: TuningProposal[];
   onApprove: (k: string) => void;
   onReject: (k: string) => void;
   t: Translate;
 }) {
-  if (proposals.length === 0) return <p className="hint">{t("gateway.pending.empty")}</p>;
+  if (proposals.length === 0 && paramSets.length === 0) return <p className="hint">{t("gateway.pending.empty")}</p>;
   return (
     <div className="table-scroll">
       <table className="loops-table">
@@ -235,6 +285,9 @@ function ProposalTable({
           </tr>
         </thead>
         <tbody>
+          {paramSets.map((item) => (
+            <ParamSetRow key={item.id} proposal={item} t={t} />
+          ))}
           {proposals.map((item) => (
             <ProposalRow key={item.key} proposal={item} onApprove={onApprove} onReject={onReject} t={t} />
           ))}
@@ -309,17 +362,33 @@ function TopControls({
   );
 }
 
+/** The queued PID parameter sets (the gateway state does not reach /gateway/pending). */
+async function queuedParamSets(): Promise<TuningProposal[]> {
+  try {
+    return (await fetchTuningProposals()).filter((p) => p.status === "queued");
+  } catch {
+    return [];
+  }
+}
+
 export function useGatewayPolling() {
   const [status, setStatus] = useState<GatewayStatus | null>(null);
   const [pending, setPending] = useState<GatewayProposal[]>([]);
   const [audit, setAudit] = useState<GatewayAuditResponse | null>(null);
+  const [paramSets, setParamSets] = useState<TuningProposal[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const poll = useCallback(async () => {
     try {
-      const [s, p, a] = await Promise.all([fetchGatewayStatus(), fetchGatewayPending(), fetchGatewayAudit(50)]);
+      const [s, p, a, sets] = await Promise.all([
+        fetchGatewayStatus(),
+        fetchGatewayPending(),
+        fetchGatewayAudit(50),
+        queuedParamSets(),
+      ]);
       setStatus(s);
+      setParamSets(sets);
       setPending(p);
       setAudit(a);
       setError(null);
@@ -336,7 +405,7 @@ export function useGatewayPolling() {
     return () => window.clearInterval(timer);
   }, [poll]);
 
-  return { status, pending, audit, error, loading, refresh: poll, setError };
+  return { status, pending, paramSets, audit, error, loading, refresh: poll, setError };
 }
 
 /** Collapsed by default; the panel (and its requests) exists only while the section is open. */
@@ -359,7 +428,7 @@ function PolicySection({ mode, t }: { mode: string | undefined; t: Translate }) 
 }
 
 export function GatewayPage({ t }: GatewayPageProps) {
-  const { status, pending, audit, error, loading, refresh, setError } = useGatewayPolling();
+  const { status, pending, paramSets, audit, error, loading, refresh, setError } = useGatewayPolling();
   const [pendingMode, setPendingMode] = useState<string | null>(null);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
 
@@ -382,6 +451,12 @@ export function GatewayPage({ t }: GatewayPageProps) {
   const handleConfirmKill = useCallback(() => {
     setShowKillConfirm(false);
     killGateway().then(refresh).catch((err: unknown) => setError(String(err)));
+  }, [refresh, setError]);
+
+  const handleKillReset = useCallback(() => {
+    resetKill()
+      .then(refresh)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, [refresh, setError]);
 
   const handleApprove = useCallback(
@@ -433,6 +508,7 @@ export function GatewayPage({ t }: GatewayPageProps) {
       {showKillConfirm && (
         <KillConfirmDialog onConfirm={handleConfirmKill} onCancel={() => setShowKillConfirm(false)} t={t} />
       )}
+      {hasKilledTargets(targets) && <KillResetNotice onReset={handleKillReset} t={t} />}
       {error !== null && <ErrorMessage error={error} t={t} />}
 
       <section>
@@ -444,7 +520,7 @@ export function GatewayPage({ t }: GatewayPageProps) {
 
       <section>
         <h3>{t("gateway.pending.title")}</h3>
-        <ProposalTable proposals={pending} onApprove={handleApprove} onReject={handleReject} t={t} />
+        <ProposalTable proposals={pending} paramSets={paramSets} onApprove={handleApprove} onReject={handleReject} t={t} />
       </section>
 
       <section>

@@ -24,6 +24,7 @@ import { StatusChip } from "./StatusChip";
 import { Stepper, type StepInfo } from "./Stepper";
 import { IpdtModelView, IpdtRecommendation, IpdtRefusal, SwingInputs, TuningWarnings } from "./TuningIpdt";
 import { TrendPane } from "./TrendPane";
+import { TuningProposeButton } from "./TuningProposeButton";
 import { WindowPicker } from "./WindowPicker";
 
 /** Milliseconds the robustness slider must stay still before a refetch. */
@@ -428,6 +429,18 @@ function SettingsStep({
       >
         {t("tuning.export")}
       </button>
+      {!isIpdtModel(payload.model) && (
+        <TuningProposeButton
+          ctx={{
+            datasetId,
+            loopName,
+            vendor: payload.vendor,
+            window: { start_s: payload.window.start_s, end_s: payload.window.end_s },
+            robustness,
+          }}
+          t={t}
+        />
+      )}
     </section>
   );
 }

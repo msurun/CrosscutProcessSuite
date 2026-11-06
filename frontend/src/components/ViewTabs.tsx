@@ -1,5 +1,5 @@
 // frontend/src/components/ViewTabs.tsx
-// The row of view tabs. The "users" tab appears only for a signed-in user who may manage users.
+// The row of view tabs. "tuning" needs gw.view; "users" appears only for a signed-in user who may manage users.
 
 import { useAuth, useCan } from "../AuthContext";
 import type { Translate } from "../findings";
@@ -20,7 +20,10 @@ export interface ViewTabsProps {
 function useVisibleViews(): readonly View[] {
   const { status } = useAuth();
   const canManage = useCan("users.manage").allowed;
-  return status === "authenticated" && canManage ? [...BASE_VIEWS, "users"] : BASE_VIEWS;
+  const canView = useCan("gw.view").allowed;
+  const tuning: readonly View[] = canView ? ["tuning"] : [];
+  const users: readonly View[] = status === "authenticated" && canManage ? ["users"] : [];
+  return [...BASE_VIEWS, ...tuning, ...users];
 }
 
 /** Navigation tabs of the console. */

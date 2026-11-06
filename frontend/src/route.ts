@@ -17,6 +17,7 @@ export type View =
   | "onboarding"
   | "runtime"
   | "gateway"
+  | "tuning"
   | "users";
 
 /** The sub-tabs of the "loops" view. */
@@ -53,6 +54,7 @@ const KNOWN_VIEWS: readonly View[] = [
   "onboarding",
   "runtime",
   "gateway",
+  "tuning",
   "users",
 ];
 const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];
