@@ -45,12 +45,19 @@ export interface TuningSource {
   step_test_id?: string;
 }
 
+/** Why the applied values cannot be trusted: audit_unverified, audit_chain_broken,
+ * param_changed_externally (or `true` = unspecified). */
+export type AppliedInvalid = boolean | string;
+
+/** The applied block; the values are null when the gateway audit could not confirm them. */
 export interface TuningApplied {
-  from_read: Record<string, number>;
-  to_read: Record<string, number>;
+  from_read: Record<string, number | null> | null;
+  to_read: Record<string, number | null> | null;
   t: string;
   approver: string;
-  invalid?: boolean | string;
+  source?: string; // "audit" or "gateway_reply"
+  chain_ok?: boolean;
+  invalid?: AppliedInvalid;
 }
 
 export interface TuningReview {
@@ -104,9 +111,15 @@ export interface ProposeBody {
   step_test_id?: string;
 }
 
+/** Page size the list uses; the server accepts 1-200 (default 100). */
+export const PAGE_SIZE = 100;
+
+/** The list is a plain array (no total): a full page means that more may follow. */
 export interface ProposalFilter {
   loopId?: string;
   status?: string;
+  limit?: number;
+  offset?: number;
 }
 
 /** An HTTP failure: `code` is the machine code of the server's detail ("" when it has none). */
@@ -162,11 +175,13 @@ function post(body?: unknown): RequestInit {
 
 const proposalUrl = (id: string): string => `${API_PREFIX}/tuning/proposals/${encodeURIComponent(id)}`;
 
-/** GET /tuning/proposals, newest first, optionally narrowed by loop and status. */
+/** GET /tuning/proposals, newest first, narrowed by loop and status, one page (limit, offset). */
 export async function fetchTuningProposals(filter: ProposalFilter = {}): Promise<TuningProposal[]> {
   const query = new URLSearchParams();
   if (filter.loopId) query.set("loop_id", filter.loopId);
   if (filter.status) query.set("status", filter.status);
+  if (filter.limit !== undefined) query.set("limit", String(filter.limit));
+  if (filter.offset !== undefined) query.set("offset", String(filter.offset));
   const text = query.toString();
   return requestJson<TuningProposal[]>(`${API_PREFIX}/tuning/proposals${text ? `?${text}` : ""}`);
 }

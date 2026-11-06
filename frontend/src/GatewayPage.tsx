@@ -47,10 +47,25 @@ export function modeChipClass(mode: string): string {
   return "status-chip status-chip--unused";
 }
 
+/** The generic pending route refuses the key of a PID parameter set (409 use_tuning_endpoint). */
+const TUNING_ENDPOINT_CODE = "use_tuning_endpoint";
+
 function ErrorMessage({ error, t }: { error: string; t: Translate }) {
+  if (error.includes(TUNING_ENDPOINT_CODE)) return <UseTuningNotice t={t} />;
   return (
     <div className="notice notice-warning" role="alert" data-testid="gateway-error">
       <p>{t("gateway.error", { reason: error })}</p>
+    </div>
+  );
+}
+
+/** Explains that a parameter set is approved or rejected in the Tuning view, and links to it. */
+function UseTuningNotice({ t }: { t: Translate }) {
+  const href = formatHash({ ...parseHash(window.location.hash), view: "tuning", loop: null, sub: "detail" });
+  return (
+    <div className="notice notice-warning" role="alert" data-testid="gateway-error">
+      <p data-testid="gateway-use-tuning">{t("gateway.error.useTuning")}</p>
+      <a href={href}>{t("gateway.pending.reviewParams")}</a>
     </div>
   );
 }
@@ -362,10 +377,12 @@ function TopControls({
   );
 }
 
+const MAX_QUEUED = 200; // the server maximum per page; more queued sets than that are not realistic
+
 /** The queued PID parameter sets (the gateway state does not reach /gateway/pending). */
 async function queuedParamSets(): Promise<TuningProposal[]> {
   try {
-    return (await fetchTuningProposals()).filter((p) => p.status === "queued");
+    return (await fetchTuningProposals({ status: "queued", limit: MAX_QUEUED })).filter((p) => p.status === "queued");
   } catch {
     return [];
   }

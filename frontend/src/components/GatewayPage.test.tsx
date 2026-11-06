@@ -5,7 +5,7 @@
  * confirmation dialogs for kill and supervised mode, error reporting, and polling cleanup.
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, DEFAULT_ROLE_PERMISSIONS, useAuth } from "../AuthContext";
 import * as authApi from "../authApi";
@@ -345,5 +345,24 @@ describe("GatewayPage", () => {
     expect(row).toHaveTextContent("FIC101");
     expect(screen.queryByTestId("gateway-pending-params-ps2")).not.toBeInTheDocument();
     expect(screen.getByText("gateway.pending.reviewParams")).toHaveAttribute("href", expect.stringContaining("/tuning"));
+  });
+
+  it("explains use_tuning_endpoint and links to the Tuning view when the generic route refuses a parameter set", async () => {
+    setupGatewaySpies();
+    vi.spyOn(gatewayApi, "approveProposal").mockRejectedValue(new gatewayApi.GatewayApiError(409, "use_tuning_endpoint"));
+    await renderAs("lead");
+    const approve = await screen.findByTestId("gateway-approve-prop-key-1");
+    await act(async () => {
+      fireEvent.click(approve);
+    });
+    const notice = await screen.findByTestId("gateway-error");
+    expect(notice).toHaveTextContent("gateway.error.useTuning");
+    expect(within(notice).getByRole("link")).toHaveAttribute("href", expect.stringContaining("/tuning"));
+  });
+
+  it("asks the server for the queued parameter sets only", async () => {
+    setupGatewaySpies();
+    await renderAs("lead");
+    await waitFor(() => expect(tuningApi.fetchTuningProposals).toHaveBeenCalledWith({ status: "queued", limit: 200 }));
   });
 });

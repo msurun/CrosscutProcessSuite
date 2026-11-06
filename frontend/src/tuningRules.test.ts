@@ -8,10 +8,17 @@ import {
   codeMessage,
   errorText,
   evaluateApprove,
+  evaluateReject,
   evaluateRollback,
   expiryText,
   formatCountdown,
+  invalidKey,
+  isApplying,
+  isOpen,
   matchesFilter,
+  reasonText,
+  reviewUntrusted,
+  STATUS_GROUPS,
   statusLevel,
 } from "./tuningRules";
 import { makeProposal, mockT as t } from "./tuningTestKit";
@@ -95,5 +102,62 @@ describe("error text", () => {
   it("falls back to the generic text with the code", () => {
     expect(errorText(new TuningApiError(409, "weird_code", ""), t)).toContain("weird_code");
     expect(errorText(new Error("boom"), t)).toContain("boom");
+  });
+});
+
+describe("hardened write path", () => {
+  const unverified = {
+    from_read: { "FIC101.GAIN": null, "FIC101.TI": null },
+    to_read: { "FIC101.GAIN": null, "FIC101.TI": null },
+    t: "2026-11-05T11:00:00Z",
+    approver: "bob",
+    source: "gateway_reply",
+    invalid: "audit_unverified",
+  };
+
+  it("rates and filters the applying status like an open warning", () => {
+    expect(statusLevel("applying")).toBe("warning");
+    expect(isApplying("applying")).toBe(true);
+    expect(isOpen("applying")).toBe(false);
+    expect(STATUS_GROUPS).toContain("applying");
+    expect(matchesFilter(makeProposal({ status: "applying" }), "", "applying")).toBe(true);
+    expect(statusLevel("refused:foreign_pending")).toBe("problem");
+  });
+
+  it("disables approve, reject and rollback while applying, with the applying reason", () => {
+    const p = makeProposal({ status: "applying" });
+    for (const result of [evaluateApprove(p, ALLOWED, "bob", t), evaluateReject(p, ALLOWED, t), evaluateRollback(p, ALLOWED, t)]) {
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("tuning.proposals.reason.applying");
+    }
+  });
+
+  it("refuses rollback of an unverified applied block, whatever the reason of invalid", () => {
+    const rolled = (applied: object) => evaluateRollback(makeProposal({ status: "reviewed:insufficient_data", applied: applied as never }), ALLOWED, t);
+    expect(rolled(unverified).reason).toContain("tuning.proposals.reason.appliedUnverified");
+    expect(rolled({ ...unverified, source: "audit", invalid: "audit_chain_broken" }).allowed).toBe(false);
+    expect(rolled({ ...unverified, source: "audit", invalid: "param_changed_externally", from_read: {}, to_read: {} }).allowed).toBe(false);
+    expect(rolled({ ...unverified, source: "audit", chain_ok: true, invalid: undefined, from_read: { a: 1 }, to_read: { a: null } }).allowed).toBe(false);
+    expect(rolled({ ...unverified, source: "audit", chain_ok: true, invalid: undefined, from_read: { a: 1 }, to_read: { a: 2 } }).allowed).toBe(true);
+  });
+
+  it("maps the new error codes to their own texts", () => {
+    for (const code of ["use_tuning_endpoint", "no_live_values", "applied_unverified", "foreign_pending", "no_history", "applying"]) {
+      expect(errorText(new TuningApiError(409, code, ""), t)).toBe(`tuning.err.${code}`);
+    }
+    expect(errorText(new TuningApiError(422, "no_history", "no_history"), t)).toBe("tuning.err.no_history");
+    expect(errorText(new TuningApiError(503, "gateway_state_unreadable", ""), t)).toBe("tuning.err.gateway_state_unreadable");
+    expect(errorText(new TuningApiError(504, "gateway did not answer", ""), t)).toBe("tuning.err.timeout");
+  });
+
+  it("explains each invalid reason and untrusted review reasons", () => {
+    expect(invalidKey("audit_unverified")).toBe("tuning.proposals.applied.invalid.audit_unverified");
+    expect(invalidKey("audit_chain_broken")).toBe("tuning.proposals.applied.invalid.audit_chain_broken");
+    expect(invalidKey("param_changed_externally")).toBe("tuning.proposals.applied.invalid.param_changed_externally");
+    expect(invalidKey(true)).toBe("tuning.proposals.applied.invalid.generic");
+    expect(reviewUntrusted(["applied_unverified"])).toBe(true);
+    expect(reviewUntrusted(["param_changed_externally"])).toBe(true);
+    expect(reviewUntrusted(["few_samples"])).toBe(false);
+    expect(reasonText("applied_unverified", (k) => (k.endsWith("applied_unverified") ? "no audit" : k))).toBe("no audit");
   });
 });

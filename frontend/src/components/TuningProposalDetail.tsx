@@ -6,8 +6,21 @@
  */
 
 import type { Translate } from "../findings";
-import type { PreviewPair, TuningItem, TuningProposal, TuningReview } from "../tuningApi";
-import { baseStatus, codeMessage, expiryText, reasonText, statusDetail, statusLevel } from "../tuningRules";
+import { formatHash, parseHash } from "../route";
+import type { PreviewPair, TuningApplied, TuningItem, TuningProposal, TuningReview } from "../tuningApi";
+import {
+  appliedUnverified,
+  baseStatus,
+  codeMessage,
+  expiryText,
+  invalidKey,
+  isApplying,
+  reasonText,
+  refusedDetailText,
+  reviewUntrusted,
+  statusDetail,
+  statusLevel,
+} from "../tuningRules";
 import { StatusChip, type StatusLevel } from "./StatusChip";
 
 const SIGNIFICANT_DIGITS = 5;
@@ -29,7 +42,7 @@ export function ProposalStatusChip({ status, t }: { status: string; t: Translate
   const detail = statusDetail(status);
   let label = t(`tuning.proposals.status.${base}`);
   if (base === "reviewed") label = `${label}: ${t(`tuning.proposals.verdict.${detail}`)}`;
-  if (base === "refused" && detail) label = `${label}: ${detail}`;
+  if (base === "refused" && detail) label = `${label}: ${refusedDetailText(detail, t)}`;
   return <StatusChip level={statusLevel(status)} label={label} />;
 }
 
@@ -215,11 +228,47 @@ export function ReviewBlock({ proposal, t }: { proposal: TuningProposal; t: Tran
           <li key={code}>{reasonText(code, t)}</li>
         ))}
       </ul>
+      {(reviewUntrusted(review.reasons) || appliedUnverified(proposal)) && (
+        <p className="notice notice-warning" role="status" data-testid="tuning-review-unavailable">
+          {t("tuning.proposals.review.unavailable")}
+        </p>
+      )}
       <ReviewTable review={review} t={t} />
       <p className="hint" data-testid="tuning-review-note">
         {t("tuning.proposals.review.note")}
       </p>
     </section>
+  );
+}
+
+function readText(value: number | null | undefined, t: Translate): string {
+  return value === null || value === undefined ? t("tuning.proposals.applied.unknown") : formatValue(value, t);
+}
+
+/** Values read before and after the write, per item; null / missing values are shown as unknown. */
+function AppliedValues({ proposal, applied, t }: { proposal: TuningProposal; applied: TuningApplied; t: Translate }) {
+  return (
+    <div className="table-scroll" tabIndex={0} role="region" aria-label={t("tuning.proposals.applied.valuesCaption")}>
+      <table className="loops-table" data-testid="tuning-applied-values">
+        <caption className="hint">{t("tuning.proposals.applied.valuesCaption")}</caption>
+        <thead>
+          <tr>
+            <th>{t("tuning.proposals.items.target")}</th>
+            <th>{t("tuning.proposals.applied.readBefore")}</th>
+            <th>{t("tuning.proposals.applied.readAfter")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {proposal.items.map((item) => (
+            <tr key={item.target}>
+              <td>{item.target}</td>
+              <td>{readText(applied.from_read?.[item.target], t)}</td>
+              <td>{readText(applied.to_read?.[item.target], t)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -230,12 +279,30 @@ function AppliedBlock({ proposal, t }: { proposal: TuningProposal; t: Translate 
     <section data-testid="tuning-applied">
       <h4>{t("tuning.proposals.applied.title")}</h4>
       <p>{t("tuning.proposals.applied.text", { time: applied.t, approver: applied.approver })}</p>
-      {applied.invalid && (
-        <p className="notice notice-warning" role="status">
-          {t("tuning.proposals.applied.invalid")}
+      {applied.source !== undefined && (
+        <p className="hint" data-testid="tuning-applied-source">
+          {t("tuning.proposals.applied.source", { source: t(`tuning.proposals.applied.source.${applied.source}`) })}
         </p>
       )}
+      {appliedUnverified(proposal) && (
+        <div className="notice notice-warning" role="status" data-testid="tuning-applied-warning">
+          <p>{t(invalidKey(applied.invalid))}</p>
+          <p>{t("tuning.proposals.applied.unavailable")}</p>
+        </div>
+      )}
+      <AppliedValues proposal={proposal} applied={applied} t={t} />
     </section>
+  );
+}
+
+/** Explains the "applying" status: the outcome is not confirmed, a person may have to check. */
+function ApplyingNotice({ t }: { t: Translate }) {
+  const href = formatHash({ ...parseHash(window.location.hash), view: "gateway", loop: null, sub: "detail" });
+  return (
+    <div className="notice notice-warning" role="status" data-testid="tuning-applying">
+      <p>{t("tuning.proposals.applying.text")}</p>
+      <a href={href}>{t("tuning.proposals.applying.link")}</a>
+    </div>
   );
 }
 
@@ -254,6 +321,7 @@ export function TuningProposalDetail({ proposal, nowMs, t }: { proposal: TuningP
           </span>
         )}
       </p>
+      {isApplying(proposal.status) && <ApplyingNotice t={t} />}
       {baseStatus(proposal.status) === "refused" && (
         <p className="notice notice-warning" role="status" data-testid="tuning-refusal">
           {codeMessage(statusDetail(proposal.status), t)}

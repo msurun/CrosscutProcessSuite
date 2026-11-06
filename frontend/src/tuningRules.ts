@@ -12,7 +12,7 @@ import { TuningApiError, type TuningProposal } from "./tuningApi";
 
 /** Status groups offered by the filter (the part of a status before a colon). */
 export const STATUS_GROUPS = [
-  "draft", "queued", "applied", "reviewing", "reviewed", "rejected", "expired", "refused",
+  "draft", "queued", "applying", "applied", "reviewing", "reviewed", "rejected", "expired", "refused",
 ] as const;
 
 export type StatusLevel = "ok" | "warning" | "problem" | "unused";
@@ -34,8 +34,18 @@ export const KNOWN_CODES: readonly string[] = [
   "transition_refused", "blocked", "no_settings", "unsupported_method", "missing_range",
   "missing_target", "missing_current", "no_op", "preview_unstable", "no_model",
   "invalid_preview", "missing_read", "unknown_vendor_form", "integrating_not_supported",
-  "window_too_short", "loop_not_in_dataset",
+  "window_too_short", "loop_not_in_dataset", "applying", "applied_unverified", "foreign_pending",
+  "use_tuning_endpoint", "no_history", "gateway_state_unreadable",
 ];
+
+/** Why an applied block cannot be trusted (applied.invalid), each with a locale text. */
+const INVALID_REASONS: readonly string[] = ["audit_unverified", "audit_chain_broken", "param_changed_externally"];
+
+/** Reasons of a review that mean "the applied values are not trustworthy". */
+const UNTRUSTED_REVIEW_REASONS: readonly string[] = ["applied_unverified", "param_changed_externally"];
+
+/** Details of a refused status that have their own chip text. */
+const REFUSED_LABELS: readonly string[] = ["foreign_pending"];
 
 /** The status without its detail: "refused:x" -> "refused". */
 export function baseStatus(status: string): string {
@@ -55,7 +65,7 @@ export function statusLevel(status: string): StatusLevel {
   if (base === "refused") return "problem";
   if (base === "reviewed") return reviewLevel(statusDetail(status));
   if (base === "applied") return "ok";
-  if (base === "draft" || base === "queued" || base === "reviewing") return "warning";
+  if (["draft", "queued", "applying", "reviewing"].includes(base)) return "warning";
   return "unused";
 }
 
@@ -68,6 +78,11 @@ function reviewLevel(verdict: string): StatusLevel {
 /** True while the proposal can still be approved or rejected. */
 export function isOpen(status: string): boolean {
   return status === "draft" || status === "queued";
+}
+
+/** True while the approve was sent but the gateway audit does not show the outcome yet. */
+export function isApplying(status: string): boolean {
+  return status === "applying";
 }
 
 /** True for a record that was written to the DCS (also while or after its KPI review). */
@@ -99,6 +114,7 @@ export function evaluateApprove(
   t: Translate,
 ): CanResult {
   if (!can.allowed) return can;
+  if (isApplying(p.status)) return { allowed: false, reason: t("tuning.proposals.reason.applying") };
   if (p.status !== "queued") return { allowed: false, reason: t("tuning.proposals.reason.notQueued") };
   if (sameActor(actor, p.created_by)) {
     return { allowed: false, reason: t("tuning.proposals.reason.selfApproval", { author: p.created_by }) };
@@ -109,15 +125,47 @@ export function evaluateApprove(
 /** Reject is possible for an open record only. */
 export function evaluateReject(p: TuningProposal, can: CanResult, t: Translate): CanResult {
   if (!can.allowed) return can;
+  if (isApplying(p.status)) return { allowed: false, reason: t("tuning.proposals.reason.applying") };
   if (!isOpen(p.status)) return { allowed: false, reason: t("tuning.proposals.reason.notOpen") };
   return { allowed: true, reason: "" };
 }
 
-/** Rollback is possible for a written record that is not itself a rollback of an applied one. */
+/** Rollback is possible for a written record whose applied values the audit confirmed. */
 export function evaluateRollback(p: TuningProposal, can: CanResult, t: Translate): CanResult {
   if (!can.allowed) return can;
+  if (isApplying(p.status)) return { allowed: false, reason: t("tuning.proposals.reason.applying") };
   if (!isWritten(p.status)) return { allowed: false, reason: t("tuning.proposals.reason.notApplied") };
+  if (appliedUnverified(p)) return { allowed: false, reason: t("tuning.proposals.reason.appliedUnverified") };
   return { allowed: true, reason: "" };
+}
+
+/** True when the old values of the applied block are unknown or untrusted (the server refuses a
+ * rollback then: 409 applied_unverified). Lenient on purpose: the server decides. */
+export function appliedUnverified(p: TuningProposal): boolean {
+  const a = p.applied;
+  if (a === null) return false;
+  return Boolean(a.invalid) || a.source === "gateway_reply" || a.chain_ok === false || hasUnknownValue(a);
+}
+
+/** True when a read-before or read-after value is null (or a whole map is null). */
+export function hasUnknownValue(a: NonNullable<TuningProposal["applied"]>): boolean {
+  return [a.from_read, a.to_read].some((m) => m === null || Object.values(m).some((v) => v === null));
+}
+
+/** The locale key of the explanation of applied.invalid (a generic one for unknown values). */
+export function invalidKey(invalid: boolean | string | undefined): string {
+  const known = typeof invalid === "string" && INVALID_REASONS.includes(invalid);
+  return `tuning.proposals.applied.invalid.${known ? invalid : "generic"}`;
+}
+
+/** True when the reasons of a review say that the applied values cannot be trusted. */
+export function reviewUntrusted(reasons: readonly string[] | undefined): boolean {
+  return (reasons ?? []).some((code) => UNTRUSTED_REVIEW_REASONS.includes(code));
+}
+
+/** The text of a refused-status chip detail ("foreign_pending" has a text; others show the code). */
+export function refusedDetailText(detail: string, t: Translate): string {
+  return REFUSED_LABELS.includes(detail) ? t(`tuning.proposals.refused.${detail}`) : detail;
 }
 
 /** Seconds until the proposal expires (negative once expired); NaN for an unreadable time. */

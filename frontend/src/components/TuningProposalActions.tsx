@@ -24,6 +24,8 @@ import { ItemsTable } from "./TuningProposalDetail";
 export interface ActionsProps {
   proposal: TuningProposal;
   onChanged: (updated: TuningProposal) => void;
+  /** Re-reads the list after a failed call (a timed-out approve leaves the record "applying"). */
+  onRefresh?: () => void;
   t: Translate;
 }
 
@@ -41,6 +43,7 @@ function useSubmit(
   call: () => Promise<TuningProposal>,
   onDone: (p: TuningProposal) => void,
   t: Translate,
+  onFailed?: () => void,
 ): { busy: boolean; error: string; submit: () => void } {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -49,7 +52,10 @@ function useSubmit(
     setError("");
     call()
       .then(onDone)
-      .catch((failure: unknown) => setError(errorText(failure, t)))
+      .catch((failure: unknown) => {
+        setError(errorText(failure, t));
+        onFailed?.();
+      })
       .finally(() => setBusy(false));
   };
   return { busy, error, submit };
@@ -64,13 +70,14 @@ function ActionError({ text }: { text: string }) {
   );
 }
 
-function ApproveDialog({ proposal, onClose, onChanged, t }: DialogProps) {
+function ApproveDialog({ proposal, onClose, onChanged, onRefresh, t }: DialogProps) {
   const [checked, setChecked] = useState(false);
   const done = (p: TuningProposal): void => {
     onChanged(p);
     onClose();
   };
-  const { busy, error, submit } = useSubmit(() => approveTuningProposal(proposal.id), done, t);
+  const { busy, error, submit } = useSubmit(() => approveTuningProposal(proposal.id), done, t, onRefresh);
+  const stale = proposal.status !== "queued";
   return (
     <ModalDialog title={t("tuning.proposals.approve.title")} onClose={onClose} busy={busy} testId="tuning-approve-dialog">
       <p>{t("tuning.proposals.approve.text", { loop: proposal.loop_id })}</p>
@@ -86,7 +93,10 @@ function ApproveDialog({ proposal, onClose, onChanged, t }: DialogProps) {
       </label>
       <ActionError text={error} />
       <div className="toolbar">
-        <DisabledReason disabled={!checked || busy} reason={t("tuning.proposals.approve.needCheck")}>
+        <DisabledReason
+          disabled={!checked || busy || stale}
+          reason={t(stale ? "tuning.proposals.reason.notQueued" : "tuning.proposals.approve.needCheck")}
+        >
           <button type="button" data-testid="tuning-approve-confirm" onClick={submit}>
             {t("tuning.proposals.approve.confirm")}
           </button>
@@ -99,14 +109,14 @@ function ApproveDialog({ proposal, onClose, onChanged, t }: DialogProps) {
   );
 }
 
-function RollbackDialog({ proposal, onClose, onChanged, t }: DialogProps) {
+function RollbackDialog({ proposal, onClose, onChanged, onRefresh, t }: DialogProps) {
   const [reason, setReason] = useState("");
   const done = (p: TuningProposal): void => {
     onChanged(p);
     onClose();
   };
   const call = () => rollbackTuningProposal(proposal.id, reason.trim() === "" ? undefined : reason.trim());
-  const { busy, error, submit } = useSubmit(call, done, t);
+  const { busy, error, submit } = useSubmit(call, done, t, onRefresh);
   return (
     <ModalDialog title={t("tuning.proposals.rollback.title")} onClose={onClose} busy={busy} testId="tuning-rollback-dialog">
       <p>{t("tuning.proposals.rollback.text")}</p>
@@ -156,13 +166,13 @@ function ActionButton({
 }
 
 /** The action row of the detail panel. */
-export function TuningProposalActions({ proposal, onChanged, t }: ActionsProps) {
+export function TuningProposalActions({ proposal, onChanged, onRefresh, t }: ActionsProps) {
   const { status, user } = useAuth();
   const approve = evaluateApprove(proposal, useCan("gw.approve.tuning"), currentActor(status, user?.username), t);
   const reject = evaluateReject(proposal, useCan("gw.reject"), t);
   const rollback = evaluateRollback(proposal, useCan("gw.propose"), t);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const rejecting = useSubmit(() => rejectTuningProposal(proposal.id), onChanged, t);
+  const rejecting = useSubmit(() => rejectTuningProposal(proposal.id), onChanged, t, onRefresh);
   const close = (): void => setDialog(null);
   return (
     <div data-testid="tuning-actions">
@@ -175,8 +185,8 @@ export function TuningProposalActions({ proposal, onChanged, t }: ActionsProps) 
           onClick={() => setDialog("rollback")} t={t} />
       </div>
       <ActionError text={rejecting.error} />
-      {dialog === "approve" && <ApproveDialog proposal={proposal} onChanged={onChanged} onClose={close} t={t} />}
-      {dialog === "rollback" && <RollbackDialog proposal={proposal} onChanged={onChanged} onClose={close} t={t} />}
+      {dialog === "approve" && <ApproveDialog proposal={proposal} onChanged={onChanged} onRefresh={onRefresh} onClose={close} t={t} />}
+      {dialog === "rollback" && <RollbackDialog proposal={proposal} onChanged={onChanged} onRefresh={onRefresh} onClose={close} t={t} />}
     </div>
   );
 }

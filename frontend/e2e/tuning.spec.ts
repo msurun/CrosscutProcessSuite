@@ -124,6 +124,79 @@ for (const width of [1440, 390] as const) {
   });
 }
 
+const UNKNOWN_READS = { "FIC1.GAIN": null, "FIC1.TI": null };
+const unverifiedApplied = {
+  from_read: UNKNOWN_READS,
+  to_read: UNKNOWN_READS,
+  t: "2026-11-05T11:00:00Z",
+  approver: "bob",
+  source: "gateway_reply",
+  invalid: "audit_unverified",
+};
+
+async function openRow(page: Page, id: string) {
+  await page.goto(PAGE_URL);
+  await expect(page.getByTestId("tuning-list")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId(`tuning-row-${id}`).getByRole("button").click();
+  await expect(page.getByTestId("tuning-detail")).toBeVisible();
+}
+
+test("an applying record explains itself, disables the actions and links to the gateway", async ({ page }) => {
+  await mockApi(page, [proposal("p1", { status: "applying" })]);
+  await openRow(page, "p1");
+  await expect(page.getByTestId("tuning-applying")).toContainText("audyt");
+  await expect(page.getByTestId("tuning-applying").getByRole("link")).toHaveAttribute("href", /gateway/);
+  for (const id of ["tuning-approve", "tuning-reject", "tuning-rollback"]) {
+    await expect(page.getByTestId(id)).toHaveAttribute("aria-disabled", "true");
+  }
+});
+
+test("a null-values applied record shows unknown values and refuses rollback", async ({ page }) => {
+  const review = { verdict: "insufficient_data", reasons: ["applied_unverified"] };
+  await mockApi(page, [proposal("p1", { status: "reviewed:insufficient_data", applied: unverifiedApplied, review })]);
+  await openRow(page, "p1");
+  await expect(page.getByTestId("tuning-applied-values")).toContainText("nieznana");
+  await expect(page.getByTestId("tuning-applied-warning")).toBeVisible();
+  await expect(page.getByTestId("tuning-review-unavailable")).toBeVisible();
+  await expect(page.getByTestId("tuning-rollback")).toHaveAttribute("aria-disabled", "true");
+});
+
+test("Load more reads the next page with offset 100", async ({ page }) => {
+  const first = Array.from({ length: 100 }, (_, i) => proposal(`p${i + 1}`));
+  const second = [proposal("p101")];
+  const offsets: string[] = [];
+  await page.route(LIST_URL, (route) => {
+    const offset = new URL(route.request().url()).searchParams.get("offset") ?? "0";
+    offsets.push(offset);
+    return json(route, 200, offset === "0" ? first : second);
+  });
+  await page.goto(PAGE_URL);
+  await expect(page.getByTestId("tuning-list")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("tuning-load-more").click();
+  await expect(page.getByTestId("tuning-row-p101")).toBeVisible();
+  await expect(page.getByTestId("tuning-announce")).not.toBeEmpty();
+  await expect(page.getByTestId("tuning-load-more")).toHaveCount(0);
+  expect(offsets).toContain("100");
+});
+
+for (const width of [1440, 390] as const) {
+  test(`applying and null-values records have no axe violations @${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const review = { verdict: "insufficient_data", reasons: ["applied_unverified"] };
+    await mockApi(page, [
+      proposal("p1", { status: "applying" }),
+      proposal("p2", { status: "reviewed:insufficient_data", applied: unverifiedApplied, review }),
+      proposal("p3", { status: "refused:foreign_pending", gateway_key: null }),
+    ]);
+    for (const id of ["p1", "p2", "p3"]) {
+      await openRow(page, id);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, `horizontal page scroll (${id})`).toBeLessThanOrEqual(0);
+      await expectNoSeriousAxe(page);
+    }
+  });
+}
+
 test("the empty list shows the hint", async ({ page }) => {
   await mockApi(page, []);
   await page.goto(PAGE_URL);

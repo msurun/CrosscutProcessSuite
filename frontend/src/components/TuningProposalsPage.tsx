@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Translate } from "../findings";
-import { fetchTuningProposals, type TuningProposal } from "../tuningApi";
+import { fetchTuningProposals, PAGE_SIZE, type TuningProposal } from "../tuningApi";
 import { errorText, expiryText, isOpen, loopsOf, matchesFilter, STATUS_GROUPS } from "../tuningRules";
 import { ProposalStatusChip, TuningProposalDetail } from "./TuningProposalDetail";
 import { TuningProposalActions } from "./TuningProposalActions";
@@ -21,31 +21,32 @@ export interface TuningProposalsPageProps {
   t: Translate;
 }
 
-interface Polled {
+interface Paged {
   list: TuningProposal[] | null;
+  /** True when the last page read was full, so older proposals may exist. */
+  hasMore: boolean;
+  /** Text for the aria-live region after "Load more" ("" before the first use). */
+  announce: string;
+}
+
+interface Polled extends Paged {
   error: string;
   refresh: () => Promise<void>;
+  loadMore: () => Promise<void>;
   replace: (updated: TuningProposal) => void;
 }
 
-/** Loads the proposals now and every POLL_INTERVAL_MS; stops and ignores late answers on unmount. */
-export function useTuningProposals(t: Translate): Polled {
-  const [list, setList] = useState<TuningProposal[] | null>(null);
-  const [error, setError] = useState("");
-  const alive = useRef(true);
-  const tRef = useRef(t);
-  tRef.current = t;
-  const refresh = useCallback(async () => {
-    try {
-      const next = await fetchTuningProposals();
-      if (alive.current) {
-        setList(next);
-        setError("");
-      }
-    } catch (failure: unknown) {
-      if (alive.current) setError(errorText(failure, tRef.current));
-    }
-  }, []);
+/** The records once, in the order of first appearance (pages can overlap while records arrive). */
+function uniqueById(records: TuningProposal[]): TuningProposal[] {
+  const seen = new Set<string>();
+  return records.filter((p) => !seen.has(p.id) && Boolean(seen.add(p.id)));
+}
+
+const fetchPage = (index: number): Promise<TuningProposal[]> =>
+  fetchTuningProposals({ limit: PAGE_SIZE, offset: index * PAGE_SIZE });
+
+/** Calls `refresh` now and every POLL_INTERVAL_MS until unmount. */
+function usePolling(refresh: () => Promise<void>, alive: { current: boolean }): void {
   useEffect(() => {
     alive.current = true;
     void refresh();
@@ -54,11 +55,63 @@ export function useTuningProposals(t: Translate): Polled {
       alive.current = false;
       window.clearInterval(timer);
     };
-  }, [refresh]);
-  const replace = useCallback((updated: TuningProposal) => {
-    setList((old) => (old === null ? old : old.map((p) => (p.id === updated.id ? updated : p))));
+  }, [refresh, alive]);
+}
+
+/** Loads the proposals now and every POLL_INTERVAL_MS (only the pages loaded so far); stops and
+ * ignores late answers on unmount. The list is paginated: `loadMore` reads the next page. */
+export function useTuningProposals(t: Translate): Polled {
+  const [state, setState] = useState<Paged>({ list: null, hasMore: false, announce: "" });
+  const [error, setError] = useState("");
+  const [alive, pages, moreBusy] = [useRef(true), useRef(1), useRef(false)];
+  const tRef = useRef(t);
+  tRef.current = t;
+  const fail = useCallback((failure: unknown) => {
+    if (alive.current) setError(errorText(failure, tRef.current));
   }, []);
-  return { list, error, refresh, replace };
+  const refresh = useCallback(async () => {
+    const count = pages.current;
+    try {
+      const parts = await Promise.all(Array.from({ length: count }, (_, i) => fetchPage(i)));
+      if (!alive.current || pages.current !== count) return; // unmounted, or "Load more" won the race
+      const full = parts[count - 1].length >= PAGE_SIZE;
+      setState((old) => ({ ...old, list: uniqueById(parts.flat()), hasMore: full }));
+      setError("");
+    } catch (failure: unknown) {
+      fail(failure);
+    }
+  }, [fail]);
+  const loadMore = useCallback(async () => {
+    if (moreBusy.current) return;
+    moreBusy.current = true;
+    try {
+      const page = await fetchPage(pages.current);
+      if (!alive.current) return;
+      pages.current += 1;
+      setState((old) => appendPage(old, page, tRef.current));
+      setError("");
+    } catch (failure: unknown) {
+      fail(failure);
+    } finally {
+      moreBusy.current = false;
+    }
+  }, [fail]);
+  usePolling(refresh, alive);
+  const replace = useCallback((updated: TuningProposal) => setState((old) => replaceIn(old, updated)), []);
+  return { ...state, error, refresh, loadMore, replace };
+}
+
+/** The state with one record replaced by its newer version. */
+function replaceIn(old: Paged, updated: TuningProposal): Paged {
+  return { ...old, list: old.list && old.list.map((p) => (p.id === updated.id ? updated : p)) };
+}
+
+/** The state after "Load more": the page merged in, whether more may follow, the announcement. */
+function appendPage(old: Paged, page: TuningProposal[], t: Translate): Paged {
+  const before = old.list ?? [];
+  const list = uniqueById([...before, ...page]);
+  const announce = t("tuning.proposals.loadedMore", { added: list.length - before.length, shown: list.length });
+  return { list, hasMore: page.length >= PAGE_SIZE, announce };
 }
 
 /** Milliseconds since the epoch, ticking every second while `active`. */
@@ -243,9 +296,40 @@ function ListStatus({
   );
 }
 
+/** Count of the loaded proposals, the "Load more" button and its aria-live announcement. */
+function MoreControls({
+  shown,
+  hasMore,
+  announce,
+  onMore,
+  t,
+}: {
+  shown: number;
+  hasMore: boolean;
+  announce: string;
+  onMore: () => void;
+  t: Translate;
+}) {
+  return (
+    <div className="toolbar" style={{ flexWrap: "wrap", gap: 12 }}>
+      <span className="hint" data-testid="tuning-count">
+        {t(hasMore ? "tuning.proposals.countMore" : "tuning.proposals.count", { shown })}
+      </span>
+      {hasMore && (
+        <button type="button" data-testid="tuning-load-more" onClick={onMore}>
+          {t("tuning.proposals.loadMore")}
+        </button>
+      )}
+      <span className="hint" role="status" aria-live="polite" data-testid="tuning-announce">
+        {announce}
+      </span>
+    </div>
+  );
+}
+
 /** The proposals view. */
 export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
-  const { list, error, refresh, replace } = useTuningProposals(t);
+  const { list, error, hasMore, announce, refresh, loadMore, replace } = useTuningProposals(t);
   const [filter, setFilter] = useState<FilterState>({ loop: "", group: "" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const nowMs = useNow((list ?? []).some((p) => isOpen(p.status)));
@@ -267,10 +351,13 @@ export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
       {rows.length > 0 && (
         <ProposalTable rows={rows} selectedId={selectedId} nowMs={nowMs} onSelect={setSelectedId} t={t} />
       )}
+      {list !== null && list.length > 0 && (
+        <MoreControls shown={list.length} hasMore={hasMore} announce={announce} onMore={() => void loadMore()} t={t} />
+      )}
       {selected !== null && (
         <section>
           <TuningProposalDetail proposal={selected} nowMs={nowMs} t={t} />
-          <TuningProposalActions proposal={selected} onChanged={onChanged} t={t} />
+          <TuningProposalActions proposal={selected} onChanged={onChanged} onRefresh={() => void refresh()} t={t} />
         </section>
       )}
     </div>

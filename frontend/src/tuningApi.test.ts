@@ -52,6 +52,14 @@ describe("reads", () => {
     expect(lastCall().url).toBe("/api/tuning/proposals?loop_id=FIC+101&status=queued");
   });
 
+  it("puts limit and offset of a page in the query", async () => {
+    fetchMock.mockImplementation(async () => json(200, []));
+    await fetchTuningProposals({ status: "queued", limit: 100, offset: 200 });
+    expect(lastCall().url).toBe("/api/tuning/proposals?status=queued&limit=100&offset=200");
+    await fetchTuningProposals({ limit: 100, offset: 0 });
+    expect(lastCall().url).toBe("/api/tuning/proposals?limit=100&offset=0");
+  });
+
   it("reads one proposal by encoded id", async () => {
     await fetchTuningProposal("a/b");
     expect(lastCall().url).toBe("/api/tuning/proposals/a%2Fb");
