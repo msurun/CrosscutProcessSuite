@@ -2,10 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/job.schema.json",
   "title": "Runtime jobs",
-  "description": "Jobs run cyclically by the runtime service, stored at <data root>/_runtime/jobs.json. A loop_kpi job computes live loop KPIs from Connector.read_live samples over a rolling window; anomaly_scan jobs are accepted from Phase 1, their execution lands in a later phase (the runtime marks them 'unsupported' until then).",
+  "description": "Jobs run cyclically by the runtime service, stored at <data root>/_runtime/jobs.json. A loop_kpi job computes live loop KPIs from Connector.read_live samples over a rolling window; anomaly_scan jobs are accepted from Phase 1, their execution lands in a later phase (the runtime marks them 'unsupported' until then). A tuning_review job reviews the applied tuning proposals of the loops named in 'loops' (ADR 014 section 5): it reads <data root>/_tuning/proposals and the runtime history, and needs no window_s.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "jobs"],
+  "required": [
+    "schema_version",
+    "jobs"
+  ],
   "properties": {
     "schema_version": {
       "const": 1,
@@ -14,7 +17,9 @@
     "jobs": {
       "type": "array",
       "description": "The jobs of the deployment; empty when nothing is deployed.",
-      "items": {"$ref": "#/$defs/job"}
+      "items": {
+        "$ref": "#/$defs/job"
+      }
     }
   },
   "$defs": {
@@ -27,12 +32,25 @@
     "job": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "source", "period_s", "window_s", "enabled"],
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "period_s",
+        "enabled"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/identifier", "description": "Unique id of the job."},
+        "id": {
+          "$ref": "#/$defs/identifier",
+          "description": "Unique id of the job."
+        },
         "kind": {
-          "enum": ["loop_kpi", "anomaly_scan"],
-          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'."
+          "enum": [
+            "loop_kpi",
+            "anomaly_scan",
+            "tuning_review"
+          ],
+          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'."
         },
         "source": {
           "$ref": "#/$defs/identifier",
@@ -40,13 +58,17 @@
         },
         "loops": {
           "type": "array",
-          "items": {"$ref": "#/$defs/identifier"},
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
           "uniqueItems": true,
           "description": "Ids of entries in the site's loops; required for loop_kpi jobs."
         },
         "tags": {
           "type": "array",
-          "items": {"$ref": "#/$defs/identifier"},
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
           "uniqueItems": true,
           "description": "Ids of entries in the site's tags; required for anomaly_scan jobs."
         },
@@ -58,12 +80,32 @@
         "window_s": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Length of the rolling window the KPI is computed on, in seconds."
+          "description": "Length of the rolling window the KPI is computed on, in seconds. Required for every kind except tuning_review, which derives its windows from the proposal's process model."
         },
         "enabled": {
           "type": "boolean",
           "description": "Whether the runtime runs the job; the GUI start/stop acts on this flag."
         }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tuning_review"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "loops"
+        ]
+      },
+      "else": {
+        "required": [
+          "window_s"
+        ]
       }
     }
   }

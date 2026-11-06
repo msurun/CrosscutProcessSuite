@@ -21,10 +21,11 @@ from crosscut_runtime.addressing import AddressedConnector
 from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.anomaly_scan import AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
+from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore
 
-RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan")
+RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review")
 
 
 def _failing_run(message: str) -> Callable[[], Any]:
@@ -55,6 +56,7 @@ class RuntimeService:
         self._connectors: dict[str, Any] = {}
         self._kpi_jobs: dict[str, LoopKpiJob] = {}
         self._anomaly_jobs: dict[str, tuple[dict[str, Any], AnomalyScanJob]] = {}
+        self._review_jobs: dict[str, TuningReviewJob] = {}
         self._history = HistoryStore(history_path(root))
         self._pending_samples: list[tuple[str, float, float]] = []
 
@@ -93,7 +95,9 @@ class RuntimeService:
                 continue
 
             active_ids.add(job_id)
-            if job["kind"] == "loop_kpi":
+            if job["kind"] == "tuning_review":
+                self._sync_review(job)
+            elif job["kind"] == "loop_kpi":
                 self._sync_job(job, sources, addresses, lambda doc: self._loop_run(doc, loop_docs))
             elif job["kind"] == "anomaly_scan":
                 self._sync_job(job, sources, addresses, self._anomaly_run)
@@ -107,6 +111,20 @@ class RuntimeService:
         self._scheduler.remove(job_id)
         self._kpi_jobs.pop(job_id, None)
         self._anomaly_jobs.pop(job_id, None)
+        self._review_jobs.pop(job_id, None)
+
+    def _sync_review(self, job: dict[str, Any]) -> None:
+        """Update the JobSlot of a tuning_review job; no connector needed."""
+        job_id = job["id"]
+        cached = self._review_jobs.get(job_id)
+        if cached is None or cached.job_doc != job:
+            cached = TuningReviewJob(job, self._store.root, self._history, self._clock)
+            self._review_jobs[job_id] = cached
+        existing = self._scheduler.get(job_id)
+        if existing:
+            existing.run, existing.period_s = cached.run, job["period_s"]
+        else:
+            self._scheduler.put(JobSlot(job_id, job["period_s"], cached.run))
 
     def _sync_job(
         self,
@@ -189,6 +207,15 @@ class RuntimeService:
         except HistoryError as error:
             self._store.append_log("error", f"History write failed: {error}")
 
+    @staticmethod
+    def _review_state(st: dict[str, Any], result: dict[str, Any]) -> None:
+        """Record a tuning_review pass: error if records were skipped, idle if none open."""
+        errors = int(result.get("errors", 0))
+        idle = not (result.get("reviewed") or result.get("pending") or errors)
+        status = "error" if errors else ("idle" if idle else "ok")
+        message = f"{errors} proposal record(s) skipped, see the log" if errors else None
+        st.update({"status": status, "error": message, "review": result})
+
     def _update_state(self, jobs: list[dict[str, Any]], results: list[Any]) -> None:
         """Merge job outcomes into the runtime state file."""
         state = self._store.load_state()
@@ -208,7 +235,9 @@ class RuntimeService:
             run = results_by_id.get(job_id)
             if run:
                 st["last_run_utc"] = now_utc
-                if run.ok:
+                if run.ok and job["kind"] == "tuning_review":
+                    self._review_state(st, run.result)
+                elif run.ok:
                     st.update({"status": "ok", "error": None})
                     st["samples"] = run.result.get("samples")
                     st["kpi"] = run.result.get("kpi")

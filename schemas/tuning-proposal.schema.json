@@ -6,9 +6,23 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "id", "version", "loop_id", "created_by", "created_at", "expires_at", "vendor_form",
-    "source", "confidence", "caveats", "items", "preview", "rollback_of", "status",
-    "gateway_key", "applied", "review"
+    "id",
+    "version",
+    "loop_id",
+    "created_by",
+    "created_at",
+    "expires_at",
+    "vendor_form",
+    "source",
+    "confidence",
+    "caveats",
+    "items",
+    "preview",
+    "rollback_of",
+    "status",
+    "gateway_key",
+    "applied",
+    "review"
   ],
   "$defs": {
     "identifier": {
@@ -34,22 +48,62 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["param", "target", "unit", "from", "to"],
+      "required": [
+        "param",
+        "target",
+        "unit",
+        "from",
+        "to"
+      ],
       "properties": {
-        "param": {"enum": ["gain", "ti", "td", "tf"]},
-        "target": {"$ref": "#/$defs/identifier", "description": "Policy target tag the value is written to."},
-        "unit": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Unit of from and to, as in the DCS."},
-        "from": {"type": "number", "description": "Value read live from the DCS when the proposal was created, in the unit above."},
-        "to": {"type": "number", "description": "Proposed value, in the unit above."}
+        "param": {
+          "enum": [
+            "gain",
+            "ti",
+            "td",
+            "tf"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/identifier",
+          "description": "Policy target tag the value is written to."
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Unit of from and to, as in the DCS."
+        },
+        "from": {
+          "type": "number",
+          "description": "Value read live from the DCS when the proposal was created, in the unit above."
+        },
+        "to": {
+          "type": "number",
+          "description": "Proposed value, in the unit above."
+        }
       }
     },
     "preview_pair": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["current", "proposed"],
+      "required": [
+        "current",
+        "proposed"
+      ],
       "properties": {
-        "current": {"type": ["number", "null"]},
-        "proposed": {"type": ["number", "null"]}
+        "current": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "proposed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
       }
     }
   },
@@ -59,10 +113,21 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
       "description": "Proposal id, a lower-case UUID."
     },
-    "version": {"const": 1, "description": "Version of this record layout."},
-    "loop_id": {"$ref": "#/$defs/identifier"},
-    "created_by": {"type": "string", "minLength": 1, "maxLength": 128},
-    "created_at": {"$ref": "#/$defs/utc_timestamp"},
+    "version": {
+      "const": 1,
+      "description": "Version of this record layout."
+    },
+    "loop_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "created_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
     "expires_at": {
       "$ref": "#/$defs/utc_timestamp",
       "description": "Default 8 hours after created_at; capped in code at 12 hours."
@@ -70,81 +135,213 @@
     "vendor_form": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["key", "evidence"],
+      "required": [
+        "key",
+        "evidence"
+      ],
       "properties": {
-        "key": {"$ref": "#/$defs/identifier", "description": "A key of VENDOR_FORMS."},
-        "evidence": {"enum": ["verified", "partly_verified", "unverified"]}
+        "key": {
+          "$ref": "#/$defs/identifier",
+          "description": "A key of VENDOR_FORMS."
+        },
+        "evidence": {
+          "enum": [
+            "verified",
+            "partly_verified",
+            "unverified"
+          ]
+        }
       }
     },
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["method", "robustness", "model", "window", "report_digest"],
+      "required": [
+        "method",
+        "robustness",
+        "model",
+        "window",
+        "report_digest"
+      ],
       "properties": {
-        "method": {"enum": ["simc", "amigo", "amigo_pid", "rollback", "manual"]},
-        "robustness": {"type": "number", "minimum": 0, "maximum": 1, "description": "Robustness slider, 0 fast to 1 robust."},
+        "method": {
+          "enum": [
+            "simc",
+            "amigo",
+            "amigo_pid",
+            "rollback",
+            "manual"
+          ]
+        },
+        "robustness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Robustness slider, 0 fast to 1 robust."
+        },
         "model": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["K", "tau_s", "theta_s", "process_kind"],
+          "required": [
+            "K",
+            "tau_s",
+            "theta_s",
+            "process_kind"
+          ],
           "properties": {
-            "K": {"type": "number", "description": "Process gain, output units per PV unit as identified."},
-            "tau_s": {"type": "number", "minimum": 0, "description": "Time constant, seconds."},
-            "theta_s": {"type": "number", "minimum": 0, "description": "Dead time, seconds."},
-            "process_kind": {"enum": ["self_regulating", "integrating"]}
+            "K": {
+              "type": "number",
+              "description": "Process gain, output units per PV unit as identified."
+            },
+            "tau_s": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Time constant, seconds."
+            },
+            "theta_s": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Dead time, seconds."
+            },
+            "process_kind": {
+              "enum": [
+                "self_regulating",
+                "integrating"
+              ]
+            }
           }
         },
         "window": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["start", "end"],
+          "required": [
+            "start",
+            "end"
+          ],
           "properties": {
-            "dataset_id": {"$ref": "#/$defs/identifier"},
-            "history": {"type": "boolean", "const": true, "description": "True when the window comes from the history store instead of a dataset."},
-            "start": {"$ref": "#/$defs/utc_timestamp"},
-            "end": {"$ref": "#/$defs/utc_timestamp"}
+            "dataset_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "history": {
+              "type": "boolean",
+              "const": true,
+              "description": "True when the window comes from the history store instead of a dataset."
+            },
+            "start": {
+              "$ref": "#/$defs/utc_timestamp"
+            },
+            "end": {
+              "$ref": "#/$defs/utc_timestamp"
+            }
           },
-          "oneOf": [{"required": ["dataset_id"], "not": {"required": ["history"]}}, {"required": ["history"], "not": {"required": ["dataset_id"]}}]
+          "oneOf": [
+            {
+              "required": [
+                "dataset_id"
+              ],
+              "not": {
+                "required": [
+                  "history"
+                ]
+              }
+            },
+            {
+              "required": [
+                "history"
+              ],
+              "not": {
+                "required": [
+                  "dataset_id"
+                ]
+              }
+            }
+          ]
         },
-        "step_test_id": {"$ref": "#/$defs/identifier"},
-        "report_digest": {"$ref": "#/$defs/sha256"}
+        "step_test_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "report_digest": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "confidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["level", "reasons"],
+      "required": [
+        "level",
+        "reasons"
+      ],
       "properties": {
-        "level": {"enum": ["high", "medium", "low"]},
-        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        "level": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "caveats": {
       "type": "array",
-      "items": {"type": "string", "minLength": 1},
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "description": "Copied from the VendorForm."
     },
     "items": {
       "type": "array",
-      "items": {"$ref": "#/$defs/item"},
+      "items": {
+        "$ref": "#/$defs/item"
+      },
       "minItems": 1,
       "maxItems": 4
     },
     "preview": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "iae_ratio", "overshoot_pct", "settling_time_s", "ms"],
+      "required": [
+        "label",
+        "iae_ratio",
+        "overshoot_pct",
+        "settling_time_s",
+        "ms"
+      ],
       "description": "Model-simulated comparison, current versus proposed. Always a model prediction.",
       "properties": {
-        "label": {"const": "model prediction"},
-        "iae_ratio": {"$ref": "#/$defs/ratio"},
-        "overshoot_pct": {"$ref": "#/$defs/preview_pair", "description": "Percent of the step size."},
-        "settling_time_s": {"$ref": "#/$defs/preview_pair", "description": "Seconds."},
-        "ms": {"$ref": "#/$defs/preview_pair", "description": "Peak of the sensitivity function, dimensionless."}
+        "label": {
+          "const": "model prediction"
+        },
+        "iae_ratio": {
+          "$ref": "#/$defs/ratio"
+        },
+        "overshoot_pct": {
+          "$ref": "#/$defs/preview_pair",
+          "description": "Percent of the step size."
+        },
+        "settling_time_s": {
+          "$ref": "#/$defs/preview_pair",
+          "description": "Seconds."
+        },
+        "ms": {
+          "$ref": "#/$defs/preview_pair",
+          "description": "Peak of the sensitivity function, dimensionless."
+        }
       }
     },
     "rollback_of": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
       "description": "Id of the proposal this one reverts, or null."
     },
@@ -154,36 +351,135 @@
       "description": "draft, queued, applied, rejected, expired, refused:<code>, reviewing, reviewed:<verdict>."
     },
     "gateway_key": {
-      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "description": "Idempotency key returned by the gateway, null before propose."
     },
     "applied": {
       "oneOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["from_read", "to_read", "t", "approver"],
+          "required": [
+            "from_read",
+            "to_read",
+            "t",
+            "approver"
+          ],
           "properties": {
-            "from_read": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Values read before the write, by target, in item units."},
-            "to_read": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Values read back after the write, by target, in item units."},
-            "t": {"$ref": "#/$defs/utc_timestamp"},
-            "approver": {"type": "string", "minLength": 1, "maxLength": 128}
+            "from_read": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              },
+              "description": "Values read before the write, by target, in item units."
+            },
+            "to_read": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              },
+              "description": "Values read back after the write, by target, in item units."
+            },
+            "t": {
+              "$ref": "#/$defs/utc_timestamp"
+            },
+            "approver": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "invalid": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "description": "Set by the API when the DCS value was changed outside the write path (gateway audit param_changed_externally); true or a reason text. The KPI review then ends as insufficient_data."
+            }
           }
         }
       ]
     },
     "review": {
       "oneOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["verdict"],
+          "required": [
+            "verdict"
+          ],
           "properties": {
-            "verdict": {"enum": ["insufficient_data", "worse", "worse_early", "improved", "neutral"]},
-            "t": {"$ref": "#/$defs/utc_timestamp"},
-            "metrics": {"type": "object", "additionalProperties": {"type": ["number", "null"]}}
+            "verdict": {
+              "enum": [
+                "insufficient_data",
+                "worse",
+                "worse_early",
+                "improved",
+                "neutral"
+              ]
+            },
+            "t": {
+              "$ref": "#/$defs/utc_timestamp",
+              "description": "UTC time of the last evaluation (evaluated_at)."
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Reason codes of the verdict, from compare_windows."
+            },
+            "early": {
+              "const": "worse_early",
+              "description": "Set when the early check found an oscillation in the first cycles of the after window; the final verdict can still follow."
+            },
+            "before": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description": "Window metrics (WindowMetrics of loops/tuning_review.py)."
+            },
+            "after": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description": "Window metrics (WindowMetrics of loops/tuning_review.py)."
+            },
+            "note": {
+              "type": "string"
+            }
           }
         }
       ]
