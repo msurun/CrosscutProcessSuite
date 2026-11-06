@@ -59,6 +59,17 @@ const TOUCHED = [
   "src/useRoute.ts",
   "src/valveTest.ts",
   "src/worklist.ts",
+  "src/PolicyPanel.tsx",
+  "src/usePolicyPanel.ts",
+  "src/policyApi.ts",
+  "src/policyModel.ts",
+  "src/policyErrors.ts",
+  "src/policyRules.ts",
+  "src/components/policy/DraftTargetsTable.tsx",
+  "src/components/policy/LivePolicyCard.tsx",
+  "src/components/policy/PolicyActionToolbar.tsx",
+  "src/components/policy/PolicyDiffView.tsx",
+  "src/components/policy/TargetEditorRow.tsx",
 ];
 
 // The code carries `eslint-disable react-hooks/...` comments; this stub makes the rule name known

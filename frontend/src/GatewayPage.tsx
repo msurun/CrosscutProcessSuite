@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useCan, useCanCheck, type CanResult } from "./AuthContext";
 import { DisabledReason } from "./components/DisabledReason";
 import type { Translate } from "./findings";
+import { PolicyPanel } from "./PolicyPanel";
 import { MODE_ORDER, ONE_STEP_REASON, modeTransition, reEnablePermission } from "./gatewayRules";
 import {
   approveProposal,
@@ -338,6 +339,25 @@ export function useGatewayPolling() {
   return { status, pending, audit, error, loading, refresh: poll, setError };
 }
 
+/** Collapsed by default; the panel (and its requests) exists only while the section is open. */
+function PolicySection({ mode, t }: { mode: string | undefined; t: Translate }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section data-testid="gateway-policy-section">
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <h3>{t("policy.section.title")}</h3>
+        <button type="button" aria-expanded={open} aria-controls="gateway-policy-body" data-testid="gateway-policy-toggle"
+          onClick={() => setOpen(!open)}>
+          {open ? t("policy.section.hide") : t("policy.section.show")}
+        </button>
+      </div>
+      <div id="gateway-policy-body">
+        {open && <PolicyPanel gatewayMode={mode} t={t} />}
+      </div>
+    </section>
+  );
+}
+
 export function GatewayPage({ t }: GatewayPageProps) {
   const { status, pending, audit, error, loading, refresh, setError } = useGatewayPolling();
   const [pendingMode, setPendingMode] = useState<string | null>(null);
@@ -419,6 +439,8 @@ export function GatewayPage({ t }: GatewayPageProps) {
         <h3>{t("gateway.targets.title")}</h3>
         <TargetTable targets={targets} onReEnable={handleReEnable} t={t} />
       </section>
+
+      <PolicySection mode={status?.mode} t={t} />
 
       <section>
         <h3>{t("gateway.pending.title")}</h3>

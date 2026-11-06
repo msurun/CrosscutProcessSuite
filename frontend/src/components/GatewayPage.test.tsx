@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, DEFAULT_ROLE_PERMISSIONS, useAuth } from "../AuthContext";
 import * as authApi from "../authApi";
 import * as gatewayApi from "../gatewayApi";
+import * as policyApi from "../policyApi";
 import { GatewayPage } from "../GatewayPage";
 
 const mockT = (key: string, params?: Record<string, string | number>) => {
@@ -265,6 +266,25 @@ describe("GatewayPage", () => {
     expect(screen.getByTestId("gateway-approve-prop-key-1")).not.toHaveAttribute("aria-disabled");
     expect(screen.getByTestId("gateway-reenable-TIC102.SP")).not.toHaveAttribute("aria-disabled");
     expect((screen.getByTestId("gateway-mode-option-supervised") as HTMLOptionElement).disabled).toBe(false);
+  });
+
+  it("shows the policy section collapsed: no policy request until it is opened, then the panel gets the mode", async () => {
+    setupGatewaySpies();
+    const live = vi.spyOn(policyApi, "fetchLivePolicy").mockResolvedValue({ document: null, pin: null, mode_cap: null, digest: null });
+    vi.spyOn(policyApi, "fetchDraftPolicy").mockRejectedValue(new policyApi.PolicyError(404, "no draft"));
+    await renderAs("lead");
+    const toggle = screen.getByTestId("gateway-policy-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("policy-panel")).not.toBeInTheDocument();
+    expect(live).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+    expect(await screen.findByTestId("policy-panel")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The gateway fixture runs in "confirm": Reload must be refused for that mode, not for an unknown one.
+    await waitFor(() => expect(screen.getByTestId("policy-reload-button")).toHaveAttribute("title", "policy.reason.reloadModeForbidden"));
   });
 
   it("cleans up polling timer on component unmount", async () => {

@@ -48,3 +48,20 @@ for (const width of [1440, 390] as const) {
     ).toEqual([]);
   });
 }
+
+test("policy section is collapsed, opens on demand and has no axe violations", async ({ page }) => {
+  await page.goto(PAGE_URL);
+  const toggle = page.getByTestId("gateway-policy-toggle");
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("policy-panel")).toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  // No gateway process here, so the panel shows its error banner instead of a policy.
+  await expect(page.getByTestId("policy-server-error")).toBeVisible({ timeout: 30_000 });
+
+  const axe = await new AxeBuilder({ page }).analyze();
+  const bad = axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(bad.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+});
