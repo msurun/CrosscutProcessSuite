@@ -240,7 +240,9 @@ def test_overlong_signed_id_fails_closed_without_engine_change(tmp_path: Path) -
     )
     env.service.poll_once()
     _assert_moved_to_rejected(env, "long_id.json")
-    assert outbox(env.root, long_id) is None
+    # Never stat a path built from the overlong id (ENAMETOOLONG on Python 3.12).
+    produced = sorted(p.name for p in (env.root / "_gateway" / "outbox").iterdir())
+    assert not [name for name in produced if name.startswith(long_id[:64])], produced
     leaked = _unexpected_paths(env.root, env.root)
     assert not leaked, leaked
     assert env.gateway.pending() == [], "command reported rejected but still applied"
