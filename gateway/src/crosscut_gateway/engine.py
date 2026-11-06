@@ -17,12 +17,26 @@ from typing import Literal, cast
 from crosscut_gateway import policy_file, policy_pin
 from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext, normalize_actor
 from crosscut_gateway.audit import AuditLog
-from crosscut_gateway.interfaces import ControlSystem, WriteDecision, WritePolicy, WriteProposal
+from crosscut_gateway.engine_params import (
+    MODE_ORDER,
+    ParamConfig,
+    ParamEnv,
+    ParamManager,
+    PendingParams,
+)
+from crosscut_gateway.interfaces import (
+    ControlSystem,
+    ParamControlSystem,
+    ParamSetProposal,
+    WriteDecision,
+    WritePolicy,
+    WriteProposal,
+)
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
 
 Mode = Literal["off", "advisory", "dry_run", "confirm", "supervised"]
 
-_MODE_ORDER = {"off": 0, "advisory": 1, "dry_run": 2, "confirm": 3, "supervised": 4}
+_MODE_ORDER = MODE_ORDER
 
 _COMM_ERRORS = (ConnectionError, OSError, TimeoutError)
 
@@ -46,6 +60,8 @@ class WriteGateway:
         policies: dict[str, WritePolicy],
         mode: Mode,
         audit: AuditLog | None = None,
+        *,
+        params: ParamConfig | None = None,
     ) -> None:
         """Create the gateway.
 
@@ -54,12 +70,18 @@ class WriteGateway:
             policies: Mapping tag -> policy. All tags are tracked, even when disabled.
             mode: Initial gateway mode.
             audit: Optional audit log; an in-memory log is used when omitted.
+            params: PID parameter targets (ADR 014); the control system for them defaults to
+                ``plant`` when that implements ``ParamControlSystem``.
 
         Raises:
-            ValueError: When mode is not one of the defined Mode values.
+            ValueError: When mode is not one of the defined Mode values, or a parameter target
+                shares its tag with a setpoint target.
         """
         if mode not in _MODE_ORDER:
             raise ValueError(f"unknown mode: {mode}")
+        params = _complete_params(plant, params)
+        if set(params.policies) & set(policies):
+            raise ValueError("a tag cannot be both a setpoint and a parameter target")
         self._plant = plant
         self._policies = policies
         self._mode: Mode = mode
@@ -72,6 +94,7 @@ class WriteGateway:
         self._killed = False
 
         self._init_targets(policies)
+        self._params = ParamManager(self._param_env(), params)
 
         # Proposal idempotency and confirm-mode queue.
         self._seen_proposals: dict[str, WriteDecision] = {}
@@ -100,13 +123,55 @@ class WriteGateway:
         """Return the state of a target, or None for a non-str or unknown tag."""
         if not isinstance(tag, str):
             return None
+        if self._params.has_target(tag):
+            return self._params.states()[tag]
         return self._states.get(tag)
 
     def pending_proposer(self, key: object) -> str | None:
         """Return the actor that queued a pending proposal, or None when unknown."""
+        if self._params.has_pending(key):
+            return self._params.pending_proposer(key)
         if not isinstance(key, str) or key not in self._pending:
             return None
         return self._proposer_actor.get(key)
+
+    def pending_kind(self, key: object) -> str | None:
+        """Return ``pid_param`` or ``setpoint`` for a pending key, None when it is not pending."""
+        if self._params.has_pending(key):
+            return "pid_param"
+        if isinstance(key, str) and key in self._pending:
+            return "setpoint"
+        return None
+
+    def pending_params(self) -> list[PendingParams]:
+        """Return the parameter sets queued for confirmation."""
+        return self._params.pending()
+
+    def propose_params(
+        self,
+        proposal: ParamSetProposal,
+        *,
+        actor_ctx: ActorContext | None = None,
+    ) -> WriteDecision:
+        """Process one PID parameter set (ADR 014); confirm-only, refused rather than clamped."""
+        with self._acting(actor_ctx):
+            return self._params.propose(proposal)
+
+    def _param_env(self) -> ParamEnv:
+        """Return the view of this gateway that the parameter manager works with."""
+        return ParamEnv(
+            now_ns=lambda: self._now_ns,
+            clock_started=lambda: self._clock_started,
+            mode=lambda: self._mode,
+            killed=lambda: self._killed,
+            actor=self._actor_name,
+            emit=self._emit_param,
+        )
+
+    def _emit_param(self, event: str, fields: dict[str, str]) -> None:
+        """Append a parameter audit record stamped with the mode and the acting principal."""
+        record = {**fields, "mode": self._mode, **self._current_actor().audit_fields()}
+        self._audit.append(event, record, self._now_ns)
 
     @contextmanager
     def _acting(self, ctx: ActorContext | None) -> Iterator[None]:
@@ -264,6 +329,7 @@ class WriteGateway:
             self._release_all_killed()
             return
 
+        self._params.tick()
         for tag in self._states:
             if not self._holding.get(tag, False):
                 continue
@@ -296,6 +362,7 @@ class WriteGateway:
         for tag in self._states:
             self._holding[tag] = False
             self._set_state(tag, "stopped:kill")
+        self._params.reset_kill()
         self._mode = _more_restrictive("advisory", self._mode_cap)
         self._log("kill_reset", "", "kill_reset")
 
@@ -307,10 +374,11 @@ class WriteGateway:
         for tag in self._states:
             self._flush_pending_tag(tag)
             self._set_state(tag, "killed")
+        self._params.kill()
 
     def status(self) -> dict[str, str]:
         """Return the current per-target state for all policy tags."""
-        return dict(self._states)
+        return {**self._states, **self._params.states()}
 
     def audit_records(self) -> list[dict[str, str]]:
         """Return all audit records in append order."""
@@ -333,6 +401,9 @@ class WriteGateway:
 
     def _re_enable(self, tag: str) -> None:
         """Validate the target state and move it back to enabled."""
+        if self._params.has_target(tag):
+            self._params.re_enable(tag)
+            return
         self._validate_tag(tag)
         state = self._states[tag]
         if state == "killed":
@@ -362,6 +433,8 @@ class WriteGateway:
 
     def _approve(self, key: str) -> WriteDecision:
         """Run the approval checks, then execute the pending proposal."""
+        if self._params.has_pending(key):
+            return self._params.approve(key)
         proposal = self._pending.get(key)
         if proposal is None:
             raise KeyError(f"unknown pending proposal key: {key}")
@@ -418,6 +491,9 @@ class WriteGateway:
 
     def _reject(self, key: str) -> None:
         """Drop a pending proposal, cache the refusal and audit it."""
+        if self._params.has_pending(key):
+            self._params.reject(key)
+            return
         proposal = self._pending.pop(key, None)
         if proposal is None:
             raise KeyError(f"unknown pending proposal key: {key}")
@@ -812,6 +888,14 @@ class WriteGateway:
         for tag in added:
             self._states[tag] = "enabled"
             self._holding[tag] = False
+
+
+def _complete_params(plant: ControlSystem, params: ParamConfig | None) -> ParamConfig:
+    """Return ``params`` with the control system filled in from ``plant`` when it fits."""
+    config = params or ParamConfig({})
+    if config.plant is None and isinstance(plant, ParamControlSystem):
+        return ParamConfig(config.policies, plant)
+    return config
 
 
 def _more_restrictive(a: Mode, b: Mode) -> Mode:

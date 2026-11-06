@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
+from crosscut_gateway.actor import normalize_actor
+
 PERMISSIONS: frozenset[str] = frozenset(
     {
         "data.view",
@@ -24,6 +26,7 @@ PERMISSIONS: frozenset[str] = frozenset(
         "job.stop",
         "job.manage",
         "gw.approve",
+        "gw.approve.tuning",
         "gw.reject",
         "gw.re_enable.hold_off",
         "gw.re_enable.stopped",
@@ -61,6 +64,7 @@ _MAX_ANCHOR_LEVELS = 10
 # by their own helper functions in authorize().
 _COMMAND_PERMISSIONS: dict[str, str] = {
     "propose": "gw.propose",
+    "propose_params": "gw.propose",
     "approve": "gw.approve",
     "reject": "gw.reject",
     "kill": "gw.kill",
@@ -69,6 +73,11 @@ _COMMAND_PERMISSIONS: dict[str, str] = {
     "policy_pin": "policy.pin",
     "policy_reload": "policy.reload",
 }
+
+# Approving a queued PID parameter set needs this permission (ADR 014); gw.approve is not enough.
+TUNING_APPROVE_PERMISSION = "gw.approve.tuning"
+PENDING_KIND_PARAMS = "pid_param"
+_SERVICE_ACTOR_PREFIX = "svc:"
 
 # The permission suffix for an upward mode change is the mode name itself.
 _UPWARD_PERMISSION_PREFIX = "gw.mode.up."
@@ -255,6 +264,8 @@ class AuthRequest:
     args: Mapping[str, Any]
     mode: str
     target_state: str | None = None
+    pending_kind: str | None = None
+    actor: str = ""
 
 
 def _effective_permissions(
@@ -281,6 +292,12 @@ def _re_enable_permission(target_state: str | None) -> str:
     return "gw.re_enable.stopped"
 
 
+def _is_service(request: AuthRequest) -> bool:
+    """True for the service principal: a ``svc:`` actor or any holder of the service role."""
+    actor = normalize_actor(request.actor)
+    return actor.startswith(_SERVICE_ACTOR_PREFIX) or SERVICE_ROLE in request.roles
+
+
 def _authorize_simple(
     cmd: str, granted: frozenset[str], request: AuthRequest
 ) -> tuple[bool, str]:
@@ -288,6 +305,10 @@ def _authorize_simple(
     if cmd == "re_enable":
         permission = _re_enable_permission(request.target_state)
         return _check_permission(granted, permission)
+    if cmd == "propose_params" and _is_service(request):
+        return False, "service_cannot_propose_tuning"
+    if cmd == "approve" and request.pending_kind == PENDING_KIND_PARAMS:
+        return _check_permission(granted, TUNING_APPROVE_PERMISSION)
     permission = _COMMAND_PERMISSIONS[cmd]
     return _check_permission(granted, permission)
 
@@ -346,7 +367,8 @@ def authorize(
     """Decide whether request.roles may run request.cmd.
 
     Returns (True, "ok") when allowed, otherwise (False, reason) with reason one of
-    'unknown_cmd', 'bad_mode', 'mode_step_too_large', 'above_cap' or 'missing_permission:<perm>'.
+    'unknown_cmd', 'bad_mode', 'mode_step_too_large', 'above_cap',
+    'service_cannot_propose_tuning' or 'missing_permission:<perm>'.
     """
     granted = _effective_permissions(request.roles, table)
     if request.cmd == "set_mode":

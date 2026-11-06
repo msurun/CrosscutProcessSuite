@@ -37,6 +37,7 @@ OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "gw.re_enable.hold_off",
 }
 ENGINEER_PERMISSIONS = OPERATOR_PERMISSIONS | {
+    "gw.approve.tuning",
     "data.import",
     "config.edit",
     "connector.use",

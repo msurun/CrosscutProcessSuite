@@ -25,7 +25,7 @@ Roles are explicit permission sets. There is no inheritance: each role lists eve
 |------|-------------|
 | `viewer` | `data.view`, `gw.view`, `audit.view`, `gw.kill`, `gw.mode.down`, `gw.reject` |
 | `operator` | `viewer` + `analysis.run`, `job.stop`, `gw.approve`, `gw.reject`, `gw.re_enable.hold_off` |
-| `engineer` | `operator` + `data.import`, `config.edit`, `connector.use`, `job.manage`, `gw.propose`, `gw.mode.up.advisory`, `gw.mode.up.dry_run`, `gw.mode.up.confirm`, `gw.re_enable.stopped`, `policy.edit` |
+| `engineer` | `operator` + `data.import`, `config.edit`, `connector.use`, `job.manage`, `gw.propose`, `gw.approve.tuning`, `gw.mode.up.advisory`, `gw.mode.up.dry_run`, `gw.mode.up.confirm`, `gw.re_enable.stopped`, `policy.edit` |
 | `lead` | `engineer` + `gw.mode.up.supervised`, `gw.kill.reset`, `policy.pin`, `policy.reload` |
 | `admin` | `viewer` + `users.manage` (no process authority) |
 | `service` | runtime jobs, actor `svc:runtime`: `gw.propose` only |
@@ -37,6 +37,7 @@ Small teams may give one person `admin` and `lead`. `admin` carries no process a
 - Mode goes up one step at a time, and never above the policy cap.
 - Mode goes down by any jump, for any human role.
 - The approver of a write must differ from its proposer.
+- Approving a queued PID parameter set (ADR 014) needs `gw.approve.tuning` (`engineer`, `lead`); `gw.approve` alone is not enough. The `service` role (actor `svc:runtime`) may never propose a parameter set (`service_cannot_propose_tuning`). Operators can still reject one (`gw.reject`).
 - Kill reset sets the mode to `advisory` and every target to `stopped:kill`. Each target then needs `gw.re_enable.stopped` to re-enable.
 - Policy two-person rule: an engineer edits a draft; a lead who is not the author pins it, with a password step-up.
 - Policy reload is allowed only in `off` or `advisory` mode.

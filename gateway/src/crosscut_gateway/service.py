@@ -37,6 +37,11 @@ from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
 from crosscut_gateway.policy import PolicyError, proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
+from crosscut_gateway.service_params import (
+    ParamArgsError,
+    parse_propose_params,
+    proposal_summary,
+)
 
 # Longest command id accepted; it becomes the outbox file name, so it must stay well under
 # the file-name limit.
@@ -56,6 +61,7 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
         ("t_ns", "int"),
         ("reason", "text"),
     ],
+    "propose_params": [],  # list-valued arguments: checked by service_params
     "approve": [("key", "str")],
     "reject": [("key", "str")],
     "re_enable": [("tag", "str")],
@@ -75,6 +81,7 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
 _REPLIED_REASONS = frozenset(
     {
         "self_approval",
+        "service_cannot_propose_tuning",
         "stepup_required",
         "predates_start",
         "unknown_cmd",
@@ -348,6 +355,16 @@ class GatewayService:
             if name not in args:
                 raise CommandError(f"{cmd}: missing {name}")
             self._check_arg(cmd, name, args[name], kind)
+        if cmd == "propose_params":
+            self._validate_params_args(args)
+
+    @staticmethod
+    def _validate_params_args(args: dict[str, Any]) -> None:
+        """Strictly validate propose_params arguments; a bad one is an invalid_args reply."""
+        try:
+            parse_propose_params(args)
+        except ParamArgsError as exc:
+            raise CommandError(str(exc)) from exc
 
     def _apply(self, cmd_data: dict[str, Any], ctx: ActorContext | None) -> dict[str, Any]:
         """Run the command in cmd_data as ctx; refusals return ok=False instead of raising."""
@@ -366,6 +383,7 @@ class GatewayService:
         """Return the table mapping each gateway command name to its handler."""
         return {
             "propose": self._handle_propose,
+            "propose_params": self._handle_propose_params,
             "approve": self._handle_approve,
             "reject": self._handle_reject,
             "kill": self._handle_kill,
@@ -388,6 +406,12 @@ class GatewayService:
             reason=args["reason"],
         )
         return asdict(self._gateway.propose(proposal, actor_ctx=ctx))
+
+    def _handle_propose_params(
+        self, args: dict[str, Any], ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        proposal = parse_propose_params(args)
+        return asdict(self._gateway.propose_params(proposal, actor_ctx=ctx))
 
     def _handle_approve(
         self, args: dict[str, Any], ctx: ActorContext | None
@@ -475,6 +499,10 @@ class GatewayService:
             for proposal in self._gateway.pending()
         ]
 
+    def _get_pending_params(self) -> list[dict[str, Any]]:
+        """Summaries of the queued PID parameter sets (kind ``pid_param``)."""
+        return [proposal_summary(p.key, p.proposal) for p in self._gateway.pending_params()]
+
     def _get_audit_view(self) -> tuple[list[Any], bool]:
         records = self._gateway.audit_records()
         return records[-200:], verify_chain(records, self._policy_key())
@@ -497,6 +525,7 @@ class GatewayService:
             "mode": self._gateway.mode,
             "targets": self._gateway.status(),
             "pending": self._get_pending_entries(),
+            "pending_params": self._get_pending_params(),
             "audit_tail": audit_tail,
             "chain_ok": chain_ok,
             "auth": self._auth_status(),

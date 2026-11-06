@@ -166,12 +166,15 @@ def _authorize_verified(
     cmd: str = cmd_data["cmd"]
     args: dict[str, Any] = cmd_data["args"]
     target = gateway.target_state(args.get("tag")) if cmd == "re_enable" else None
+    kind = gateway.pending_kind(args.get("key")) if cmd == "approve" else None
     request = AuthRequest(
         roles=auth["roles"],
         cmd=cmd,
         args=_effective_args(cmd, args, gateway),
         mode=gateway.mode,
         target_state=target,
+        pending_kind=kind,
+        actor=auth["actor"],
     )
     allowed, reason = authorize(request, table)
     if not allowed:

@@ -55,6 +55,7 @@
         "job.stop",
         "job.manage",
         "gw.approve",
+        "gw.approve.tuning",
         "gw.reject",
         "gw.re_enable.hold_off",
         "gw.re_enable.stopped",

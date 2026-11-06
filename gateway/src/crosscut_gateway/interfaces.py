@@ -6,7 +6,7 @@ Types only. No behaviour, no connectivity.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -127,6 +127,29 @@ class ControlSystem(Protocol):
 
     def release(self, tag: str) -> None:
         """Hand the setpoint of ``tag`` back to local control."""
+        ...
+
+
+@runtime_checkable
+class ParamControlSystem(Protocol):
+    """PID parameters of a control system as the gateway sees them (ADR 014).
+
+    Implemented by the OPC UA adapter and by test fakes. ``tag`` is the policy target tag of a
+    ``pid_param`` target; values are floats in the unit of the parameter. Every method may
+    raise ConnectionError, TimeoutError or OSError on transport failure; the gateway fails
+    closed on them.
+    """
+
+    def read_param(self, tag: str) -> float:
+        """Current (read-back) value of a parameter."""
+        ...
+
+    def write_param(self, tag: str, value: float) -> bool:
+        """Write a parameter; False if the control system refuses (bad status)."""
+        ...
+
+    def loop_mode(self, tag: str) -> str:
+        """Current mode of the loop owning the parameter ``tag``."""
         ...
 
 

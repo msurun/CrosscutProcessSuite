@@ -85,7 +85,7 @@ The gateway operates along a strict 5-step mode ladder:
 |---|---|
 | `viewer` | `data.view`, `gw.view`, `audit.view`, `gw.kill`, `gw.mode.down`, `gw.reject` |
 | `operator` | `viewer` + `analysis.run`, `job.stop`, `gw.approve`, `gw.reject`, `gw.re_enable.hold_off` |
-| `engineer` | `operator` + `data.import`, `config.edit`, `connector.use`, `job.manage`, `gw.propose`, `gw.mode.up.advisory`, `gw.mode.up.dry_run`, `gw.mode.up.confirm`, `gw.re_enable.stopped`, `policy.edit` |
+| `engineer` | `operator` + `data.import`, `config.edit`, `connector.use`, `job.manage`, `gw.propose`, `gw.approve.tuning`, `gw.mode.up.advisory`, `gw.mode.up.dry_run`, `gw.mode.up.confirm`, `gw.re_enable.stopped`, `policy.edit` |
 | `lead` | `engineer` + `gw.mode.up.supervised`, `gw.kill.reset`, `policy.pin`, `policy.reload` |
 | `admin` | `viewer` + `users.manage` (no process authority) |
 | `service` | runtime jobs, actor `svc:runtime`: `gw.propose` only |
