@@ -72,6 +72,7 @@ _FORBIDDEN_CODES = frozenset(
         "author_equals_approver",
         "self_approval",
         "predates_start",
+        "service_cannot_propose_tuning",
     }
 )
 _FORBIDDEN_PREFIXES = ("forbidden", "auth_reject", "missing_permission:")
@@ -215,6 +216,11 @@ class FileGatewayClient:
             records = audit_tail[-limit:]
         return {"records": records, "chain_ok": state["chain_ok"]}
 
+    def pending_params(self) -> list[dict[str, Any]]:
+        """Return the queued PID parameter sets (kind pid_param), each with its key."""
+        pending = self._read_state().get("pending_params", [])
+        return pending if isinstance(pending, list) else []
+
     def draft_policy(self) -> dict[str, Any] | None:
         """Return the saved draft record (document, author, saved_at), or None without one.
 
@@ -237,6 +243,20 @@ class FileGatewayClient:
         result = self._send_command("approve", {"key": key}, actor)
         if not isinstance(result, dict):
             raise TypeError("unexpected result for approve command")
+        return result
+
+    def propose_params(
+        self, args: dict[str, Any], actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Send a signed propose_params command; return the decision {accepted, reason_code}.
+
+        Args:
+            args: proposal_id, loop_id, items, proposer, t_ns, expires_ns, reason, rollback_of.
+            actor: The human engineer who proposes (the gateway refuses svc: actors).
+        """
+        result = self._send_command("propose_params", args, actor)
+        if not isinstance(result, dict):
+            raise TypeError("unexpected result for propose_params command")
         return result
 
     def reject(self, key: str, actor: ActorContext | None = None) -> None:

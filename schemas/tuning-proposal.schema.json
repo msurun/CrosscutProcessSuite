@@ -482,7 +482,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Always null in new records: the review lives in <id>.review.json (schemas/tuning-review.schema.json) so the runtime job never rewrites this record. Kept for records written before that change."
     }
   }
 }

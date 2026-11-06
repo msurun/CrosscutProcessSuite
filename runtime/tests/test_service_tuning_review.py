@@ -125,9 +125,11 @@ def test_service_reviews_and_reports_ok(tmp_path: Path) -> None:
     state = _state(tmp_path)
     assert state["status"] == "ok" and state["error"] is None
     assert state["review"] == {"reviewed": [PROPOSAL_ID], "pending": [], "errors": 0}
-    stored = json.loads(
-        (tmp_path / "_tuning" / "proposals" / f"{PROPOSAL_ID}.json").read_text(encoding="utf-8"))
+    folder = tmp_path / "_tuning" / "proposals"
+    stored = json.loads((folder / f"{PROPOSAL_ID}.review.json").read_text(encoding="utf-8"))
     assert stored["status"] == "reviewed:improved"
+    record = json.loads((folder / f"{PROPOSAL_ID}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "applied" and record["review"] is None
 
 
 def test_service_reports_idle_when_nothing_is_open(tmp_path: Path) -> None:

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/tuning-review.schema.json",
+  "title": "Tuning review",
+  "description": "KPI before/after review of one applied tuning proposal (ADR 014 section 5). Written by the runtime job tuning_review to <root>/_tuning/proposals/<id>.review.json; the proposal record <id>.json is owned by the API and never rewritten by the job. The API derives the proposal status reviewing / reviewed:<verdict> from this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposal_id",
+    "version",
+    "final",
+    "status",
+    "review"
+  ],
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "UTC timestamp, ISO 8601 with a trailing Z."
+    }
+  },
+  "properties": {
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Proposal id, a lower-case UUID."
+    },
+    "version": {
+      "const": 1
+    },
+    "final": {
+      "type": "boolean",
+      "description": "False for an early warning (reviewing), true once the final verdict is written."
+    },
+    "status": {
+      "type": "string",
+      "pattern": "^(reviewing|reviewed:[a-z_]+)$"
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "insufficient_data",
+            "worse",
+            "worse_early",
+            "improved",
+            "neutral"
+          ]
+        },
+        "t": {
+          "$ref": "#/$defs/utc_timestamp",
+          "description": "UTC time of the last evaluation (evaluated_at)."
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Reason codes of the verdict, from compare_windows."
+        },
+        "early": {
+          "const": "worse_early",
+          "description": "Set when the early check found an oscillation in the first cycles of the after window; the final verdict can still follow."
+        },
+        "before": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "description": "Window metrics (WindowMetrics of loops/tuning_review.py)."
+        },
+        "after": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "description": "Window metrics (WindowMetrics of loops/tuning_review.py)."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

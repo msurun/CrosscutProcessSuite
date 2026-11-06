@@ -1,4 +1,7 @@
-"""Tests of TuningReviewJob: verdicts written back to proposal records (ADR 014 section 5).
+"""Tests of TuningReviewJob: verdicts written to <id>.review.json files (ADR 014 section 5).
+
+The job never rewrites the proposal record; `Setup.load` merges record and review file the way
+the API does (status and review taken from the review file).
 
 A temp data root holds a site with one loop, a HistoryStore filled with synthetic series and
 proposal JSON files; a fake clock decides which window is complete. Model theta=60 s, tau=120 s
@@ -19,7 +22,9 @@ from crosscut_runtime.jobs.tuning_review import TuningReviewJob, utc_to_epoch
 from crosscut_runtime.store import RuntimeStore
 from jsonschema import Draft202012Validator
 
-SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "tuning-proposal.schema.json"
+SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"
+SCHEMA = SCHEMAS / "tuning-proposal.schema.json"
+REVIEW_SCHEMA = SCHEMAS / "tuning-review.schema.json"
 APPLIED_AT = "2026-11-05T10:00:00Z"
 T_APPLY = utc_to_epoch(APPLIED_AT)
 STEP_S = 10.0
@@ -134,8 +139,14 @@ class Setup:
         self.job = TuningReviewJob(doc, root, self.history, self.clock)
 
     def load(self, path: Path) -> dict[str, Any]:
-        """The record file as stored."""
+        """The record merged with its review file: status and review come from the review."""
         loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        review_file = path.with_name(f"{path.stem}.review.json")
+        if review_file.exists():
+            stored = json.loads(review_file.read_text(encoding="utf-8"))
+            review_validator = Draft202012Validator(json.loads(REVIEW_SCHEMA.read_text("utf-8")))
+            assert review_validator.is_valid(stored)
+            loaded = {**loaded, "status": stored["status"], "review": stored["review"]}
         return loaded
 
 
@@ -331,3 +342,46 @@ def test_only_time_aligned_rows_are_used(tmp_path: Path) -> None:
     setup.job.run()
     assert setup.load(path)["review"]["after"]["n"] == 360
     assert setup.load(path)["review"]["verdict"] == "improved"
+
+
+def test_review_goes_to_a_separate_file_and_the_record_is_never_rewritten(tmp_path: Path) -> None:
+    setup = Setup(tmp_path)
+    windows(setup, noise(1.0), noise(0.4, 4))
+    path = write_record(tmp_path, record())
+    original = path.read_bytes()
+    stamp = path.stat().st_mtime_ns
+    setup.job.run()
+    review_file = path.with_name(f"{UUID_A}.review.json")
+    stored = json.loads(review_file.read_text(encoding="utf-8"))
+    assert path.read_bytes() == original and path.stat().st_mtime_ns == stamp
+    assert stored["proposal_id"] == UUID_A and stored["final"] is True
+    assert stored["status"] == "reviewed:improved"
+    assert setup.job.run() == {"reviewed": [], "pending": [], "errors": 0}
+
+
+def test_a_review_file_is_not_taken_for_a_record(tmp_path: Path) -> None:
+    setup = Setup(tmp_path)
+    windows(setup, noise(1.0), noise(0.4, 4))
+    write_record(tmp_path, record())
+    setup.job.run()
+    result = setup.job.run()
+    assert result["errors"] == 0 and result["reviewed"] == []
+
+
+def test_early_review_file_is_not_final_and_leaves_the_record_alone(tmp_path: Path) -> None:
+    setup = Setup(tmp_path, now=AFTER_START + EARLY_S + STEP_S)
+    windows(setup, noise(1.0), wave(2.0))
+    path = write_record(tmp_path, record())
+    original = path.read_bytes()
+    setup.job.run()
+    stored = json.loads(path.with_name(f"{UUID_A}.review.json").read_text(encoding="utf-8"))
+    assert stored["final"] is False and stored["status"] == "reviewing"
+    assert path.read_bytes() == original
+
+
+def test_invalid_review_file_is_skipped_and_logged(tmp_path: Path) -> None:
+    setup = Setup(tmp_path)
+    windows(setup, noise(1.0), noise(0.4, 4))
+    path = write_record(tmp_path, record())
+    path.with_name(f"{UUID_A}.review.json").write_text('{"final": true}', encoding="utf-8")
+    assert setup.job.run() == {"reviewed": [], "pending": [], "errors": 1}

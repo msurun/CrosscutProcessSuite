@@ -3,8 +3,11 @@
 The job scans <root>/_tuning/proposals/*.json for records of the reviewed loops that are
 ``applied`` (or already ``reviewing`` after an early warning), builds the before and after windows
 from the runtime HistoryStore and lets ``crosscut_loops.tuning_review.compare_windows`` decide.
-The review is written back into the record (atomic write, schema-validated). The record stays the
-single source of truth: the job keeps no state about it, so a restart changes nothing.
+The review is written to a SEPARATE file <id>.review.json next to the record (atomic write,
+schema-validated); the job never rewrites the proposal record, so it cannot race with the API,
+which owns the record. The files are the single source of truth: the job keeps no state about
+them, so a restart changes nothing. The API derives "reviewing" / "reviewed:<verdict>" from the
+review file.
 
 Mode convention: the site loop document carries only the mode TAG, no code mapping, so a mode
 sample counts as closed loop (AUTO or CAS) when it is nonzero and as open loop (MAN) when it is 0,
@@ -35,6 +38,9 @@ from crosscut_runtime.store import RuntimeStore, schemas_dir
 
 PROPOSALS_PARTS = ("_tuning", "proposals")
 PROPOSAL_SCHEMA_FILE = "tuning-proposal.schema.json"
+REVIEW_SCHEMA_FILE = "tuning-review.schema.json"
+REVIEW_SUFFIX = ".review.json"
+REVIEW_VERSION = 1
 # A cycle of the loop is at least this long in seconds, so a fast model never gives a 0 s window.
 MIN_CYCLE_S = 60.0
 OPEN_STATUSES = ("applied", "reviewing")
@@ -74,11 +80,27 @@ class Timing:
     cycle_s: float
 
 
-@lru_cache(maxsize=4)
-def _validator(schema_dir: str) -> Draft202012Validator:
-    """The tuning-proposal validator for a schemas directory."""
-    text = (Path(schema_dir) / PROPOSAL_SCHEMA_FILE).read_text(encoding="utf-8")
+@lru_cache(maxsize=8)
+def _validator(schema_dir: str, schema_file: str = PROPOSAL_SCHEMA_FILE) -> Draft202012Validator:
+    """The validator of one schema file (proposal or review) of a schemas directory."""
+    text = (Path(schema_dir) / schema_file).read_text(encoding="utf-8")
     return Draft202012Validator(json.loads(text))
+
+
+def _problems(document: dict[str, Any], schema_file: str) -> list[str]:
+    """Messages of the schema violations of a document (empty when it is valid)."""
+    validator = _validator(str(schemas_dir()), schema_file)
+    return [error.message for error in validator.iter_errors(document)]
+
+
+def review_path(record_path: Path) -> Path:
+    """The review file of a proposal record: <id>.json -> <id>.review.json."""
+    return record_path.with_name(f"{record_path.stem}{REVIEW_SUFFIX}")
+
+
+def is_record_file(path: Path) -> bool:
+    """True for a proposal record file, false for a review file."""
+    return path.suffix == ".json" and not path.name.endswith(REVIEW_SUFFIX)
 
 
 def utc_to_epoch(text: str) -> float:
@@ -211,6 +233,8 @@ class TuningReviewJob:
         loops = {loop["id"]: loop for loop in site.get("loops", [])}
         outcome: dict[str, Any] = {"reviewed": [], "pending": [], "errors": 0}
         for path in sorted(self.proposals_dir.glob("*.json")):
+            if not is_record_file(path):
+                continue
             bucket, proposal_id = self._process_file(path, loops)
             if bucket == "errors":
                 outcome["errors"] += 1
@@ -254,10 +278,30 @@ class TuningReviewJob:
             raise BadRecordError("not a JSON object")
         if record.get("status") not in OPEN_STATUSES or record.get("loop_id") not in self._loops:
             return None
-        problems = [e.message for e in _validator(str(schemas_dir())).iter_errors(record)]
+        problems = _problems(record, PROPOSAL_SCHEMA_FILE)
         if problems:
             raise BadRecordError("schema-invalid: " + "; ".join(problems[:3]))
+        stored = self._read_review_file(path)
+        if stored is not None and stored["final"]:
+            return None
+        if stored is not None:
+            record["review"] = stored["review"]
         return record
+
+    @staticmethod
+    def _read_review_file(path: Path) -> dict[str, Any] | None:
+        """The stored review file of a record, or None when there is none yet."""
+        target = review_path(path)
+        try:
+            stored = json.loads(target.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise BadRecordError(f"review file unreadable: {error}") from error
+        problems = _problems(stored, REVIEW_SCHEMA_FILE)
+        if problems:
+            raise BadRecordError("review file schema-invalid: " + "; ".join(problems[:3]))
+        return stored  # type: ignore[no-any-return]
 
     def _evaluate(
         self, record: dict[str, Any], loop_doc: dict[str, Any] | None
@@ -305,12 +349,17 @@ class TuningReviewJob:
         return Evaluation(review, False)
 
     def _store_review(self, path: Path, record: dict[str, Any], evaluation: Evaluation) -> None:
-        """Write the review and the new status into the record (validated, atomic)."""
+        """Write the review file <id>.review.json (validated, atomic); the record is untouched."""
         review = evaluation.review
-        updated = dict(record)
-        updated["review"] = review
-        updated["status"] = f"reviewed:{review['verdict']}" if evaluation.final else "reviewing"
-        problems = [e.message for e in _validator(str(schemas_dir())).iter_errors(updated)]
+        status = f"reviewed:{review['verdict']}" if evaluation.final else "reviewing"
+        document = {
+            "proposal_id": record["id"],
+            "version": REVIEW_VERSION,
+            "final": evaluation.final,
+            "status": status,
+            "review": review,
+        }
+        problems = _problems(document, REVIEW_SCHEMA_FILE)
         if problems:
             raise BadRecordError("review does not fit the schema: " + "; ".join(problems[:3]))
-        _write_atomic(path, updated)
+        _write_atomic(review_path(path), document)

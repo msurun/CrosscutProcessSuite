@@ -147,6 +147,15 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/gateway/policy/pin"): "policy.pin",
     ("POST", "/gateway/policy/reload"): "policy.reload",
 
+    # tuning proposals (ADR 014): propose and roll back need gw.propose, approve its own
+    # permission (second person, engineer or lead), reject is open to the operator
+    ("POST", "/loops/{loop_id}/tuning/proposals"): "gw.propose",
+    ("GET", "/tuning/proposals"): "gw.view",
+    ("GET", "/tuning/proposals/{proposal_id}"): "gw.view",
+    ("POST", "/tuning/proposals/{proposal_id}/approve"): "gw.approve.tuning",
+    ("POST", "/tuning/proposals/{proposal_id}/reject"): "gw.reject",
+    ("POST", "/tuning/proposals/{proposal_id}/rollback"): "gw.propose",
+
     # auth (authenticated)
     ("POST", "/auth/logout"): AUTHENTICATED,
     ("GET", "/auth/me"): AUTHENTICATED,

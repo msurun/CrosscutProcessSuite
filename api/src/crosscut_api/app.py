@@ -56,6 +56,8 @@ from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
 from crosscut_api.supervisor_routes import build_supervisor_router
+from crosscut_api.tuning_build import Sources
+from crosscut_api.tuning_proposal_routes import TuningDeps, build_tuning_proposal_router
 from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
 
 DEFAULT_MAX_POINTS = 2000
@@ -693,7 +695,11 @@ def _mount_routers(app: FastAPI, store: DatasetStore) -> None:
     # through the file mailbox under <data root>/_gateway/ (FileGatewayClient) and answers 503
     # while the gateway's state file is missing or stale. This module must not import
     # crosscut_gateway.
-    app.include_router(build_gateway_router(gateway_provider(store.root)))
+    provider = gateway_provider(store.root)
+    app.include_router(build_gateway_router(provider))
+    # Tuning proposals (ADR 014): records under <root>/_tuning, commands through the same mailbox.
+    sources = Sources(store.root, store.load_wide, store.loops_of)
+    app.include_router(build_tuning_proposal_router(TuningDeps(sources, provider)))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
