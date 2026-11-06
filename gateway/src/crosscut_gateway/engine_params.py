@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -122,7 +123,38 @@ class ParamManager:
         self._ids: dict[str, str] = {}
         self._last_applied: dict[str, float] = {}
         self._last_apply_ns: dict[str, int] = {}
+        self._applied_from: dict[str, dict[str, float]] = {}
         self._alarms: dict[str, str] = {}
+
+    def remember_applied(self, proposal_id: str, applied_from: Mapping[str, float]) -> None:
+        """Record the audited 'from' baseline values read for an applied proposal."""
+        if proposal_id:
+            entry = self._applied_from.setdefault(proposal_id, {})
+            for tag, val in applied_from.items():
+                if val is not None and isinstance(val, (int, float)) and math.isfinite(val):
+                    entry[str(tag)] = float(val)
+
+    def is_verified_rollback(self, proposal: ParamSetProposal) -> bool:
+        """True when proposal reverts an applied set and its targets match audited baseline.
+
+        # In plain words:
+        # ADR 014 section 6: an approved rollback is exempt from min_interval and max_ratio ONLY
+        # if the gateway confirms that the proposed target values match the audited original values
+        # read from the plant before the reverted proposal was applied. Limits still apply.
+        """
+        if not proposal.rollback_of:
+            return False
+        orig = self._applied_from.get(proposal.rollback_of)
+        if not orig or len(proposal.items) != len(orig):
+            return False
+        for item in proposal.items:
+            if item.target not in orig:
+                return False
+            policy = self._policies.get(item.target)
+            tol = policy.readback_tolerance if policy is not None else 1e-4
+            if not within(item.to_value, orig[item.target], tol):
+                return False
+        return True
 
     # ------------------------------------------------------------------ queries
 
@@ -262,6 +294,8 @@ class ParamManager:
             return "expired", ""
         if proposal.t_ns > now + PARAM_MAX_FUTURE_NS:
             return "bad_time", ""
+        if self.is_verified_rollback(proposal):
+            return None
         return self._interval_refusal(proposal.loop_id)
 
     def _interval_refusal(self, loop_id: str) -> tuple[str, str] | None:
@@ -293,7 +327,8 @@ class ParamManager:
     def _screen_values(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
         """Policy checks of the set against its own ``from`` values (refuse, never clamp)."""
         current = {item.target: item.from_value for item in proposal.items}
-        codes = check_param_items(self._policies, proposal.items, current)
+        exempt = self.is_verified_rollback(proposal)
+        codes = check_param_items(self._policies, proposal.items, current, exempt_ratio=exempt)
         return (codes[0], ",".join(codes)) if codes else None
 
     def _dispatch(self, proposal: ParamSetProposal, key: str) -> WriteDecision:
@@ -325,8 +360,9 @@ class ParamManager:
     def _dry_run(self, proposal: ParamSetProposal, key: str) -> WriteDecision:
         """Run the live checks and log what would be written; nothing is written."""
         assert self._plant is not None
+        exempt = self.is_verified_rollback(proposal)
         try:
-            check = live_check(self._plant, self._policies, proposal.items)
+            check = live_check(self._plant, self._policies, proposal.items, exempt_ratio=exempt)
         except ParamCommError as exc:
             return self._comm_refusal(proposal, key, exc.target)
         if check.codes:
@@ -392,6 +428,8 @@ class ParamManager:
             return "clock_not_started", ""
         if proposal.expires_ns <= self._env.now_ns():
             return "expired", ""
+        if self.is_verified_rollback(proposal):
+            return None
         return self._interval_refusal(proposal.loop_id)
 
     def _is_self_approval(self, pending: PendingParams) -> bool:
@@ -449,8 +487,9 @@ class ParamManager:
     ) -> tuple[WriteDecision | None, Mapping[str, float]]:
         """Run the live checks: a refusal (or None) and the values read from the plant."""
         assert self._plant is not None
+        exempt = self.is_verified_rollback(proposal)
         try:
-            check = live_check(self._plant, self._policies, proposal.items)
+            check = live_check(self._plant, self._policies, proposal.items, exempt_ratio=exempt)
         except ParamCommError as exc:
             return self._comm_refusal(proposal, key, exc.target), {}
         if check.codes:
@@ -500,9 +539,14 @@ class ParamManager:
         ``read`` holds the values read before (from) and after (to) the writes.
         """
         assert self._plant is not None
+        from_read, _ = read
         for item in proposal.items:
             self._last_applied[item.target] = stored_value(self._plant, item.target, item.to_value)
         self._last_apply_ns[proposal.loop_id] = self._env.now_ns()
+        self.remember_applied(
+            proposal.proposal_id,
+            {item.target: from_read.get(item.target, item.from_value) for item in proposal.items},
+        )
         decision = WriteDecision(accepted=True, reason_code="applied")
         self._seen[key] = decision
         if self._audit_applied(proposal, key, read):

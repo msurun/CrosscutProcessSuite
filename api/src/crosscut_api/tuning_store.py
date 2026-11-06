@@ -77,7 +77,7 @@ def transition_allowed(old: str, new: str) -> bool:
     if old == "queued":
         return new in ("applying", "applied", *ends) or new.startswith("refused:")
     if old == "applying":
-        return new == "applied"
+        return new in ("applied", "rejected")
     return False
 
 

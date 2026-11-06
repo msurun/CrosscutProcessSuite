@@ -480,13 +480,15 @@ def _ratio_exceeded(max_ratio: float, to_value: float, current: float) -> bool:
     return not 1.0 / max_ratio <= to_value / current <= max_ratio
 
 
-def _range_refusals(policy: ParamPolicy, to_value: float, current: float) -> list[str]:
+def _range_refusals(
+    policy: ParamPolicy, to_value: float, current: float, exempt_ratio: bool = False
+) -> list[str]:
     """Limit, sign and ratio refusals of a finite value (item units)."""
     codes: list[str] = []
     if not policy.limits[0] <= to_value <= policy.limits[1]:
         codes.append("out_of_limits")
     codes += _sign_refusal(policy.param, to_value)
-    if _ratio_exceeded(policy.max_ratio, to_value, current):
+    if not exempt_ratio and _ratio_exceeded(policy.max_ratio, to_value, current):
         codes.append("ratio_exceeded")
     return codes
 
@@ -501,20 +503,26 @@ def _identity_refusals(policy: ParamPolicy, item: ParamItem) -> list[str]:
     return [code for code, got, want in pairs if got != want]
 
 
-def _check_one_item(policy: ParamPolicy | None, item: ParamItem, current: Any) -> list[str]:
+def _check_one_item(
+    policy: ParamPolicy | None, item: ParamItem, current: Any, exempt_ratio: bool = False
+) -> list[str]:
     """All refusal codes for one item against its target policy (no clamping)."""
     if policy is None:
         return ["no_policy"]
     codes = _identity_refusals(policy, item)
     if not (_is_finite_number(item.to_value) and _is_finite_number(current)):
         return ["bad_value", *codes]
-    return codes + _range_refusals(policy, float(item.to_value), float(current))
+    return codes + _range_refusals(
+        policy, float(item.to_value), float(current), exempt_ratio=exempt_ratio
+    )
 
 
 def check_param_items(
     policy: Mapping[str, ParamPolicy],
     items: Sequence[ParamItem],
     current: Mapping[str, float],
+    *,
+    exempt_ratio: bool = False,
 ) -> list[str]:
     """Refusal codes for a parameter set; an empty list means every item passes.
 
@@ -523,6 +531,9 @@ def check_param_items(
     live value), param_mismatch, unit_mismatch, form_mismatch, out_of_limits,
     nonpositive_gain, nonpositive_ti, negative_td, ratio_exceeded.
 
+    When ``exempt_ratio`` is True (verified rollback restoring audited baseline), the
+    ``ratio_exceeded`` check is skipped per ADR 014 section 6; limits and signs still apply.
+
     Units: item values, ``current`` (live DCS reading by target tag) and policy limits in the
     unit of the parameter; policy.max_ratio dimensionless.
     """
@@ -530,7 +541,9 @@ def check_param_items(
         return ["no_items"]
     codes: list[str] = []
     for item in items:
-        for code in _check_one_item(policy.get(item.target), item, current.get(item.target)):
+        for code in _check_one_item(
+            policy.get(item.target), item, current.get(item.target), exempt_ratio=exempt_ratio
+        ):
             if code not in codes:
                 codes.append(code)
     return codes

@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
@@ -526,11 +526,18 @@ class _Endpoints:
 
     # -- reject / rollback -----------------------------------------------------------------
 
-    def post_reject(self, proposal_id: str, actor: ActorDep) -> Record:
-        """POST /tuning/proposals/{id}/reject: discard a draft or queued proposal."""
+    def post_reject(
+        self, proposal_id: str, actor: ActorDep, escape: bool = False
+    ) -> Record:
+        """POST /tuning/proposals/{id}/reject: discard an open or stalled applying proposal."""
         actor.require("gw.reject")
         with _store_errors(), self.store.exclusive(proposal_id) as locked:
             record = locked.record
+            if record["status"] == "applying":
+                if not escape:
+                    raise HTTPException(status_code=409, detail="applying")
+                saved = self._escape_applying(locked, actor)
+                return self._view(saved)
             if record["status"] not in ("draft", "queued"):
                 raise HTTPException(status_code=409, detail="not_open")
             key = record["gateway_key"] or self._held_key(record)
@@ -538,6 +545,32 @@ class _Endpoints:
                 self._reject_at_gateway(locked, actor, key)
             saved = locked.save({**record, "status": "rejected"})
         return self._view(saved)
+
+    def post_escape(self, proposal_id: str, actor: ActorDep) -> Record:
+        """POST /tuning/proposals/{id}/escape: operator escape for stalled applying proposal."""
+        return self.post_reject(proposal_id, actor, escape=True)
+
+    def _escape_applying(self, locked: LockedRecord, actor: ActorContext) -> Record:
+        """Allow an operator/lead to reject a stalled applying record if no ledger evidence exists.
+
+        # In plain words:
+        # If approve timed out (HTTP 504) or the gateway crashed/restarted, a proposal can get stuck
+        # in 'applying' forever. If the gateway audit log proves the change was actually applied,
+        # we refuse rejection and settle it to 'applied'. If there is no ledger evidence, the
+        # operator is allowed to escape and reject the proposal so the loop is not blocked.
+        """
+        snap = self._snapshot()
+        if snap is None:
+            raise HTTPException(status_code=503, detail="gateway_state_unreadable")
+        block = applied_from_snapshot(snap, locked.record, "")
+        if block is not None:
+            locked.save({**locked.record, "status": "applied", "applied": block})
+            raise HTTPException(status_code=409, detail="already_applied")
+        key = locked.record.get("gateway_key")
+        if key and any(e.get("key") == key for e in snap.pending):
+            with suppress(HTTPException):
+                self._reject_at_gateway(locked, actor, key)
+        return locked.save({**locked.record, "status": "rejected"})
 
     def _held_key(self, record: Record) -> str | None:
         """The key of the set the gateway holds for a record with no key (None = holds none).
@@ -605,6 +638,7 @@ def build_tuning_proposal_router(deps: TuningDeps) -> APIRouter:
     action = "/tuning/proposals/{proposal_id}"
     router.add_api_route(f"{action}/approve", endpoints.post_approve, methods=["POST"])
     router.add_api_route(f"{action}/reject", endpoints.post_reject, methods=["POST"])
+    router.add_api_route(f"{action}/escape", endpoints.post_escape, methods=["POST"])
     router.add_api_route(
         f"{action}/rollback", endpoints.post_rollback, methods=["POST"], status_code=201
     )

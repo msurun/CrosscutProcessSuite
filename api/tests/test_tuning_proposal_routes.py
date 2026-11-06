@@ -427,3 +427,49 @@ def test_status_code_mapping_of_the_decision() -> None:
     assert tuning_gateway.decision_status({"accepted": True, "reason_code": "ok"}) == (
         "refused:advisory_only"
     )
+
+
+# --- operator escape -------------------------------------------------------------------------
+
+
+def test_operator_escape_for_applying_record_with_no_ledger_evidence(world: World) -> None:
+    # In plain words:
+    # If approve timed out (504) or was interrupted, the proposal enters 'applying'.
+    # If there is no ledger evidence in the gateway, an operator or lead can escape and reject it.
+    created = propose(world)
+    pid = created["id"]
+    path = world.root / "_tuning" / "proposals" / f"{pid}.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec["status"] = "applying"
+    path.write_text(json.dumps(rec), encoding="utf-8")
+
+    operator = Session(world, "op1")
+    # Standard reject without escape refuses because status is applying
+    res = operator.call("POST", f"/tuning/proposals/{pid}/reject")
+    assert res.status_code == 409 and res.json()["detail"] == "applying"
+
+    # Operator escape endpoint succeeds and marks the record rejected
+    escaped = operator.call("POST", f"/tuning/proposals/{pid}/escape")
+    assert escaped.status_code == 200
+    assert escaped.json()["status"] == "rejected"
+    assert record_file(world, pid)["status"] == "rejected"
+
+
+def test_operator_escape_refused_when_ledger_shows_it_was_applied(world: World) -> None:
+    # In plain words:
+    # If the gateway ledger confirms the set was actually applied in the plant, an operator
+    # escape is refused and the record settles to 'applied'.
+    created = propose(world)
+    pid = created["id"]
+    approve_res = approve(world, pid, "eng2")
+    assert approve_res.status_code == 200
+
+    path = world.root / "_tuning" / "proposals" / f"{pid}.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec["status"] = "applying"
+    path.write_text(json.dumps(rec), encoding="utf-8")
+
+    operator = Session(world, "op1")
+    res = operator.call("POST", f"/tuning/proposals/{pid}/escape")
+    assert res.status_code == 409 and res.json()["detail"] == "already_applied"
+    assert record_file(world, pid)["status"] == "applied"

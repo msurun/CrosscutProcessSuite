@@ -154,14 +154,18 @@ def _mismatch(
 
 
 def live_check(
-    plant: ParamControlSystem, policies: Mapping[str, ParamPolicy], items: Sequence[ParamItem]
+    plant: ParamControlSystem,
+    policies: Mapping[str, ParamPolicy],
+    items: Sequence[ParamItem],
+    *,
+    exempt_ratio: bool = False,
 ) -> LiveCheck:
     """Loop mode, from values and policy checks against the live control system; no writes.
 
     Raises ParamCommError on a transport error.
     """
     if not items or any(item.target not in policies for item in items):
-        return LiveCheck(tuple(check_param_items(policies, items, {})))
+        return LiveCheck(tuple(check_param_items(policies, items, {}, exempt_ratio=exempt_ratio)))
     refusal = _mode_refusal(plant, policies, items)
     if refusal is not None:
         return refusal
@@ -169,7 +173,11 @@ def live_check(
     refusal = _mismatch(plant, policies, items, current)
     if refusal is not None:
         return refusal
-    return LiveCheck(tuple(check_param_items(policies, items, current)), "", current)
+    return LiveCheck(
+        tuple(check_param_items(policies, items, current, exempt_ratio=exempt_ratio)),
+        "",
+        current,
+    )
 
 
 def _revert_one(plant: ParamControlSystem, policy: ParamPolicy, item: ParamItem) -> bool:

@@ -112,7 +112,7 @@ def test_create_refuses_a_duplicate_a_non_draft_and_an_invalid_record(store: Pro
         ("applying", "applying", True),
         ("applying", "applied", True),
         ("applying", "expired", False),
-        ("applying", "rejected", False),
+        ("applying", "rejected", True),
         ("applying", "refused:x", False),
         ("applying", "queued", False),
         ("draft", "applying", False),

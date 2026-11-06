@@ -1,4 +1,4 @@
-﻿# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
+# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md` (product definition, phases 0-8, owner decisions), then this file, then `docs/IMPLEMENTATION_LOG.md` for per-step detail.
 
@@ -40,8 +40,8 @@ Owner to-do:
 Next engineering steps:
 1. L5 rows against RougherSim M7 (tuning hooks; RougherSim L5 rows still pending).
 2. Real-vendor validation of `take_remote` and PidCC units.
-3. Rollback exemption of min_interval/max_ratio (not implemented; conservative for now).
-4. Operator escape for `applying` records with no ledger evidence (a human check is needed until then).
+3. Rollback exemption of min_interval/max_ratio (done: verified rollback restores audited baseline without interval/ratio blocks).
+4. Operator escape for `applying` records with no ledger evidence (done: POST /tuning/proposals/{id}/escape unblocks stalled applying records when no write evidence exists in gateway audit).
 5. Supervisor advice as proposals (#51).
 6. Module 1 release (P3).
 
