@@ -156,8 +156,9 @@ test("proposer == approver is refused; a viewer cannot approve", async ({ browse
   expect([403, 409, 504], JSON.stringify(self.body)).toContain(self.status);
   await expect(engineer.getByTestId(`gateway-pending-${key}`)).toBeVisible(STEP);
   expect((await nodes()).setpoint).toBe(55);
-  const refusals = (await auditRecords(engineer)).records.filter((r) => r.event === "auth_reject");
-  expect(refusals.at(-1)).toMatchObject({ actor: "e2e-engineer", reason_code: "self_approval", value: "approve" });
+  // The gateway files the refusal asynchronously: poll the audit instead of reading it once.
+  const lastRefusal = async () => (await auditRecords(engineer)).records.filter((r) => r.event === "auth_reject").at(-1);
+  await expect.poll(lastRefusal, STEP).toMatchObject({ actor: "e2e-engineer", reason_code: "self_approval", value: "approve" });
   const viewer = await signedInPage(browser, "e2e-viewer");
   await expect(viewer.getByTestId(`gateway-approve-${key}`)).toHaveAttribute("aria-disabled", "true", STEP);
   expect((await api(viewer, "POST", `/gateway/pending/${key}/approve`)).status).toBe(403);

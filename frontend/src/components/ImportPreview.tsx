@@ -36,7 +36,7 @@ function Pick({ label, value, choices, onChange, optionalText }: PickProps) {
 /** The first rows of the file as a table. */
 function PreviewTable({ preview, t }: { preview: IntakePreview; t: Translate }) {
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" tabIndex={0} role="region" aria-label={t("import.preview.caption", { rows: preview.rows.length, total: preview.n_rows_estimate })}>
       <table className="loops-table">
         <caption>{t("import.preview.caption", { rows: preview.rows.length, total: preview.n_rows_estimate })}</caption>
         <thead><tr>{preview.columns.map((column, i) => <th key={`${column}-${i}`} scope="col">{column}</th>)}</tr></thead>
