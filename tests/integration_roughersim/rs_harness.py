@@ -164,7 +164,7 @@ class Harness:
         return self.plant.setpoint_source(tag)
 
     def release(self, tag: str) -> None:
-        """Give the loop back (Mode := AUTO)."""
+        """Give the loop back (release_value of the plant map; CAS for FIC203)."""
         self.plant.release(tag)
 
     # --- ParamControlSystem (PID parameters, Double nodes) --------------------------------

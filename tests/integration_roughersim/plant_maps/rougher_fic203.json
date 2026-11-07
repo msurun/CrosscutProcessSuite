@@ -14,7 +14,7 @@
       "source_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
       "remote_value": 3,
       "local_value": 1,
-      "release_value": 1,
+      "release_value": 2,
       "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3},
       "take_remote": {
         "node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",

@@ -592,7 +592,7 @@ class WriteGateway:
         if self._plant.setpoint_source(tag) == "remote":
             return False
 
-        self._enter_hold_off(tag, "operator_override", "operator_override")
+        self._enter_hold_off(tag, "operator_override", "operator_override", release=False)
         return True
 
     def _tick_tag_isolated(self, tag: str) -> None:
@@ -629,7 +629,7 @@ class WriteGateway:
             self._comm_loss(tag, exc)
             return True
         if loop_mode not in self._policies[tag].allowed_loop_modes:
-            self._enter_hold_off(tag, "operator_override", "mode_change")
+            self._enter_hold_off(tag, "operator_override", "mode_change", release=False)
             return True
         return False
 
@@ -673,14 +673,20 @@ class WriteGateway:
         event: str,
         reason: str,
         value: str = "",
+        release: bool = True,
     ) -> None:
-        """Put a target into hold_off, release it, and audit the event."""
+        """Put a target into hold_off, release it, and audit the event.
+
+        ``release=False`` for an operator takeover: the operator already chose the
+        mode, the gateway must not write it back.
+        """
         self._set_state(tag, "hold_off")
         self._hold_until_ns[tag] = self._now_ns + int(
             self._policies[tag].hold_off_s * 1_000_000_000
         )
         self._holding[tag] = False
-        self._release_target(tag, reason)
+        if release:
+            self._release_target(tag, reason)
         self._log(event, tag, reason, value)
 
     def _comm_loss(self, tag: str, exc: Exception | None = None) -> None:

@@ -263,7 +263,7 @@ def test_pending_flushed_on_hold_off() -> None:
 
 
 def test_operator_mode_change_while_remote_goes_hold_off() -> None:
-    """An operator mode change while the gateway owns the setpoint releases it and holds off."""
+    """An operator mode change while the gateway owns the setpoint holds off, never overwritten."""
     plant = StickyPlant()
     gw = make("supervised", plant)
     gw.propose(proposal(55.0))
@@ -271,8 +271,8 @@ def test_operator_mode_change_while_remote_goes_hold_off() -> None:
     run(gw, plant, 1)
     assert gw.status()[TAG] == "hold_off"
     assert "operator_override" in events(gw)
-    assert plant.releases == [TAG]
-    assert plant.setpoint_source(TAG) == "local"
+    assert plant.releases == []  # the operator's mode is never written back
+    assert plant.loop_mode(TAG) == "MAN"
 
 
 def test_operator_setpoint_change_while_remote_goes_hold_off() -> None:
