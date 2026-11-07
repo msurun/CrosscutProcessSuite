@@ -251,15 +251,15 @@ class WriteGateway:
         tag = proposal.target_tag
         try:
             operator_override = self._check_operator_override(tag)
-        except _COMM_ERRORS:
-            return self._handle_comm_loss(tag, proposal, key, proposal.value)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            return self._handle_comm_loss(tag, proposal, key, proposal.value, exc)
         if operator_override:
             refused = WriteDecision(accepted=False, reason_code="operator_override")
             return self._record(proposal, refused, key)
         try:
             decision = self._evaluate_proposal(proposal)
-        except _COMM_ERRORS:
-            return self._handle_comm_loss(tag, proposal, key, proposal.value)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            return self._handle_comm_loss(tag, proposal, key, proposal.value, exc)
         if not decision.accepted:
             return self._record(proposal, decision, key)
         return decision
@@ -340,10 +340,8 @@ class WriteGateway:
             return
 
         for tag in self._states:
-            if not self._holding.get(tag, False):
-                continue
-            if self._tick_tag(tag):
-                continue
+            if self._holding.get(tag, False):
+                self._tick_tag_isolated(tag)
 
         if any(
             self._holding.get(tag, False) and self._states[tag] == "enabled"
@@ -466,6 +464,15 @@ class WriteGateway:
         self._pending.pop(key, None)
         self._proposer_actor.pop(key, None)
         self._proposal_cache.pop(key, None)
+        try:
+            return self._execute_approved(proposal, key)
+        except Exception as exc:  # noqa: BLE001 - the proposal is off the queue: decide it
+            return self._handle_comm_loss(
+                proposal.target_tag, proposal, key, proposal.value, exc
+            )
+
+    def _execute_approved(self, proposal: WriteProposal, key: str) -> WriteDecision:
+        """Screen and write a proposal that has just left the pending queue."""
         blocked = self._queued_refusal(proposal, key)
         if blocked is not None:
             return blocked
@@ -588,6 +595,13 @@ class WriteGateway:
         self._enter_hold_off(tag, "operator_override", "operator_override")
         return True
 
+    def _tick_tag_isolated(self, tag: str) -> None:
+        """Run the tick checks of one tag; its failure never stops the other tags."""
+        try:
+            self._tick_tag(tag)
+        except Exception as exc:  # noqa: BLE001 - fail this tag closed, go on with the rest
+            self._comm_loss(tag, exc)
+
     def _tick_tag(self, tag: str) -> bool:
         """Handle one holding tag during tick; returns True when it was handled.
 
@@ -596,8 +610,8 @@ class WriteGateway:
         """
         try:
             override = self._check_operator_override(tag)
-        except _COMM_ERRORS:
-            self._comm_loss(tag)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            self._comm_loss(tag, exc)
             return True
         if override:
             return True
@@ -611,8 +625,8 @@ class WriteGateway:
         """Hold the target off when its loop mode left the allowed set; True when handled."""
         try:
             loop_mode = self._plant.loop_mode(tag)
-        except _COMM_ERRORS:
-            self._comm_loss(tag)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            self._comm_loss(tag, exc)
             return True
         if loop_mode not in self._policies[tag].allowed_loop_modes:
             self._enter_hold_off(tag, "operator_override", "mode_change")
@@ -623,8 +637,8 @@ class WriteGateway:
         """Hold the target off when read-back diverges from the last write; True when handled."""
         try:
             actual = self._plant.read(tag)
-        except _COMM_ERRORS:
-            self._comm_loss(tag)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            self._comm_loss(tag, exc)
             return True
         expected = self._last_written.get(tag)
         tolerance = self._policies[tag].readback_tolerance
@@ -648,10 +662,10 @@ class WriteGateway:
         """Send a heartbeat; any communication error stops all holding targets."""
         try:
             self._plant.send_heartbeat()
-        except _COMM_ERRORS:
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
             for tag in self._states:
                 if self._holding.get(tag, False):
-                    self._comm_loss(tag)
+                    self._comm_loss(tag, exc)
 
     def _enter_hold_off(
         self,
@@ -669,12 +683,19 @@ class WriteGateway:
         self._release_target(tag, reason)
         self._log(event, tag, reason, value)
 
-    def _comm_loss(self, tag: str) -> None:
-        """Stop a target after a communication error and release it."""
+    def _comm_loss(self, tag: str, exc: Exception | None = None) -> None:
+        """Stop a target after a plant error and release it; audit by error kind.
+
+        A transport error is ``comm_loss``; any other exception is ``plant_error``
+        carrying the exception class name only.
+        """
         self._set_state(tag, "stopped:comm")
         self._holding[tag] = False
         self._release_target(tag, "comm_loss")
-        self._log("comm_loss", tag, "comm_loss")
+        if exc is None or isinstance(exc, _COMM_ERRORS):
+            self._log("comm_loss", tag, "comm_loss")
+        else:
+            self._log("plant_error", tag, "plant_error", type(exc).__name__)
 
     def _handle_comm_loss(
         self,
@@ -682,11 +703,13 @@ class WriteGateway:
         proposal: WriteProposal,
         key: str,
         value: float,
+        exc: Exception | None = None,
     ) -> WriteDecision:
-        """Handle a communication error during propose or approve."""
-        self._comm_loss(tag)
-        self._log_proposal("comm_loss", proposal, "comm_loss", value)
-        decision = WriteDecision(accepted=False, reason_code="comm_loss")
+        """Handle a plant error during propose or approve; the decision is refused."""
+        self._comm_loss(tag, exc)
+        reason = "comm_loss" if exc is None or isinstance(exc, _COMM_ERRORS) else "plant_error"
+        self._log_proposal(reason, proposal, reason, value)
+        decision = WriteDecision(accepted=False, reason_code=reason)
         self._seen_proposals[key] = decision
         return decision
 
@@ -722,15 +745,15 @@ class WriteGateway:
         self._log_proposal("write_intent", proposal, decision.reason_code, value)
         try:
             success = self._plant.write(tag, value)
-        except _COMM_ERRORS:
-            return self._handle_comm_loss(tag, proposal, key, value)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            return self._handle_comm_loss(tag, proposal, key, value, exc)
         if not success:
             return self._fail_rejected(proposal, key, value)
         self._record_success(proposal, decision, key, value)
         try:
             self._plant.send_heartbeat()
-        except _COMM_ERRORS:
-            return self._handle_comm_loss(tag, proposal, key, value)
+        except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
+            return self._handle_comm_loss(tag, proposal, key, value, exc)
         return self._seen_proposals[key]
 
     def _fail_rejected(self, proposal: WriteProposal, key: str, value: float) -> WriteDecision:
@@ -772,7 +795,7 @@ class WriteGateway:
         """Hand a setpoint back to local control, auditing the result."""
         try:
             self._plant.release(tag)
-        except _COMM_ERRORS:
+        except Exception:  # noqa: BLE001 - a failed release is audited, never raised
             self._log("release", tag, "release_failed")
             return False
         self._log("release", tag, reason)

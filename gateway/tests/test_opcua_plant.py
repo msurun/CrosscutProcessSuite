@@ -491,12 +491,59 @@ def test_take_remote_after_setpoint_writes_both(rig: Rig) -> None:
     assert rig.server.get_node("FIC101.SRC") == 1
 
 
-def test_take_remote_after_setpoint_refused_keeps_setpoint(rig: Rig) -> None:
-    """With before_setpoint false a refused take still leaves the setpoint written."""
+def test_take_remote_after_setpoint_refused_restores_setpoint(rig: Rig) -> None:
+    """With before_setpoint false a refused take restores the previous setpoint."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
     plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
     assert plant.write(TAG, 55.0) is False
+    assert rig.server.get_node("FIC101.SP") == 50.0
+
+
+def test_take_remote_after_setpoint_restore_failure_is_state_unknown(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the take is refused and the restore fails too, the write state is unknown."""
+    take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    calls: list[float] = []
+    original = plant._write_setpoint
+
+    def flaky(target: Mapping[str, Any], value: float) -> bool:
+        calls.append(value)
+        if len(calls) > 1:
+            raise ConnectionError("down")
+        return original(target, value)
+
+    monkeypatch.setattr(plant, "_write_setpoint", flaky)
+    with pytest.raises(ConnectionError, match="write_state_unknown"):
+        plant.write(TAG, 55.0)
     assert rig.server.get_node("FIC101.SP") == 55.0
+
+
+def test_take_remote_after_setpoint_restore_refused_is_state_unknown(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restore the server refuses (False) also raises write_state_unknown."""
+    take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    original = plant._write_setpoint
+    seen: list[float] = []
+
+    def refusing(target: Mapping[str, Any], value: float) -> bool:
+        seen.append(value)
+        return original(target, value) if len(seen) == 1 else False
+
+    monkeypatch.setattr(plant, "_write_setpoint", refusing)
+    with pytest.raises(ConnectionError, match="write_state_unknown"):
+        plant.write(TAG, 55.0)
+
+
+def test_take_remote_before_setpoint_unchanged_when_take_refused(rig: Rig) -> None:
+    """With before_setpoint true a refused take writes nothing and needs no restore."""
+    take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": True}
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    assert plant.write(TAG, 55.0) is False
+    assert rig.server.get_node("FIC101.SP") == 50.0
 
 
 def test_strict_compare_rejects_bool_for_int_remote_value(rig: Rig) -> None:

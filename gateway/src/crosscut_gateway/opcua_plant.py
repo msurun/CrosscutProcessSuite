@@ -197,14 +197,21 @@ class OpcUaPlant:
         written first (or after, when ``before_setpoint`` is false) to take the
         setpoint into remote control.
 
+        With ``before_setpoint`` false the previous setpoint is read first. If the
+        setpoint is written and the take is then refused or fails, the previous value
+        is written back, so False always means "nothing changed in the plant".
+
         Returns:
             True if the server accepted the write, False if it refused it
             (for example ``BadNotWritable`` or ``BadOutOfRange``), or if the
-            ``take_remote`` write was refused before the setpoint was written.
+            ``take_remote`` write was refused (before the setpoint was written, or
+            after it with the previous setpoint restored).
 
         Raises:
             KeyError: if ``tag`` is not in the plant map.
-            ConnectionError: on transport failure.
+            ConnectionError: on transport failure; with message ``write_state_unknown``
+                when the new setpoint was written, the take failed and the previous
+                value could not be restored (the plant state is unknown).
             TimeoutError: if the server does not answer within the timeout.
             ValueError: if ``tag`` is a pid_param target.
         """
@@ -216,9 +223,30 @@ class OpcUaPlant:
             if not self._write_take_remote(target):
                 return False
             return self._write_setpoint(target, value)
-        sp_ok = self._write_setpoint(target, value)
-        take_ok = self._write_take_remote(target)
-        return sp_ok and take_ok
+        return self._write_then_take(target, value)
+
+    def _write_then_take(self, target: Mapping[str, Any], value: float) -> bool:
+        """Write the setpoint, then take remote; undo the setpoint if the take fails."""
+        previous = self._call(self._read_async(target["setpoint_node"]))
+        if not self._write_setpoint(target, value):
+            return False
+        try:
+            if self._write_take_remote(target):
+                return True
+        except Exception:  # noqa: BLE001 - any failure after the write must undo it
+            self._restore_setpoint(target, previous)
+            raise
+        self._restore_setpoint(target, previous)
+        return False
+
+    def _restore_setpoint(self, target: Mapping[str, Any], previous: float) -> None:
+        """Write ``previous`` back; raise ``write_state_unknown`` unless that succeeded."""
+        try:
+            restored = self._write_setpoint(target, previous)
+        except Exception as error:  # noqa: BLE001 - the restore itself failed
+            raise ConnectionError("write_state_unknown") from error
+        if not restored:
+            raise ConnectionError("write_state_unknown")
 
     def _write_setpoint(self, target: Mapping[str, Any], value: float) -> bool:
         """Write ``value`` to the setpoint node of ``target``; False when refused."""
