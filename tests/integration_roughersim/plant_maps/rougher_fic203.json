@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "endpoint": "opc.tcp://127.0.0.1:4840",
+  "heartbeat": {
+    "node": "nsu=urn:roughersim:abb800xa;s=Application/System/Heartbeat",
+    "period_s": 0.2,
+    "ack_node": "nsu=urn:roughersim:abb800xa;s=Application/System/HeartbeatOk"
+  },
+  "targets": {
+    "FIC203.RSP": {
+      "setpoint_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Rsp",
+      "readback_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Rsp",
+      "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
+      "source_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
+      "remote_value": 3,
+      "local_value": 1,
+      "release_value": 1,
+      "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3},
+      "take_remote": {
+        "node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
+        "value": 3,
+        "before_setpoint": true,
+        "settle_s": 1.6
+      }
+    },
+    "FIC203.GAIN": {
+      "param_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Gain",
+      "readback_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Gain",
+      "data_type": "Double",
+      "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
+      "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3}
+    },
+    "FIC203.TI": {
+      "param_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Ti",
+      "readback_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Ti",
+      "data_type": "Double",
+      "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
+      "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3}
+    }
+  }
+}

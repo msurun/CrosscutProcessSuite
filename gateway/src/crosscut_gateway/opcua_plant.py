@@ -196,6 +196,8 @@ class OpcUaPlant:
         If the plant map has a ``take_remote`` entry for ``tag``, the source node is
         written first (or after, when ``before_setpoint`` is false) to take the
         setpoint into remote control.
+        With ``take_remote.settle_s`` the adapter waits that many seconds after a
+        take that precedes the setpoint (the control system applies it on its next scan).
 
         With ``before_setpoint`` false the previous setpoint is read first. If the
         setpoint is written and the take is then refused or fails, the previous value
@@ -222,6 +224,7 @@ class OpcUaPlant:
         if take.get("before_setpoint", True):
             if not self._write_take_remote(target):
                 return False
+            time.sleep(float(take.get("settle_s", 0.0)))
             return self._write_setpoint(target, value)
         return self._write_then_take(target, value)
 

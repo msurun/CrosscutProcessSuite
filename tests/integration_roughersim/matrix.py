@@ -93,6 +93,7 @@ def _gateway_rows() -> tuple[MatrixRow, ...]:
             milestone="M7",
             scenarios=("gateway",),
             criterion=criterion,
+            status="ready",
             scenario_ref=scenario_ref,
         )
         for number, (scenario_ref, criterion) in enumerate(GATEWAY_CASES, start=1)
@@ -171,4 +172,24 @@ MATRIX: tuple[MatrixRow, ...] = (
             "MPC writes setpoints through the gateway in supervised mode and respects constraints"
         ),
     ),
+)
+
+
+def _gateway_executor(scenario_ref: str) -> Callable[[], None]:
+    """Executor of a gateway row: run its scenario on RougherSim in a scratch directory."""
+
+    def execute() -> None:
+        import tempfile
+        from pathlib import Path
+
+        from gateway_rows import run_scenario
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_scenario(scenario_ref, Path(tmp))
+
+    return execute
+
+
+EXECUTORS.update(
+    {f"L5-G{n:02d}": _gateway_executor(ref) for n, (ref, _) in enumerate(GATEWAY_CASES, 1)}
 )

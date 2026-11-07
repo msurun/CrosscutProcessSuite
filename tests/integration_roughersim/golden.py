@@ -138,8 +138,11 @@ def checkout_problem(rs_dir: Path, pin: dict[str, Any]) -> str | None:
         )
     # Only paths that can change a recording count; edits to docs do not.
     dirty = git(rs_dir, "status", "--porcelain", "--untracked-files=no", "--", *CODE_PATHS)
-    if dirty:
-        return "RougherSim checkout has local modifications in src/scenarios/profiles"
+    if dirty and not os.environ.get("ROUGHERSIM_ALLOW_DIRTY"):
+        return (
+            "RougherSim checkout has local modifications in src/scenarios/profiles "
+            "(ROUGHERSIM_ALLOW_DIRTY=1 overrides, for development only)"
+        )
     return None
 
 

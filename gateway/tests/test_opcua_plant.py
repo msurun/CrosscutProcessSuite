@@ -564,3 +564,20 @@ def test_loop_mode_rejects_bool_for_int_mode_value(rig: Rig) -> None:
     changes = {"mode_node": rig.server.nid("HB_ACK"), "mode_values": {"ON": 1, "OFF": 0}}
     plant = rig.make_plant(_patch_target(rig.plant_map, changes))
     assert plant.loop_mode(TAG).startswith("UNKNOWN")
+
+
+def test_take_remote_settle_waits_before_setpoint(rig: Rig) -> None:
+    """settle_s delays the setpoint write after the take, and the write still succeeds."""
+    take = {"value": 1, "settle_s": 0.3}
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    started = time.monotonic()
+    assert plant.write(TAG, 55.0) is True
+    assert time.monotonic() - started >= 0.3
+    assert rig.server.get_node("FIC101.SP") == 55.0
+
+
+def test_take_remote_negative_settle_is_a_schema_error(rig: Rig) -> None:
+    """A negative settle_s is refused by the plant-map schema."""
+    take = {"value": 1, "settle_s": -1}
+    with pytest.raises(PlantMapError):
+        rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))

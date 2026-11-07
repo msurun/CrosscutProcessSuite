@@ -157,6 +157,12 @@
               "type": "boolean",
               "default": true,
               "description": "Write the take before the setpoint (true) or after it (false)."
+            },
+            "settle_s": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0,
+              "description": "Optional wall-clock seconds to wait after the take write before the setpoint is written, for control systems that apply a mode change on their next scan (a setpoint write in between is refused with BadInvalidState). Default 0: no wait."
             }
           }
         }
