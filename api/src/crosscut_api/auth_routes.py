@@ -30,7 +30,9 @@ from crosscut_api.auth.deps import (
 )
 from crosscut_api.auth.roles import RoleTable
 from crosscut_api.auth.sessions import AuthConfig, Session
+from crosscut_api.auth.settings import settings_view
 from crosscut_api.auth.store import UserStore
+from crosscut_api.auth_pending_routes import build_pending_router
 from crosscut_api.auth_user_routes import build_users_router
 
 DEFAULT_CONFIG: AuthConfig = AuthConfig()
@@ -94,7 +96,14 @@ def _password_changes(new: str, ctx: AuthContext) -> dict[str, Any]:
     }
 
 
-def _session_cookie(request: Request) -> dict[str, Any]:
+def _is_secure(request: Request, mode: str) -> bool:
+    """Resolve the ``secure_cookie`` setting: ``auto`` follows the request scheme."""
+    if mode == "auto":
+        return request.url.scheme == "https"
+    return mode == "true"
+
+
+def _session_cookie(request: Request, mode: str = "auto") -> dict[str, Any]:
     """Return the Set-Cookie options for the session cookie of this request.
 
     The cookie is httponly and ``samesite="strict"`` to blunt CSRF and XSS token
@@ -104,7 +113,7 @@ def _session_cookie(request: Request) -> dict[str, Any]:
         "httponly": True,
         "samesite": "strict",
         "path": "/",
-        "secure": request.url.scheme == "https",
+        "secure": _is_secure(request, mode),
     }
 
 
@@ -160,6 +169,10 @@ class _AuthEndpoints:
             "auth_enabled": self._enabled,
             "initialised": self._ctx.users.initialised(),
         }
+
+    def settings(self) -> dict[str, Any]:
+        """Return the effective auth settings (admin only; settings are edited in the file)."""
+        return settings_view(self._ctx.config)
 
     def me(self, request: Request) -> dict[str, Any]:
         """Describe the signed-in caller and its session."""
@@ -320,7 +333,8 @@ class _AuthEndpoints:
         username = str(user["username"])
         fresh = ctx.users.update(username, lockout.success_changes())
         token, session = ctx.sessions.create(username, ip)
-        response.set_cookie(COOKIE_NAME, token, **_session_cookie(request))
+        cookie = _session_cookie(request, ctx.config.secure_cookie)
+        response.set_cookie(COOKIE_NAME, token, **cookie)
         ctx.audit.append("login_ok", actor=username, ip=ip, sid=session.sid)
         principal = _principal_for(fresh, session, token, ctx.roles)
         return session_payload(principal, ctx)
@@ -343,12 +357,19 @@ def build_auth_router_for(ctx: AuthContext, enabled: bool = True) -> APIRouter:
     endpoints = _AuthEndpoints(ctx, guards, enabled)
     router = APIRouter(tags=["auth"])
     router.add_api_route("/auth/config", endpoints.config, methods=["GET"])
+    router.add_api_route(
+        "/auth/settings",
+        endpoints.settings,
+        methods=["GET"],
+        dependencies=[Depends(guards.require("users.manage"))],
+    )
     router.add_api_route("/auth/login", endpoints.login, methods=["POST"])
     router.add_api_route("/auth/logout", endpoints.logout, methods=["POST"])
     router.add_api_route("/auth/me", endpoints.me, methods=["GET"])
     router.add_api_route("/auth/password", endpoints.change_password, methods=["POST"])
     router.add_api_route("/auth/stepup", endpoints.stepup, methods=["POST"])
     router.include_router(build_users_router(ctx, guards))
+    router.include_router(build_pending_router(ctx, guards))
     return router
 
 

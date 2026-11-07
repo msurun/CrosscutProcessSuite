@@ -141,6 +141,7 @@ class ServiceOptions:
     roles_path: Path | None = None
     policy_path: Path | None = None
     enforce_start_floor: bool = True
+    allow_kill_file: bool = True
 
 
 _DEFAULT_OPTIONS = ServiceOptions()
@@ -223,6 +224,7 @@ class GatewayService:
         self._rejected_dir = root / "_gateway" / "rejected"
         self._gateway_dir = root / "_gateway"
         self._kill_path = self._gateway_dir / "KILL"
+        self._allow_kill_file = options.allow_kill_file
         self._key_path = options.key_path or default_key_path(root)
         self._gate: AuthGate | None = None
         self._roles_digest = ""
@@ -581,8 +583,11 @@ class GatewayService:
             self._gateway.record_event("service_error", GATEWAY_ACTOR, exc.__class__.__name__)
 
     def _handle_kill_file(self) -> None:
-        """Kill the gateway while the KILL file exists, retiring the file after each kill."""
-        if not self._kill_path.exists():
+        """Kill the gateway while the KILL file exists, retiring the file after each kill.
+
+        With the KILL file trigger switched off (``--no-kill-file``) the file is ignored.
+        """
+        if not self._allow_kill_file or not self._kill_path.exists():
             return
         self._gateway.kill(actor_ctx=_KILL_FILE_CTX)
         self._latch_kill(_KILL_FILE_CTX)

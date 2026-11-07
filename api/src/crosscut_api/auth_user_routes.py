@@ -10,11 +10,12 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from crosscut_api.auth.deps import AuthContext, AuthGuards, Principal, client_ip, json_body
 from crosscut_api.auth.lockout import to_iso
 from crosscut_api.auth.passwords import hash_password, password_problem
+from crosscut_api.auth.pending import KIND_ROLE_GRANT, SENSITIVE_PERMISSIONS
 from crosscut_api.auth.store import UserExistsError, UserNotFoundError, new_user_record
 
 PERMISSION = "users.manage"
@@ -99,12 +100,21 @@ def _password_record(ctx: AuthContext, value: object) -> dict[str, Any]:
     return hash_password(password, ctx.config.scrypt)
 
 
+def grants_sensitive(ctx: AuthContext, old_roles: list[str], new_roles: list[str]) -> bool:
+    """Return True when the new roles add a two-person permission the user does not hold."""
+    added = ctx.roles.permissions_for(new_roles) - ctx.roles.permissions_for(old_roles)
+    return bool(added & SENSITIVE_PERMISSIONS)
+
+
 def _build_user(ctx: AuthContext, body: dict[str, Any]) -> dict[str, Any]:
     """Validate a create body and build the schema-valid user record to store."""
+    roles = _checked_roles(ctx, body.get("roles"))
+    if ctx.config.require_second_admin and grants_sensitive(ctx, [], roles):
+        raise HTTPException(status_code=409, detail="second_admin_required: grant after creation")
     user = new_user_record(
         _checked_username(body.get("username")),
         _checked_display_name(body.get("display_name")),
-        _checked_roles(ctx, body.get("roles")),
+        roles,
         _password_record(ctx, body.get("password")),
         ctx.clock(),
     )
@@ -114,7 +124,7 @@ def _build_user(ctx: AuthContext, body: dict[str, Any]) -> dict[str, Any]:
     return user
 
 
-def _reset_changes(ctx: AuthContext, value: object) -> dict[str, Any]:
+def reset_changes(ctx: AuthContext, value: object) -> dict[str, Any]:
     """Return the changes of an administrative password reset, which forces a new password."""
     return {
         "password": _password_record(ctx, value),
@@ -132,7 +142,7 @@ def _field_changes(ctx: AuthContext, name: str, value: object) -> dict[str, Any]
     if name == "roles":
         return {name: _checked_roles(ctx, value)}
     if name == "password":
-        return _reset_changes(ctx, value)
+        return reset_changes(ctx, value)
     return {name: _checked_flag(value, name)}
 
 
@@ -241,12 +251,55 @@ class _UserEndpoints:
         )
         return public_view(user)
 
-    def update_user(self, username: str, request: Request, body: JsonBody) -> dict[str, Any]:
-        """Apply a validated PATCH; access-related changes revoke the user's sessions."""
+    def update_user(
+        self, username: str, request: Request, body: JsonBody, response: Response
+    ) -> dict[str, Any]:
+        """Apply a validated PATCH, or hold a sensitive change for a second administrator."""
         actor = self._actor(request)
         before = self._existing(username)
         changes = _update_changes(self._ctx, body, is_self=actor.username == username)
         self._protect_last_admin(before, changes)
+        held = self._hold_for_second_admin(actor, before, body, changes)
+        if held is not None:
+            response.status_code = 202
+            return held
+        return self._apply_update(actor, request, (username, before), body, changes)
+
+    def _hold_for_second_admin(
+        self,
+        actor: Principal,
+        before: dict[str, Any],
+        body: dict[str, Any],
+        changes: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Store a sensitive role grant as a pending change; refuse a direct password reset."""
+        ctx = self._ctx
+        if not ctx.config.require_second_admin:
+            return None
+        if "password" in body:
+            raise HTTPException(status_code=409, detail="second_admin_required: use password-reset")
+        if not grants_sensitive(ctx, before.get("roles", []), changes.get("roles", [])):
+            return None
+        if set(body) != {"roles"}:
+            raise HTTPException(status_code=422, detail="send a sensitive role grant alone")
+        item = ctx.pending.add(
+            KIND_ROLE_GRANT, str(before["username"]), actor.username, {"roles": changes["roles"]}
+        )
+        ctx.audit.append(
+            "pending_create", actor=actor.username, target=item.target, kind=item.kind, id=item.id
+        )
+        return item.public()
+
+    def _apply_update(
+        self,
+        actor: Principal,
+        request: Request,
+        target: tuple[str, dict[str, Any]],
+        body: dict[str, Any],
+        changes: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store the changes, revoke sessions when access changed and audit the update."""
+        username, before = target
         try:
             after = self._ctx.users.update(username, changes)
         except UserNotFoundError as exc:

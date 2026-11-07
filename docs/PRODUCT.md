@@ -378,7 +378,7 @@ Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 
 | # | Decision | Blocks |
 |---|---|---|
-| 1 | First pilot DCS (ABB or Siemens) for PID-parameter writes and CAS conventions | Phase 3 pilot |
+| 1 | ABB/Siemens validation access (a deployment datum: the site's DCS and PidCC unit go in the plant map and policy, not into the product) | Phase 3 pilot |
 | 2 | Whether the step-test assistant may propose OUT writes in manual (`confirm` mode) | Phase 3 exit criteria |
 | 3 | Licence of the separate DCS simulator project RougherSim (name decided); whether Siemens PLCSIM Advanced (trial) is the second check | Phase 1a |
 | 4 | Whether there is legal access to ABB SoftController (Compact Control Builder) to check the ABB profile on a real stack | Phase 1a ABB verification |
@@ -386,7 +386,7 @@ Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 | 6 | Blind worklist review (≈20 loops) | Module 1 evidence |
 | 7 | One real valve stroke test | Module 1 evidence |
 | 8 | Optimisation objective (economic value per PV unit, operating limits) | Phase 8 |
-| 9 | Write authority model: who may enable `confirm`/`supervised`, who may change policy, what the operator can always do | Phase 2 `supervised` |
+| 9 | ~~Write authority model~~ now configurable per site (ADR 013 "Configurable defaults", `docs/ADMIN_GUIDE.md`); no owner decision needed | - |
 | 10 | Virtual-sensor v1 preset set (section 4.2) and whether `backup` mode is in v1; which plant instruments (belt scale, pump, valve) can supply validation data | Phase 4a scope |
 | 11 | Critical-asset list and v1 asset templates (section 4.3); whether maintenance history (work orders, failure records) can be shared for labelled events | Phase 4b evidence |
 

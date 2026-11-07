@@ -87,7 +87,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=2.0,
         help="OPC-UA connection timeout in seconds; must be > 0 (default: 2.0).",
     )
+    parser.add_argument(
+        "--allow-kill-file",
+        dest="allow_kill_file",
+        action="store_true",
+        default=None,
+        help="Honour the KILL file in _gateway (default; overrides _auth/config.json).",
+    )
+    parser.add_argument(
+        "--no-kill-file",
+        dest="allow_kill_file",
+        action="store_false",
+        help="Ignore the KILL file; the OS permissions on the folder are then irrelevant to kill.",
+    )
     return parser.parse_args(argv)
+
+
+def kill_file_allowed(args: argparse.Namespace) -> bool:
+    """Return whether the KILL file trigger is on: flag first, then the site config, else on."""
+    flag = getattr(args, "allow_kill_file", None)
+    if flag is not None:
+        return bool(flag)
+    try:
+        data = json.loads((args.root / "_auth" / "config.json").read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError) as exc:
+        print(f"auth config unreadable ({exc}); KILL file stays enabled", file=sys.stderr)
+        return True
+    value = data.get("kill_file_enabled", True) if isinstance(data, dict) else True
+    return value is not False
 
 
 def _install_signals(stop_event: threading.Event) -> None:
@@ -132,6 +161,7 @@ class _Inputs:
     roles: Path | None
     key_path: Path
     key: bytes
+    allow_kill_file: bool = True
 
 
 def _load_key(key_path: Path) -> bytes | None:
@@ -162,7 +192,7 @@ def _prepare(args: argparse.Namespace) -> _Inputs | None:
     key = _load_key(key_path)
     if key is None:
         return None
-    return _Inputs(args.root, args.policy, args.roles, key_path, key)
+    return _Inputs(args.root, args.policy, args.roles, key_path, key, kill_file_allowed(args))
 
 
 def _start_gateway(
@@ -193,6 +223,7 @@ def _initialize(
         key_path=inputs.key_path,
         roles_path=inputs.roles,
         policy_path=inputs.policy,
+        allow_kill_file=inputs.allow_kill_file,
     )
     return GatewayService(inputs.root, gateway, options=options), stop_event
 

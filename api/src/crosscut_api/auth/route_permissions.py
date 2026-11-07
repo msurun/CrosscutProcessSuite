@@ -172,6 +172,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/auth/users"): "users.manage",
     ("PATCH", "/auth/users/{username}"): "users.manage",
     ("DELETE", "/auth/users/{username}"): "users.manage",
+    ("GET", "/auth/settings"): "users.manage",
+    ("GET", "/auth/pending"): "users.manage",
+    ("POST", "/auth/pending/{pending_id}/approve"): "users.manage",
+    ("POST", "/auth/users/{username}/password-reset"): "users.manage",
 }
 
 

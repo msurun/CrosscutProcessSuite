@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from auth_support import (
     DEFAULT_USERS,
+    LEGACY_CONFIG,
     PASSWORD,
     FakeClock,
     csrf,
@@ -54,7 +55,7 @@ def root(tmp_path: Path) -> Path:
 @pytest.fixture
 def app(root: Path, clock: FakeClock) -> FastAPI:
     """Return the auth-only app served over the seeded data root."""
-    return make_app(root, clock)
+    return make_app(root, clock, LEGACY_CONFIG)
 
 
 @pytest.fixture

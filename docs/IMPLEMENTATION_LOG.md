@@ -1030,7 +1030,7 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
 - Full quality gates verified green: `ruff`, whole-repo `pytest` (4286 passed), `vitest` (1099 passed), `tsc`, `build`, normal `npm run e2e:all` (80 passed), and live gateway/tuning E2E (13 passed).
 - Rollback exemption for `min_interval` and `max_ratio` (ADR 014 section 6): `ParamManager` audits and remembers `applied_from` baseline readings; a verified rollback proposal matching this baseline skips cooling interval checks and ratio caps while maintaining strict limits and signs.
 - Operator escape for `applying` proposals without ledger evidence: `POST /tuning/proposals/{id}/escape` (and `POST /reject?escape=true`) allows authorized operators (`gw.reject`) to discard stalled `applying` records when no plant write evidence exists in `state.json` / ledger. If write evidence is present, the record settles to `applied` and refuses rejection (409 `already_applied`).
-- Open: pilot DCS and PidCC unit (ADR 014 question 1); who approves tuning (default engineer/lead); step-test assistant OUT writes not in scope; RougherSim L5 rows still pending (needs M7 hooks); ADR 013 owner questions (lead role holder, kiosk kill, session lengths, admin password reset without a second admin); key protection on Windows/OneDrive.
+- Open: pilot DCS and PidCC unit (ADR 014 question 1); who approves tuning (default engineer/lead); step-test assistant OUT writes not in scope; RougherSim L5 rows still pending (needs M7 hooks) ; key protection on Windows/OneDrive.
 
 ## 2026-11-06 - Phase 6 #51 Supervisor advice as setpoint write proposals (module: supervisor/write-path, Phase 6)
 
@@ -1052,3 +1052,12 @@ Diagnosis of the round 2 miss (B1, 1.79 false alarms per 24 h): the false alarms
   - Operator action always wins: plant override puts gateway into hold-off, refusing supervisor setpoint proposals.
   - Proposing from logged `advice_id` in audit log.
   - Advise endpoint with `propose=True`.
+
+## 2026-11-06 - Site auth settings and administrator guide (module: auth, Phase 2)
+
+- Product principle: Crosscut is a platform; former "owner questions" in ADR 013/014 are configurable settings with safe defaults, status stays Accepted. Pilot DCS/PidCC unit is a deployment datum in plant map and policy. Genuinely external items remain: ABB/Siemens validation access, RougherSim licence.
+- `schemas/auth-config.schema.json` and `api/.../auth/settings.py`: optional `<root>/_auth/config.json` (sessions, step-up, lockout, rate limit, password length, two-admin rule, kill file, allowed origins, secure cookie). Missing = defaults equal to the old constants; invalid or unknown key = start-up refusal naming the field. `create_app` and `auth_cli` read it.
+- `GET /auth/settings` (users.manage) returns effective settings; no write route (edit file, restart). `/auth/config` unchanged.
+- Two-person admin rule (`auth/pending.py`, `auth_pending_routes.py`): password reset of another user and grants of `policy.pin`/`gw.kill.reset`/`gw.mode.up.supervised` become pending changes (202); a different admin approves with step-up at `POST /auth/pending/{id}/approve`. In-memory, 24 h. `PATCH` password now returns 409 when the rule is on.
+- Gateway: `ServiceOptions.allow_kill_file`, CLI `--allow-kill-file/--no-kill-file`, else `kill_file_enabled` from the same config file; unreadable config keeps the trigger on.
+- `docs/ADMIN_GUIDE.md` added; ADR 013/014 "Configurable defaults"; tests `api/tests/test_auth_settings.py`, `gateway/tests/test_no_kill_file.py`.

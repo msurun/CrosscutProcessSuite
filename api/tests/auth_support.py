@@ -7,6 +7,7 @@ Imported by sibling test modules as ``from auth_support import ...``.
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ def write_key_file(path: Path, key: bytes) -> Path:
 
 
 TEST_CONFIG = AuthConfig(scrypt=ScryptParams(n=1024))
+LEGACY_CONFIG = replace(TEST_CONFIG, require_second_admin=False)
 PASSWORD = "correct horse 1"
 DEFAULT_USERS: dict[str, list[str]] = {
     "admin1": ["admin"],
@@ -72,10 +74,10 @@ def seed_users(root: Path, specs: dict[str, list[str]], password: str = PASSWORD
     JsonUserStore(root).write_all(users)
 
 
-def make_app(root: Path, clock: FakeClock) -> FastAPI:
+def make_app(root: Path, clock: FakeClock, config: AuthConfig = TEST_CONFIG) -> FastAPI:
     """Create a FastAPI app that serves only the auth router over ``root``."""
     app = FastAPI()
-    app.include_router(build_auth_router(root, TEST_CONFIG, clock))
+    app.include_router(build_auth_router(root, config, clock))
     return app
 
 

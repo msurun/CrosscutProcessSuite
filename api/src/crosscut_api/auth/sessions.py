@@ -46,6 +46,9 @@ class AuthConfig:
     ip_rate_limit: int = 20
     ip_rate_window_s: float = 60.0
     allowed_origins: tuple[str, ...] = ()
+    require_second_admin: bool = True
+    secure_cookie: str = "auto"
+    kill_file_enabled: bool = True
 
 
 @dataclass

@@ -40,7 +40,8 @@ from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.auth.deps import AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
 from crosscut_api.auth.sessions import AuthConfig
-from crosscut_api.auth_routes import DEFAULT_CONFIG, build_auth_router, build_auth_router_for
+from crosscut_api.auth.settings import load_auth_config
+from crosscut_api.auth_routes import build_auth_router, build_auth_router_for
 from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.downsample import Envelope, downsample_minmax
@@ -657,7 +658,7 @@ def _loop_router(store: DatasetStore) -> APIRouter:
 def create_app(
     data_root: Path,
     auth_enabled: bool = True,
-    auth_config: AuthConfig = DEFAULT_CONFIG,
+    auth_config: AuthConfig | None = None,
 ) -> FastAPI:
     """Create the API for the datasets stored in the sub-directories of ``data_root``.
 
@@ -666,6 +667,8 @@ def create_app(
     off and is meant only for tests and the e2e launcher.
     """
     store = DatasetStore(Path(data_root))
+    if auth_config is None:
+        auth_config = load_auth_config(store.root)  # invalid settings refuse startup
     app, auth_router = _new_app(store.root, auth_enabled, auth_config)
     app.include_router(auth_router)
     _mount_routers(app, store)

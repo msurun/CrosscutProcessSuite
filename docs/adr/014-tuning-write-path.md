@@ -1,6 +1,6 @@
 ﻿# ADR 014: Tuning write path (PID parameters)
 
-Status: **Accepted (implemented; owner questions open)**
+Status: **Accepted (implemented; former owner questions are configurable defaults)**
 Date: 2026-11-05
 Builds on: ADR 011 (write path), ADR 012 (writes are a product capability), ADR 013 (roles and authority). Tracked as issues #48 and #51, Phase 3.
 
@@ -271,10 +271,10 @@ End-to-end: propose, a second user approves, diff table, KPI panel, rollback, ax
 - **Wrong KPI verdicts.** Review needs history. Test `compare_windows` against RougherSim ground truth before trusting `improved`.
 - **Pending sets lost on restart.** Accepted. The record expires and is re-proposed.
 
-## Open owner questions
+## Configurable defaults
 
-Defaults below are implemented as configuration and can be changed without code changes.
+These were open owner questions; they are site data or settings, not product decisions.
 
-1. Pilot DCS: which ABB PidCC unit handles TI and TD, and is a gain change in AUTO bumpless? Default: `allowed_loop_modes` is `[MAN, AUTO]`, and ABB targets stay off until the unit is confirmed.
-2. Who approves tuning writes? Default: `engineer` or `lead` (`gw.approve.tuning`). Operators can only reject, and can always take over at the DCS.
+1. Pilot DCS and PidCC unit: a deployment datum entered in the plant map and the write policy for the site. Default: `allowed_loop_modes` is `[MAN, AUTO]`, and ABB targets stay off until the site confirms the unit (including whether a gain change in AUTO is bumpless).
+2. Who approves tuning writes: the permission `gw.approve.tuning`, held by `engineer` and `lead` by default; a site changes it in `<root>/_auth/roles.json` (ADR 013, `docs/ADMIN_GUIDE.md`). Operators can only reject, and can always take over at the DCS.
 3. A step-test assistant that writes OUT in manual is not in this issue. A proposal only references a `step_test_id` from the Steps view.

@@ -22,6 +22,7 @@ from crosscut_api.auth.lockout import success_changes, to_iso
 from crosscut_api.auth.passwords import hash_password, password_problem
 from crosscut_api.auth.roles import RolesError, load_roles
 from crosscut_api.auth.sessions import AuthConfig
+from crosscut_api.auth.settings import AuthSettingsError, load_auth_config
 from crosscut_api.auth.store import (
     JsonUserStore,
     NotInitialisedError,
@@ -52,9 +53,12 @@ class CliUsageError(Exception):
     """A problem with the command or its inputs; reported with exit code 2."""
 
 
-def _auth_config() -> AuthConfig:
-    """Return the auth configuration, applying the CROSSCUT_AUTH_SCRYPT_N override."""
-    base = AuthConfig()
+def _auth_config(root: Path | None = None) -> AuthConfig:
+    """Return the site auth configuration, applying the CROSSCUT_AUTH_SCRYPT_N override."""
+    try:
+        base = load_auth_config(root, AuthConfig())
+    except AuthSettingsError as exc:
+        raise CliUsageError(str(exc)) from exc
     raw = os.environ.get(SCRYPT_ENV)
     if raw is None:
         return base
@@ -187,7 +191,7 @@ def _print_icacls_hints(paths: list[Path]) -> None:
 
 def _new_record(args: argparse.Namespace, root: Path, roles: list[str]) -> dict[str, object]:
     """Build a user record with a hashed password read from the arguments."""
-    config = _auth_config()
+    config = _auth_config(root)
     username = _username(args.username)
     password = _read_password(args.password_file, config.min_password_length)
     return new_user_record(
@@ -243,7 +247,7 @@ def cmd_set_password(args: argparse.Namespace) -> int:
     username = _username(args.username)
     if store.get(username) is None:
         raise CliUsageError(f"user {username!r} not found")
-    config = _auth_config()
+    config = _auth_config(root)
     password = _read_password(args.password_file, config.min_password_length)
     store.update(
         username,

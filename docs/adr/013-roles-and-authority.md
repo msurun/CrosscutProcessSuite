@@ -1,6 +1,6 @@
 ﻿# ADR 013: Roles and authority
 
-Status: **Accepted (implemented; owner questions open)**
+Status: **Accepted (implemented; former owner questions are configurable defaults)**
 Implementation status 2026-11-03: steps 1 and 5 done (d9376e3); steps 2-4, 6-8 in progress.
 Date: 2026-11-03
 Builds on: ADR 011 (write path) and ADR 012 (writes are a product capability). Tracked as issue #47, owner decision 9.
@@ -224,12 +224,26 @@ The DCS remains the last line of defence. Operator takeover and plant interlocks
 - A lost signing key locks all writes except `kill`. This is intended. Recovery: `auth_cli rotate-key`.
 - Shift work is subject to the session timeouts (60 minutes idle, 12 hours absolute), and any restart logs everyone out.
 - The gateway no longer trusts the API's view of modes or targets; it re-authorises every command with its own state.
-- The three owner questions below must be answered before this ADR moves from Proposed to Accepted.
 
-## Open owner questions
+## Configurable defaults
 
-Defaults below are implemented as configuration and can be changed without code changes.
+Crosscut is a platform: each site sets its own accounts, roles and limits. What this ADR first listed as open owner questions
+are settings with safe defaults in the optional `<root>/_auth/config.json` (`schemas/auth-config.schema.json`), read at start-up;
+a missing file means the defaults, an invalid file or an unknown key refuses start-up, and bounds keep the platform out of unsafe
+states. There is no write route: edit the file and restart. `GET /auth/settings` (permission `users.manage`) shows the effective
+values. `kill`, `mode.down` and `reject` for every human role stay forced in code. See `docs/ADMIN_GUIDE.md`.
 
-1. Only `lead` may enable `supervised` and pin the policy. Who holds `lead` on site?
-2. Accounts are personal only. Must `kill` work without a login (kiosk)? Default: `kill` works through the KILL file or the OS group.
-3. Are 12-hour absolute and 60-minute idle sessions acceptable for shift work?
+| Setting | Default | Replaces the question |
+|---------|---------|-----------------------|
+| `<root>/_auth/roles.json` (role table override) | packaged table | Who holds `lead`: a site renames or merges roles; only `lead` may pin and enable `supervised` by default |
+| `kill_file_enabled` (gateway: `--allow-kill-file` / `--no-kill-file`) | true | Kill without login: the KILL file, protected by OS permissions on `_gateway` |
+| `session_idle_minutes` / `session_absolute_hours` | 60 / 12 | Session lengths for shift work |
+| `stepup_valid_minutes` | 5 | Step-up window |
+| `lockout_failures` / `lockout_base_minutes` / `lockout_max_minutes` | 5 / 5 / 60 | Lockout |
+| `login_rate_per_ip_per_min` | 20 | Login throttle |
+| `password_min_length` | 12 (not below 12) | Password policy |
+| `require_second_admin_for_password_reset` | true | Admin reset of another password, or grant of `policy.pin`, `gw.kill.reset` or `gw.mode.up.supervised`, needs a second admin (pending change, `POST /auth/pending/{id}/approve`) |
+| `allowed_origins` | [] | CSRF Origin allow list |
+| `secure_cookie` | auto | Cookie `Secure` flag |
+
+A site with a single engineer cannot satisfy the two-person policy pin; `docs/ADMIN_GUIDE.md` section 3 states what such a site does.

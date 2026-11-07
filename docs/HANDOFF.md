@@ -30,10 +30,9 @@ Web UI views: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Ste
 State: Phase 0 and Phase 1 done. Phase 2 done against the simulator (gateway engine, OPC UA adapter, roles and authority, API console, policy panel, file-mailbox boundary, e2e on real processes). Phase 3 tuning write path implemented against simulators (ADR 014). Nothing is connected to a real DCS.
 
 Owner to-do:
-- Pilot DCS choice and PidCC unit (ADR 014 question 1).
-- Who approves tuning (default engineer/lead).
+- Pilot DCS and PidCC unit are deployment data entered in the plant map and policy (not a product decision).
+- Who approves tuning, lead role holder, kiosk kill, session lengths, admin password reset: now site settings with safe defaults (`<root>/_auth/config.json`, `roles.json`; `docs/ADMIN_GUIDE.md`, ADR 013 "Configurable defaults").
 - Step-test assistant OUT writes: not in scope; decide before any use.
-- ADR 013 owner questions: lead role holder, kiosk kill, session lengths, admin password reset without a second admin.
 - Key protection on Windows/OneDrive.
 - Open-loop level step test, controller tunings, and the other items in `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`.
 
@@ -56,7 +55,7 @@ Seeds spent: 1-20, 27001-27120, 28001-28999, 29001-29060, 29201-29399, 29401-296
 
 ## Owner to-do
 
-Full list and open decisions: `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`. Short form: first pilot DCS choice; whether the step-test assistant may propose OUT writes in `confirm`; who may enable `confirm`/`supervised` and change policy; simulator licence; ADR 008 licence review; blind worklist review; one real valve stroke test; controller tunings and one open-loop level step test; lab-stamp and analyser-latency answers; real anomaly data (≥ 2 weeks quiet plus labelled events).
+Full list and open decisions: `docs/PRODUCT.md` section 10 and `docs/OWNER_TASKS.md`. Short form: ABB/Siemens validation access; simulator (RougherSim) licence; ADR 008 licence review; blind worklist review; one real valve stroke test; controller tunings and one open-loop level step test; lab-stamp and analyser-latency answers; real anomaly data (≥ 2 weeks quiet plus labelled events).
 
 ## Working rules that held
 
