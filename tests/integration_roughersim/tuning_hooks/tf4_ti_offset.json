@@ -1,0 +1,1 @@
+{"id":"gw.tf4_ti_offset.v1","hooks":[{"type":"readback_offset","loop":"FIC203","field":"ti_s","offset":0.01,"start_s":300,"end_s":600}]}

@@ -1,0 +1,1 @@
+{"id":"gw.tf2_not_writable.v1","hooks":[{"type":"reject_writes","loop":"FIC203","field":"kc","code":"BadNotWritable","start_s":300,"end_s":600}]}

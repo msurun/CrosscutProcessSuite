@@ -1,0 +1,1 @@
+{"id":"gw.tf3_gain_offset.v1","hooks":[{"type":"readback_offset","loop":"FIC203","field":"kc","offset":0.5,"start_s":300,"end_s":600}]}
