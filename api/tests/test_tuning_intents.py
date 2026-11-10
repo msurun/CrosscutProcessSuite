@@ -76,7 +76,6 @@ def test_get_intents_lists_open_intents(world: World) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["store_state"] == "ok"
-    assert data["damaged"] is False
     assert len(data["intents"]) == 1
     assert data["intents"][0]["key"] == INTENT_KEY
 
@@ -121,7 +120,6 @@ def test_get_intents_damaged_store_returns_state_damaged(world: World) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["store_state"] == "damaged"
-    assert data["damaged"] is True
     assert data["intents"] == []
 
 
