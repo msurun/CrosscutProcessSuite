@@ -18,6 +18,8 @@ from crosscut_opcua.server import PlantServer, ServerConfig
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import Scenario
 
+from tests import OPCUA_SERVER_START_TIMEOUT_S
+
 SERVER_TIMEOUT_S = 10.0
 
 
@@ -62,7 +64,9 @@ def opcua_server():
 
     t = threading.Thread(target=_server_thread, daemon=True)
     t.start()
-    assert ready_evt.wait(timeout=10.0), "PlantServer failed to start in time"
+    assert ready_evt.wait(timeout=OPCUA_SERVER_START_TIMEOUT_S), (
+        "PlantServer failed to start in time"
+    )
 
     try:
         yield server, endpoint
