@@ -2,7 +2,7 @@
 // Unit tests for TuningReconcileCard: displays intended vs current DCS values,
 // enforces gw.approve.tuning authority, invokes resolveOpenIntent, and handles errors.
 
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as tuningApi from "../tuningApi";
 import { mockT, renderAs } from "../tuningTestKit";
