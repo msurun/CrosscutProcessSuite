@@ -25,6 +25,7 @@ import type { Translate } from "./findings";
 export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   viewer: [
     "audit.view",
+    "ctl.view",
     "data.view",
     "gw.kill",
     "gw.mode.down",
@@ -34,6 +35,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
   operator: [
     "analysis.run",
     "audit.view",
+    "ctl.operate",
+    "ctl.view",
     "data.view",
     "gw.approve",
     "gw.kill",
@@ -48,6 +51,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
     "audit.view",
     "config.edit",
     "connector.use",
+    "ctl.operate",
+    "ctl.view",
     "data.import",
     "data.view",
     "gw.approve",
@@ -71,6 +76,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
     "audit.view",
     "config.edit",
     "connector.use",
+    "ctl.operate",
+    "ctl.view",
     "data.import",
     "data.view",
     "gw.approve",
@@ -95,6 +102,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]
   ],
   admin: [
     "audit.view",
+    "ctl.view",
     "data.view",
     "gw.kill",
     "gw.mode.down",

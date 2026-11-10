@@ -16,6 +16,7 @@ export type View =
   | "catalogue"
   | "onboarding"
   | "runtime"
+  | "controllers"
   | "gateway"
   | "tuning"
   | "users";
@@ -53,10 +54,12 @@ const KNOWN_VIEWS: readonly View[] = [
   "catalogue",
   "onboarding",
   "runtime",
+  "controllers",
   "gateway",
   "tuning",
   "users",
 ];
+const CONTROLLERS_HASH = "#/controllers";
 const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];
 
 /**
@@ -92,6 +95,9 @@ function isLoopSub(value: string): value is LoopSub {
  */
 export function parseHash(hash: string): Route {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (`#${raw}` === CONTROLLERS_HASH) {
+    return { dataset: "", view: "controllers", loop: null, sub: "detail" };
+  }
   if (!raw.startsWith(PATH_PREFIX)) {
     return { ...DEFAULT_ROUTE };
   }
@@ -134,8 +140,10 @@ function buildRoute(
  * Render a Route as a canonical hash string starting with "#/d/".
  *
  * `parseHash(formatHash(route))` returns `route` for every valid route.
+ * The Controllers view is not dataset-scoped: its hash is "#/controllers", outside "/d/".
  */
 export function formatHash(route: Route): string {
+  if (route.view === "controllers") return CONTROLLERS_HASH;
   const encodedParts = [encodeURIComponent(route.dataset), route.view];
   if (route.view === "loops" && route.loop !== null) {
     encodedParts.push(encodeURIComponent(route.loop), route.sub);

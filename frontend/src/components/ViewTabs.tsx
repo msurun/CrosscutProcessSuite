@@ -22,8 +22,9 @@ function useVisibleViews(): readonly View[] {
   const canManage = useCan("users.manage").allowed;
   const canView = useCan("gw.view").allowed;
   const tuning: readonly View[] = canView ? ["tuning"] : [];
+  const controllers: readonly View[] = useCan("ctl.view").allowed ? ["controllers"] : [];
   const users: readonly View[] = status === "authenticated" && canManage ? ["users"] : [];
-  return [...BASE_VIEWS, ...tuning, ...users];
+  return [...BASE_VIEWS, ...controllers, ...tuning, ...users];
 }
 
 /** Navigation tabs of the console. */

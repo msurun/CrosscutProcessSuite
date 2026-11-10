@@ -10,7 +10,7 @@ import json
 import os
 from pathlib import Path
 
-from crosscut_runtime.controllers.host import CONTROLLERS_FOLDER
+from crosscut_runtime.controllers.overrides import CONTROLLERS_FOLDER
 from crosscut_runtime.controllers.state import COMMANDS, SWITCH_OFF
 from crosscut_runtime.store import RUNTIME_FOLDER, write_json_atomic
 

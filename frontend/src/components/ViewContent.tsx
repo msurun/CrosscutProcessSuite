@@ -11,6 +11,7 @@ import { RuntimePage } from "../RuntimePage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
 import { AnomalyPage } from "./AnomalyPage";
+import { ControllersPage } from "./ControllersPage";
 import { FuzzyPage } from "./FuzzyPage";
 import { ImportPage } from "./ImportPage";
 import { LoopsPage, type AnalysisInfo } from "./LoopsPage";
@@ -58,6 +59,7 @@ export function ViewContent(props: ViewContentProps) {
     import: <ImportPage onCreated={props.onDatasetCreated} onOpen={open} t={t} />,
     catalogue: <SitePage t={t} />,
     runtime: <RuntimePage t={t} />,
+    controllers: <ControllersPage t={t} />,
     gateway: <GatewayPage t={t} />,
     tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
