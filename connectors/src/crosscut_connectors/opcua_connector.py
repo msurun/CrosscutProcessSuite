@@ -26,7 +26,7 @@ from crosscut_connectors.base import (
     SourceConnectionError,
     TagMetadata,
 )
-from crosscut_connectors.opcua_import import resolve_node_id
+from crosscut_connectors.opcua_import import _quality_from_status, resolve_node_id
 
 TIMEOUT_S = 5.0
 
@@ -113,7 +113,7 @@ async def _sample_single_node(client: Client, tag: str) -> LiveValue:
         node_id = await resolve_node_id(client, tag)
         dv = await client.get_node(node_id).read_data_value()
         val = float(dv.Value.Value) if isinstance(dv.Value.Value, (int, float)) else None
-        qual = 0 if dv.StatusCode.is_good() else 2
+        qual = _quality_from_status(dv.StatusCode)
         ts = dv.SourceTimestamp.isoformat() if dv.SourceTimestamp else datetime.now(UTC).isoformat()
         return LiveValue(value=val, quality=qual, timestamp_utc=ts)
     except Exception:
