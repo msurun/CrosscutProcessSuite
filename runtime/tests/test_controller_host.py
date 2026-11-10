@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -111,11 +112,51 @@ def test_guard_refusal_mv_unavailable(tmp_path: Path) -> None:
     assert rig.controller.initialised == 0
 
 
-def test_guard_refusal_advisory_only(tmp_path: Path) -> None:
+def test_advisory_only_goes_to_advisory_and_never_proposes(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     rig.reasons = ["mode_no_write"]
-    assert rig.cycle("switch_on") == "standby"
+    assert rig.cycle("switch_on") == "advisory"
     assert rig.host.record.reason == "advisory_only"
+    assert rig.controller.initialised == 1
+    assert rig.cycle() == "advisory"
+    assert rig.proposed == [] and rig.controller.steps == 1
+    assert rig.host.record.last_advice == [asdict(MOVE)]
+    assert rig.host.record.last_explanation == "dummy step 1"
+    data = json.loads(record_path(tmp_path, "c1").read_text(encoding="utf-8"))
+    assert data["last_advice"] == [asdict(MOVE)]
+
+
+def test_advisory_sheds_on_other_guard_then_needs_switch_on(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.connector.comm_ok = False
+    assert rig.cycle() == "shed" and rig.host.record.last_advice is None
+    rig.connector.comm_ok = True
+    rig.reasons = []
+    assert rig.cycle() == "standby"
+    assert rig.cycle("switch_on") == "on"
+
+
+def test_advisory_never_turns_on_by_itself_and_off_wins(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.reasons = []
+    assert rig.cycle() == "advisory" and rig.proposed == []
+    assert rig.cycle("switch_on") == "on"
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("standby")
+    assert rig.cycle("switch_on") == "advisory"
+    assert rig.cycle("switch_off") == "off"
+
+
+def test_restart_restores_advisory_as_standby(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.cycle()
+    assert rig.build().record.state == "standby"
 
 
 def test_readiness_not_ready_sheds_with_mv_unavailable(tmp_path: Path) -> None:
@@ -250,7 +291,8 @@ def test_state_file_round_trips_and_statuses_written(tmp_path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     for key in (
         "state", "reason", "last_cycle_utc", "last_duration_s", "overruns",
-        "consecutive_overruns", "liveness_utc", "last_explanation", "disabled", "warnings",
+        "consecutive_overruns", "liveness_utc", "last_explanation", "disabled",
+        "last_advice", "warnings",
     ):
         assert key in data
     assert data["state"] == "on" and data["last_duration_s"] == 1.0

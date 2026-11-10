@@ -24,12 +24,14 @@ from crosscut_runtime.controllers.overrides import (
 )
 from crosscut_runtime.controllers.protocol import Controller, Move
 from crosscut_runtime.controllers.state import (
+    ADVISORY,
     DEFAULT_MAX_OVERRUNS,
     OFF,
     ON,
     SHED,
     STANDBY,
     Health,
+    enters_advisory,
     enters_on,
     transition,
 )
@@ -96,6 +98,7 @@ class ControllerRecord:
     liveness_utc: str | None = None
     last_explanation: str = ""
     disabled: list[str] | None = None
+    last_advice: list[dict[str, Any]] | None = None  # moves seen in advisory, never proposed
     warnings: list[str] | None = None  # e.g. "readiness_unknown:L1" (informational, no block)
 
 
@@ -107,7 +110,7 @@ def record_path(root: Path, controller_id: str) -> Path:
 def load_record(path: Path) -> ControllerRecord:
     """Read a record; a missing or corrupt file gives a fresh ``off`` record.
 
-    A restored ``on`` or ``shed`` comes back as ``standby``: the operator switches on again.
+    A restored ``on``, ``advisory`` or ``shed`` comes back as ``standby``: switch on again.
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -115,7 +118,7 @@ def load_record(path: Path) -> ControllerRecord:
         record = ControllerRecord(**{k: v for k, v in data.items() if k in known})
     except (FileNotFoundError, json.JSONDecodeError, TypeError, AttributeError):
         return ControllerRecord()
-    if record.state in (ON, SHED):
+    if record.state in (ON, SHED, ADVISORY):
         record.state, record.reason = STANDBY, "restart"
     record.consecutive_overruns = 0
     return record
@@ -230,17 +233,26 @@ class ControllerHost:
         return not answer.get("ready", True)
 
     def _act(self, old: str, statuses: list[VariableStatus]) -> None:
-        """Run ``initialise`` on entering on; step and propose when already on."""
+        """Initialise on entering on/advisory; step each cycle, propose only while on."""
         new = self.record.state
-        if enters_on(old, new):
+        if enters_on(old, new) or enters_advisory(old, new):
             self._controller.initialise(statuses)
-        elif new == ON:
-            result = self._controller.step(statuses)
-            self.record.last_explanation = result.explanation
-            for move in result.moves:
-                self._ports.propose(move)
+        elif new in (ON, ADVISORY):
+            self._step(new, statuses)
         if new != ON:
             self.record.consecutive_overruns = 0
+        if new != ADVISORY:
+            self.record.last_advice = None
+
+    def _step(self, state: str, statuses: list[VariableStatus]) -> None:
+        """Run one controller step; moves go to the gateway while on, to the record in advisory."""
+        result = self._controller.step(statuses)
+        self.record.last_explanation = result.explanation
+        if state == ADVISORY:
+            self.record.last_advice = [asdict(move) for move in result.moves]
+            return
+        for move in result.moves:
+            self._ports.propose(move)
 
     def _persist(self, start: datetime, statuses: list[VariableStatus]) -> None:
         """Write the state record and the variable statuses."""

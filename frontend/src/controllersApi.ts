@@ -11,7 +11,7 @@ import { apiFetch } from "./http";
 const API_PREFIX = "/api/controllers";
 
 export type ControllerCommand = "switch_on" | "switch_off" | "standby";
-export type ControllerState = "off" | "standby" | "on" | "shed";
+export type ControllerState = "off" | "standby" | "on" | "advisory" | "shed";
 
 export interface Bounds {
   lo: number;
@@ -32,6 +32,9 @@ export interface ControllerSummary {
   consecutive_overruns: number;
   liveness_utc: string | null;
   last_explanation: string;
+  /** Moves the controller would make in the advisory state (never proposed). */
+  last_advice: { variable_id: string; target_tag: string; value: number; reason: string }[] | null;
+  warnings: string[] | null;
   disabled: string[];
 }
 

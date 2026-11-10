@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from crosscut_runtime.controllers.state import (
+    ADVISORY,
     COMMANDS,
     OFF,
     ON,
@@ -11,6 +12,7 @@ from crosscut_runtime.controllers.state import (
     STANDBY,
     STATES,
     Health,
+    enters_advisory,
     enters_on,
     transition,
 )
@@ -44,13 +46,40 @@ def test_switch_on_with_good_guards(state: str) -> None:
     assert transition(state, "switch_on", GOOD) == (ON, "switch_on")
 
 
-@pytest.mark.parametrize("reason", PROBLEMS)
+@pytest.mark.parametrize("state", [OFF, STANDBY, ADVISORY])
+def test_switch_on_with_only_advisory_guard_goes_to_advisory(state: str) -> None:
+    assert transition(state, "switch_on", PROBLEMS["advisory_only"]) == (ADVISORY, "advisory_only")
+
+
+def test_switch_on_with_advisory_and_other_problem_is_refused() -> None:
+    both = Health(advisory_only=True, overrun_limit=True)
+    assert transition(OFF, "switch_on", both) == (STANDBY, "advisory_only")
+    assert transition(SHED, "switch_on", both) == (SHED, "advisory_only")
+
+
+def test_advisory_stays_without_command_and_never_goes_on() -> None:
+    assert transition(ADVISORY, None, PROBLEMS["advisory_only"]) == (ADVISORY, "advisory")
+    assert transition(ADVISORY, None, GOOD) == (ADVISORY, "advisory")
+
+
+@pytest.mark.parametrize("reason", ["comm_loss", "mv_unavailable", "no_good_cv", "overruns"])
+def test_advisory_sheds_on_any_other_guard(reason: str) -> None:
+    assert transition(ADVISORY, None, PROBLEMS[reason]) == (SHED, reason)
+
+
+def test_switch_on_from_advisory_with_good_guards_goes_on() -> None:
+    assert transition(ADVISORY, "switch_on", GOOD) == (ON, "switch_on")
+    assert enters_on(ADVISORY, ON) and enters_advisory(OFF, ADVISORY)
+    assert not enters_advisory(ADVISORY, ADVISORY)
+
+
+@pytest.mark.parametrize("reason", [r for r in PROBLEMS if r != "advisory_only"])
 def test_switch_on_refused_from_off_and_standby(reason: str) -> None:
     for state in (OFF, STANDBY):
         assert transition(state, "switch_on", PROBLEMS[reason]) == (STANDBY, reason)
 
 
-@pytest.mark.parametrize("reason", PROBLEMS)
+@pytest.mark.parametrize("reason", [r for r in PROBLEMS if r != "advisory_only"])
 def test_switch_on_refused_in_shed_stays_shed(reason: str) -> None:
     assert transition(SHED, "switch_on", PROBLEMS[reason]) == (SHED, reason)
 

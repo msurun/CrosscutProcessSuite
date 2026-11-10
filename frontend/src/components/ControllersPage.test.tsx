@@ -24,6 +24,8 @@ const summary: api.ControllerSummary = {
   liveness_utc: "2026-01-01T00:00:01+00:00",
   last_explanation: "mv1: +1",
   disabled: [],
+  last_advice: null,
+  warnings: null,
 };
 
 const detail: api.ControllerDetail = {
@@ -69,6 +71,19 @@ describe("ControllersPage", () => {
     expect(screen.getByTestId("controller-row-C1")).toHaveTextContent("1 / 2");
     expect(screen.getByTestId("controller-var-cv1")).toHaveTextContent("stale");
     expect(screen.getByTestId("controller-var-mv1")).toHaveTextContent("0 .. 100");
+  });
+
+  it("shows the advisory state badge and the advice, not as running", async () => {
+    mockApi();
+    const advice = [{ variable_id: "mv1", target_tag: "t.sp", value: 42, reason: "r" }];
+    vi.spyOn(api, "fetchControllers").mockResolvedValue([
+      { ...summary, state: "advisory", reason: "advisory_only", last_advice: advice },
+    ]);
+    await renderAs("operator", <ControllersPage t={mockT} />, "operator", "controllers-page");
+    const row = await screen.findByTestId("controller-row-C1");
+    expect(row).toHaveTextContent("controllers.state.advisory");
+    expect(row).not.toHaveTextContent("controllers.state.on");
+    expect(screen.getByTestId("controller-advice-C1")).toHaveTextContent("mv1 -> 42");
   });
 
   it("sends On, Standby and Off for the selected controller", async () => {
