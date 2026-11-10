@@ -35,7 +35,7 @@ export const KNOWN_CODES: readonly string[] = [
   "missing_target", "missing_current", "no_op", "preview_unstable", "no_model",
   "invalid_preview", "missing_read", "unknown_vendor_form", "integrating_not_supported",
   "window_too_short", "loop_not_in_dataset", "applying", "applied_unverified", "foreign_pending",
-  "use_tuning_endpoint", "no_history", "gateway_state_unreadable",
+  "use_tuning_endpoint", "no_history", "gateway_state_unreadable", "reconcile_required",
 ];
 
 /** Why an applied block cannot be trusted (applied.invalid), each with a locale text. */

@@ -1659,5 +1659,16 @@
   "tuning.err.use_tuning_endpoint": "Es un conjunto de parámetros PID. Apruébalo o recházalo en la vista Ajuste.",
   "tuning.err.no_history": "No hay historial de runtime del que tomar la ventana de datos.",
   "tuning.err.gateway_state_unreadable": "No se puede leer el estado de la pasarela, así que no se cambió nada. Inténtalo de nuevo.",
+  "tuning.err.reconcile_required": "El lazo tiene una intenci\u00f3n de escritura de par\u00e1metros no resuelta; reconcilie antes de aplicar nuevos ajustes.",
+  "tuning.reconcile.title": "Reconciliaci\u00f3n requerida",
+  "tuning.reconcile.subtitle": "Este lazo tiene una intenci\u00f3n de escritura de par\u00e1metros abierta. Verifique los valores con el DCS y resuelva la intenci\u00f3n antes de aplicar nuevos ajustes.",
+  "tuning.reconcile.target": "Variable",
+  "tuning.reconcile.intended": "Valor previsto",
+  "tuning.reconcile.current": "Valor actual en DCS",
+  "tuning.reconcile.resolve": "Resolver intenci\u00f3n",
+  "tuning.reconcile.resolving": "Resolviendo...",
+  "tuning.reconcile.damaged": "El almac\u00e9n de intenciones de par\u00e1metros est\u00e1 da\u00f1ado. La escritura de par\u00e1metros est\u00e1 bloqueada hasta que un administrador lo repare o elimine tras comprobar el DCS.",
+  "tuning.reconcile.success": "La intenci\u00f3n de par\u00e1metros fue resuelta.",
+  "tuning.reconcile.unknown": "desconocido",
   "gateway.error.useTuning": "Es un conjunto de parámetros PID: apruébalo o recházalo en la vista Ajuste, donde se ve todo el diff."
 }

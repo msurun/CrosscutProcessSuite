@@ -142,7 +142,7 @@ describe("hardened write path", () => {
   });
 
   it("maps the new error codes to their own texts", () => {
-    for (const code of ["use_tuning_endpoint", "no_live_values", "applied_unverified", "foreign_pending", "no_history", "applying"]) {
+    for (const code of ["use_tuning_endpoint", "no_live_values", "applied_unverified", "foreign_pending", "no_history", "applying", "reconcile_required"]) {
       expect(errorText(new TuningApiError(409, code, ""), t)).toBe(`tuning.err.${code}`);
     }
     expect(errorText(new TuningApiError(422, "no_history", "no_history"), t)).toBe("tuning.err.no_history");

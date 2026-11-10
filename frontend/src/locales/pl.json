@@ -1659,5 +1659,16 @@
   "tuning.err.use_tuning_endpoint": "To zestaw parametrów PID. Zatwierdź lub odrzuć go w widoku Nastawy.",
   "tuning.err.no_history": "Brak historii runtime, z której można wziąć okno danych.",
   "tuning.err.gateway_state_unreadable": "Nie można odczytać stanu bramy, więc nic nie zmieniono. Spróbuj ponownie.",
+  "tuning.err.reconcile_required": "P\u0119tla ma nierozstrzygni\u0119t\u0105 intencj\u0119 zapisu parametr\u00f3w; uzgodnij przed zastosowaniem nowych nastaw.",
+  "tuning.reconcile.title": "Wymagane uzgodnienie",
+  "tuning.reconcile.subtitle": "Ta p\u0119tla posiada otwart\u0105 intencj\u0119 zapisu parametr\u00f3w. Sprawd\u017a warto\u015bci w DCS i rozwi\u0105\u017c intencj\u0119 przed zastosowaniem nowych nastaw.",
+  "tuning.reconcile.target": "Zmienna",
+  "tuning.reconcile.intended": "Warto\u015b\u0107 docelowa",
+  "tuning.reconcile.current": "Bie\u017c\u0105ca warto\u015b\u0107 DCS",
+  "tuning.reconcile.resolve": "Rozwi\u0105\u017c intencj\u0119",
+  "tuning.reconcile.resolving": "Rozwi\u0105zywanie...",
+  "tuning.reconcile.damaged": "Magazyn intencji parametr\u00f3w jest uszkodzony. Zapis parametr\u00f3w jest zablokowany do momentu naprawy lub usuni\u0119cia magazynu przez administratora po sprawdzeniu DCS.",
+  "tuning.reconcile.success": "Intencja zapisu parametr\u00f3w zosta\u0142a rozwi\u0105zana.",
+  "tuning.reconcile.unknown": "nieznana",
   "gateway.error.useTuning": "To zestaw parametrów PID: zatwierdź lub odrzuć go w widoku Nastawy, gdzie widać całą różnicę."
 }

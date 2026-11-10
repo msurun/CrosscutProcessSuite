@@ -76,6 +76,28 @@ export interface TuningDecision {
   reason_code: string;
 }
 
+/** A parameter write target inside an open write intent. */
+export interface ParamIntentTarget {
+  target: string;
+  to_value: number;
+  current_value: number | null;
+}
+
+/** An open parameter write intent recorded before write to DCS. */
+export interface ParamIntentRecord {
+  key: string;
+  loop_id: string;
+  created_at: string;
+  proposer: string;
+  targets: ParamIntentTarget[];
+}
+
+/** Listing payload from GET /tuning/intents. */
+export interface IntentsPayload {
+  store_state: "ok" | "damaged";
+  intents: ParamIntentRecord[];
+}
+
 /** A proposal record as the API shows it (record merged with its review file). */
 export interface TuningProposal {
   id: string;
@@ -211,4 +233,16 @@ export async function rejectTuningProposal(id: string): Promise<TuningProposal> 
 export async function rollbackTuningProposal(id: string, reason?: string): Promise<TuningProposal> {
   const body = reason === undefined ? undefined : { reason };
   return requestJson<TuningProposal>(`${proposalUrl(id)}/rollback`, post(body));
+}
+
+/** GET /tuning/intents, optionally narrowed by loop_id. */
+export async function fetchOpenIntents(loopId?: string): Promise<IntentsPayload> {
+  const query = loopId ? `?loop_id=${encodeURIComponent(loopId)}` : "";
+  return requestJson<IntentsPayload>(`${API_PREFIX}/tuning/intents${query}`);
+}
+
+/** POST /tuning/intents/{key}/resolve (requires gw.approve.tuning plus step-up). */
+export async function resolveOpenIntent(key: string): Promise<Record<string, unknown>> {
+  const url = `${API_PREFIX}/tuning/intents/${encodeURIComponent(key)}/resolve`;
+  return requestJson<Record<string, unknown>>(url, post());
 }

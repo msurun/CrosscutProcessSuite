@@ -159,6 +159,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/tuning/proposals/{proposal_id}/reject"): "gw.reject",
     ("POST", "/tuning/proposals/{proposal_id}/escape"): "gw.approve.tuning",
     ("POST", "/tuning/proposals/{proposal_id}/rollback"): "gw.propose",
+    ("GET", "/tuning/intents"): "gw.view",
+    ("POST", "/tuning/intents/{key}/resolve"): "gw.approve.tuning",
 
     # auth (authenticated)
     ("POST", "/auth/logout"): AUTHENTICATED,
@@ -182,7 +184,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
 def requirement_for(method: str, path: str) -> Requirement | None:
     """Return the permission requirement for the given HTTP method and path.
 
-    The ``method`` argument is case‑insensitive; it is normalised to upper case
+    The ``method`` argument is case-insensitive; it is normalised to upper case
     before lookup. If the (method, path) pair is not present in
     :data:`ROUTE_PERMISSIONS`, ``None`` is returned.
 

@@ -17,7 +17,10 @@ STEPUP_PERMISSIONS: frozenset[str] = frozenset(
 )
 # Routes that need a fresh step-up whatever permission they map to (method, path template).
 STEPUP_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/tuning/proposals/{proposal_id}/escape")}
+    {
+        ("POST", "/tuning/proposals/{proposal_id}/escape"),
+        ("POST", "/tuning/intents/{key}/resolve"),
+    }
 )
 
 @dataclass(frozen=True)
