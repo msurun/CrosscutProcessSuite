@@ -66,6 +66,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/config/{kind}/{config_id}"): "data.view",
     ("GET", "/runtime/status"): "data.view",
     ("GET", "/runtime/log"): "data.view",
+    ("GET", "/runtime/variables"): "data.view",
     ("GET", "/runtime/jobs"): "data.view",
 
     # analysis.run (POST)
