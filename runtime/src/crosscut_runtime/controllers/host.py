@@ -47,6 +47,8 @@ OVERRUN_MARGIN = 0.1  # a start later than period * (1 + margin) after the last 
 NO_WRITE_REASON = "mode_no_write"  # gateway reason: mode off, advisory or dry_run
 
 Availability = Callable[[list[str]], Mapping[str, Mapping[str, Any]]]
+UNKNOWN_READINESS = "readiness_unknown"  # readiness reason: no KPI row yet, never blocks
+
 Readiness = Callable[[str], Mapping[str, Any]]
 
 
@@ -94,6 +96,7 @@ class ControllerRecord:
     liveness_utc: str | None = None
     last_explanation: str = ""
     disabled: list[str] | None = None
+    warnings: list[str] | None = None  # e.g. "readiness_unknown:L1" (informational, no block)
 
 
 def record_path(root: Path, controller_id: str) -> Path:
@@ -127,6 +130,7 @@ class ControllerHost:
         self._path = record_path(config.data_root, controller.id)
         self.record = load_record(self._path)
         self._command: str | None = None
+        self._warnings: list[str] = []
         self._previous_start: datetime | None = None
         self._tags = sorted({tag for tags in config.tags_of.values() for tag in tags})
         variables = config.controller_doc.get("variables", [])
@@ -188,6 +192,7 @@ class ControllerHost:
 
     def _health(self, snapshot: Snapshot, statuses: list[VariableStatus]) -> Health:
         """Guard inputs: communication, required MVs, good CVs, gateway mode, overruns."""
+        self._warnings = []
         unavailable, advisory = self._mv_problems(statuses)
         cv_good = any(s.status == GOOD for s in statuses if self._roles[s.variable_id] == "CV")
         return Health(
@@ -212,8 +217,17 @@ class ControllerHost:
         entry = answer.get(self._config.mv_targets[var["id"]])
         if bad or entry is None or set(entry.get("reasons", [])) - {NO_WRITE_REASON}:
             return True
-        readiness = self._ports.readiness
-        return readiness is not None and not readiness(var["binding"]["loop"]).get("ready", True)
+        return self._loop_not_ready(var["binding"]["loop"])
+
+    def _loop_not_ready(self, loop_id: str) -> bool:
+        """True when the readiness port names a blocking reason; unknown readiness only warns."""
+        if self._ports.readiness is None:
+            return False
+        answer = self._ports.readiness(loop_id)
+        if UNKNOWN_READINESS in answer.get("reasons", []):
+            self._warnings.append(f"{UNKNOWN_READINESS}:{loop_id}")
+            return False
+        return not answer.get("ready", True)
 
     def _act(self, old: str, statuses: list[VariableStatus]) -> None:
         """Run ``initialise`` on entering on; step and propose when already on."""
@@ -234,5 +248,6 @@ class ControllerHost:
         self.record.last_cycle_utc = start.isoformat()
         self.record.last_duration_s = (end - start).total_seconds()
         self.record.liveness_utc = end.isoformat()
+        self.record.warnings = list(self._warnings) or None
         write_json_atomic(self._path, asdict(self.record))
         write_variable_status(self._config.data_root, self._controller.id, statuses)

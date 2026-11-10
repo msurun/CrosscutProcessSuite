@@ -62,8 +62,9 @@ class FakeConnector:
 class Rig:
     """Host plus fakes."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, readiness: dict[str, Any] | None = None) -> None:
         self.root = root
+        self.readiness = readiness
         self.clock = FakeClock()
         self.connector = FakeConnector(self.clock)
         self.reasons: list[str] = []
@@ -74,9 +75,17 @@ class Rig:
     def availability(self, targets: list[str]) -> dict[str, dict[str, Any]]:
         return {t: {"available": not self.reasons, "reasons": list(self.reasons)} for t in targets}
 
+    def port(self) -> Any:
+        if self.readiness is None:
+            return None
+        answer = self.readiness
+        return lambda loop_id: answer
+
     def build(self) -> ControllerHost:
         config = HostConfig(DOC, TAGS, {"mv1": "t.sp"}, self.root)
-        ports = HostPorts(self.connector, self.availability, self.proposed.append, self.clock)
+        ports = HostPorts(
+            self.connector, self.availability, self.proposed.append, self.clock, self.port()
+        )
         return ControllerHost(self.controller, config, ports)
 
     def cycle(self, command: str | None = None) -> str:
@@ -107,6 +116,18 @@ def test_guard_refusal_advisory_only(tmp_path: Path) -> None:
     rig.reasons = ["mode_no_write"]
     assert rig.cycle("switch_on") == "standby"
     assert rig.host.record.reason == "advisory_only"
+
+
+def test_readiness_not_ready_sheds_with_mv_unavailable(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, readiness={"ready": False, "reasons": ["saturated"]})
+    assert rig.cycle("switch_on") == "standby"
+    assert rig.host.record.reason == "mv_unavailable"
+
+
+def test_readiness_unknown_does_not_block_and_is_recorded(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, readiness={"ready": True, "reasons": ["readiness_unknown"]})
+    rig.start_on()
+    assert rig.host.record.warnings == ["readiness_unknown:L1"]
 
 
 def test_guard_refusal_no_good_cv(tmp_path: Path) -> None:
@@ -229,7 +250,7 @@ def test_state_file_round_trips_and_statuses_written(tmp_path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     for key in (
         "state", "reason", "last_cycle_utc", "last_duration_s", "overruns",
-        "consecutive_overruns", "liveness_utc", "last_explanation", "disabled",
+        "consecutive_overruns", "liveness_utc", "last_explanation", "disabled", "warnings",
     ):
         assert key in data
     assert data["state"] == "on" and data["last_duration_s"] == 1.0
