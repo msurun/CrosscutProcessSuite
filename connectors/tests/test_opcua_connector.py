@@ -18,7 +18,8 @@ from crosscut_opcua.server import PlantServer, ServerConfig
 from crosscut_sim.plants.wood_berry import WoodBerryPlant
 from crosscut_sim.scenarios import Scenario
 
-from tests import OPCUA_SERVER_START_TIMEOUT_S
+# Seconds allowed for OPC UA startup under coverage on slow CI workers.
+OPCUA_SERVER_START_TIMEOUT_S = 30.0
 
 SERVER_TIMEOUT_S = 10.0
 

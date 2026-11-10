@@ -19,7 +19,8 @@ from crosscut_sim.scenarios import Scenario
 from fastapi.testclient import TestClient
 from open_app import create_app_without_auth
 
-from tests import OPCUA_SERVER_START_TIMEOUT_S
+# Seconds allowed for OPC UA startup under coverage on slow CI workers.
+OPCUA_SERVER_START_TIMEOUT_S = 30.0
 
 
 def _free_port() -> int:
