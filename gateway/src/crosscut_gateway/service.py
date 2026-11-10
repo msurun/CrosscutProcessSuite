@@ -54,6 +54,7 @@ MAX_ID_LENGTH = 128
 # "number": int or float, not bool
 # "int": int, not bool
 # "object": dict
+# "str_list": list of non-empty strings
 VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "propose": [
         ("target_tag", "str"),
@@ -67,6 +68,7 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "reject": [("key", "str")],
     "re_enable": [("tag", "str")],
     "set_mode": [("mode", "str")],
+    "mv_availability": [("targets", "str_list")],
     "kill": [],
     "kill_reset": [],
     "policy_draft": [("document", "object")],
@@ -325,6 +327,7 @@ class GatewayService:
             "number": self._assert_is_number,
             "int": self._assert_is_int,
             "object": self._assert_is_object,
+            "str_list": self._assert_is_str_list,
         }
         checkers[kind](cmd, name, val)
 
@@ -353,6 +356,10 @@ class GatewayService:
     def _assert_is_object(self, cmd: str, name: str, val: Any) -> None:
         if not isinstance(val, dict):
             raise CommandError(f"{cmd}: {name} must be an object")
+
+    def _assert_is_str_list(self, cmd: str, name: str, val: Any) -> None:
+        if not isinstance(val, list) or not all(isinstance(item, str) and item for item in val):
+            raise CommandError(f"{cmd}: {name} must be a list of non-empty strings")
 
     def _validate_args(self, cmd: str, args: dict[str, Any]) -> None:
         if cmd not in VALIDATION_SCHEMA:
@@ -392,6 +399,7 @@ class GatewayService:
             "propose_params": self._handle_propose_params,
             "approve": self._handle_approve,
             "reject": self._handle_reject,
+            "mv_availability": self._handle_mv_availability,
             "kill": self._handle_kill,
             "kill_reset": self._handle_kill_reset,
             "re_enable": self._handle_re_enable,
@@ -430,6 +438,12 @@ class GatewayService:
     ) -> dict[str, Any]:
         self._gateway.reject(args["key"], actor_ctx=ctx)
         return {}
+
+    def _handle_mv_availability(
+        self, args: dict[str, Any], _ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Read-only: report which targets can be written now; changes no state."""
+        return self._gateway.mv_availability(args["targets"])
 
     def _handle_kill(self, _args: dict[str, Any], ctx: ActorContext | None) -> dict[str, Any]:
         self._gateway.kill(actor_ctx=ctx)

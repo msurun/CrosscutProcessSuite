@@ -282,6 +282,18 @@ def _audit_with_kill(client: TestClient) -> dict:
     return {}
 
 
+def test_mv_availability_round_trips_through_the_mailbox(live: LiveService) -> None:
+    """The route asks the real gateway: confirm mode, CAS loop: known target available."""
+    _wait_status(live.client)
+    response = live.client.get(
+        "/gateway/mv-availability", params=[("targets", TAG), ("targets", "NOPE")]
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body[TAG] == {"available": True, "reasons": []}
+    assert body["NOPE"] == {"available": False, "reasons": ["unknown_target"]}
+
+
 def test_kill_is_published_in_the_audit_tail(live: LiveService) -> None:
     """Kill makes the state report the target killed, releases the plant and is logged."""
     _approve(live.client, live.root, 55.0)

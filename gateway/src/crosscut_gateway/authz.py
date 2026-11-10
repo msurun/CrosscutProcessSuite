@@ -67,6 +67,7 @@ _COMMAND_PERMISSIONS: dict[str, str] = {
     "propose_params": "gw.propose",
     "approve": "gw.approve",
     "reject": "gw.reject",
+    "mv_availability": "gw.view",
     "kill": "gw.kill",
     "kill_reset": "gw.kill.reset",
     "policy_draft": "policy.edit",
