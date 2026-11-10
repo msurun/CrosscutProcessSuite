@@ -29,10 +29,12 @@ OUT_STEP_S = 14400.0
 CAS_RETURN_S = 21600.0
 REVIEW_START_S = 25200.0  # one hour after CAS returns; omit the MAN experiment and settling
 MAN_MODE = 0
+AUTO_MODE = 1
 CAS_MODE = 2
 RELATIVE_MODEL_TOLERANCE = 0.25  # maximum allowed gain and tau relative error
 MIN_STEP_PP = 4.0  # of the 5 pp step; less means a saturated valve (FINDING: needs headroom)
 KPI_IMPROVEMENT = 0.20  # required reduction in closed-loop IAE
+DEFAULT_ROBUSTNESS = 0.5  # SIMC slider used by the original FIC203 proposal
 DEFAULT_TUNING = {"gain": 0.3, "ti": 10.0}  # OUT pp/PV engineering unit, seconds
 CANDIDATES = ({"gain": 10.0, "ti": 1.0}, {"gain": 0.001, "ti": 10000.0},
               {"gain": 0.01, "ti": 1000.0})
@@ -43,30 +45,37 @@ class IdentificationResolutionError(AssertionError):
     """The measured tau violates the required truth tolerance at recorder resolution."""
 
 
-def closed_window(recording: dict[str, np.ndarray]) -> WindowData:
-    """Select identical contiguous CAS windows, using remote SP and good-quality samples."""
+def closed_window(
+    recording: dict[str, np.ndarray], loop_tag: str = "FIC203", mode: int = CAS_MODE
+) -> WindowData:
+    """Select identical contiguous closed-loop windows, using SP or RSP by mode."""
     mask = recording["time"] >= REVIEW_START_S
-    assert np.all(recording["FIC203_mode"][mask] == CAS_MODE), "Expected CAS review window"
+    assert np.all(recording[f"{loop_tag}_mode"][mask] == mode), "Expected closed review window"
     assert np.all(recording["quality"][mask] == 0), "Review contains bad quality"
-    # CAS follows RSP, not the local SP; review API represents all closed-loop modes by 1.
-    return WindowData(recording["time"][mask], recording["FIC203"][mask],
-                      recording["FIC203_rsp"][mask], recording["FIC203_out"][mask],
+    # A cascade secondary follows RSP; an AUTO loop follows its local SP.
+    sp_tag = f"{loop_tag}_rsp" if mode == CAS_MODE else f"{loop_tag}_sp"
+    # The review API represents all closed-loop modes by 1.
+    return WindowData(recording["time"][mask], recording[loop_tag][mask],
+                      recording[sp_tag][mask], recording[f"{loop_tag}_out"][mask],
                       np.ones(np.count_nonzero(mask), dtype=int))
 
 
-def detect_weakness(recording: dict[str, np.ndarray], truth: dict[str, float]) -> LoopReport:
+def detect_weakness(
+    recording: dict[str, np.ndarray], truth: dict[str, float],
+    loop_tag: str = "FIC203", mode: int = CAS_MODE,
+) -> LoopReport:
     """Analyze actual closed-loop data without invented oscillation amplitude thresholds."""
-    window = closed_window(recording)
+    window = closed_window(recording, loop_tag, mode)
     settings = LoopSettings(truth["theta_s"], SAMPLE_INTERVAL_S, 0.0,
                             scan_period_s=SAMPLE_INTERVAL_S, known=frozenset({DELAY, OUT_RANGE}))
     return analyze_loop(window.t_s, window.pv, window.sp, window.out, window.mode,
                         settings=settings)
 
 
-def step_has_headroom(recording: dict[str, np.ndarray]) -> bool:
+def step_has_headroom(recording: dict[str, np.ndarray], loop_tag: str = "FIC203") -> bool:
     """True when the MAN OUT step is visible; a saturated valve (OUT at 100) cannot be stepped."""
     mask = (recording["time"] >= MAN_START_S) & (recording["time"] < CAS_RETURN_S)
-    return bool(np.ptp(recording["FIC203_out"][mask]) >= MIN_STEP_PP)
+    return bool(np.ptp(recording[f"{loop_tag}_out"][mask]) >= MIN_STEP_PP)
 
 
 def choose_weak_baseline(directory: Path, truth: dict[str, float]) -> dict[str, Any]:
@@ -84,22 +93,30 @@ def choose_weak_baseline(directory: Path, truth: dict[str, float]) -> dict[str, 
     raise AssertionError(f"No candidate was genuinely weak: {observations}")
 
 
-def identify_model(recording: dict[str, np.ndarray]) -> StepFit:
+def identify_model(
+    recording: dict[str, np.ndarray], loop_tag: str = "FIC203"
+) -> StepFit:
     """Fit the manual OUT step; gain is PV units/OUT pp and both dynamics are seconds."""
     mask = (recording["time"] >= MAN_START_S) & (recording["time"] < CAS_RETURN_S)
-    assert np.all(recording["FIC203_mode"][mask] == MAN_MODE)
+    assert np.all(recording[f"{loop_tag}_mode"][mask] == MAN_MODE)
     assert np.all(recording["quality"][mask] == 0)
     times = recording["time"][mask]
     pre_samples = int(np.searchsorted(times, OUT_STEP_S))
-    fitted = fit_step(times, recording["FIC203"][mask], recording["FIC203_out"][mask],
+    fitted = fit_step(times, recording[loop_tag][mask], recording[f"{loop_tag}_out"][mask],
                       pre_samples, "fopdt")
     assert fitted.gain is not None and fitted.tau_s is not None
-    # A zero fitted delay must fail the truth check rather than be silently clamped.
+    # Keep the raw fit intact; the caller decides whether a delay floor is justified.
     return fitted
 
 
-def validate_identification(fitted: StepFit, truth: dict[str, float]) -> FopdtModel:
-    """Require 25% gain/tau accuracy and at most one sample of absolute delay error."""
+def validate_identification(
+    fitted: StepFit, truth: dict[str, float], minimum_delay_s: float = 0.0
+) -> FopdtModel:
+    """Require 25% gain/tau accuracy and at most one sample of absolute delay error.
+
+    A positive ``minimum_delay_s`` is a documented test-side floor: the pinned fitter returns
+    theta=0 for LIC301 at 60 s sampling, and FopdtModel/SIMC refuse zero dead time.
+    """
     assert fitted.gain is not None and fitted.tau_s is not None
     tau_error = abs(fitted.tau_s.value / truth["tau_s"] - 1.0)
     # FINDING: step_fit's coarse AND refined tau grids start at dt=60 s, excluding truth
@@ -112,7 +129,9 @@ def validate_identification(fitted: StepFit, truth: dict[str, float]) -> FopdtMo
     assert tau_error <= RELATIVE_MODEL_TOLERANCE
     assert abs(fitted.gain.value / truth["gain"] - 1.0) <= RELATIVE_MODEL_TOLERANCE
     assert abs(fitted.theta_s.value - truth["theta_s"]) <= SAMPLE_INTERVAL_S
-    return FopdtModel(fitted.gain.value, fitted.tau_s.value, fitted.theta_s.value)
+    delay_s = max(fitted.theta_s.value, minimum_delay_s)
+    # A reverse-acting loop keeps a positive vendor Gain; the DCS inverts the action.
+    return FopdtModel(abs(fitted.gain.value), fitted.tau_s.value, delay_s)
 
 
 def make_stamp() -> Stamp:
@@ -120,20 +139,29 @@ def make_stamp() -> Stamp:
     return Stamp(str(uuid4()), "L5-P3-offline", datetime.now(UTC))
 
 
-def propose_tuning(model: FopdtModel, original: dict[str, float]) -> dict[str, Any]:
+def propose_tuning(
+    model: FopdtModel, original: dict[str, float], loop_tag: str = "FIC203",
+    robustness: float = DEFAULT_ROBUSTNESS,
+) -> dict[str, Any]:
     """Build SIMC PI items with raw engineering gain and integral time in seconds."""
     stamp = make_stamp()
     window = WindowSpec(stamp.now - timedelta(hours=1), stamp.now, "L5-P3")
     # Siemens gain_seconds is a unit adapter here: gain=OUT pp/PV unit, ti=seconds.
     # RougherSim kc uses these same units; no ABB normalized-gain conversion is needed.
-    request = ProposalRequest("FIC203", "siemens_pid_compact", "simc",
-                              {"gain": "FIC203.kc", "ti": "FIC203.ti_s"}, window)
-    return build_proposal(report_from_model("FIC203", model), request, original, stamp)
+    targets = {"gain": f"{loop_tag}.GAIN", "ti": f"{loop_tag}.TI"}
+    request = ProposalRequest(loop_tag, "siemens_pid_compact", "simc", targets, window)
+    return build_proposal(report_from_model(loop_tag, model, robustness), request,
+                          original, stamp)
 
 
 def read_proposed_values(proposal: dict[str, Any]) -> dict[str, float]:
     """Map raw proposal items to recorder tuning keys without unit conversion."""
     return {item["param"]: item["to"] for item in proposal["items"]}
+
+
+def read_proposed_targets(proposal: dict[str, Any]) -> dict[str, float]:
+    """Map proposal items to policy target tags, retaining the proposal's to values."""
+    return {item["target"]: float(item["to"]) for item in proposal["items"]}
 
 
 def restore_original_values(proposal: dict[str, Any]) -> dict[str, float]:
