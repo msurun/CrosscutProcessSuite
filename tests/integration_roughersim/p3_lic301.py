@@ -24,6 +24,7 @@ from rs_harness import Harness, S, plant_map_for, rs_server
 LOOP = "LIC301"
 GAIN, TI = f"{LOOP}.GAIN", f"{LOOP}.TI"
 WEAK_TUNING = {"gain": 11.0, "ti": 10000.0}  # flagged poor_performance; still 5 pp headroom
+WEAK_TARGETS = {GAIN: WEAK_TUNING["gain"], TI: WEAK_TUNING["ti"]}
 ROBUSTNESS = 1.0  # SIMC slider: the robust end of the range
 MIN_DELAY_S = SAMPLE_INTERVAL_S  # documented one-sample floor for the zero fitted delay
 SERVER_SPEED = 20.0  # simulation seconds per wall second, as in the gateway rows
@@ -41,6 +42,7 @@ POLICIES = {
 @contextmanager
 def lic301_rig(tmp: Path) -> Iterator[tuple[Harness, engine.WriteGateway]]:
     """Start RougherSim, write the weak baseline, and yield the real parameter gateway."""
+    tmp.mkdir(parents=True, exist_ok=True)
     with rs_server(tmp / "server.log", None, SERVER_SPEED) as port:
         harness = Harness(plant_map_for(port), SERVER_SPEED)
         try:
@@ -59,6 +61,11 @@ def read_tuning(harness: Harness) -> dict[str, float]:
     return {tag: harness.read_param(tag) for tag in POLICIES}
 
 
+def recorder_values(targets: dict[str, float]) -> dict[str, float]:
+    """Map policy target values to the recorder's gain and ti keys."""
+    return {"gain": targets[GAIN], "ti": targets[TI]}
+
+
 def apply_values(
     harness: Harness, gateway: engine.WriteGateway, targets: dict[str, float],
     proposal_id: str, rollback_of: str | None = None,
@@ -67,7 +74,7 @@ def apply_values(
     now = harness.now_ns()
     items = tuple(
         ParamItem(POLICIES[tag].param, tag, POLICIES[tag].unit, POLICIES[tag].vendor_form,
-                  harness.read_param(tag), value)
+                  harness.read_param(tag), float(value))
         for tag, value in targets.items()
     )
     proposal = ParamSetProposal(proposal_id, LOOP, items, ALICE.actor, now,
@@ -75,7 +82,7 @@ def apply_values(
     gateway.tick(now)
     assert gateway.propose_params(proposal, actor_ctx=ALICE).reason_code == "queued"
     decision = gateway.approve(param_set_key(proposal), actor_ctx=BOB)
-    assert decision.accepted and decision.reason_code == "applied"
+    assert decision.accepted and decision.reason_code == "applied", decision.reason_code
     return read_tuning(harness)
 
 

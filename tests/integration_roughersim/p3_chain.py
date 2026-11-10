@@ -161,7 +161,7 @@ def read_proposed_values(proposal: dict[str, Any]) -> dict[str, float]:
 
 def read_proposed_targets(proposal: dict[str, Any]) -> dict[str, float]:
     """Map proposal items to policy target tags, retaining the proposal's to values."""
-    return {item["target"]: item["to"] for item in proposal["items"]}
+    return {item["target"]: float(item["to"]) for item in proposal["items"]}
 
 
 def restore_original_values(proposal: dict[str, Any]) -> dict[str, float]:

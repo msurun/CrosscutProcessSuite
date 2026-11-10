@@ -35,11 +35,13 @@ from p3_lic301 import (
 from p3_lic301 import (
     MIN_DELAY_S,
     ROBUSTNESS,
+    WEAK_TARGETS,
     WEAK_TUNING,
     apply_values,
     assert_improvement,
     assert_rollback_replay,
     lic301_rig,
+    recorder_values,
 )
 
 ROLLBACK_RELATIVE_TOLERANCE = 0.01  # maximum 1% KPI difference on replay
@@ -168,12 +170,13 @@ def test_lic301_chain_applies_improves_and_rolls_back(
     targets = read_proposed_targets(proposal)
     with lic301_rig(tmp_path / "gateway") as (harness, gateway):
         applied_values = apply_values(harness, gateway, targets, "lic301-apply")
-        restored = apply_values(harness, gateway, WEAK_TUNING, "lic301-rollback",
+        restored = apply_values(harness, gateway, WEAK_TARGETS, "lic301-rollback",
                                 rollback_of="lic301-apply")
     assert applied_values == targets
-    assert restored == WEAK_TUNING
-    applied = record_tuning(tmp_path / "applied", applied_values, loop_tag=LIC301)
+    assert restored == WEAK_TARGETS
+    applied = record_tuning(tmp_path / "applied", recorder_values(applied_values),
+                            loop_tag=LIC301)
     assert_improvement(lic301, recordings["default"], applied)
-    replay = record_tuning(tmp_path / "rollback", restored, loop_tag=LIC301)
+    replay = record_tuning(tmp_path / "rollback", WEAK_TUNING, loop_tag=LIC301)
     assert_rollback_replay(replay, lic301["baseline"], ROLLBACK_RELATIVE_TOLERANCE)
     record_property("lic301_applied", repr(applied_values))
