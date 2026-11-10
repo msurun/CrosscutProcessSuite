@@ -108,6 +108,7 @@ jobs:
       # Report only: there is no fail-under threshold yet. The L5 folder is ignored because
       # those rows need RougherSim and already ran in the step above.
       - name: Python tests with coverage
+        if: ${{ !cancelled() }}
         run: |
           python -m pytest \
             --ignore=tests/integration_roughersim \
@@ -127,6 +128,7 @@ jobs:
             --cov-report=xml:coverage.xml
 
       - name: Upload coverage report
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
