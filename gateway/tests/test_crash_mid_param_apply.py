@@ -325,6 +325,17 @@ def test_normal_apply_leaves_no_open_intent(tmp_path: Path) -> None:
     assert gw.open_intents() == []
 
 
+def test_policy_file_start_keeps_intents_on_disk(tmp_path: Path) -> None:
+    """The production entry point never falls back to a memory-only intent store."""
+    from test_engine_hardening import write_signed_policy
+
+    path = write_signed_policy(tmp_path / "write-policy.json", "dry_run")
+    gw = engine.start_from_policy_file(
+        path, CrashPlant(), "supervised", allow_legacy_sidecar=True
+    )
+    assert gw._params._store._path == tmp_path / "param-intents.json"
+
+
 @pytest.mark.parametrize("content", [b"{broken", b"{}", b'{"intents": {"k": {"key": "k"}}}'])
 def test_damaged_intent_file_blocks_every_loop_and_refuses_resolve(
     tmp_path: Path, content: bytes
