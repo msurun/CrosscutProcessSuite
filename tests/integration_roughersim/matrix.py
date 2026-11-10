@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-VALID_PHASES: frozenset[str] = frozenset({"P1", "P1-dq", "P2", "P3", "P4", "P6", "P7"})
+VALID_PHASES: frozenset[str] = frozenset({"P1", "P1-dq", "P2", "P2.5", "P3", "P4", "P6", "P7"})
 VALID_STATUSES: frozenset[str] = frozenset({"pending", "ready"})
 
 EXECUTORS: dict[str, Callable[[], None]] = {}
@@ -134,6 +134,22 @@ MATRIX: tuple[MatrixRow, ...] = (
     ),
     *_gateway_rows(),
     MatrixRow(
+        row_id="L5-P25",
+        phase="P2.5",
+        milestone="M7",
+        scenarios=("operator_actions",),
+        criterion=(
+            "a switched-on fuzzy controller's proposals reach the gateway and are written "
+            "within move_max; "
+            "a failed transmitter drops its CV (shed with no_good_cv when none is left, "
+            "strict xfail until RougherSim can fail a PV live); "
+            "base loop to manual sheds it within one cycle; "
+            "restart restores standby, never on; "
+            "operator switch_off stops proposals at the next cycle"
+        ),
+        status="ready",
+    ),
+    MatrixRow(
         row_id="L5-P3",
         phase="P3",
         milestone="M4+M6",
@@ -190,6 +206,19 @@ def _gateway_executor(scenario_ref: str) -> Callable[[], None]:
     return execute
 
 
+def _controller_executor() -> None:
+    """Executor of L5-P25: rows C01, C03, C04 and C05 (C02 is a strict xfail in pytest)."""
+    import tempfile
+    from pathlib import Path
+
+    from test_l5_controller_rows import ROWS
+
+    for row in ROWS.values():
+        with tempfile.TemporaryDirectory() as tmp:
+            row(Path(tmp))
+
+
+EXECUTORS["L5-P25"] = _controller_executor
 EXECUTORS.update(
     {f"L5-G{n:02d}": _gateway_executor(ref) for n, (ref, _) in enumerate(GATEWAY_CASES, 1)}
 )
