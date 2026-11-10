@@ -147,6 +147,11 @@ def _explanation(system: FuzzySystem, payload: Mapping[str, Any]) -> tuple[Reaso
     )
 
 
+def dominant_reasons(system: FuzzySystem, payload: Mapping[str, Any]) -> tuple[Reason, ...]:
+    """Public form of the dominant-rule explanation, for other callers of the same rule base."""
+    return _explanation(system, payload)
+
+
 def _sentence(rule: Rule) -> str:
     """'IF <input> IS <term> AND ... THEN <output> IS <term>' from the rule's ids."""
     joiner = f" {rule.operator.upper()} "

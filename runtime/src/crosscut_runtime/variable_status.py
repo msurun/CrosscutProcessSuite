@@ -31,6 +31,7 @@ class VariableStatus:
     reasons: tuple[str, ...]
     value: float | None
     source_utc: str | None
+    sp_value: float | None = None  # MV only: value of the second tag (the setpoint)
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ def _variable_status(
     if _is_off(variable, inputs.disabled):
         status, reasons = BAD, [*reasons, "operator_off"]
     first = inputs.snapshot.values.get(tags[0]) if tags else None
+    second = inputs.snapshot.values.get(tags[1]) if len(tags) > 1 else None
     return VariableStatus(
         variable["id"],
         tags[0] if tags else None,
@@ -160,6 +162,7 @@ def _variable_status(
         tuple(reasons),
         first.value if first else None,
         first.timestamp_utc if first else None,
+        second.value if second else None,
     )
 
 
