@@ -34,6 +34,7 @@ from crosscut_gateway.interfaces import (
     WritePolicy,
     WriteProposal,
 )
+from crosscut_gateway.param_intent_store import ParamIntentRecord, ParamIntentStore
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
 
 Mode = Literal["off", "advisory", "dry_run", "confirm", "supervised"]
@@ -64,6 +65,8 @@ class WriteGateway:
         audit: AuditLog | None = None,
         *,
         params: ParamConfig | None = None,
+        intent_store: ParamIntentStore | Path | None = None,
+        gateway_dir: Path | None = None,
     ) -> None:
         """Create the gateway.
 
@@ -74,6 +77,8 @@ class WriteGateway:
             audit: Optional audit log; an in-memory log is used when omitted.
             params: PID parameter targets (ADR 014); the control system for them defaults to
                 ``plant`` when that implements ``ParamControlSystem``.
+            intent_store: Optional intent store or path for durable write intents.
+            gateway_dir: Optional root gateway directory holding state and intent records.
 
         Raises:
             ValueError: When mode is not one of the defined Mode values, a parameter target
@@ -82,7 +87,8 @@ class WriteGateway:
         """
         if mode not in _MODE_ORDER:
             raise ValueError(f"unknown mode: {mode}")
-        params = _complete_params(plant, params)
+        store = _resolve_intent_store(intent_store, gateway_dir, audit)
+        params = _complete_params(plant, params, store)
         if set(params.policies) & set(policies):
             raise ValueError("a tag cannot be both a setpoint and a parameter target")
         if params.policies and params.plant is None:
@@ -162,6 +168,26 @@ class WriteGateway:
         """Process one PID parameter set (ADR 014); confirm-only, refused rather than clamped."""
         with self._acting(actor_ctx):
             return self._params.propose(proposal)
+
+    def resolve_intent(
+        self,
+        key: str,
+        actor: str,
+        *,
+        actor_ctx: ActorContext | None = None,
+    ) -> WriteDecision:
+        """Resolve an open parameter write intent by reading live plant values."""
+        ctx = actor_ctx or ActorContext(actor=actor)
+        with self._acting(ctx):
+            return self._params.resolve_intent(key, actor)
+
+    def has_open_intent(self, loop_id: str) -> bool:
+        """Return True when an open write intent exists for *loop_id*."""
+        return self._params.has_open_intent(loop_id)
+
+    def open_intents(self) -> list[ParamIntentRecord]:
+        """Return all currently open parameter write-intent records."""
+        return self._params.open_intents()
 
     def _replay_param_audits(self) -> None:
         """Rebuild the rollback ledger of applied param sets from the audit log."""
@@ -940,12 +966,37 @@ class WriteGateway:
             self._holding[tag] = False
 
 
-def _complete_params(plant: ControlSystem, params: ParamConfig | None) -> ParamConfig:
-    """Return ``params`` with the control system filled in from ``plant`` when it fits."""
+def _resolve_intent_store(
+    intent_store: ParamIntentStore | Path | None = None,
+    gateway_dir: Path | None = None,
+    audit: AuditLog | None = None,
+) -> ParamIntentStore:
+    """Resolve an intent store from an explicit store, path, directory, or audit log."""
+    if isinstance(intent_store, ParamIntentStore):
+        return intent_store
+    if isinstance(intent_store, (str, Path)):
+        return ParamIntentStore(Path(intent_store))
+    if gateway_dir is not None:
+        return ParamIntentStore(gateway_dir)
+    if audit is not None:
+        audit_path = getattr(audit, "_path", None)
+        if isinstance(audit_path, Path):
+            return ParamIntentStore(audit_path.parent)
+    return ParamIntentStore()
+
+
+def _complete_params(
+    plant: ControlSystem,
+    params: ParamConfig | None,
+    store: ParamIntentStore | None = None,
+) -> ParamConfig:
+    """Return ``params`` with the control system and store filled in from ``plant``."""
     config = params or ParamConfig({})
-    if config.plant is None and isinstance(plant, ParamControlSystem):
-        return ParamConfig(config.policies, plant)
-    return config
+    target_plant = config.plant
+    if target_plant is None and isinstance(plant, ParamControlSystem):
+        target_plant = plant
+    resolved_store = config.intent_store or store or ParamIntentStore()
+    return ParamConfig(config.policies, target_plant, intent_store=resolved_store)
 
 
 def _more_restrictive(a: Mode, b: Mode) -> Mode:
@@ -961,6 +1012,7 @@ def start_from_policy_file(
     *,
     key: bytes | None = None,
     allow_legacy_sidecar: bool = False,
+    intent_store: ParamIntentStore | Path | None = None,
 ) -> WriteGateway:
     """Build a WriteGateway from a pinned policy file.
 
@@ -975,6 +1027,7 @@ def start_from_policy_file(
         audit: Optional audit log.
         key: Signing key that verifies the policy pin.
         allow_legacy_sidecar: Use the legacy SHA-256 sidecar check instead of a pin.
+        intent_store: Optional intent store or path for durable write intents.
 
     Returns:
         A WriteGateway configured with the effective (more restrictive) mode.
@@ -988,8 +1041,22 @@ def start_from_policy_file(
         loaded = _load_pinned_policy(path, key)
     check_param_wiring(plant, loaded.targets, loaded.params)
     effective_mode = _more_restrictive(mode, loaded.mode)  # type: ignore[arg-type]
-    config = ParamConfig(loaded.params, plant if isinstance(plant, ParamControlSystem) else None)
-    gateway = WriteGateway(plant, loaded.targets, effective_mode, audit, params=config)
+    gateway_dir = path.parent
+    store = _resolve_intent_store(intent_store, gateway_dir, audit)
+    config = ParamConfig(
+        loaded.params,
+        plant if isinstance(plant, ParamControlSystem) else None,
+        intent_store=store,
+    )
+    gateway = WriteGateway(
+        plant,
+        loaded.targets,
+        effective_mode,
+        audit,
+        params=config,
+        intent_store=store,
+        gateway_dir=gateway_dir,
+    )
     gateway._mode_cap = cast(Mode, loaded.mode)  # the cap is the policy mode, not the start mode
     return gateway
 

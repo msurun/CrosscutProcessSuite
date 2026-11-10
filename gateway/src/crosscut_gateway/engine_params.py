@@ -14,6 +14,7 @@ import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from crosscut_gateway.actor import normalize_actor
 from crosscut_gateway.engine_params_apply import (
@@ -32,6 +33,11 @@ from crosscut_gateway.interfaces import (
     ParamPolicy,
     ParamSetProposal,
     WriteDecision,
+)
+from crosscut_gateway.param_intent_store import (
+    ParamIntentItem,
+    ParamIntentRecord,
+    ParamIntentStore,
 )
 from crosscut_gateway.policy import KIND_PID_PARAM, KIND_SETPOINT, check_param_items
 
@@ -75,12 +81,33 @@ def param_set_key(proposal: ParamSetProposal) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _make_intent_resolved_fields(
+    record: ParamIntentRecord,
+    key: str,
+    read_values: Mapping[str, float],
+    actor: str,
+) -> dict[str, str]:
+    """Format emission fields for an intent resolution event."""
+    tags = ",".join(item.target for item in record.items)
+    intended_str = ";".join(f"{i.target}={i.to_value}" for i in record.items)
+    read_str = ";".join(f"{i.target}={read_values.get(i.target, '')}" for i in record.items)
+    return {
+        "tag": tags, "value": "", "proposer": record.proposer,
+        "reason_code": "resolved", "proposal_id": record.proposal_id,
+        "loop": record.loop_id, "key": key, "actor": actor,
+        "intended": intended_str, "read": read_str,
+        "intended_values": ",".join(str(i.to_value) for i in record.items),
+        "read_values": ",".join(str(read_values.get(i.target, "")) for i in record.items),
+    }
+
+
 @dataclass(frozen=True)
 class ParamConfig:
     """Parameter policies by target tag and the control system that reads and writes them."""
 
     policies: dict[str, ParamPolicy]
     plant: ParamControlSystem | None = None
+    intent_store: ParamIntentStore | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +144,7 @@ class ParamManager:
         self._env = env
         self._policies = config.policies
         self._plant = config.plant
+        self._store = config.intent_store or ParamIntentStore()
         self._states: dict[str, str] = {tag: "enabled" for tag in config.policies}
         self._pending: dict[str, PendingParams] = {}
         self._seen: dict[str, WriteDecision] = {}
@@ -125,6 +153,25 @@ class ParamManager:
         self._last_apply_ns: dict[str, int] = {}
         self._ledger = AppliedLedger()
         self._alarms: dict[str, str] = {}
+        self._audit_open_intents_at_start()
+
+    def _audit_open_intents_at_start(self) -> None:
+        """Audit every open intent record discovered in the store during startup."""
+        for record in self._store.load_open():
+            self._emit_open_intent(record)
+
+    def _emit_open_intent(self, record: ParamIntentRecord) -> None:
+        """Audit an open intent found during startup as intent_open_at_start."""
+        fields = {
+            "tag": ",".join(item.target for item in record.items),
+            "value": "",
+            "proposer": record.proposer,
+            "reason_code": "intent_open_at_start",
+            "proposal_id": record.proposal_id,
+            "loop": record.loop_id,
+            "key": record.key,
+        }
+        self._env.emit("intent_open_at_start", fields)
 
     def replay_audit(self, records: Sequence[Mapping[str, str]]) -> None:
         """Rebuild the applied-set ledger from the audit records (after a restart)."""
@@ -238,12 +285,19 @@ class ParamManager:
             self._screen_shape,
             self._screen_targets,
             self._screen_timing,
+            self._screen_open_intent,
             self._screen_values,
         )
         for check in checks:
             refusal = check(proposal)
             if refusal is not None:
                 return refusal
+        return None
+
+    def _screen_open_intent(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
+        """Refuse when a write intent is open for this loop; reconciliation is required."""
+        if self.has_open_intent(proposal.loop_id):
+            return "reconcile_required", proposal.loop_id
         return None
 
     def _screen_mode(self, proposal: ParamSetProposal) -> tuple[str, str] | None:
@@ -387,6 +441,8 @@ class ParamManager:
     def _approve_gate(self, pending: PendingParams) -> WriteDecision | None:
         """Kill, target states, mode, expiry, self-approval and interval, in that order."""
         proposal = pending.proposal
+        if self.has_open_intent(proposal.loop_id):
+            return self._drop_refused(pending, ("reconcile_required", proposal.loop_id))
         refusal = self._gate_state(proposal)
         if refusal is not None:
             return self._drop_refused(pending, refusal)
@@ -472,13 +528,44 @@ class ParamManager:
             return self._plant_error(proposal, key, exc, wrote=False)
         if refusal is not None:
             return refusal
+        result = self._execute_write_set(proposal, key)
+        if isinstance(result, WriteDecision):
+            return result
+        if result.ok:
+            return self._applied(proposal, key, (from_read, result.read_back))
+        return self._failed(proposal, key, result)
+
+    def _execute_write_set(
+        self, proposal: ParamSetProposal, key: str
+    ) -> WriteOutcome | WriteDecision:
+        """Execute the plant writes after live checks pass, failing closed if intent fails."""
+        assert self._plant is not None
         try:
-            outcome = write_set(self._plant, self._policies, proposal.items)
+            self._write_intent(proposal, key)
+        except Exception as exc:  # noqa: BLE001 - fail closed with no plant write
+            return self._refuse(proposal, key, ("intent_write_failed", type(exc).__name__))
+        try:
+            return write_set(self._plant, self._policies, proposal.items)
         except Exception as exc:  # noqa: BLE001 - writes may have happened: revert and stop
             return self._plant_error(proposal, key, exc, wrote=True)
-        if outcome.ok:
-            return self._applied(proposal, key, (from_read, outcome.read_back))
-        return self._failed(proposal, key, outcome)
+
+    def _write_intent(self, proposal: ParamSetProposal, key: str) -> None:
+        """Persist a new open intent record to durable storage before plant writes."""
+        now_iso = datetime.now(UTC).isoformat()
+        items = tuple(
+            ParamIntentItem(item.target, item.from_value, item.to_value)
+            for item in proposal.items
+        )
+        record = ParamIntentRecord(
+            key=key,
+            loop_id=proposal.loop_id,
+            items=items,
+            created_time=now_iso,
+            state="open",
+            proposal_id=proposal.proposal_id,
+            proposer=proposal.proposer,
+        )
+        self._store.record_intent(record)
 
     def _live_phase(
         self, proposal: ParamSetProposal, key: str
@@ -548,6 +635,7 @@ class ParamManager:
         audited = self._audit_applied(proposal, key, read)
         self._ledger.record(proposal, read, audited)  # only what was read, only after the audit
         if audited:
+            self._close_intent_safe(key)
             return decision
         return self._audit_failed(proposal, key)
 
@@ -598,13 +686,74 @@ class ParamManager:
         for tag in outcome.revert_failed:
             self._set_state(tag, "stopped:comm")
         code = "revert_failed" if outcome.revert_failed else outcome.code
+        audit_ok = True
         if outcome.written:
-            self._emit(
-                "partial_revert", proposal, key, outcome.code, tag=outcome.failed_target,
-                written=",".join(outcome.written), revert_failed=",".join(outcome.revert_failed),
-            )
+            try:
+                self._emit(
+                    "partial_revert", proposal, key, outcome.code, tag=outcome.failed_target,
+                    written=",".join(outcome.written),
+                    revert_failed=",".join(outcome.revert_failed),
+                )
+            except Exception:  # noqa: BLE001 - keep failing closed
+                audit_ok = False
         self._raise_alarm(outcome.revert_failed, (proposal, key), "revert_failed")
+        if not outcome.revert_failed and audit_ok:
+            self._close_intent_safe(key)
         return self._refuse(proposal, key, (code, outcome.failed_target))
+
+    def _close_intent_safe(self, key: str) -> None:
+        """Close an intent in the durable store; do not raise if closing fails."""
+        try:
+            self._store.close_intent(key)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def has_open_intent(self, loop_id: str) -> bool:
+        """Return True when a write intent is currently open for *loop_id*."""
+        return self._store.has_open_for_loop(loop_id)
+
+    def open_intents(self) -> list[ParamIntentRecord]:
+        """Return all open parameter write-intent records."""
+        return self._store.load_open()
+
+    def resolve_intent(self, key: str, actor: str) -> WriteDecision:
+        """Resolve an open write intent by reading current plant values and closing it."""
+        record = self._store.get(key)
+        if record is None or record.state != "open":
+            return WriteDecision(accepted=False, reason_code="intent_not_open")
+        if self._plant is None:
+            return WriteDecision(accepted=False, reason_code="no_param_plant")
+        read_values = self._read_targets_for_resolve(record)
+        if read_values is None:
+            return WriteDecision(accepted=False, reason_code="read_failed")
+        self._audit_intent_resolved(record, key, read_values, actor)
+        self._close_intent_safe(key)
+        return WriteDecision(accepted=True, reason_code="resolved")
+
+    def _read_targets_for_resolve(
+        self, record: ParamIntentRecord
+    ) -> dict[str, float] | None:
+        """Read all target values from the plant for intent resolution; None on any error."""
+        assert self._plant is not None
+        read_values: dict[str, float] = {}
+        for item in record.items:
+            try:
+                val = self._plant.read_param(item.target)
+                read_values[item.target] = float(val)
+            except Exception:  # noqa: BLE001 - keep intent open on read error
+                return None
+        return read_values
+
+    def _audit_intent_resolved(
+        self,
+        record: ParamIntentRecord,
+        key: str,
+        read_values: Mapping[str, float],
+        actor: str,
+    ) -> None:
+        """Audit the resolution of an open intent with intended and live read values."""
+        fields = _make_intent_resolved_fields(record, key, read_values, actor)
+        self._env.emit("intent_resolved", fields)
 
     # ------------------------------------------------------------------ tick and lifecycle
 

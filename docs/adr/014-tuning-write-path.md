@@ -1,4 +1,4 @@
-﻿# ADR 014: Tuning write path (PID parameters)
+# ADR 014: Tuning write path (PID parameters)
 
 Status: **Accepted (implemented; former owner questions are configurable defaults)**
 Date: 2026-11-05
@@ -278,3 +278,38 @@ These were open owner questions; they are site data or settings, not product dec
 1. Pilot DCS and PidCC unit: a deployment datum entered in the plant map and the write policy for the site. Default: `allowed_loop_modes` is `[MAN, AUTO]`, and ABB targets stay off until the site confirms the unit (including whether a gain change in AUTO is bumpless).
 2. Who approves tuning writes: the permission `gw.approve.tuning`, held by `engineer` and `lead` by default; a site changes it in `<root>/_auth/roles.json` (ADR 013, `docs/ADMIN_GUIDE.md`). Operators can only reject, and can always take over at the DCS.
 3. A step-test assistant that writes OUT in manual is not in this issue. A proposal only references a `step_test_id` from the Steps view.
+
+## Addendum: Durable Write-Intent Records and Crash Recovery
+
+### 1. Intent Record
+In `ParamEngine` (`engine_params.py`), `_apply` writes PID parameters directly to the control system (`engine_params_apply.py` `write_param`) and audits them in `_applied`. To eliminate the risk of unrecorded tuning changes in the control system if a crash occurs mid-write, a durable write-intent store (`gateway/src/crosscut_gateway/param_intent_store.py`) persists intent records atomically to disk using temp files, `fsync`, and atomic `replace` (following the pattern of `latch_store.py`), placed under the gateway state directory (`<root>/_gateway/param-intents.json`).
+
+Each intent record stores:
+- `key`: The SHA-256 idempotency key of the parameter set proposal.
+- `loop_id`: The identifier of the control loop.
+- `items`: The list of targets and value transitions (`target`, `from_value`, `to_value`).
+- `created_time`: ISO-8601 UTC creation timestamp.
+- `state`: Either `"open"` or `"closed"`.
+
+### 2. Lifecycle in Apply
+- **Pre-Write Intent**: In `_apply`, the intent is persisted with state `"open"` **before** the first parameter write reaches the control system. If writing the intent fails, the request fails closed immediately with no plant write.
+- **Close on Success**: After all plant writes succeed, read-backs match, the `param_write` audit succeeds, and the ledger records the change in `_applied`, the intent record is marked `"closed"`.
+- **Close on Clean Revert**: When a write refusal or read-back mismatch triggers a partial revert that completely succeeds for all written items and the `partial_revert` event is audited, the intent is also marked `"closed"`.
+- **Stays Open on Unhandled Failure**: If a revert fails or an audit fails, the intent remains `"open"`.
+
+### 3. Restart States and Reconciliation
+On engine start, `ParamManager` loads open intents from durable storage and audits each as `"intent_open_at_start"`. An open intent means the gateway cannot determine the actual plant state (including when zero plant writes occurred before the crash).
+
+While an intent is open for a loop:
+- Any new `propose` or `approve` of parameter sets for that loop is refused with reason code `reconcile_required`.
+- Setpoint writes are not affected.
+- Other loops are not affected.
+
+### 4. Intent Resolution (No Automatic Rollback)
+The engine method `resolve_intent(key, actor)` resolves an open intent:
+- Takes the proposal `key` and the acting identity `actor`.
+- Reads every target in the intent from the plant.
+- If any target read fails, the intent remains open and the method refuses with `read_failed`.
+- When all reads succeed, the method audits `"intent_resolved"` recording intended and live read values along with `actor`, marks the intent `"closed"`, and performs **no** plant write.
+- There is no automatic rollback anywhere.
+- After a restart the in-memory ledger is empty; any rollback proposal referencing a pre-crash proposal is refused fail closed without a baseline.
