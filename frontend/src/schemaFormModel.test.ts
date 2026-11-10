@@ -2,6 +2,8 @@
 // No React, no DOM, no side effects.
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   fieldKind,
   resolveRef,
@@ -373,5 +375,19 @@ describe("applyField", () => {
 
     field.text = '{"key": "new value"';
     expect(() => applyField(doc, field, '{"key": "new value"')).toThrow('Invalid JSON for field "jsonProp":');
+  });
+});
+
+describe("site schema controllers section", () => {
+  const raw = readFileSync(resolve(__dirname, "../../schemas/site.schema.json"), "utf-8");
+  const siteSchema = JSON.parse(raw) as SchemaObject;
+
+  it("renders controllers as an editable json array field", () => {
+    const doc: JsonDocument = { controllers: [{ id: "C1", type: "fuzzy", variables: [] }] };
+    const fields = describeFields(siteSchema, doc, "site", (k) => k);
+    const field = fields.find((item) => item.name === "controllers");
+    expect(field).toBeDefined();
+    expect(field?.kind).toBe("json");
+    expect(field?.text).toContain('"fuzzy"');
   });
 });
