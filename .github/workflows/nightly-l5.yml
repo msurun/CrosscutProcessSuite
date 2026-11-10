@@ -1,0 +1,137 @@
+# Nightly L5 gate: runs the RougherSim integration rows and measures Python coverage.
+# The RougherSim release is pinned in tests/integration_roughersim/pin.json; this file reads
+# the tag and commit from there instead of keeping a second copy. The repository is private,
+# so the checkout uses the ROUGHERSIM_TOKEN secret.
+
+name: Nightly L5
+
+on:
+  schedule:
+    # Every day at 03:00 UTC.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  l5:
+    name: L5 rows and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Read the RougherSim pin
+        id: pin
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          pin = json.loads(
+              Path("tests/integration_roughersim/pin.json").read_text(encoding="utf-8")
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"tag={pin['tag']}\n")
+              output.write(f"commit_sha={pin['commit_sha']}\n")
+          PY
+
+      - name: Check out RougherSim at the pinned tag
+        uses: actions/checkout@v4
+        with:
+          repository: msurun/RougherSim
+          ref: ${{ steps.pin.outputs.tag }}
+          token: ${{ secrets.ROUGHERSIM_TOKEN }}
+          path: RougherSim
+
+      # A moved tag would make the tests skip, so fail early with a clear message.
+      - name: Verify RougherSim is the pinned commit
+        env:
+          PINNED_COMMIT: ${{ steps.pin.outputs.commit_sha }}
+        run: |
+          head_commit="$(git -C RougherSim rev-parse HEAD)"
+          if [ "$head_commit" != "$PINNED_COMMIT" ]; then
+            echo "::error::RougherSim is at $head_commit but pin.json pins $PINNED_COMMIT"
+            exit 1
+          fi
+
+      # The tests look for the interpreter at RougherSim/.venv (or ROUGHERSIM_PYTHON).
+      - name: Install RougherSim in its checkout venv
+        working-directory: RougherSim
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e .
+
+      - name: Run the L5 rows
+        env:
+          ROUGHERSIM_DIR: ${{ github.workspace }}/RougherSim
+        run: python -m pytest tests/integration_roughersim -rs --junitxml=l5-results.xml
+
+      # The rows skip themselves when the checkout is missing or not the pin. That must fail
+      # the nightly job: only strict xfail and the matrix rows still marked pending may skip.
+      - name: Fail if an L5 row was skipped instead of run
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ElementTree
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("tests/integration_roughersim").resolve()))
+          from matrix import MATRIX
+
+          pending_prefixes = tuple(
+              f"{row.row_id}: pending" for row in MATRIX if row.status == "pending"
+          )
+          unexpected_skips = []
+          for case in ElementTree.parse("l5-results.xml").getroot().iter("testcase"):
+              skipped = case.find("skipped")
+              if skipped is None or skipped.get("type") == "pytest.xfail":
+                  continue
+              message = skipped.get("message", "")
+              if message.startswith(pending_prefixes):
+                  continue
+              unexpected_skips.append(f"{case.get('classname')}::{case.get('name')}: {message}")
+          if unexpected_skips:
+              sys.exit("L5 rows were skipped instead of run:\n" + "\n".join(unexpected_skips))
+          PY
+
+      # Report only: there is no fail-under threshold yet. The L5 folder is ignored because
+      # those rows need RougherSim and already ran in the step above.
+      - name: Python tests with coverage
+        if: ${{ !cancelled() }}
+        run: |
+          python -m pytest \
+            --ignore=tests/integration_roughersim \
+            --cov=anomaly/src \
+            --cov=api/src \
+            --cov=artifacts/src \
+            --cov=connectors/src \
+            --cov=fuzzy/src \
+            --cov=gateway/src \
+            --cov=loops/src \
+            --cov=opcua/src \
+            --cov=runtime/src \
+            --cov=sim/src \
+            --cov=softsensor/src \
+            --cov=supervisor/src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14
