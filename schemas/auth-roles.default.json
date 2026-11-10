@@ -5,6 +5,7 @@
       "description": "Read-only access to data, audit logs, and gateway status with emergency down-mode capability.",
       "permissions": [
         "audit.view",
+        "ctl.view",
         "data.view",
         "gw.kill",
         "gw.mode.down",
@@ -17,6 +18,8 @@
       "permissions": [
         "analysis.run",
         "audit.view",
+        "ctl.operate",
+        "ctl.view",
         "data.view",
         "gw.approve",
         "gw.kill",
@@ -34,6 +37,8 @@
         "audit.view",
         "config.edit",
         "connector.use",
+        "ctl.operate",
+        "ctl.view",
         "data.import",
         "data.view",
         "gw.approve",
@@ -60,6 +65,8 @@
         "audit.view",
         "config.edit",
         "connector.use",
+        "ctl.operate",
+        "ctl.view",
         "data.import",
         "data.view",
         "gw.approve",
@@ -87,6 +94,7 @@
       "description": "System administrator responsible for user management and viewing system state.",
       "permissions": [
         "audit.view",
+        "ctl.view",
         "data.view",
         "gw.kill",
         "gw.mode.down",

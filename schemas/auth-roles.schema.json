@@ -47,6 +47,8 @@
       "type": "string",
       "enum": [
         "data.view",
+        "ctl.view",
+        "ctl.operate",
         "gw.view",
         "audit.view",
         "gw.kill",

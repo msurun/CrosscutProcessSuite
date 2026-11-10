@@ -44,6 +44,7 @@ from crosscut_api.auth.settings import load_auth_config
 from crosscut_api.auth_routes import build_auth_router, build_auth_router_for
 from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.connector_routes import build_connector_router
+from crosscut_api.controller_routes import build_controller_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
@@ -730,6 +731,7 @@ def _mount_data_routers(
     app.include_router(build_connector_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_controller_router(store.root))
 
 
 def _register_health_route(app: FastAPI) -> None:
