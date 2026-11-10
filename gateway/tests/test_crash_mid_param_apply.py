@@ -323,3 +323,17 @@ def test_normal_apply_leaves_no_open_intent(tmp_path: Path) -> None:
     assert decision.accepted is True and decision.reason_code == "applied"
     assert gw.has_open_intent("L1") is False
     assert gw.open_intents() == []
+
+
+@pytest.mark.parametrize("content", [b"{broken", b"{}", b'{"intents": {"k": {"key": "k"}}}'])
+def test_damaged_intent_file_blocks_every_loop_and_refuses_resolve(
+    tmp_path: Path, content: bytes
+) -> None:
+    """A damaged intent file may hide an open intent, so parameter writes stay blocked."""
+    (tmp_path / "param-intents.json").write_bytes(content)
+    gw = make_gateway(tmp_path, CrashPlant())
+    events = [r["event"] for r in gw.audit_records()]
+    assert "intent_store_unreadable" in events
+    decision = gw.propose_params(pset(it(KP, 2.5)), actor_ctx=ALICE)
+    assert decision.reason_code == "reconcile_required"
+    assert gw.resolve_intent("k", "alice", actor_ctx=ALICE).reason_code == "intent_store_unreadable"

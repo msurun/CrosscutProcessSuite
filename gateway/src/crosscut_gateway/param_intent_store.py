@@ -144,15 +144,11 @@ class ParamIntentStore:
 
     def load_all(self) -> list[ParamIntentRecord]:
         """Read all intent records from disk or in-memory cache."""
-        if self._path is None:
+        if self._path is None or not self._path.exists():
             return list(self._in_memory.values())
-        data = read_json_object(self._path)
-        if not data or not isinstance(data.get("intents"), dict):
-            return list(self._in_memory.values())
-        records: list[ParamIntentRecord] = []
-        for raw in data["intents"].values():
-            if isinstance(raw, dict):
-                records.append(ParamIntentRecord.from_dict(raw))
+        records = _parse_intents(read_json_object(self._path))
+        if records is None:  # a damaged file may hide an open intent
+            raise IntentStoreUnreadableError(str(self._path))
         self._in_memory = {r.key: r for r in records}
         return records
 
@@ -178,6 +174,20 @@ class ParamIntentStore:
             "intents": {k: r.to_dict() for k, r in records.items()}
         }
         write_json_atomic(self._path, payload)
+
+
+class IntentStoreUnreadableError(Exception):
+    """The intent file exists but cannot be trusted, so the plant state is unknown."""
+
+
+def _parse_intents(data: Mapping[str, Any] | None) -> list[ParamIntentRecord] | None:
+    """Parse the stored document; None when any part of it is malformed."""
+    if data is None or not isinstance(data.get("intents"), dict):
+        return None
+    try:
+        return [ParamIntentRecord.from_dict(raw) for raw in data["intents"].values()]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
 
 
 def load_open_intents(gateway_dir: Path) -> list[ParamIntentRecord]:

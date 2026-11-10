@@ -35,6 +35,7 @@ from crosscut_gateway.interfaces import (
     WriteDecision,
 )
 from crosscut_gateway.param_intent_store import (
+    IntentStoreUnreadableError,
     ParamIntentItem,
     ParamIntentRecord,
     ParamIntentStore,
@@ -157,7 +158,15 @@ class ParamManager:
 
     def _audit_open_intents_at_start(self) -> None:
         """Audit every open intent record discovered in the store during startup."""
-        for record in self._store.load_open():
+        try:
+            records = self._store.load_open()
+        except IntentStoreUnreadableError:
+            self._env.emit("intent_store_unreadable", {
+                "tag": "", "value": "", "proposer": "", "proposal_id": "", "loop": "", "key": "",
+                "reason_code": "intent_store_unreadable",
+            })
+            return
+        for record in records:
             self._emit_open_intent(record)
 
     def _emit_open_intent(self, record: ParamIntentRecord) -> None:
@@ -709,8 +718,11 @@ class ParamManager:
             pass
 
     def has_open_intent(self, loop_id: str) -> bool:
-        """Return True when a write intent is currently open for *loop_id*."""
-        return self._store.has_open_for_loop(loop_id)
+        """Return True when an intent is open for *loop_id* or the store cannot be trusted."""
+        try:
+            return self._store.has_open_for_loop(loop_id)
+        except IntentStoreUnreadableError:
+            return True
 
     def open_intents(self) -> list[ParamIntentRecord]:
         """Return all open parameter write-intent records."""
@@ -718,7 +730,10 @@ class ParamManager:
 
     def resolve_intent(self, key: str, actor: str) -> WriteDecision:
         """Resolve an open write intent by reading current plant values and closing it."""
-        record = self._store.get(key)
+        try:
+            record = self._store.get(key)
+        except IntentStoreUnreadableError:
+            return WriteDecision(accepted=False, reason_code="intent_store_unreadable")
         if record is None or record.state != "open":
             return WriteDecision(accepted=False, reason_code="intent_not_open")
         if self._plant is None:
@@ -727,7 +742,10 @@ class ParamManager:
         if read_values is None:
             return WriteDecision(accepted=False, reason_code="read_failed")
         self._audit_intent_resolved(record, key, read_values, actor)
-        self._close_intent_safe(key)
+        try:
+            self._store.close_intent(key)
+        except (OSError, IntentStoreUnreadableError):
+            return WriteDecision(accepted=False, reason_code="intent_close_failed")
         return WriteDecision(accepted=True, reason_code="resolved")
 
     def _read_targets_for_resolve(
