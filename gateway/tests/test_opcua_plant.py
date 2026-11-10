@@ -288,6 +288,14 @@ def test_release_hands_setpoint_back(rig: Rig) -> None:
     assert rig.server.get_node("FIC101.SRC") == 0
 
 
+@pytest.mark.parametrize("operator_raw", [0, 2])
+def test_release_never_overrides_an_operator_takeover(rig: Rig, operator_raw: int) -> None:
+    """When the source node no longer shows remote, release writes nothing (L5 finding)."""
+    rig.server.set_node("FIC101.SRC", operator_raw)
+    rig.make_plant(rig.plant_map).release(TAG)
+    assert rig.server.get_node("FIC101.SRC") == operator_raw
+
+
 def test_heartbeat_counter_is_throttled_by_period(rig: Rig) -> None:
     """A send inside the period leaves the counter alone; after the period it advances."""
     plant = rig.make_plant(rig.plant_map)
