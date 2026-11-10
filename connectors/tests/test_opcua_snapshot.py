@@ -146,7 +146,6 @@ def test_to_live_value_keeps_uncertain_quality() -> None:
     from asyncua import ua
     from crosscut_connectors.opcua_session import to_live_value
 
-    data_value = ua.DataValue(
-        ua.Variant(1.5, ua.VariantType.Double), ua.StatusCode(ua.StatusCodes.UncertainLastUsableValue)
-    )
+    status = ua.StatusCode(ua.StatusCodes.UncertainLastUsableValue)
+    data_value = ua.DataValue(ua.Variant(1.5, ua.VariantType.Double), status)
     assert to_live_value(data_value, "2026-11-10T00:00:00+00:00").quality == 1
