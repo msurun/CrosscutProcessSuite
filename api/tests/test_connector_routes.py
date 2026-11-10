@@ -19,6 +19,9 @@ from crosscut_sim.scenarios import Scenario
 from fastapi.testclient import TestClient
 from open_app import create_app_without_auth
 
+# Seconds allowed for OPC UA startup under coverage on slow CI workers.
+OPCUA_SERVER_START_TIMEOUT_S = 30.0
+
 
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -53,7 +56,7 @@ def opcua_server():
 
     t = threading.Thread(target=_server_thread, daemon=True)
     t.start()
-    assert ready_evt.wait(timeout=10.0), "PlantServer failed to start"
+    assert ready_evt.wait(timeout=OPCUA_SERVER_START_TIMEOUT_S), "PlantServer failed to start"
 
     try:
         yield endpoint
