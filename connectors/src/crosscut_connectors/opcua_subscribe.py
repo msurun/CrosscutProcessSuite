@@ -29,8 +29,8 @@ from crosscut_connectors.opcua_import import (
     _dataset_info,
     _disconnect,
     _make_report,
-    quality_from_status,
     _validate_arguments,
+    quality_from_status,
     resolve_node_id,
 )
 
