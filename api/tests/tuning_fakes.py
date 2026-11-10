@@ -232,8 +232,8 @@ class FakeGateway:
     ) -> dict[str, Any]:
         """List open write intents or damaged status."""
         if self.store_damaged:
-            return {"store_state": "damaged", "state": "damaged", "damaged": True, "intents": []}
-        return {"store_state": "ok", "state": "ok", "damaged": False, "intents": list(self.open_intents)}
+            return {"store_state": "damaged", "intents": []}
+        return {"store_state": "ok", "intents": list(self.open_intents)}
 
     def resolve_intent(
         self, key: str, actor: ActorContext | None = None

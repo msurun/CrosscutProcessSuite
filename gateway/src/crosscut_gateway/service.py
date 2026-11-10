@@ -74,7 +74,6 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "policy_pin": [("digest", "str")],
     "policy_reload": [],
     "list_open_intents": [],
-    "open_intents": [],
     "resolve_intent": [("key", "str"), ("actor", "str")],
 }
 
@@ -404,7 +403,6 @@ class GatewayService:
             "policy_pin": self._handle_policy_pin,
             "policy_reload": self._handle_policy_reload,
             "list_open_intents": self._handle_list_open_intents,
-            "open_intents": self._handle_list_open_intents,
             "resolve_intent": self._handle_resolve_intent,
         }
 
@@ -506,19 +504,9 @@ class GatewayService:
         try:
             records = self._gateway.open_intents()
         except IntentStoreUnreadableError:
-            return {
-                "store_state": "damaged",
-                "state": "damaged",
-                "damaged": True,
-                "intents": [],
-            }
+            return {"store_state": "damaged", "intents": []}
         intents = [self._serialize_open_intent(record) for record in records]
-        return {
-            "store_state": "ok",
-            "state": "ok",
-            "damaged": False,
-            "intents": intents,
-        }
+        return {"store_state": "ok", "intents": intents}
 
     def _serialize_open_intent(self, record: ParamIntentRecord) -> dict[str, Any]:
         """Convert one open intent record into a summary dict with live values."""
@@ -551,7 +539,8 @@ class GatewayService:
     ) -> dict[str, Any]:
         """Resolve an open parameter write intent by reading live plant values."""
         key = args["key"]
-        actor = args["actor"]
+        # The audited actor is the authenticated one; the argument only serves legacy callers.
+        actor = ctx.actor if ctx is not None else args["actor"]
         decision = self._gateway.resolve_intent(key, actor, actor_ctx=ctx)
         return asdict(decision)
 

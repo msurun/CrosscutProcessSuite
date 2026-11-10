@@ -289,7 +289,6 @@ def test_list_open_intents_returns_empty_when_no_intents_exist(env) -> None:
     payload = outbox_payload(root, "list1")
     assert payload["ok"] is True
     assert payload["result"]["store_state"] == "ok"
-    assert payload["result"]["damaged"] is False
     assert payload["result"]["intents"] == []
 
 
@@ -310,7 +309,6 @@ def test_list_open_intents_reports_damaged_store_without_crashing(tmp_path: Path
     payload = outbox_payload(tmp_path, "list2")
     assert payload["ok"] is True
     assert payload["result"]["store_state"] == "damaged"
-    assert payload["result"]["damaged"] is True
     assert payload["result"]["intents"] == []
 
 
@@ -342,3 +340,28 @@ def test_resolve_intent_command_resolves_open_intent_via_mailbox(tmp_path: Path)
     assert payload["result"]["accepted"] is True
     assert payload["result"]["reason_code"] == "resolved"
     assert store.load_open() == []
+
+
+class _RecordingGateway:
+    """Stands in for WriteGateway and records which actor resolve_intent was given."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def resolve_intent(self, key: str, actor: str, *, actor_ctx: object = None) -> object:
+        """Record the call and accept it."""
+        from crosscut_gateway.interfaces import WriteDecision
+
+        self.calls.append((key, actor))
+        return WriteDecision(accepted=True, reason_code="resolved")
+
+
+def test_resolve_intent_audits_the_authenticated_actor_not_the_argument() -> None:
+    """A forged 'actor' argument cannot replace the identity the auth gate attributed."""
+    from crosscut_gateway.actor import ActorContext
+
+    service = GatewayService.__new__(GatewayService)
+    service._gateway = _RecordingGateway()  # type: ignore[assignment]
+    ctx = ActorContext(actor="alice", roles=("engineer",))
+    service._handle_resolve_intent({"key": "k1", "actor": "mallory"}, ctx)
+    assert service._gateway.calls == [("k1", "alice")]  # type: ignore[attr-defined]

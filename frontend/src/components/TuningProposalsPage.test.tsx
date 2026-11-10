@@ -224,7 +224,7 @@ describe("reconciliation cards", () => {
 
   it("renders reconcile card when an open intent exists", async () => {
     vi.spyOn(tuningApi, "fetchTuningProposals").mockResolvedValue([makeProposal()]);
-    vi.spyOn(tuningApi, "fetchOpenIntents").mockResolvedValue({ store_state: "healthy", intents: [intentA] });
+    vi.spyOn(tuningApi, "fetchOpenIntents").mockResolvedValue({ store_state: "ok", intents: [intentA] });
     await renderAs("lead", page);
     expect(await screen.findByTestId("tuning-reconcile-card")).toBeInTheDocument();
     expect(screen.getByTestId("reconcile-intended-FIC101.GAIN")).toHaveTextContent("2");

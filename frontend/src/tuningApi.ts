@@ -94,7 +94,7 @@ export interface ParamIntentRecord {
 
 /** Listing payload from GET /tuning/intents. */
 export interface IntentsPayload {
-  store_state: "healthy" | "damaged" | "missing" | string;
+  store_state: "ok" | "damaged";
   intents: ParamIntentRecord[];
 }
 

@@ -161,8 +161,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/tuning/proposals/{proposal_id}/rollback"): "gw.propose",
     ("GET", "/tuning/intents"): "gw.view",
     ("POST", "/tuning/intents/{key}/resolve"): "gw.approve.tuning",
-    ("GET", "/gateway/intents"): "gw.view",
-    ("POST", "/gateway/intents/{key}/resolve"): "gw.approve.tuning",
 
     # auth (authenticated)
     ("POST", "/auth/logout"): AUTHENTICATED,

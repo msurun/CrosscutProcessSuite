@@ -20,7 +20,6 @@ STEPUP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/tuning/proposals/{proposal_id}/escape"),
         ("POST", "/tuning/intents/{key}/resolve"),
-        ("POST", "/gateway/intents/{key}/resolve"),
     }
 )
 

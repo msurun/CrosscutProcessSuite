@@ -73,7 +73,6 @@ _COMMAND_PERMISSIONS: dict[str, str] = {
     "policy_pin": "policy.pin",
     "policy_reload": "policy.reload",
     "list_open_intents": "gw.view",
-    "open_intents": "gw.view",
     "resolve_intent": "gw.approve.tuning",
 }
 
