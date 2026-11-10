@@ -26,7 +26,7 @@ The first complete product is loop monitoring plus PID tuning, deployed as an on
    (b) PID tuning parameters (gain, integral time, derivative time in the vendor form), in `confirm` mode only, never `supervised`,
    with the previous values stored so that a one-click rollback proposal can be made;
    (c) output tags of virtual sensors (estimates published to the DCS).
-   Never the controller output, never the mode, never a valve or drive directly.
+   Never the controller output, never a valve or drive directly; the mode or setpoint-source node only for the handover in ADR 016.
    Open owner decision: a step-test assistant that proposes OUT steps on a loop in manual, in `confirm` mode only.
 3. **Modes per target, default off.** `off`, `advisory`, `dry_run`, `confirm` (an operator accepts each write) and `supervised`
    (writes within the policy without per-write confirmation). Version 1 implements all five. `supervised` is allowed only for

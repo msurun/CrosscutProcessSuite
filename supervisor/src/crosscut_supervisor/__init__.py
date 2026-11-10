@@ -1,6 +1,7 @@
-"""Advisory supervisor: gated, explained, logged advice from a fuzzy rule base (ADR 010).
+"""Fuzzy supervisor: gated, explained, logged advice from a fuzzy rule base (ADR 010).
 
-The package never writes to a plant: it must not import opcua or connectors.
+Advice can become a setpoint proposal, but only the Write Gateway writes (ADR 012):
+the package must not import opcua or connectors.
 """
 
 from crosscut_supervisor.proposal import (
