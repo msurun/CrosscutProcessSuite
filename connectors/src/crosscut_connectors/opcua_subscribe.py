@@ -29,7 +29,7 @@ from crosscut_connectors.opcua_import import (
     _dataset_info,
     _disconnect,
     _make_report,
-    _quality_from_status,
+    quality_from_status,
     _validate_arguments,
     resolve_node_id,
 )
@@ -100,7 +100,7 @@ def _quality_of(data: Any) -> int:
         status_code = data.monitored_item.Value.StatusCode
     except AttributeError:
         return BAD
-    return _quality_from_status(status_code)
+    return quality_from_status(status_code)
 
 
 def _numeric_value(val: Any) -> float:

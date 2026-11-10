@@ -401,7 +401,7 @@ def _is_status_good(status_code: Any) -> bool:
     return bool(getattr(status_code, "value", status_code) == 0)
 
 
-def _quality_from_status(status_code: Any) -> int:
+def quality_from_status(status_code: Any) -> int:
     """Map an OPC UA StatusCode to a quality code: GOOD (0), UNCERTAIN (1) or BAD (2).
 
     The top two bits of the code are its severity: 0 good, 1 uncertain, 2 and 3 bad.
