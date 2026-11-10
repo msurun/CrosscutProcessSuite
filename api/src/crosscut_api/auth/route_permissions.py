@@ -124,6 +124,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     # gateway (various)
     ("GET", "/gateway/status"): "gw.view",
     ("GET", "/gateway/pending"): "gw.view",
+    ("GET", "/gateway/mv-availability"): "gw.view",
     ("GET", "/gateway/audit"): "audit.view",
     ("POST", "/gateway/pending/{key}/approve"): "gw.approve",
     ("POST", "/gateway/pending/{key}/reject"): "gw.reject",
