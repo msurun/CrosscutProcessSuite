@@ -42,6 +42,8 @@ RECORD_DEFAULTS: Doc = {
     "consecutive_overruns": 0,
     "liveness_utc": None,
     "last_explanation": "",
+    "last_advice": None,
+    "warnings": None,
 }
 
 

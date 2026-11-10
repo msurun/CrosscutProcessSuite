@@ -113,6 +113,8 @@ def test_live_kpi_equals_offline_kpi() -> None:
         "service_factor",
         "saturation_fraction",
         "harris_index",
+        "flatline_fraction",
+        "stiction_advice",
         "oscillation_period_s",
         "classification",
         "findings",
@@ -210,6 +212,7 @@ def test_job_reports_kpi_at_threshold() -> None:
     assert loop_kpi is not None
     assert "classification" in loop_kpi
     assert loop_kpi["n_samples"] == monitor.MIN_KPI_SAMPLES
+    assert "flatline_fraction" in loop_kpi and "stiction_advice" in loop_kpi
 
 
 def test_job_keeps_earlier_loops_as_none_below_threshold() -> None:

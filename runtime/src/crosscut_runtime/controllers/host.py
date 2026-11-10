@@ -24,12 +24,14 @@ from crosscut_runtime.controllers.overrides import (
 )
 from crosscut_runtime.controllers.protocol import Controller, Move
 from crosscut_runtime.controllers.state import (
+    ADVISORY,
     DEFAULT_MAX_OVERRUNS,
     OFF,
     ON,
     SHED,
     STANDBY,
     Health,
+    enters_advisory,
     enters_on,
     transition,
 )
@@ -47,6 +49,8 @@ OVERRUN_MARGIN = 0.1  # a start later than period * (1 + margin) after the last 
 NO_WRITE_REASON = "mode_no_write"  # gateway reason: mode off, advisory or dry_run
 
 Availability = Callable[[list[str]], Mapping[str, Mapping[str, Any]]]
+UNKNOWN_READINESS = "readiness_unknown"  # readiness reason: no KPI row yet, never blocks
+
 Readiness = Callable[[str], Mapping[str, Any]]
 
 
@@ -94,6 +98,8 @@ class ControllerRecord:
     liveness_utc: str | None = None
     last_explanation: str = ""
     disabled: list[str] | None = None
+    last_advice: list[dict[str, Any]] | None = None  # moves seen in advisory, never proposed
+    warnings: list[str] | None = None  # e.g. "readiness_unknown:L1" (informational, no block)
 
 
 def record_path(root: Path, controller_id: str) -> Path:
@@ -104,7 +110,7 @@ def record_path(root: Path, controller_id: str) -> Path:
 def load_record(path: Path) -> ControllerRecord:
     """Read a record; a missing or corrupt file gives a fresh ``off`` record.
 
-    A restored ``on`` or ``shed`` comes back as ``standby``: the operator switches on again.
+    A restored ``on``, ``advisory`` or ``shed`` comes back as ``standby``: switch on again.
     """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -112,7 +118,7 @@ def load_record(path: Path) -> ControllerRecord:
         record = ControllerRecord(**{k: v for k, v in data.items() if k in known})
     except (FileNotFoundError, json.JSONDecodeError, TypeError, AttributeError):
         return ControllerRecord()
-    if record.state in (ON, SHED):
+    if record.state in (ON, SHED, ADVISORY):
         record.state, record.reason = STANDBY, "restart"
     record.consecutive_overruns = 0
     return record
@@ -127,6 +133,7 @@ class ControllerHost:
         self._path = record_path(config.data_root, controller.id)
         self.record = load_record(self._path)
         self._command: str | None = None
+        self._warnings: list[str] = []
         self._previous_start: datetime | None = None
         self._tags = sorted({tag for tags in config.tags_of.values() for tag in tags})
         variables = config.controller_doc.get("variables", [])
@@ -188,6 +195,7 @@ class ControllerHost:
 
     def _health(self, snapshot: Snapshot, statuses: list[VariableStatus]) -> Health:
         """Guard inputs: communication, required MVs, good CVs, gateway mode, overruns."""
+        self._warnings = []
         unavailable, advisory = self._mv_problems(statuses)
         cv_good = any(s.status == GOOD for s in statuses if self._roles[s.variable_id] == "CV")
         return Health(
@@ -212,21 +220,39 @@ class ControllerHost:
         entry = answer.get(self._config.mv_targets[var["id"]])
         if bad or entry is None or set(entry.get("reasons", [])) - {NO_WRITE_REASON}:
             return True
-        readiness = self._ports.readiness
-        return readiness is not None and not readiness(var["binding"]["loop"]).get("ready", True)
+        return self._loop_not_ready(var["binding"]["loop"])
+
+    def _loop_not_ready(self, loop_id: str) -> bool:
+        """True when the readiness port names a blocking reason; unknown readiness only warns."""
+        if self._ports.readiness is None:
+            return False
+        answer = self._ports.readiness(loop_id)
+        if UNKNOWN_READINESS in answer.get("reasons", []):
+            self._warnings.append(f"{UNKNOWN_READINESS}:{loop_id}")
+            return False
+        return not answer.get("ready", True)
 
     def _act(self, old: str, statuses: list[VariableStatus]) -> None:
-        """Run ``initialise`` on entering on; step and propose when already on."""
+        """Initialise on entering on/advisory; step each cycle, propose only while on."""
         new = self.record.state
-        if enters_on(old, new):
+        if enters_on(old, new) or enters_advisory(old, new):
             self._controller.initialise(statuses)
-        elif new == ON:
-            result = self._controller.step(statuses)
-            self.record.last_explanation = result.explanation
-            for move in result.moves:
-                self._ports.propose(move)
+        elif new in (ON, ADVISORY):
+            self._step(new, statuses)
         if new != ON:
             self.record.consecutive_overruns = 0
+        if new != ADVISORY:
+            self.record.last_advice = None
+
+    def _step(self, state: str, statuses: list[VariableStatus]) -> None:
+        """Run one controller step; moves go to the gateway while on, to the record in advisory."""
+        result = self._controller.step(statuses)
+        self.record.last_explanation = result.explanation
+        if state == ADVISORY:
+            self.record.last_advice = [asdict(move) for move in result.moves]
+            return
+        for move in result.moves:
+            self._ports.propose(move)
 
     def _persist(self, start: datetime, statuses: list[VariableStatus]) -> None:
         """Write the state record and the variable statuses."""
@@ -234,5 +260,6 @@ class ControllerHost:
         self.record.last_cycle_utc = start.isoformat()
         self.record.last_duration_s = (end - start).total_seconds()
         self.record.liveness_utc = end.isoformat()
+        self.record.warnings = list(self._warnings) or None
         write_json_atomic(self._path, asdict(self.record))
         write_variable_status(self._config.data_root, self._controller.id, statuses)

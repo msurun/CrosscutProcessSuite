@@ -16,12 +16,20 @@ from typing import Any
 from crosscut_connectors.base import Snapshot
 from crosscut_fuzzy.library import load_document
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
+from crosscut_loops.mv_readiness import loop_readiness
 
 from crosscut_runtime.controllers.commands import pick_command, take_commands
 from crosscut_runtime.controllers.fuzzy import ControllerBindingError, FuzzyController
 from crosscut_runtime.controllers.gateway_adapter import make_gateway_ports
-from crosscut_runtime.controllers.host import ControllerHost, HostConfig, HostPorts
+from crosscut_runtime.controllers.host import (
+    UNKNOWN_READINESS,
+    ControllerHost,
+    HostConfig,
+    HostPorts,
+    Readiness,
+)
 from crosscut_runtime.controllers.state import DEFAULT_MAX_OVERRUNS
+from crosscut_runtime.store import RuntimeStore
 
 FUZZY_FOLDER = "_fuzzy"
 GatewayPorts = Callable[[Path, str, Callable[[], int]], tuple[Any, Any]]
@@ -56,6 +64,29 @@ class ControllerJob:
         if command is not None:
             self._host.request(command)
         return {"controller": asdict(self._host.run_cycle())}
+
+
+def _latest_kpi_row(root: Path, loop_id: str) -> Mapping[str, Any] | None:
+    """The newest loop_kpi row of a loop in the runtime state, or None when there is none."""
+    jobs = RuntimeStore(root).load_state().get("jobs", {})
+    rows = [
+        (str(job.get("last_run_utc", "")), job["kpi"][loop_id])
+        for job in jobs.values()
+        if isinstance(job, dict) and isinstance(job.get("kpi"), dict) and job["kpi"].get(loop_id)
+    ]
+    return max(rows, key=lambda row: row[0])[1] if rows else None
+
+
+def make_readiness(root: Path) -> Readiness:
+    """Readiness port: ``loop_readiness`` of the latest loop_kpi row; no row = unknown, ready."""
+
+    def readiness(loop_id: str) -> Mapping[str, Any]:
+        row = _latest_kpi_row(root, loop_id)
+        if row is None:
+            return {"ready": True, "reasons": [UNKNOWN_READINESS]}
+        return loop_readiness(row)
+
+    return readiness
 
 
 def _find(site: Mapping[str, Any], controller_id: str) -> Mapping[str, Any]:
@@ -126,5 +157,6 @@ def build_controller_job(
     config = HostConfig(
         doc, tags_of, targets, root, int(doc.get("max_overruns", DEFAULT_MAX_OVERRUNS))
     )
-    host = ControllerHost(controller, config, HostPorts(connector, availability, propose))
+    ports = HostPorts(connector, availability, propose, readiness=make_readiness(root))
+    host = ControllerHost(controller, config, ports)
     return ControllerJob(host, root, doc["id"])
