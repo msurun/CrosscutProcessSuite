@@ -1,7 +1,6 @@
 # ADR 016: Setpoint handover and writes to the setpoint-source or mode node
 
-Status: **Proposed** (2026-11-10), for the owner's decision. Until decided, the behaviour described under "Today" stays as is, with the
-safety fix of PR #73.
+Status: **Accepted** (owner decision 2026-11-10: the recommendation below).
 Builds on: ADR 011 (safety rules), ADR 012 (writes are a product capability), ADR 015 (APC core).
 
 ## Context
@@ -38,4 +37,11 @@ release that the L5 rows rely on, removes the automatic take-over of a loop, and
 
 ## Decision
 
-Open (owner).
+1. Default (option 3): the gateway never takes remote. It writes a setpoint only while the source node already shows `remote_value`;
+   otherwise the proposal is refused with `not_remote`. Taking remote is a DCS operator action.
+2. The gateway may release (write `release_value` to the source node) only while it still owns the setpoint (PR #73).
+3. Option 2 is a per-site setting `allow_take_remote` in the write policy (default `false`). Enabling it is a policy change, so it needs the
+   lead's pin (ADR 013); the audit records it. Even then the gateway writes only the configured `remote_value` / `release_value`, never
+   MAN, AUTO or OUT.
+4. ADR 012 item 3 and PRODUCT.md section 5 are amended: "never the controller output; the mode or setpoint-source node only for the
+   handover described in ADR 016".
