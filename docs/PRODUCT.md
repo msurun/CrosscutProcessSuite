@@ -30,9 +30,10 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 |---|---|---|---|
 | **Connect** | Read history and live values, browse metadata; write only through the gateway | CSV wide/long import, SQLite and any DB-API/ODBC connection (pyodbc is not a dependency), OPC UA polling and subscription, a Parquet collector | One connector interface. No PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
 | **Project catalogue** | Sources, tags, units, ranges, missing codes, time zone, loops (PV/SP/OUT/mode/PID parameters in vendor form), lab definitions; edited in the GUI | Does not exist. Import settings (missing codes, −9999 sentinel) live in `loops/.../plant_import.py` as code-level settings | Whole layer. The −9999 default constant must be removed (issue #42) |
-| **Engines** | Offline design mode and online run mode for each module | Loops, fuzzy, supervisor, anomaly, soft sensor: offline, on demand, over a stored window | Online run mode. Generic schema-driven configuration editor |
-| **Runtime** | On-prem service (Windows service or systemd) runs deployed jobs cyclically: loop KPI, anomaly scan, soft-sensor estimate, fuzzy advice. Status, error log, start/stop from the GUI | Does not exist | Whole layer |
-| **Write Gateway** | Separate process. Writes proposals only. Policy as data, read-back, watchdog, operator priority, kill switch, audit | `gateway/` holds interfaces and 12 strict-xfail scenarios. Write code exists only against a simulator | Full implementation (Phase 2) |
+| **Engines** | Offline design mode and online run mode for each module | Loops, fuzzy, supervisor, anomaly, soft sensor: offline, on demand, over a stored window; loop KPI and anomaly scan also run online as runtime jobs | Online run mode for soft sensor and supervisor. Generic schema-driven configuration editor exists; not every configuration is editable |
+| **APC core** (section 3.2, Phase 2.5) | Shared variable model, live variable status, loop readiness as MV handle, controller host with a state machine, operator console | Does not exist. Each module keeps its own variable notion and works on stored datasets | Whole layer (ADR 015) |
+| **Runtime** | On-prem service (Windows service or systemd) runs deployed jobs cyclically: loop KPI, anomaly scan, soft-sensor estimate, fuzzy advice. Status, error log, start/stop from the GUI | Scheduler with per-job period, jobs `loop_kpi`, `anomaly_scan`, `tuning_review`, atomic state files, systemd unit, Runtime view | No controller host, no overrun monitoring, no heartbeat, no soft-sensor or supervisor job |
+| **Write Gateway** | Separate process. Writes proposals only. Policy as data, read-back, watchdog, operator priority, kill switch, audit | Implemented (ADR 012-014): five modes, OPC UA adapter, policy clamps, read-back, operator priority, latched kill switch, keyed audit chain, roles, tuning parameter sets with durable write intents. Tested against simulators only | No MV availability signal back to controllers; no explicit bumpless initialisation |
 | **Web console** | Browser UI: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | React + TypeScript frontend, e2e suite green. Some configurations are read-only in the GUI | Configuration editing for supervisor, anomaly and soft sensor; proposal queue; login and roles |
 
 ### 3.1 Project catalogue
@@ -64,6 +65,22 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 **Ships today.** `schemas/project.schema.json` and `schemas/tags.schema.json` (loops, variables, tags) and CSV/SQL import with missing-value settings held at code level in `loops/.../plant_import.py`. No GUI editor, no source binding, no equipment hierarchy, operating modes, labs or vendor profiles. The default −9999 constant must be removed (issue #42).
 
 **Phase.** 1.
+
+### 3.2 APC core
+
+**Purpose.** Crosscut is an APC framework (owner decision 2026-11-10): every controller type (fuzzy supervisor in Phase 2.5, MPC in Phase 7, the economic layer in Phase 8) runs on one shared core instead of keeping its own notion of variables, limits and state. Details and the decision record: ADR 015.
+
+| Element | What it is |
+|---|---|
+| **Variable model** | In the catalogue: a tag is bound to a controller as MV, CV, DV or inferential CV (a virtual sensor). Per variable: engineering limits, operator limits, validity limits, move and rate limits, priority, operator on/off |
+| **Live variable status** | Per cycle: one time-aligned snapshot of the inputs; status good / uncertain / bad from source quality, staleness, communication loss, anomaly findings (4.3) and virtual-sensor validity (4.2) |
+| **Loop readiness** | Per base loop: can it serve as an MV handle now (mode allows remote setpoint, output not saturated, valve health, gateway not in hold-off) |
+| **Controller host** | In the runtime: fixed cycle, overrun monitoring, state machine `off` / `standby` / `on` / `shed` with initialisation, restart-safe state, heartbeat. A bad CV is dropped; an unavailable MV or lost comms sheds the controller to base control |
+| **Operator console** | Controller and variable on/off, operator limits, status, explanation of the last move |
+
+Writes stay gateway-only (section 5): a controller produces proposals; the gateway's policy, mode ladder and audit apply unchanged.
+
+**Phase.** 2.5.
 
 ## 4. Modules
 
@@ -119,7 +136,7 @@ Every finding gets an outcome from the user (fixed, not a problem, deferred, mai
 
 **Benefit and reports.** Benefit estimate: variance reduction → possible setpoint move toward a limit → value per year, using the value per unit of PV entered by the user (open owner decision 8 for the economic layer). Shift and weekly loop report: what changed, what was fixed, what still waits.
 
-**Ships today.** Worklist with findings (manual, saturated, flatline, oscillating); ACF oscillation test and oscillation clusters; valve health KPIs, stiction suspicion and guided stroke test; closed-loop and step identification (FOPDT, integrating experimental) with a quality gate; tuning report (SIMC/AMIGO, cascade planning); benefit estimate; Steps view. All offline and on demand. No loop templates, no per-mode KPIs, no cause ordering in the worklist, no outcomes, no write, KPI check or rollback.
+**Ships today.** Worklist with findings (manual, saturated, flatline, oscillating); ACF oscillation test and oscillation clusters; valve health KPIs, stiction suspicion and guided stroke test; closed-loop and step identification (FOPDT, integrating experimental) with a quality gate; tuning report (SIMC/AMIGO, cascade planning); benefit estimate; Steps view. Loop KPIs also run online as a runtime job. PID parameter write in `confirm` through the gateway, before/after KPI review and rollback exist against simulators (ADR 014). No loop templates, no per-mode KPIs, no cause ordering in the worklist, no outcomes; vendor PID forms are code, not data; no loop readiness signal for controllers.
 
 **Validation.** RougherSim L5 rows: a badly tuned loop is detected and improved; a sticky valve is diagnosed as a valve, not a tuning problem; a loop driven by an external oscillation is not retuned; an averaging level is not tuned tight; rollback restores the previous parameters exactly. Plant evidence: blind worklist review and one real valve stroke test (owner tasks), then the Phase 3 pilot in `confirm`.
 
@@ -349,6 +366,7 @@ Every phase has a short detailed plan before its start and its own gates: `ruff`
 | **Phase 1** — Online foundation | One connector interface (browse, metadata, history, live, write-through-gateway only). Project catalogue plus GUI editor. Runtime as an on-prem service. Generic configuration editor generated from `schemas/*.schema.json` | Simulated OPC UA server → catalogue built in the GUI → runtime computes live loop KPI and shows it in the console. No file edited by hand (e2e test) |
 | **Phase 1a** — DCS simulator | See section 6 | Simulator runs as OPC UA server in ABB profile. Phase 1 Crosscut connects, builds the catalogue, computes live KPI. Mass balance closes (test). Loop step responses match ground truth |
 | **Phase 2** — Write Gateway v1 | Implementation per ADR 012: `off`, `advisory`, `dry_run`, `confirm`, then `supervised`. First write protocol: OPC UA. Write policy schema and GUI editor. Proposal queue in the console. Roles and login | All 12 gateway scenarios pass against the Phase 1a DCS simulator. e2e shows proposal → confirm → write → read-back → audit entry; kill switch stops in one cycle. Gateway, policy and permissions pass review |
+| **Phase 2.5** — APC core (owner decision 2026-11-10, before Phase 3) | Section 3.2 and ADR 015: one variable model in the catalogue, live variable status, loop readiness, controller host in the runtime, fuzzy supervisor as the first controller, operator console | Fuzzy supervisor runs as a controller in the runtime against RougherSim in closed loop: a bad CV is dropped, a lost MV or comms sheds to base control, restart restores the controller state, the operator switches controller and variables on and off in the console |
 | **Phase 3** — Module 1 as a complete product (first release) | Online monitoring of all catalogue loops. Tuning path from detection to write after confirmation, KPI check, one-click rollback. Optional step-test assistant | Full cycle on the DCS simulator: weak loop detected → test → tuning → write after confirmation → KPI improvement → rollback works. Then a pilot at the owner's site in `confirm` mode |
 | **Phase 4a** — Universal virtual-sensor engine with presets | See section 4.2 | A lab-and-analyser configuration built entirely in the GUI reproduces the exp31 numbers. exp30 (synthetic) still meets its criteria. Blind test on the next data delivery. Every v1 preset, configured only in the GUI, passes its L5 row against RougherSim, including the instrument-failure scenario (failover and accuracy criteria frozen in the protocol before the run) |
 | **Phase 4b** — Asset templates and predictive maintenance | See section 4.3 (asset templates, expected-value models, health index, time to limit). Builds on the preset machinery of Phase 4a and the event management of Phase 3 | Every v1 asset template detects its injected degradation in RougherSim with the lead time and false-event rate set in a frozen protocol, and raises no event on operating-mode changes. Asset view in the GUI ranked by criticality |
@@ -411,6 +429,9 @@ Also still relevant from PROJECT_DESIGN §8: real level step test (integrating l
 | `docs/adr/010` | Advisory supervisor, no writes (proposed; write position superseded by ADR 012) |
 | `docs/adr/011` | Write path design; safety rules still in force |
 | `docs/adr/012` | Writes are a product capability |
+| `docs/adr/013` | Roles and authority |
+| `docs/adr/014` | Tuning write path |
+| `docs/adr/015` | APC core: shared variable model and controller host (Phase 2.5) |
 | `experiments/README.md` | Experiment index and status (closed lines stay in place) |
 | `docs/archive/` | One-off plans and documents |
 | `docs/PROJECT_DESIGN.md` | Historical record only; not maintained |

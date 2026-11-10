@@ -32,9 +32,10 @@ Wcześniejsze dokumenty zapisywały stanowisko „żadnych zapisów do zakładu�
 |---|---|---|---|
 | **Connect** | Odczyt historii i wartości bieżących, przeglądanie metadanych; zapis wyłącznie przez gateway | Import CSV wide/long, połączenie SQLite i dowolne DB-API/ODBC (pyodbc nie jest zależnością), odpytywanie i subskrypcja OPC UA, kolektor Parquet | Jeden interfejs konektora. Brak PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
 | **Katalog projektu** | Źródła, tagi, jednostki, zakresy, kody braków danych, strefa czasowa, pętle regulacji (PV/SP/OUT/tryb/parametry PID w postaci dostawcy), definicje labów; edycja w GUI | Nie istnieje. Ustawienia importu (kody braków danych, wartownik −9999) żyją w `loops/.../plant_import.py` jako ustawienia na poziomie kodu | Cała warstwa. Domyślna stała −9999 musi zostać usunięta (issue #42) |
-| **Silniki** | Tryb projektowania offline i tryb pracy online dla każdego modułu | Pętle regulacji, fuzzy, supervisor, anomalie, wirtualny sensor: offline, na żądanie, po zapisanym oknie | Tryb pracy online. Generyczny edytor konfiguracji napędzany schematem |
-| **Runtime** | Usługa on-prem (usługa Windows lub systemd) uruchamia wdrożone zadania cyklicznie: KPI pętli, skan anomalii, estymacja wirtualnego sensora, porada fuzzy. Status, dziennik błędów, start/stop z GUI | Nie istnieje | Cała warstwa |
-| **Write Gateway** | Osobny proces. Zapisuje wyłącznie propozycje. Polityka jako dane, odczyt zwrotny, watchdog, priorytet operatora, kill switch, audyt | `gateway/` zawiera interfejsy i 12 scenariuszy strict-xfail. Kod zapisu istnieje tylko przeciwko symulatorowi | Pełna implementacja (Faza 2) |
+| **Silniki** | Tryb projektowania offline i tryb pracy online dla każdego modułu | Pętle regulacji, fuzzy, supervisor, anomalie, wirtualny sensor: offline, na żądanie, po zapisanym oknie; KPI pętli i skan anomalii działają też online jako zadania runtime | Tryb pracy online dla wirtualnego sensora i supervisora. Generyczny edytor konfiguracji napędzany schematem istnieje; nie każda konfiguracja jest edytowalna |
+| **Rdzeń APC** (sekcja 3.2, Faza 2.5) | Wspólny model zmiennych, status zmiennych na żywo, gotowość pętli jako uchwyt MV, host kontrolera z maszyną stanów, konsola operatora | Nie istnieje. Każdy moduł ma własne pojęcie zmiennej i działa na zapisanych zbiorach danych | Cała warstwa (ADR 015) |
+| **Runtime** | Usługa on-prem (usługa Windows lub systemd) uruchamia wdrożone zadania cyklicznie: KPI pętli, skan anomalii, estymacja wirtualnego sensora, porada fuzzy. Status, dziennik błędów, start/stop z GUI | Harmonogram z okresem na zadanie, zadania `loop_kpi`, `anomaly_scan`, `tuning_review`, atomowe pliki stanu, jednostka systemd, widok Runtime | Brak hosta kontrolera, monitoringu przekroczeń cyklu, heartbeat, zadania sensora wirtualnego i supervisora |
+| **Write Gateway** | Osobny proces. Zapisuje wyłącznie propozycje. Polityka jako dane, odczyt zwrotny, watchdog, priorytet operatora, kill switch, audyt | Zaimplementowany (ADR 012-014): pięć trybów, adapter OPC UA, ograniczenia polityki, odczyt zwrotny, priorytet operatora, zatrzaskowy kill switch, klucz audytu z łańcuchem, role, zestawy parametrów strojenia z trwałymi intencjami zapisu. Testowany tylko na symulatorach | Brak sygnału dostępności MV zwracanego do kontrolerów; brak jawnej inicjalizacji bezuderzeniowej |
 | **Konsola web** | Interfejs w przeglądarce: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | Frontend React + TypeScript, zestaw e2e zielony. Niektóre konfiguracje są tylko do odczytu w GUI | Edycja konfiguracji supervisor, anomalii i wirtualnego sensora; kolejka propozycji; logowanie i role |
 
 ### 3.1 Katalog projektu
@@ -66,6 +67,22 @@ Wcześniejsze dokumenty zapisywały stanowisko „żadnych zapisów do zakładu�
 **Dostarcza dziś.** `schemas/project.schema.json` i `schemas/tags.schema.json` (pętle, zmienne, tagi) oraz import CSV/SQL z ustawieniami braków danych trzymanymi na poziomie kodu w `loops/.../plant_import.py`. Brak edytora w GUI, powiązania ze źródłem, hierarchii urządzeń, trybów pracy, labów i profili dostawców. Domyślna stała −9999 musi zostać usunięta (issue #42).
 
 **Faza.** 1.
+
+### 3.2 Rdzeń APC
+
+**Cel.** Crosscut to framework APC (decyzja właściciela 2026-11-10): każdy typ kontrolera (supervisor fuzzy w Fazie 2.5, MPC w Fazie 7, warstwa ekonomiczna w Fazie 8) działa na jednym wspólnym rdzeniu, zamiast trzymać własne pojęcie zmiennych, limitów i stanu. Szczegóły i zapis decyzji: ADR 015.
+
+| Element | Czym jest |
+|---|---|
+| **Model zmiennych** | W katalogu: tag jest powiązany z kontrolerem jako MV, CV, DV lub CV inferencyjna (wirtualny sensor). Dla zmiennej: limity inżynierskie, limity operatora, limity ważności, limity przesunięcia i szybkości, priorytet, włączenie/wyłączenie przez operatora |
+| **Status zmiennych na żywo** | Na cykl: jeden wyrównany czasowo zrzut wejść; status good / uncertain / bad z jakości źródła, przestarzałości, utraty komunikacji, ustaleń anomalii (4.3) i ważności wirtualnego sensora (4.2) |
+| **Gotowość pętli** | Dla pętli bazowej: czy może teraz służyć jako uchwyt MV (tryb dopuszcza zdalną nastawę, wyjście nie jest nasycone, zdrowie zaworu, bramka nie jest w hold-off) |
+| **Host kontrolera** | W runtime: stały cykl, monitoring przekroczeń, maszyna stanów `off` / `standby` / `on` / `shed` z inicjalizacją, stan odporny na restart, heartbeat. Zła CV jest odrzucana; niedostępne MV lub utrata komunikacji przełącza kontroler na sterowanie bazowe |
+| **Konsola operatora** | Włączenie/wyłączenie kontrolera i zmiennych, limity operatora, status, wyjaśnienie ostatniego ruchu |
+
+Zapisy pozostają wyłącznie przez gateway (sekcja 5): kontroler produkuje propozycje; polityka gateway, drabina trybów i audyt obowiązują bez zmian.
+
+**Faza.** 2.5.
 
 ## 4. Moduły
 
@@ -121,7 +138,7 @@ Każde ustalenie dostaje od użytkownika wynik (naprawione, to nie problem, odł
 
 **Korzyść i raporty.** Szacowanie korzyści: redukcja wariancji → możliwe przesunięcie nastawy w stronę limitu → wartość roczna, z wartością na jednostkę PV wpisaną przez użytkownika (warstwa ekonomiczna to otwarta decyzja właściciela nr 8). Raport zmianowy i tygodniowy pętli: co się zmieniło, co naprawiono, co nadal czeka.
 
-**Dostarcza dziś.** Lista robocza z ustaleniami (manual, nasycenie, flatline, oscylacja); test oscylacji ACF i klastry oscylacji; KPI zdrowia zaworów, podejrzenie stiction i prowadzony test skoku; identyfikacja w pętli zamkniętej i ze skoków (FOPDT, integrujące eksperymentalnie) z bramką jakości; raport strojenia (SIMC/AMIGO, planowanie kaskady); szacowanie korzyści; widok Steps. Wszystko offline i na żądanie. Brak szablonów pętli, KPI na tryb pracy, kolejności przyczyn na liście roboczej, wyników ustaleń, zapisu, kontroli KPI i rollbacku.
+**Dostarcza dziś.** Lista robocza z ustaleniami (manual, nasycenie, flatline, oscylacja); test oscylacji ACF i klastry oscylacji; KPI zdrowia zaworów, podejrzenie stiction i prowadzony test skoku; identyfikacja w pętli zamkniętej i ze skoków (FOPDT, integrujące eksperymentalnie) z bramką jakości; raport strojenia (SIMC/AMIGO, planowanie kaskady); szacowanie korzyści; widok Steps. KPI pętli działają też online jako zadanie runtime. Zapis parametrów PID w `confirm` przez gateway, przegląd KPI przed/po i rollback istnieją przeciwko symulatorom (ADR 014). Brak szablonów pętli, KPI na tryb pracy, kolejności przyczyn na liście roboczej, wyników ustaleń; formularze PID dostawców to kod, nie dane; brak sygnału gotowości pętli dla kontrolerów.
 
 **Walidacja.** Wiersze L5 względem RougherSim: źle nastrojona pętla zostaje wykryta i poprawiona; zawór ze stiction jest zdiagnozowany jako problem zaworu, a nie strojenia; pętla pobudzana zewnętrzną oscylacją nie jest przestrajana; poziom uśredniający nie jest strojony ciasno; rollback dokładnie przywraca poprzednie parametry. Dowody z zakładu: przegląd listy roboczej „na ślepo” i jeden rzeczywisty test skoku zaworu (zadania właściciela), potem pilotaż Fazy 3 w `confirm`.
 
@@ -351,6 +368,7 @@ Każda faza ma krótki szczegółowy plan przed rozpoczęciem oraz własne bramk
 | **Faza 1** — Fundament online | Jeden interfejs konektora (przeglądanie, metadane, historia, wartości bieżące, zapis wyłącznie przez gateway). Katalog projektu plus edytor w GUI. Runtime jako usługa on-prem. Generyczny edytor konfiguracji generowany z `schemas/*.schema.json` | Symulowany serwer OPC UA → katalog zbudowany w GUI → runtime liczy KPI pętli na żywo i pokazuje je w konsoli. Żaden plik nie jest edytowany ręcznie (test e2e) |
 | **Faza 1a** — Symulator DCS | Patrz sekcja 6 | Symulator działa jako serwer OPC UA w profilu ABB. Crosscut z Fazy 1 łączy się, buduje katalog, liczy KPI na żywo. Bilans masy się domyka (test). Odpowiedzi skokowe pętli zgadzają się z wartością odniesienia |
 | **Faza 2** — Write Gateway v1 | Implementacja zgodnie z ADR 012: `off`, `advisory`, `dry_run`, `confirm`, potem `supervised`. Pierwszy protokół zapisu: OPC UA. Schemat polityki zapisu i edytor w GUI. Kolejka propozycji w konsoli. Role i logowanie | Wszystkie 12 scenariuszy gateway przechodzą przeciwko symulatorowi DCS z Fazy 1a. e2e pokazuje propozycję → potwierdzenie → zapis → odczyt zwrotny → wpis w audycie; kill switch zatrzymuje w jednym cyklu. Gateway, polityka i uprawnienia przechodzą przegląd |
+| **Faza 2.5** — Rdzeń APC (decyzja właściciela 2026-11-10, przed Fazą 3) | Sekcja 3.2 i ADR 015: jeden model zmiennych w katalogu, status zmiennych na żywo, gotowość pętli, host kontrolera w runtime, supervisor fuzzy jako pierwszy kontroler, konsola operatora | Supervisor fuzzy działa jako kontroler w runtime przeciwko RougherSim w pętli zamkniętej: zła CV zostaje odrzucona, utrata MV lub komunikacji przełącza na sterowanie bazowe, restart przywraca stan kontrolera, operator włącza i wyłącza kontroler oraz zmienne w konsoli |
 | **Faza 3** — Moduł 1 jako kompletny produkt (pierwsze wydanie) | Monitoring online wszystkich pętli z katalogu. Ścieżka strojenia od detekcji do zapisu po potwierdzeniu, kontrola KPI, rollback jednym kliknięciem. Opcjonalny asystent testu skoku | Pełny cykl na symulatorze DCS: słaba pętla wykryta → test → strojenie → zapis po potwierdzeniu → poprawa KPI → rollback działa. Następnie pilotaż w zakładzie właściciela w trybie `confirm` |
 | **Faza 4a** — Uniwersalny silnik wirtualnych sensorów z presetami | Patrz sekcja 4.2 | Konfiguracja lab-plus-analizator zbudowana w całości w GUI odtwarza liczby z exp31. exp30 (syntetyczny) nadal spełnia swoje kryteria. Test ślepy na następnej dostawie danych. Każdy preset v1, skonfigurowany wyłącznie w GUI, przechodzi swój wiersz L5 względem RougherSim, w tym scenariusz awarii przyrządu (kryteria przełączenia i dokładności zamrożone w protokole przed uruchomieniem) |
 | **Faza 4b** — Szablony urządzeń i predykcyjne utrzymanie ruchu | Patrz sekcja 4.3 (szablony urządzeń, modele wartości oczekiwanej, indeks zdrowia, czas do limitu). Korzysta z maszynerii presetów z Fazy 4a i zarządzania zdarzeniami z Fazy 3 | Każdy szablon urządzenia v1 wykrywa wstrzykniętą w RougherSim degradację z czasem wyprzedzenia i częstością fałszywych zdarzeń ustalonymi w zamrożonym protokole i nie zgłasza zdarzeń przy zmianach trybu pracy. Widok urządzeń w GUI uszeregowany według krytyczności |
@@ -413,6 +431,9 @@ Nadal istotne z PROJECT_DESIGN §8: rzeczywisty test skoku poziomu (pętla integ
 | `docs/adr/010` | Supervisor doradczy, bez zapisów (proponowany; stanowisko o zapisach zastąpione przez ADR 012) |
 | `docs/adr/011` | Projekt ścieżki zapisu; reguły bezpieczeństwa nadal w mocy |
 | `docs/adr/012` | Zapisy są cechą produktu |
+| `docs/adr/013` | Role i uprawnienia |
+| `docs/adr/014` | Ścieżka zapisu strojenia |
+| `docs/adr/015` | Rdzeń APC: wspólny model zmiennych i host kontrolera (Faza 2.5) |
 | `experiments/README.md` | Indeks i status eksperymentów (zamknięte linie pozostają na miejscu) |
 | `docs/archive/` | Jednorazowe plany i dokumenty |
 | `docs/PROJECT_DESIGN.md` | Wyłącznie zapis historyczny; nieutrzymywany |
