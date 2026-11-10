@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 from crosscut_gateway.engine import WriteGateway
-from crosscut_gateway.interfaces import WriteProposal
+from crosscut_gateway.engine_params import ParamConfig
+from crosscut_gateway.interfaces import ParamPolicy, WriteProposal
+from crosscut_gateway.param_intent_store import (
+    ParamIntentItem,
+    ParamIntentRecord,
+    ParamIntentStore,
+)
 from crosscut_gateway.service import GatewayService, serve
 from test_gateway_scenarios import POLICY, TAG, S, SimPlant
 
@@ -256,3 +262,83 @@ def test_serve_processes_commands_until_stopped(env) -> None:
     thread.join(timeout=2.0)
     assert not thread.is_alive()
     assert outbox_payload(root, "p1")["ok"] is True
+
+
+class ParamSimPlant(SimPlant):
+    """Simulated plant supporting PID parameters for gateway service tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.params: dict[str, float] = {"FIC101.KP": 2.0}
+
+    def read_param(self, tag: str) -> float:
+        return self.params[tag]
+
+    def write_param(self, tag: str, val: float) -> None:
+        self.params[tag] = val
+
+    def loop_mode(self, tag: str) -> str:
+        return "AUTO"
+
+
+def test_list_open_intents_returns_empty_when_no_intents_exist(env) -> None:
+    """The list_open_intents command reports store_state ok and empty intents list."""
+    root, _clock, _plant, _gw, service = env
+    write_command(root, "list1", {"id": "list1", "cmd": "list_open_intents", "args": {}})
+    service.poll_once()
+    payload = outbox_payload(root, "list1")
+    assert payload["ok"] is True
+    assert payload["result"]["store_state"] == "ok"
+    assert payload["result"]["damaged"] is False
+    assert payload["result"]["intents"] == []
+
+
+def test_list_open_intents_reports_damaged_store_without_crashing(tmp_path: Path) -> None:
+    """When param-intents.json is corrupt, list_open_intents reports damaged and does not crash."""
+    clock = FakeClock()
+    plant = SimPlant()
+    intent_file = tmp_path / "_gateway" / "param-intents.json"
+    intent_file.parent.mkdir(parents=True, exist_ok=True)
+    intent_file.write_bytes(b"corrupted-non-json")
+
+    store = ParamIntentStore(intent_file)
+    gw = WriteGateway(plant, {TAG: POLICY}, "confirm", intent_store=store)
+    service = GatewayService(tmp_path, gw, clock=clock)
+
+    write_command(tmp_path, "list2", {"id": "list2", "cmd": "list_open_intents", "args": {}})
+    service.poll_once()
+    payload = outbox_payload(tmp_path, "list2")
+    assert payload["ok"] is True
+    assert payload["result"]["store_state"] == "damaged"
+    assert payload["result"]["damaged"] is True
+    assert payload["result"]["intents"] == []
+
+
+def test_resolve_intent_command_resolves_open_intent_via_mailbox(tmp_path: Path) -> None:
+    """resolve_intent command reads plant parameters and marks the intent closed."""
+    clock = FakeClock()
+    plant = ParamSimPlant()
+    policy = ParamPolicy(
+        loop="L1", param="gain", unit="1", vendor_form="siemens_pid",
+        limits=(0.1, 10.0), max_ratio=2.0, readback_tolerance=0.001,
+        min_interval_s=60.0, allowed_loop_modes=("AUTO", "MAN"),
+    )
+    cfg = ParamConfig({"FIC101.KP": policy}, plant=plant)
+    store = ParamIntentStore(tmp_path / "_gateway")
+    item = ParamIntentItem(target="FIC101.KP", from_value=2.0, to_value=3.0)
+    record = ParamIntentRecord(
+        key="key-123", loop_id="L1", items=(item,), created_time="2026-11-05T10:00:00Z"
+    )
+    store.record_intent(record)
+
+    gw = WriteGateway(plant, {TAG: POLICY}, "confirm", params=cfg, intent_store=store)
+    service = GatewayService(tmp_path, gw, clock=clock)
+    args = {"key": "key-123", "actor": "engineer1"}
+    write_command(tmp_path, "res1", {"id": "res1", "cmd": "resolve_intent", "args": args})
+    service.poll_once()
+
+    payload = outbox_payload(tmp_path, "res1")
+    assert payload["ok"] is True
+    assert payload["result"]["accepted"] is True
+    assert payload["result"]["reason_code"] == "resolved"
+    assert store.load_open() == []

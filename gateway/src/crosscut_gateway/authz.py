@@ -72,6 +72,9 @@ _COMMAND_PERMISSIONS: dict[str, str] = {
     "policy_draft": "policy.edit",
     "policy_pin": "policy.pin",
     "policy_reload": "policy.reload",
+    "list_open_intents": "gw.view",
+    "open_intents": "gw.view",
+    "resolve_intent": "gw.approve.tuning",
 }
 
 # Approving a queued PID parameter set needs this permission (ADR 014); gw.approve is not enough.
@@ -152,7 +155,7 @@ def _read_and_parse_json(path: Path) -> dict[str, Any]:
 def _load_validator_class() -> Any:
     """Import jsonschema's Draft 2020-12 validator lazily, reporting a missing package."""
     try:
-        from jsonschema import Draft202012Validator
+        from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
     except ImportError as error:
         message = f"jsonschema is required to validate roles files: {error}"
         raise AuthzError(message) from error

@@ -348,3 +348,34 @@ def test_damaged_intent_file_blocks_every_loop_and_refuses_resolve(
     decision = gw.propose_params(pset(it(KP, 2.5)), actor_ctx=ALICE)
     assert decision.reason_code == "reconcile_required"
     assert gw.resolve_intent("k", "alice", actor_ctx=ALICE).reason_code == "intent_store_unreadable"
+
+
+def test_resolve_intent_close_failure_audits_intent_close_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When close_intent fails after resolve, audit intent_close_failed and keep intent open."""
+    plant1 = CrashPlant(crash_after_writes=1)
+    gw1 = make_gateway(tmp_path, plant1)
+    proposal = pset(it(KP, 3.0))
+    key = param_set_key(proposal)
+    gw1.propose_params(proposal, actor_ctx=ALICE)
+    with pytest.raises(SimulatedCrash):
+        gw1.approve(key, actor_ctx=BOB)
+
+    gw2 = make_gateway(tmp_path, CrashPlant())
+
+    def failing_close(intent_key: str) -> None:
+        raise OSError("disk write error")
+
+    monkeypatch.setattr(gw2._params._store, "close_intent", failing_close)
+    decision = gw2.resolve_intent(key, actor="charlie")
+
+    assert decision.accepted is False
+    assert decision.reason_code == "intent_close_failed"
+    events = [r["event"] for r in gw2.audit_records()]
+    assert "intent_resolved" in events
+    assert "intent_close_failed" in events
+    failed_record = next(r for r in gw2.audit_records() if r["event"] == "intent_close_failed")
+    assert failed_record["reason_code"] == "intent_close_failed"
+    assert failed_record["actor"] == "charlie"
+    assert gw2.has_open_intent("L1") is True

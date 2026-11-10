@@ -741,12 +741,24 @@ class ParamManager:
         read_values = self._read_targets_for_resolve(record)
         if read_values is None:
             return WriteDecision(accepted=False, reason_code="read_failed")
-        self._audit_intent_resolved(record, key, read_values, actor)
+        fields = _make_intent_resolved_fields(record, key, read_values, actor)
+        self._audit_intent_resolved(fields)
         try:
             self._store.close_intent(key)
         except (OSError, IntentStoreUnreadableError):
+            self._audit_intent_close_failed(fields)
             return WriteDecision(accepted=False, reason_code="intent_close_failed")
         return WriteDecision(accepted=True, reason_code="resolved")
+
+    def _audit_intent_resolved(self, fields: Mapping[str, str]) -> None:
+        """Audit the resolution of an open intent with intended and live read values."""
+        self._env.emit("intent_resolved", dict(fields))
+
+    def _audit_intent_close_failed(self, fields: Mapping[str, str]) -> None:
+        """Audit an intent close failure event when close_intent fails after resolve."""
+        failed_fields = dict(fields)
+        failed_fields["reason_code"] = "intent_close_failed"
+        self._env.emit("intent_close_failed", failed_fields)
 
     def _read_targets_for_resolve(
         self, record: ParamIntentRecord
@@ -761,17 +773,6 @@ class ParamManager:
             except Exception:  # noqa: BLE001 - keep intent open on read error
                 return None
         return read_values
-
-    def _audit_intent_resolved(
-        self,
-        record: ParamIntentRecord,
-        key: str,
-        read_values: Mapping[str, float],
-        actor: str,
-    ) -> None:
-        """Audit the resolution of an open intent with intended and live read values."""
-        fields = _make_intent_resolved_fields(record, key, read_values, actor)
-        self._env.emit("intent_resolved", fields)
 
     # ------------------------------------------------------------------ tick and lifecycle
 

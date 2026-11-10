@@ -35,6 +35,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
+from crosscut_gateway.param_intent_store import IntentStoreUnreadableError, ParamIntentRecord
 from crosscut_gateway.param_ledger import ParamLedger
 from crosscut_gateway.policy import PolicyError, proposal_key
 from crosscut_gateway.policy_cmds import PolicyCommandError, PolicyCommands, PolicyPaths
@@ -72,6 +73,9 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "policy_draft": [("document", "object")],
     "policy_pin": [("digest", "str")],
     "policy_reload": [],
+    "list_open_intents": [],
+    "open_intents": [],
+    "resolve_intent": [("key", "str"), ("actor", "str")],
 }
 
 
@@ -399,6 +403,9 @@ class GatewayService:
             "policy_draft": self._handle_policy_draft,
             "policy_pin": self._handle_policy_pin,
             "policy_reload": self._handle_policy_reload,
+            "list_open_intents": self._handle_list_open_intents,
+            "open_intents": self._handle_list_open_intents,
+            "resolve_intent": self._handle_resolve_intent,
         }
 
     def _handle_propose(
@@ -488,6 +495,65 @@ class GatewayService:
         self, args: dict[str, Any], ctx: ActorContext | None
     ) -> dict[str, Any]:
         return self._policy.reload(args, _policy_actor(ctx), self._gateway)
+
+    def _handle_list_open_intents(
+        self, _args: dict[str, Any], _ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Return all open parameter write intents, or report the store as damaged."""
+        # In plain words:
+        # A damaged intent file blocks write operations, but listing commands must never
+        # crash with an unhandled exception. We report the damaged state explicitly.
+        try:
+            records = self._gateway.open_intents()
+        except IntentStoreUnreadableError:
+            return {
+                "store_state": "damaged",
+                "state": "damaged",
+                "damaged": True,
+                "intents": [],
+            }
+        intents = [self._serialize_open_intent(record) for record in records]
+        return {
+            "store_state": "ok",
+            "state": "ok",
+            "damaged": False,
+            "intents": intents,
+        }
+
+    def _serialize_open_intent(self, record: ParamIntentRecord) -> dict[str, Any]:
+        """Convert one open intent record into a summary dict with live values."""
+        items: list[dict[str, Any]] = []
+        for item in record.items:
+            live = self._read_item_current(item.target)
+            items.append({
+                "target": item.target,
+                "from_value": item.from_value,
+                "to_value": item.to_value,
+                "current_value": live,
+            })
+        data = record.to_dict()
+        data["items"] = items
+        return data
+
+    def _read_item_current(self, target: str) -> float | None:
+        """Read live value for target if plant is present; None on error."""
+        plant = getattr(self._gateway, "_plant", None)
+        if plant is None:
+            return None
+        try:
+            val = plant.read_param(target)
+            return float(val)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _handle_resolve_intent(
+        self, args: dict[str, Any], ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Resolve an open parameter write intent by reading live plant values."""
+        key = args["key"]
+        actor = args["actor"]
+        decision = self._gateway.resolve_intent(key, actor, actor_ctx=ctx)
+        return asdict(decision)
 
     def _write_result(self, cmd_id: str, result: dict[str, Any]) -> None:
         outbox_path = self._outbox_dir / f"{cmd_id}.json"

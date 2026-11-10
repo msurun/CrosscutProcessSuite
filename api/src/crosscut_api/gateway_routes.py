@@ -106,6 +106,12 @@ class GatewayClient(Protocol):
     def policy_reload(self, actor: ActorContext | None = None) -> None:
         """Reload the pinned policy; raises ValueError if refused."""
 
+    def list_open_intents(self, actor: ActorContext | None = None) -> dict[str, Any]:
+        """Return all open parameter write intents and store status."""
+
+    def resolve_intent(self, key: str, actor: ActorContext | None = None) -> dict[str, Any]:
+        """Resolve an open parameter write intent."""
+
 
 @contextmanager
 def _gateway_errors(value_error_status: int | None = None) -> Iterator[None]:
@@ -361,6 +367,32 @@ class _GatewayEndpoints:
             gw.policy_reload(actor=actor)
         return {"ok": True}
 
+    def get_intents(
+        self, actor: ActorDep, loop_id: str | None = None
+    ) -> dict[str, Any]:
+        """GET /gateway/intents: List open write intents and store status."""
+        actor.require("gw.view")
+        gw = self._gw()
+        with _gateway_errors():
+            payload = gw.list_open_intents(actor=actor)
+        if loop_id is not None:
+            raw = payload.get("intents", [])
+            filtered = [i for i in raw if isinstance(i, dict) and i.get("loop_id") == loop_id]
+            return {**payload, "intents": filtered}
+        return payload
+
+    def post_resolve_intent(self, key: str, actor: ActorDep) -> dict[str, Any]:
+        """POST /gateway/intents/{key}/resolve: Settle an open write intent."""
+        actor.require("gw.approve.tuning")
+        actor.require_stepup()
+        gw = self._gw()
+        with _gateway_errors():
+            decision = gw.resolve_intent(key, actor=actor)
+        if not decision.get("accepted"):
+            code = str(decision.get("reason_code", "refused"))
+            raise HTTPException(status_code=409, detail=code)
+        return {"ok": True, "key": key, "reason_code": "resolved", "decision": decision}
+
 
 def build_gateway_router(provider: Callable[[], GatewayClient | None]) -> APIRouter:
     """Construct and return the FastAPI router for Write Gateway management."""
@@ -380,4 +412,8 @@ def build_gateway_router(provider: Callable[[], GatewayClient | None]) -> APIRou
     router.add_api_route("/policy/draft", endpoints.put_policy_draft, methods=["PUT"])
     router.add_api_route("/policy/pin", endpoints.post_policy_pin, methods=["POST"])
     router.add_api_route("/policy/reload", endpoints.post_policy_reload, methods=["POST"])
+    router.add_api_route("/intents", endpoints.get_intents, methods=["GET"])
+    router.add_api_route(
+        "/intents/{key}/resolve", endpoints.post_resolve_intent, methods=["POST"]
+    )
     return router

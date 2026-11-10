@@ -329,6 +329,26 @@ class FileGatewayClient:
         """Reload the pinned policy in the gateway."""
         self._send_command("policy_reload", {}, actor)
 
+    def list_open_intents(
+        self, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Return all open parameter write intents and the store state."""
+        result = self._send_command("list_open_intents", {}, actor)
+        if not isinstance(result, dict):
+            raise TypeError("unexpected result for list_open_intents command")
+        return result
+
+    def resolve_intent(
+        self, key: str, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Resolve an open write intent; requires gw.approve.tuning and step-up."""
+        actor_name = actor.actor if actor is not None else "legacy"
+        args = {"key": key, "actor": actor_name}
+        result = self._send_command("resolve_intent", args, actor)
+        if not isinstance(result, dict):
+            raise TypeError("unexpected result for resolve_intent command")
+        return result
+
 
 def _is_fresh(state_path: Path, max_age_s: float, now_s: float) -> bool:
     """Return True if state.json parses and its updated_at_utc is within max_age_s of now_s."""

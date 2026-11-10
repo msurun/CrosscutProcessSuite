@@ -117,6 +117,9 @@ class FakeGateway:
         self.hide_applied = False  # state.json lags behind the audit: no applied_params yet
         self.timeout_after_apply = False  # the set is applied, but the reply never arrives
         self.unaudited = False  # the set is applied, the audit sink failed
+        self.open_intents: list[dict[str, Any]] = []
+        self.store_damaged = False
+        self.resolve_refusal: str | None = None
 
     def live_policy(self) -> dict[str, Any] | None:
         """The pinned live policy with the two parameter targets."""
@@ -223,6 +226,36 @@ class FakeGateway:
         self.values[tag] = value
         self.audit_log.append({"seq": str(len(self.audit_log)), "t_ns": str(time.time_ns()),
                                "event": "param_changed_externally", "tag": tag})  # fmt: skip
+
+    def list_open_intents(
+        self, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """List open write intents or damaged status."""
+        if self.store_damaged:
+            return {"store_state": "damaged", "state": "damaged", "damaged": True, "intents": []}
+        return {"store_state": "ok", "state": "ok", "damaged": False, "intents": list(self.open_intents)}
+
+    def resolve_intent(
+        self, key: str, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Resolve an open write intent; check permission and return decision."""
+        if actor is not None and not actor.can("gw.approve.tuning"):
+            raise PermissionError("missing_permission:gw.approve.tuning")
+        if self.store_damaged:
+            return {"accepted": False, "reason_code": "intent_store_unreadable"}
+        if self.resolve_refusal is not None:
+            return {"accepted": False, "reason_code": self.resolve_refusal}
+        matching = [i for i in self.open_intents if i.get("key") == key]
+        if not matching:
+            return {"accepted": False, "reason_code": "intent_not_open"}
+        self.open_intents = [i for i in self.open_intents if i.get("key") != key]
+        self.audit_log.append({
+            "event": "intent_resolved",
+            "key": key,
+            "actor": actor.actor if actor else "tester",
+            "t_ns": str(time.time_ns()),
+        })
+        return {"accepted": True, "reason_code": "resolved"}
 
 
 class Provider:

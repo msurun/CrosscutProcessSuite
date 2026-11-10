@@ -212,3 +212,28 @@ describe("polling", () => {
     expect(fetchSpy.mock.calls.length).toBe(after);
   });
 });
+
+describe("reconciliation cards", () => {
+  const intentA: tuningApi.ParamIntentRecord = {
+    key: "k-fic101",
+    loop_id: "FIC101",
+    created_at: "2026-11-10T10:00:00Z",
+    proposer: "alice",
+    targets: [{ target: "FIC101.GAIN", to_value: 2.0, current_value: 1.0 }],
+  };
+
+  it("renders reconcile card when an open intent exists", async () => {
+    vi.spyOn(tuningApi, "fetchTuningProposals").mockResolvedValue([makeProposal()]);
+    vi.spyOn(tuningApi, "fetchOpenIntents").mockResolvedValue({ store_state: "healthy", intents: [intentA] });
+    await renderAs("lead", page);
+    expect(await screen.findByTestId("tuning-reconcile-card")).toBeInTheDocument();
+    expect(screen.getByTestId("reconcile-intended-FIC101.GAIN")).toHaveTextContent("2");
+  });
+
+  it("renders damaged store notice when intent store is damaged", async () => {
+    vi.spyOn(tuningApi, "fetchTuningProposals").mockResolvedValue([]);
+    vi.spyOn(tuningApi, "fetchOpenIntents").mockResolvedValue({ store_state: "damaged", intents: [] });
+    await renderAs("lead", page);
+    expect(await screen.findByTestId("tuning-store-damaged")).toBeInTheDocument();
+  });
+});
