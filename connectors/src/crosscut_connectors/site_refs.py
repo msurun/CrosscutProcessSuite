@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections import Counter, deque
 from typing import Any
 
+from crosscut_connectors.site_controllers import controller_problems
+
 Document = dict[str, Any]
 LEVELS = {"site": 0, "area": 1, "unit": 2, "equipment": 3}
 LOOP_SLOTS = ("pv", "sp", "out", "mode")  # signal roles that fill a slot of loops[]
@@ -28,6 +30,7 @@ def reference_problems(document: Document) -> list[str]:
     problems += _signal_problems(document, tags, loop_ids)
     problems += _lab_problems(document.get("labs", []), tags, conversions)
     problems += _mode_problems(document.get("modes", []), tags, document.get("equipment", []))
+    problems += controller_problems(document)
     return problems
 
 
