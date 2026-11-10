@@ -95,6 +95,7 @@ class AnomalyScanJob:
     ) -> None:
         """Initialize the job; ``model_dir`` is the ``_anomaly`` folder of the data root."""
         self._id = job_doc["id"]
+        self._model_id = job_doc.get("anomaly_id", self._id)
         self._tags = job_doc["tags"]
         self._period_s = float(job_doc.get("period_s", 60.0))
         self._window_s = float(job_doc.get("window_s", 3600.0))
@@ -144,12 +145,12 @@ class AnomalyScanJob:
 
     def _load_config(self) -> config.AnomalyConfig:
         """The stored detector config, or one built from the job doc (detector defaults)."""
-        path = self._dir / f"{self._id}.json" if self._dir else None
+        path = self._dir / f"{self._model_id}.json" if self._dir else None
         if path is not None and path.is_file():
             return config.load_config(json.loads(path.read_text(encoding="utf-8")))
         return config.load_config({
             "schema_version": "1.0.0",
-            "id": self._id,
+            "id": self._model_id,
             "tags": self._tags,
             "mode": "advisory",
             "sample_period_s": self._period_s,
@@ -157,7 +158,7 @@ class AnomalyScanJob:
 
     def _load_model(self) -> pca_model.PcaModel | None:
         """The model fitted through the anomaly API, or None when none was stored."""
-        path = self._dir / f"{self._id}.model.json" if self._dir else None
+        path = self._dir / f"{self._model_id}.model.json" if self._dir else None
         if path is None or not path.is_file():
             return None
         return pca_model.PcaModel.from_dict(json.loads(path.read_text(encoding="utf-8")))

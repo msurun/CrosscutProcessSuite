@@ -72,6 +72,10 @@
           "uniqueItems": true,
           "description": "Ids of entries in the site's tags; required for anomaly_scan jobs."
         },
+        "anomaly_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "anomaly_scan only: id of the anomaly configuration and fitted model under <data root>/_anomaly/ that the job scans with; defaults to the job id."
+        },
         "period_s": {
           "type": "number",
           "exclusiveMinimum": 0,

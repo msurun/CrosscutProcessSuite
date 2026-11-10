@@ -132,6 +132,16 @@ def test_scan_is_ok_with_stored_model(tmp_path: Path) -> None:
     assert scan["events"] == []
 
 
+def test_anomaly_id_selects_the_stored_model(tmp_path: Path) -> None:
+    _store_model(tmp_path)
+    clock = TickClock()
+    history = HistoryStore(tmp_path / "history.db")
+    doc = {**_job_doc(TAGS), "id": "live-job", "anomaly_id": "scan-1"}
+    connector = ReplayConnector(_correlated_matrix(TICKS), None)
+    job = AnomalyScanJob(doc, connector, history, clock, tmp_path / "_anomaly")
+    assert _run_ticks(job, clock, TICKS)["scan"]["status"] == "ok"
+
+
 def test_sudden_shift_in_recent_ticks_produces_an_event(tmp_path: Path) -> None:
     _store_model(tmp_path)
     clock = TickClock()
