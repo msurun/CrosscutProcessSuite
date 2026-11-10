@@ -131,6 +131,8 @@ def _write_atomic(path: Path, document: Record) -> None:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(document, stream, indent=2, ensure_ascii=False)
             stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         replace_with_retry(temp_name, path)
     except BaseException:
         with contextlib.suppress(OSError):
