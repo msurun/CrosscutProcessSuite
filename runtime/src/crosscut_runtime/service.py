@@ -19,7 +19,7 @@ from crosscut_connectors.site import SiteError, load_site
 
 from crosscut_runtime.addressing import AddressedConnector
 from crosscut_runtime.history import HistoryError, HistoryStore, history_path
-from crosscut_runtime.jobs.anomaly_scan import AnomalyScanJob
+from crosscut_runtime.jobs.anomaly_scan import ANOMALY_DIR, AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
@@ -174,7 +174,13 @@ class RuntimeService:
         job_id = job["id"]
         cached = self._anomaly_jobs.get(job_id)
         if cached is None or cached[0] != job:
-            scan_job = AnomalyScanJob(job, self._connectors[job_id], self._history, self._clock)
+            scan_job = AnomalyScanJob(
+                job,
+                self._connectors[job_id],
+                self._history,
+                self._clock,
+                self._store.root / ANOMALY_DIR,
+            )
             cached = (job, scan_job)
             self._anomaly_jobs[job_id] = cached
         return cached[1]
