@@ -68,6 +68,13 @@ class FakeGateway:
         """Record a rejection."""
         self._record("reject", actor)
 
+    def mv_availability(
+        self, targets: list[str], actor: ActorContext | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """Record the query and report every target available."""
+        self._record("mv_availability", actor)
+        return {t: {"available": True, "reasons": []} for t in targets}
+
     def kill(self, actor: ActorContext | None = None) -> None:
         """Record an emergency kill."""
         self._record("kill", actor)
@@ -272,6 +279,22 @@ def test_request_without_session_is_refused(world: World) -> None:
     """A request carrying no session cookie gets 401."""
     client = TestClient(world.app)
     assert client.get("/gateway/status").status_code == 401
+
+
+def test_mv_availability_route_returns_targets_for_viewer(world: World) -> None:
+    """A viewer holds gw.view, so the read-only availability query succeeds."""
+    client, payload = client_as(world, "view1")
+    response = send(client, payload, "GET /gateway/mv-availability?targets=a&targets=b")
+    assert response.status_code == 200
+    assert response.json() == {t: {"available": True, "reasons": []} for t in ("a", "b")}
+    assert ("mv_availability", "view1") in world.fake.calls
+
+
+def test_mv_availability_route_needs_session_and_targets(world: World) -> None:
+    """No session gets 401; a session without the targets query gets 422."""
+    assert TestClient(world.app).get("/gateway/mv-availability?targets=a").status_code == 401
+    client, payload = client_as(world, "view1")
+    assert send(client, payload, "GET /gateway/mv-availability").status_code == 422
 
 
 def test_kill_without_enforcer_or_stamped_actor_fails_closed() -> None:

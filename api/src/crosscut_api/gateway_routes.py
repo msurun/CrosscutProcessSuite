@@ -76,6 +76,11 @@ class GatewayClient(Protocol):
     def reject(self, key: str, actor: ActorContext | None = None) -> None:
         """Discard a queued proposal without writing; raises KeyError if unknown."""
 
+    def mv_availability(
+        self, targets: list[str], actor: ActorContext | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """Return {target: {available, reasons}}; read-only."""
+
     def kill(self, actor: ActorContext | None = None) -> None:
         """Trigger the emergency kill switch on all targets."""
 
@@ -273,6 +278,14 @@ class _GatewayEndpoints:
             gw.set_mode(valid_mode, actor=actor)
         return {"ok": True, "mode": valid_mode}
 
+    def get_mv_availability(
+        self, actor: ActorDep, targets: Annotated[list[str], Query()]
+    ) -> dict[str, dict[str, Any]]:
+        """GET /gateway/mv-availability?targets=a&targets=b: which targets can be written."""
+        gw = self._gw()
+        with _gateway_errors():
+            return gw.mv_availability(targets, actor=actor)
+
     def get_audit(
         self, actor: ActorDep, limit: int = Query(default=200, ge=1, le=1000)
     ) -> dict[str, Any]:
@@ -374,6 +387,7 @@ def build_gateway_router(provider: Callable[[], GatewayClient | None]) -> APIRou
     router.add_api_route("/kill/reset", endpoints.post_kill_reset, methods=["POST"])
     router.add_api_route("/targets/{tag}/re-enable", endpoints.post_re_enable, methods=["POST"])
     router.add_api_route("/mode", endpoints.put_mode, methods=["PUT"])
+    router.add_api_route("/mv-availability", endpoints.get_mv_availability, methods=["GET"])
     router.add_api_route("/audit", endpoints.get_audit, methods=["GET"])
     router.add_api_route("/policy", endpoints.get_policy, methods=["GET"])
     router.add_api_route("/policy/draft", endpoints.get_policy_draft, methods=["GET"])

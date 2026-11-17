@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from crosscut_gateway import policy_file, policy_pin
 from crosscut_gateway.actor import GATEWAY_ACTOR, ActorContext, normalize_actor
@@ -413,6 +413,54 @@ class WriteGateway:
     def status(self) -> dict[str, str]:
         """Return the current per-target state for all policy tags."""
         return {**self._states, **self._params.states()}
+
+    def mv_availability(self, targets: list[str]) -> dict[str, dict[str, Any]]:
+        """Return ``{target: {available, reasons}}`` for the asked targets; read-only.
+
+        Reasons: ``unknown_target``, ``killed``, ``hold_off``, ``comm_loss``, ``mode``
+        (loop mode outside the policy), ``mode_no_write`` (gateway mode off, advisory or
+        dry_run). It never writes and never changes any state.
+        """
+        result: dict[str, dict[str, Any]] = {}
+        for tag in targets:
+            reasons = self._unavailable_reasons(tag)
+            result[tag] = {"available": not reasons, "reasons": reasons}
+        return result
+
+    def _unavailable_reasons(self, tag: str) -> list[str]:
+        """List why ``tag`` cannot be written now; empty when it is available."""
+        state = self.target_state(tag)
+        if state is None:
+            return ["unknown_target"]
+        reasons: list[str | None] = [self._state_reason(state), self._mode_reason()]
+        if self._killed:
+            reasons.append("killed")
+        if tag in self._policies:
+            reasons.append(self._loop_mode_reason(tag))
+        return list(dict.fromkeys(r for r in reasons if r))
+
+    @staticmethod
+    def _state_reason(state: str) -> str | None:
+        """Map a target state to an unavailability reason, or None when enabled."""
+        if state == "enabled":
+            return None
+        if state == "hold_off":
+            return "hold_off"
+        if state == "stopped:comm":
+            return "comm_loss"
+        return "killed" if state in ("killed", "stopped:kill") else state.replace(":", "_")
+
+    def _mode_reason(self) -> str | None:
+        """Return ``mode_no_write`` while the gateway mode cannot write, else None."""
+        return "mode_no_write" if self._mode in ("off", "advisory", "dry_run") else None
+
+    def _loop_mode_reason(self, tag: str) -> str | None:
+        """Return ``mode`` or ``comm_loss`` for a blocking loop mode, else None."""
+        try:
+            mode = self._plant.loop_mode(tag)
+        except Exception:  # noqa: BLE001 - an unreadable plant is unavailable, not an error
+            return "comm_loss"
+        return None if mode in self._policies[tag].allowed_loop_modes else "mode"
 
     def alarms(self) -> dict[str, str]:
         """Return the open DCS alarms of parameter targets (tag -> ``check_dcs``)."""

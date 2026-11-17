@@ -301,6 +301,13 @@ class FileGatewayClient:
         """Discard a queued proposal without writing; raises KeyError if unknown."""
         self._send_command("reject", {"key": key}, actor)
 
+    def mv_availability(
+        self, targets: list[str], actor: ActorContext | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """Ask the gateway which targets can be written now (read-only, changes no state)."""
+        result = self._send_command("mv_availability", {"targets": targets}, actor)
+        return result if isinstance(result, dict) else {}
+
     def kill(self, actor: ActorContext | None = None) -> None:
         """Trigger the emergency kill switch on all targets."""
         self._send_command("kill", {}, actor)
