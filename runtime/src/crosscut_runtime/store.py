@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Iterable
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ RUNTIME_FOLDER = "_runtime"
 JOBS_FILE = "jobs.json"
 STATE_FILE = "state.json"
 LOG_FILE = "log.jsonl"
+VARIABLES_FILE = "variables.json"
 JOBS_SCHEMA_FILE = "job.schema.json"
 SCHEMAS_ENV_VAR = "CROSSCUT_SCHEMAS_DIR"
 
@@ -173,3 +176,38 @@ class RuntimeStore:
             except json.JSONDecodeError:
                 logging.getLogger(__name__).warning("Corrupt log line: %s", line)
         return entries
+
+
+def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
+    """Write ``document`` to ``path`` through a temp file and an atomic replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(document, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
+        os.replace(temp_name, path)
+    except Exception:
+        os.unlink(temp_name)
+        raise
+
+
+def read_variable_status(root: Path) -> dict[str, list[dict[str, Any]]]:
+    """Per-controller variable statuses, empty when the file is missing or corrupt."""
+    path = root / RUNTIME_FOLDER / VARIABLES_FILE
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def write_variable_status(root: Path, controller_id: str, statuses: Iterable[Any]) -> None:
+    """Replace the statuses of one controller (dataclasses) in variables.json, atomically.
+
+    Kept apart from state.json so the controller job and the service loop never overwrite
+    each other's file.
+    """
+    document = read_variable_status(root)
+    document[controller_id] = [asdict(status) for status in statuses]
+    _write_json_atomic(root / RUNTIME_FOLDER / VARIABLES_FILE, document)

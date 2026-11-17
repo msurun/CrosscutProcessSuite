@@ -208,3 +208,23 @@ def test_log_returns_appended_lines(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "hello runtime" in "\n".join(response.json()["lines"])
+
+
+def test_variables_empty_without_runtime(client: TestClient) -> None:
+    response = client.get("/runtime/variables")
+
+    assert response.status_code == 200
+    assert response.json() == {"controllers": {}}
+
+
+def test_variables_returns_written_statuses(tmp_path: Path) -> None:
+    from crosscut_runtime.store import write_variable_status
+    from crosscut_runtime.variable_status import VariableStatus
+
+    client = _client_with_site(tmp_path)
+    status = VariableStatus("cv1", "t.pv", "bad", ("stale",), 1.5, None)
+    write_variable_status(tmp_path, "c1", [status])
+
+    body = client.get("/runtime/variables").json()
+
+    assert body["controllers"]["c1"][0]["reasons"] == ["stale"]

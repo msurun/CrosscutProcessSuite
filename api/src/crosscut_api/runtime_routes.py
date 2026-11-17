@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from crosscut_connectors.site import SiteError, load_site
-from crosscut_runtime.store import JobStoreError, RuntimeStore
+from crosscut_runtime.store import JobStoreError, RuntimeStore, read_variable_status
 from fastapi import APIRouter, Body, HTTPException, Query
 from jsonschema import Draft202012Validator
 
@@ -180,6 +180,10 @@ class _RuntimeEndpoints:
         ]
         return {"service": service, "jobs": summaries}
 
+    def variables(self) -> dict[str, Any]:
+        """Return the live variable statuses per controller (empty before the first cycle)."""
+        return {"controllers": read_variable_status(self._root)}
+
     def log(
         self,
         limit: Annotated[int, Query(ge=1, le=LOG_LIMIT_MAX)] = LOG_LIMIT_DEFAULT,
@@ -288,6 +292,7 @@ def build_runtime_router(root: Path) -> APIRouter:
     endpoints = _RuntimeEndpoints(root)
     router = APIRouter()
     router.add_api_route("/runtime/status", endpoints.status, methods=["GET"])
+    router.add_api_route("/runtime/variables", endpoints.variables, methods=["GET"])
     router.add_api_route("/runtime/log", endpoints.log, methods=["GET"])
     router.add_api_route("/runtime/jobs", endpoints.jobs, methods=["GET"])
     router.add_api_route("/runtime/jobs", endpoints.create_job, methods=["POST"])
