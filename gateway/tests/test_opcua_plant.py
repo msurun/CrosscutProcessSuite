@@ -21,6 +21,7 @@ from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WritePolicy, WriteProposal
 from crosscut_gateway.opcua_plant import OpcUaPlant, PlantMapError
 
+TIMER_TOLERANCE_S = 0.02  # Seconds allowed for Windows timer granularity.
 NAMESPACE_URI = "urn:crosscut:test"
 TAG = "FIC101.SP"
 RO_TAG = "RO.SP"
@@ -572,8 +573,7 @@ def test_take_remote_settle_waits_before_setpoint(rig: Rig) -> None:
     plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
     started = time.monotonic()
     assert plant.write(TAG, 55.0) is True
-    # Windows clocks tick at ~15.6 ms, so time.sleep(0.3) can read as 0.296 s on monotonic().
-    assert time.monotonic() - started >= 0.3 - 0.02
+    assert time.monotonic() - started >= take["settle_s"] - TIMER_TOLERANCE_S
     assert rig.server.get_node("FIC101.SP") == 55.0
 
 
