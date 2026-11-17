@@ -27,6 +27,7 @@ from crosscut_gateway.engine_params import (
 from crosscut_gateway.engine_wiring import check_param_wiring
 from crosscut_gateway.interfaces import (
     ControlSystem,
+    NotRemoteError,
     ParamControlSystem,
     ParamPolicy,
     ParamSetProposal,
@@ -777,6 +778,8 @@ class WriteGateway:
         self._log_proposal("write_intent", proposal, decision.reason_code, value)
         try:
             success = self._plant.write(tag, value)
+        except NotRemoteError:
+            return self._refuse_not_remote(proposal, key, value)
         except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
             return self._handle_comm_loss(tag, proposal, key, value, exc)
         if not success:
@@ -787,6 +790,13 @@ class WriteGateway:
         except Exception as exc:  # noqa: BLE001 - any plant failure fails closed
             return self._handle_comm_loss(tag, proposal, key, value, exc)
         return self._seen_proposals[key]
+
+    def _refuse_not_remote(self, proposal: WriteProposal, key: str, value: float) -> WriteDecision:
+        """Refuse a write because the loop is not remote (ADR 016); nothing was written."""
+        self._log_proposal("not_remote", proposal, "not_remote", value)
+        decision = WriteDecision(accepted=False, reason_code="not_remote")
+        self._seen_proposals[key] = decision
+        return decision
 
     def _fail_rejected(self, proposal: WriteProposal, key: str, value: float) -> WriteDecision:
         """Stop and release the target after the control system rejected a write."""
@@ -1040,6 +1050,7 @@ def start_from_policy_file(
     else:
         loaded = _load_pinned_policy(path, key)
     check_param_wiring(plant, loaded.targets, loaded.params)
+    _apply_take_remote(plant, loaded.allow_take_remote)
     effective_mode = _more_restrictive(mode, loaded.mode)  # type: ignore[arg-type]
     gateway_dir = path.parent
     store = _resolve_intent_store(intent_store, gateway_dir, audit)
@@ -1058,7 +1069,16 @@ def start_from_policy_file(
         gateway_dir=gateway_dir,
     )
     gateway._mode_cap = cast(Mode, loaded.mode)  # the cap is the policy mode, not the start mode
+    if loaded.allow_take_remote:
+        gateway._log("policy", "*", "allow_take_remote")
     return gateway
+
+
+def _apply_take_remote(plant: ControlSystem, allow: bool) -> None:
+    """Hand the policy flag ``allow_take_remote`` to an adapter that can take remote (ADR 016)."""
+    setter = getattr(plant, "set_allow_take_remote", None)
+    if setter is not None:
+        setter(allow)
 
 
 def safe_gateway(plant: ControlSystem, audit: AuditLog | None = None) -> WriteGateway:

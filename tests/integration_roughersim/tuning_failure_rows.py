@@ -34,7 +34,7 @@ def tuning_rig(tmp: Path, hook_name: str) -> Iterator[Rig]:
     """Yield a confirm-mode gateway using an absolute hook file path; always close it."""
     hook_path = str((HOOK_DIRECTORY / f"{hook_name}.json").resolve())
     with rs_server(tmp / "server.log", hook_path, SERVER_SPEED) as port:
-        harness = Harness(plant_map_for(port), SERVER_SPEED)
+        harness = Harness(plant_map_for(port), SERVER_SPEED, allow_take_remote=True)
         try:
             harness.wait_ready()
             policies = {

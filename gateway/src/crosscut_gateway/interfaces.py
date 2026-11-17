@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 
+class NotRemoteError(Exception):
+    """A setpoint write was refused because the loop is not in remote setpoint source (ADR 016)."""
+
+
 @dataclass(frozen=True)
 class WriteProposal:
     """A request from an analysis package to change one setpoint (data, never a call)."""

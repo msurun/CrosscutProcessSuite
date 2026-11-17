@@ -94,9 +94,15 @@ def plant_map_for(port: int) -> dict[str, Any]:
 class Harness:
     """ControlSystem for the engine: the real OpcUaPlant, a write counter and a sim clock."""
 
-    def __init__(self, plant_map: dict[str, Any], speed: float) -> None:
-        """Open the adapter on ``plant_map``; ``speed`` is the server's sim s per wall s."""
+    def __init__(
+        self, plant_map: dict[str, Any], speed: float, allow_take_remote: bool = False
+    ) -> None:
+        """Open the adapter on ``plant_map``; ``speed`` is the server's sim s per wall s.
+
+        ``allow_take_remote`` mirrors the write policy flag of the same name (ADR 016).
+        """
         self.plant = OpcUaPlant(plant_map)
+        self.plant.set_allow_take_remote(allow_take_remote)
         self.speed = speed
         self.writes: list[tuple[int, str, float]] = []
 

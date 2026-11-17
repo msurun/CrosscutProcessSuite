@@ -127,6 +127,7 @@ class LoadedPolicy:
     params: dict[str, ParamPolicy]
     mode: str
     digest: str
+    allow_take_remote: bool = False
 
 
 def load_policy_documents(path: Path, expected_digest: str | None = None) -> LoadedPolicy:
@@ -140,7 +141,9 @@ def load_policy_documents(path: Path, expected_digest: str | None = None) -> Loa
     digest = policy_digest(data)
     _verify_digest(digest, expected_digest)
     targets, params = policies_from_dict(data)
-    return LoadedPolicy(targets, params, str(data["mode"]), digest)
+    return LoadedPolicy(
+        targets, params, str(data["mode"]), digest, data.get("allow_take_remote", False) is True
+    )
 
 
 def load_policy_file(
