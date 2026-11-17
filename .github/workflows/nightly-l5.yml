@@ -107,8 +107,12 @@ jobs:
 
       # Report only: there is no fail-under threshold yet. The L5 folder is ignored because
       # those rows need RougherSim and already ran in the step above.
+      # COVERAGE_CORE=sysmon (Python 3.12+): the default trace core slows asyncua's server start
+      # from ~1 s to ~30 s, past the 10 s start wait in the OPC UA test fixtures.
       - name: Python tests with coverage
         if: ${{ !cancelled() }}
+        env:
+          COVERAGE_CORE: sysmon
         run: |
           python -m pytest \
             --ignore=tests/integration_roughersim \

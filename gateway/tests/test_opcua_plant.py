@@ -572,7 +572,8 @@ def test_take_remote_settle_waits_before_setpoint(rig: Rig) -> None:
     plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
     started = time.monotonic()
     assert plant.write(TAG, 55.0) is True
-    assert time.monotonic() - started >= 0.3
+    # Windows clocks tick at ~15.6 ms, so time.sleep(0.3) can read as 0.296 s on monotonic().
+    assert time.monotonic() - started >= 0.3 - 0.02
     assert rig.server.get_node("FIC101.SP") == 55.0
 
 
