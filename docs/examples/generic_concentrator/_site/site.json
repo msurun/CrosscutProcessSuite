@@ -1600,6 +1600,107 @@
       "asset_template": "ball_mill"
     }
   ],
+  "controllers": [
+    {
+      "id": "CR1.SUP",
+      "type": "fuzzy",
+      "description": "Crusher supervisor (example)",
+      "cycle_s": 30,
+      "stale_cycles": 3,
+      "max_overruns": 3,
+      "rule_base": "crusher_supervisor",
+      "variables": [
+        {
+          "id": "feed",
+          "role": "MV",
+          "binding": {
+            "loop": "CR1.FEED"
+          },
+          "limits": {
+            "eng": {
+              "lo": 0,
+              "hi": 100
+            },
+            "operator": {
+              "lo": 20,
+              "hi": 90
+            },
+            "move_max": 2,
+            "rate_max": 0.5
+          },
+          "priority": 1,
+          "required": true
+        },
+        {
+          "id": "css",
+          "role": "MV",
+          "binding": {
+            "loop": "CR1.CSS"
+          },
+          "limits": {
+            "eng": {
+              "lo": 0,
+              "hi": 100
+            },
+            "operator": {
+              "lo": 10,
+              "hi": 80
+            },
+            "move_max": 1
+          },
+          "priority": 2
+        },
+        {
+          "id": "power",
+          "role": "CV",
+          "binding": {
+            "tag": "CR1.POWER.PV"
+          },
+          "limits": {
+            "validity": {
+              "lo": 0,
+              "hi": 200
+            },
+            "eng": {
+              "lo": 0,
+              "hi": 150
+            },
+            "operator": {
+              "lo": 20,
+              "hi": 120
+            }
+          },
+          "priority": 1
+        },
+        {
+          "id": "level",
+          "role": "CV",
+          "binding": {
+            "tag": "SMP1.LEVEL.PV"
+          },
+          "limits": {
+            "validity": {
+              "lo": 0,
+              "hi": 100
+            },
+            "operator": {
+              "lo": 20,
+              "hi": 80
+            }
+          },
+          "priority": 2
+        },
+        {
+          "id": "ore_feed",
+          "role": "DV",
+          "binding": {
+            "tag": "ML1.FEED.PV"
+          },
+          "enabled_default": true
+        }
+      ]
+    }
+  ],
   "modes": [
     {
       "id": "mill_running",

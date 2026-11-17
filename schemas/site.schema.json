@@ -52,6 +52,11 @@
       "description": "Operating modes defined as conditions on tags.",
       "items": {"$ref": "#/$defs/mode"}
     },
+    "controllers": {
+      "type": "array",
+      "description": "Advanced process controllers (APC core): the variable model each controller works with. Variables bind loops (MV) and tags (CV, DV, ICV) of this catalogue.",
+      "items": {"$ref": "#/$defs/controller"}
+    },
     "readiness": {
       "$ref": "#/$defs/readiness",
       "description": "Thresholds and parameters for module onboarding and readiness checks."
@@ -73,6 +78,68 @@
         "warn_flat_share": {"type": "number", "minimum": 0, "maximum": 1},
         "min_anomaly_inputs": {"type": "integer", "minimum": 1},
         "min_softsensor_inputs": {"type": "integer", "minimum": 1}
+      }
+    },
+    "bound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lo", "hi"],
+      "properties": {
+        "lo": {"type": "number"},
+        "hi": {"type": "number"}
+      }
+    },
+    "variable_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Nested limits: validity contains eng contains operator. move_max is the largest change per cycle (MV only); rate_max the largest change per second.",
+      "properties": {
+        "eng": {"$ref": "#/$defs/bound", "description": "Engineering range of the variable."},
+        "operator": {"$ref": "#/$defs/bound", "description": "Range the operator allows."},
+        "validity": {"$ref": "#/$defs/bound", "description": "Range in which a measured value is believed."},
+        "move_max": {"type": "number", "exclusiveMinimum": 0},
+        "rate_max": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "controller_variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "binding"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "role": {"enum": ["MV", "CV", "DV", "ICV"], "description": "Manipulated, controlled, disturbance or inferential controlled variable."},
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "loop": {"$ref": "#/$defs/identifier", "description": "Loop id (required for an MV)."},
+            "tag": {"$ref": "#/$defs/identifier", "description": "Tag id (CV, DV, ICV)."}
+          },
+          "minProperties": 1,
+          "maxProperties": 1
+        },
+        "limits": {"$ref": "#/$defs/variable_limits"},
+        "priority": {"type": "integer", "minimum": 1, "description": "1 is the highest priority."},
+        "enabled_default": {"type": "boolean", "description": "Operator on/off at start; true when omitted."},
+        "required": {"type": "boolean", "description": "MV only: the controller sheds when this MV is unavailable; false when omitted."}
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "variables"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "type": {"enum": ["fuzzy"], "description": "Controller kind; mpc is added later."},
+        "description": {"type": "string"},
+        "cycle_s": {"type": "number", "minimum": 1, "maximum": 3600, "description": "Cycle period in seconds; 30 when omitted."},
+        "stale_cycles": {"type": "integer", "minimum": 1, "description": "Cycles after which an unchanged source time stamp is stale; 3 when omitted."},
+        "max_overruns": {"type": "integer", "minimum": 1, "description": "Overruns in a row before the controller sheds; 3 when omitted."},
+        "rule_base": {"$ref": "#/$defs/identifier", "description": "Id of a fuzzy system (fuzzy controllers)."},
+        "variables": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/controller_variable"}
+        }
       }
     },
     "identifier": {
