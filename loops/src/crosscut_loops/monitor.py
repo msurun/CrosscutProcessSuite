@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 import numpy as np
-from crosscut_sim.core import MAN
 
 from crosscut_loops.health_kpis import (
     QUANTISATION_LIMITING,
@@ -15,6 +14,7 @@ from crosscut_loops.health_kpis import (
     valve_extremes,
     valve_travel_per_hour,
 )
+from crosscut_loops.loop_modes import MAN
 from crosscut_loops.metrics import (
     flatline_fraction,
     hagglund_oscillation,

@@ -28,9 +28,9 @@ from crosscut_connectors.opcua_import import (
     _connect,
     _dataset_info,
     _disconnect,
-    _is_status_good,
     _make_report,
     _validate_arguments,
+    quality_from_status,
     resolve_node_id,
 )
 
@@ -92,7 +92,7 @@ def _canonical_id(node_id: str) -> str:
 
 
 def _quality_of(data: Any) -> int:
-    """Translate the StatusCode of a notification into GOOD or BAD.
+    """Translate the StatusCode of a notification into GOOD, UNCERTAIN or BAD.
 
     A missing payload or a bad status code means the value cannot be trusted.
     """
@@ -100,7 +100,7 @@ def _quality_of(data: Any) -> int:
         status_code = data.monitored_item.Value.StatusCode
     except AttributeError:
         return BAD
-    return GOOD if _is_status_good(status_code) else BAD
+    return quality_from_status(status_code)
 
 
 def _numeric_value(val: Any) -> float:

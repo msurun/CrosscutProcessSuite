@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 from asyncua import Client, ua
-from crosscut_sim.core import BAD, GOOD
+from crosscut_sim.core import BAD, GOOD, UNCERTAIN
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_import import _sanitize_tag_name
@@ -399,6 +399,17 @@ def _is_status_good(status_code: Any) -> bool:
     # Fallback for old builds: unwrap the raw integer via ``value`` when present, otherwise trust
     # the argument itself to be the integer. The constant 0 is the OPC UA "Good" code.
     return bool(getattr(status_code, "value", status_code) == 0)
+
+
+def quality_from_status(status_code: Any) -> int:
+    """Map an OPC UA StatusCode to a quality code: GOOD (0), UNCERTAIN (1) or BAD (2).
+
+    The top two bits of the code are its severity: 0 good, 1 uncertain, 2 and 3 bad.
+    """
+    if _is_status_good(status_code):
+        return GOOD
+    severity = int(getattr(status_code, "value", status_code)) >> 30
+    return UNCERTAIN if severity == 1 else BAD
 
 
 def _start_iso(ts_ns: np.ndarray) -> str:
