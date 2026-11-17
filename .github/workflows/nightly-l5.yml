@@ -1,7 +1,8 @@
 # Nightly L5 gate: runs the RougherSim integration rows and measures Python coverage.
 # The RougherSim release is pinned in tests/integration_roughersim/pin.json; this file reads
 # the tag and commit from there instead of keeping a second copy. The repository is private,
-# so the checkout uses the ROUGHERSIM_TOKEN secret.
+# so the checkout uses the ROUGHERSIM_DEPLOY_KEY secret: the private half of a read-only
+# deploy key registered on msurun/RougherSim.
 
 name: Nightly L5
 
@@ -50,7 +51,7 @@ jobs:
         with:
           repository: msurun/RougherSim
           ref: ${{ steps.pin.outputs.tag }}
-          token: ${{ secrets.ROUGHERSIM_TOKEN }}
+          ssh-key: ${{ secrets.ROUGHERSIM_DEPLOY_KEY }}
           path: RougherSim
 
       # A moved tag would make the tests skip, so fail early with a clear message.
