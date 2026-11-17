@@ -61,6 +61,29 @@ class LiveValue:
     timestamp_utc: str
 
 
+@dataclass(frozen=True)
+class Snapshot:
+    """All requested tags sampled together for one control cycle.
+
+    ``comm_ok`` is False when the source could not be read at all; every value then has quality
+    2 and ``reason`` says why (``"comm_loss"``).
+    """
+
+    cycle_utc: str
+    values: dict[str, LiveValue]
+    comm_ok: bool
+    reason: str | None = None
+
+
+@runtime_checkable
+class SnapshotConnector(Protocol):
+    """Optional extension: connectors that can sample one consistent cycle snapshot."""
+
+    def read_snapshot(self, tag_ids: Sequence[str]) -> Snapshot:
+        """Sample all tags in one batch; never raises on communication loss."""
+        ...
+
+
 @runtime_checkable
 class Connector(Protocol):
     """Unified read-only protocol for plant and historian data sources.

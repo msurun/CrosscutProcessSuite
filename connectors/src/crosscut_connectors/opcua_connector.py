@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,10 +24,12 @@ from crosscut_connectors.base import (
     LiveValue,
     NodeInfo,
     NotSupportedError,
+    Snapshot,
     SourceConnectionError,
     TagMetadata,
 )
 from crosscut_connectors.opcua_import import quality_from_status, resolve_node_id
+from crosscut_connectors.opcua_session import LoopThread, bad_value, now_iso, snapshot_async
 
 TIMEOUT_S = 5.0
 
@@ -34,9 +37,72 @@ TIMEOUT_S = 5.0
 class OpcUaConnector(Connector):
     """OPC UA read-only client adapter."""
 
-    def __init__(self, endpoint: str, options: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        options: Mapping[str, Any] | None = None,
+        reconnect_min_s: float = 5.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.endpoint = endpoint
         self.options = dict(options or {})
+        self._reconnect_min_s = reconnect_min_s
+        self._clock = clock
+        self._next_attempt = 0.0
+        self._loop: LoopThread | None = None
+        self._client: Client | None = None
+
+    def __enter__(self) -> OpcUaConnector:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Close the persistent session and stop its event-loop thread."""
+        if self._loop is None:
+            return
+        self._drop_session()
+        self._loop.stop()
+        self._loop = None
+
+    def read_snapshot(self, tag_ids: Sequence[str]) -> Snapshot:
+        """Sample all tags in one batch on a reused session; comm loss never raises."""
+        cycle = now_iso()
+        tags = list(tag_ids)
+        if self._clock() < self._next_attempt:
+            return _comm_loss(tags, cycle)
+        try:
+            values = self._ensure_loop().run(self._snapshot(tags, cycle), 2 * TIMEOUT_S)
+        except (OSError, ua.UaError, TimeoutError, SourceConnectionError):
+            self._drop_session()
+            self._next_attempt = self._clock() + self._reconnect_min_s
+            return _comm_loss(tags, cycle)
+        return Snapshot(cycle_utc=cycle, values=values, comm_ok=True)
+
+    def _ensure_loop(self) -> LoopThread:
+        """Start the session event-loop thread on first use."""
+        if self._loop is None:
+            self._loop = LoopThread()
+        return self._loop
+
+    async def _snapshot(self, tags: list[str], cycle: str) -> dict[str, LiveValue]:
+        """Connect lazily, then batch-read the tags."""
+        if self._client is None:
+            client = Client(url=self.endpoint, timeout=TIMEOUT_S)
+            await client.connect()
+            self._client = client
+        return await snapshot_async(self._client, tags, cycle)
+
+    def _drop_session(self) -> None:
+        """Forget the session (best-effort disconnect) so the next call reconnects."""
+        client, self._client = self._client, None
+        if client is None or self._loop is None:
+            return
+        try:
+            self._loop.run(_safe_disconnect(client), TIMEOUT_S)
+        except (OSError, ua.UaError, TimeoutError):
+            pass
 
     def capabilities(self) -> set[str]:
         """Declare supported capabilities."""
@@ -90,6 +156,12 @@ class OpcUaConnector(Connector):
             raise SourceConnectionError(f"OPC UA live read failed: {error}") from error
         finally:
             await _safe_disconnect(client)
+
+
+def _comm_loss(tags: Sequence[str], cycle: str) -> Snapshot:
+    """Snapshot for an unreachable source: every value bad."""
+    values = {tag: bad_value(cycle) for tag in tags}
+    return Snapshot(cycle_utc=cycle, values=values, comm_ok=False, reason="comm_loss")
 
 
 async def _node_to_info(node: Any) -> NodeInfo:
