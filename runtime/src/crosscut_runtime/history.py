@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 HISTORY_FILE = "history.sqlite3"
 
@@ -73,7 +74,7 @@ class HistoryStore:
         if "quality" not in columns:
             conn.execute("ALTER TABLE samples ADD COLUMN quality INTEGER")
 
-    def append(self, rows: Iterable[tuple]) -> int:
+    def append(self, rows: Iterable[tuple[Any, ...]]) -> int:
         """
         Insert multiple samples, ignoring existing exact duplicates (tag + timestamp).
         
