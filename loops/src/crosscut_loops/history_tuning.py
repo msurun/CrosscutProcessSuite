@@ -1,6 +1,6 @@
 """Tune a loop from historian data without a dedicated step test.
 
-Finds setpoint steps already present in AUTO data, fits a closed-loop FOPDT model on each,
+Finds setpoint steps already present in AUTO data, fits an OUT/PV FOPDT model on each,
 cross-checks the models on the other windows (free-run R2) and grades the result. When no
 usable step exists the answer is "no_excitation" with a bump-test recommendation: nothing
 is guessed.
@@ -32,6 +32,8 @@ CONSISTENT_GAIN_RATIO, CONSISTENT_TAU_RATIO = 1.3, 1.5
 LOOSE_GAIN_RATIO, LOOSE_TAU_RATIO = 1.6, 2.5
 CAUTIOUS_ROBUSTNESS = 0.7  # minimum robustness slider (0 fast .. 1 robust) below high confidence
 CAUTIOUS_FACTOR = 1.5  # largest allowed change of Kc or Ti against the running settings
+MIN_STAIRCASE_WINDOWS = 2  # independent setpoint transitions needed for a staircase diagnosis
+CLOSED_LOOP_STAIRCASE = "closed_loop_staircase"  # stable diagnostic code for callers
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class HistoryTuning:
     status: "ok", "low_confidence", "no_excitation" or "no_model".
     confidence: "high", "medium", "low" or "none". recommendation: "retune",
     "retune_cautiously" or "bump_test". max_change_factor: limit for medium confidence.
+    reasons: Diagnostic codes and explanations; ``closed_loop_staircase`` means
+    multiple AUTO setpoint steps did not support mutually predictive OUT/PV fits.
     """
 
     status: str
@@ -84,7 +88,13 @@ def tune_from_history(
     dt_s: float,
     robustness: float = DEFAULT_ROBUSTNESS,
 ) -> HistoryTuning:
-    """Fit models on the natural setpoint steps of an AUTO record and grade them."""
+    """Grade OUT/PV fits on AUTO steps, explaining poorly identified staircases.
+
+    Setpoint steps locate windows but are not instruments in the OUT/PV fitter.
+    In feedback, OUT and disturbances can be correlated. A low-confidence staircase
+    therefore reports ``closed_loop_staircase`` and requests independent excitation;
+    it never relaxes agreement or prediction thresholds to obtain tuning settings.
+    """
     sp, op, pv = (np.asarray(series, dtype=float) for series in (sp, op, pv))
     windows = find_excitation_windows(sp, pv, dt_s)
     fits = _fit_windows(windows, op, pv, dt_s)
@@ -92,10 +102,28 @@ def tune_from_history(
         return _failure(windows)
     best, cross = _best_fit(fits, op, pv, dt_s)
     confidence, reasons = _grade(fits, best, cross)
+    reasons = _explain_staircase(reasons, confidence, len(windows))
     report = _settings_report(loop_name, best.model, confidence, robustness)
     status = "ok" if confidence in ("high", "medium") else "low_confidence"
     solution = _Solution(best.model, report, cross, len(windows), len(fits))
     return _result(status, confidence, reasons, solution)
+
+
+def _explain_staircase(
+    reasons: tuple[str, ...], confidence: str, window_count: int
+) -> tuple[str, ...]:
+    """Attach the feedback-identification limitation only to inconclusive staircases."""
+    if confidence != "low" or window_count < MIN_STAIRCASE_WINDOWS:
+        return reasons
+    # Each trimmed window contains one SP transition. Forty lagged SP instruments
+    # (identification_cl) can lack independent excitation there; substituting that
+    # estimator alone cannot justify a higher grade or identify disturbance causality.
+    explanation = (
+        "AUTO setpoint staircase: OUT/PV fits do not use SP as an instrument; "
+        "feedback can correlate OUT with disturbances. Record independent excitation "
+        "or a dedicated bump test before retuning."
+    )
+    return (CLOSED_LOOP_STAIRCASE, explanation, *reasons)
 
 
 def _failure(windows: list[ExcitationWindow]) -> HistoryTuning:
@@ -126,7 +154,7 @@ def cautious_step(current: float, proposed: float, factor: float = CAUTIOUS_FACT
 def _fit_windows(
     windows: list[ExcitationWindow], op: np.ndarray, pv: np.ndarray, dt_s: float
 ) -> list[_Fit]:
-    """Closed-loop FOPDT fit of the largest windows; failing windows are skipped."""
+    """OUT/PV FOPDT fit of the largest AUTO windows; failing windows are skipped."""
     ranked = sorted(windows, key=lambda window: -abs(window.step_size))[:MAX_WINDOWS]
     fits = []
     for window in ranked:

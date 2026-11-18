@@ -55,7 +55,11 @@ class IpdtModel:
 
 @dataclass(frozen=True)
 class IpdtFit:
-    """Fitted model with quality figures and a verdict: ok, low_confidence or blocked."""
+    """Fitted model with quality figures and a verdict: ok, low_confidence or blocked.
+
+    A subsample raw model delay is diagnostic only; delay_s_max is its sampling
+    upper bound in seconds and delay_used_s never falls below that bound.
+    """
 
     model: IpdtModel
     r_squared: float
@@ -66,10 +70,14 @@ class IpdtFit:
     reasons: tuple[str, ...]
     delay_lower_s: float = 0.0
     delay_upper_s: float = 0.0
+    delay_below_sample: bool = False
+    delay_s_max: float | None = None
 
     @property
     def delay_used_s(self) -> float:
-        """Dead time the tuning rules use: the upper end of the interval."""
+        """Use the sampling upper bound when unresolved, otherwise the profile upper end."""
+        if self.delay_below_sample and self.delay_s_max is not None:
+            return self.delay_s_max
         return self.delay_upper_s
 
 
@@ -84,6 +92,8 @@ def _validate(
     t, u, y = (np.asarray(a, dtype=float) for a in (t_s, out, pv))
     if not (t.ndim == u.ndim == y.ndim == 1 and len(t) == len(u) == len(y)):
         raise IpdtIdentificationError("t, OUT and PV must be 1-D arrays of equal length")
+    if t.size < 2:
+        raise IpdtIdentificationError("need at least 2 samples to determine the sample period")
     if len(t) < settings.min_samples:
         raise IpdtIdentificationError(f"need at least {settings.min_samples} samples")
     if not (np.all(np.isfinite(t)) and np.all(np.isfinite(u)) and np.all(np.isfinite(y))):
@@ -336,7 +346,13 @@ def identify_ipdt(
     verdict = "blocked" if blocked else ("low_confidence" if low else "ok")
     model = IpdtModel(float(coef[2]), theta)
     reasons = tuple(blocked + low)
-    return IpdtFit(model, r2, se, ratio, float(coef[1]), verdict, reasons, lower, upper)
+    sample_period_s = float(np.median(np.diff(t)))
+    unresolved = theta < sample_period_s
+    upper = max(upper, sample_period_s) if unresolved else upper
+    return IpdtFit(
+        model, r2, se, ratio, float(coef[1]), verdict, reasons, lower, upper,
+        unresolved, sample_period_s if unresolved else None,
+    )
 
 
 def fitted_pv(t_s: np.ndarray, out: np.ndarray, pv: np.ndarray, delay_s: float) -> np.ndarray:

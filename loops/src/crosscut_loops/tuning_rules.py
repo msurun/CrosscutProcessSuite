@@ -27,11 +27,15 @@ class FopdtModel:
             of the PV divided by the change of the output).
         time_constant_s: First-order time constant in seconds.
         delay_s: Dead time in seconds.
+        delay_below_sample: Whether the fitted delay is unresolved by sampling.
+        delay_s_max: Sampling upper bound in seconds when unresolved; diagnostic only.
     """
 
     gain: float
     time_constant_s: float
     delay_s: float
+    delay_below_sample: bool = False
+    delay_s_max: float | None = None
 
     def __post_init__(self) -> None:
         """Validate that all model parameters are positive."""

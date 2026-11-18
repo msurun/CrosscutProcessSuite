@@ -28,6 +28,9 @@ from crosscut_loops.tuning_view import closed_loop_step, fit_check, suggest_wind
 
 MIN_WINDOW_S = 600.0  # shortest stretch worth proposing as a test window
 CLOSED_LOOP_SHARE = 0.1  # more than this share of non-MAN samples in the window = closed-loop data
+FOPDT_PAYLOAD_FIELDS = (
+    "gain", "time_constant_s", "delay_s", "delay_below_sample", "delay_s_max",
+)  # optional resolution fields are accepted by the model contract
 MANUAL_MODE = 0.0
 INTEGRATING = "integrating"  # LoopTags.process_kind of a level loop
 
@@ -248,6 +251,13 @@ def _settings_parts(report: TuningReport) -> dict[str, object]:
     }
 
 
-def _plain(value: object) -> dict[str, float]:
-    """Public numeric fields of a small dataclass as a dict."""
-    return {name: float(number) for name, number in vars(value).items()}
+def _plain(value: object) -> dict[str, float | bool | None]:
+    """Serialize contract fields, including optional sampling-resolution diagnostics."""
+    # Base model fields are an explicit allowlist for existing FopdtModel(**payload) clients.
+    names = (FOPDT_PAYLOAD_FIELDS
+             if isinstance(value, FopdtModel) else tuple(vars(value)))
+    return {
+        name: number if number is None or isinstance(number, bool) else float(number)
+        for name in names
+        for number in (getattr(value, name),)
+    }

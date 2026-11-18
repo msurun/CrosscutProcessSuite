@@ -162,6 +162,16 @@ def test_a_normal_fopdt_loop_has_kind_fopdt_and_no_warnings() -> None:
     assert "fit_curve" not in body and "blocked_reasons" not in body
 
 
+def test_a_resolved_fopdt_payload_preserves_optional_sampling_evidence() -> None:
+    """A resolved synthetic delay serializes its boolean flag and absent upper bound."""
+    output = _out([(300, 5)])
+
+    body = _payload("self_regulating", output, _first_order(output))
+
+    assert body["model"]["delay_below_sample"] is False
+    assert body["model"]["delay_s_max"] is None
+
+
 def test_a_ramp_on_a_self_regulating_loop_warns_it_looks_integrating() -> None:
     u = _out([(300, 5)])
     body = _payload("self_regulating", u, _ramp(u, noise=0.002))
