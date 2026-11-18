@@ -5,6 +5,8 @@
  * No React, no DOM, no side effects.
  */
 
+import { defaultFor, isRenderable } from "./schemaNested";
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonDocument = { [key: string]: JsonValue };
 
@@ -26,7 +28,7 @@ export interface SchemaObject {
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-export type FieldKind = "input" | "enum" | "scalarArray" | "json";
+export type FieldKind = "input" | "enum" | "scalarArray" | "structured" | "json";
 
 export interface Field {
   name: string; // top-level property name
@@ -40,6 +42,7 @@ export interface Field {
   help: string; // the schema description, "" when absent
   text: string; // the current value rendered as text for the editor
   numericItems: boolean; // true when scalarArray items are numeric
+  nested?: { schema: SchemaObject; root: SchemaObject; value: JsonValue }; // kind "structured" only
 }
 
 /** Resolve a $ref of the form "#/$defs/<name>". Throws for any other ref form. */
@@ -116,7 +119,7 @@ function renderText(value: JsonValue, kind: FieldKind): string {
     if (!isScalarArray(value)) return JSON.stringify(value, null, 2);
     return value.map((item) => String(item)).join("\n");
   }
-  if (kind === "json") return JSON.stringify(value, null, 2);
+  if (kind === "json" || kind === "structured") return JSON.stringify(value, null, 2);
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") return value;
@@ -186,7 +189,9 @@ function describeField(
 
   const displayValue = value !== undefined ? value : defaultDisplayValue(kind, inputType, options);
   const isUsableScalar = kind === "scalarArray" && isScalarArray(displayValue);
-  const effectiveKind = kind === "scalarArray" && !isUsableScalar ? "json" : kind;
+  const degraded: FieldKind = kind === "scalarArray" && !isUsableScalar ? "json" : kind;
+  const structured = kind === "json" && isRenderable(propertySchema, ctx.rootSchema);
+  const effectiveKind: FieldKind = structured ? "structured" : degraded;
   const effectiveNumeric = effectiveKind === "scalarArray" && numericItems;
 
   return {
@@ -201,6 +206,8 @@ function describeField(
     help,
     text: renderText(displayValue, effectiveKind),
     numericItems: effectiveNumeric,
+    ...(structured ? { nested: { schema: propertySchema, root: ctx.rootSchema,
+      value: value !== undefined ? value : defaultFor(propertySchema, ctx.rootSchema) } } : {}),
   };
 }
 
@@ -244,7 +251,7 @@ export function applyField(doc: JsonDocument, field: Field, text: string): JsonD
     newDoc[field.name] = text;
   } else if (field.kind === "scalarArray") {
     newDoc[field.name] = parseScalarArray(text, field.numericItems);
-  } else if (field.kind === "json") {
+  } else if (field.kind === "json" || field.kind === "structured") {
     try {
       newDoc[field.name] = JSON.parse(text) as JsonValue;
     } catch (error) {
