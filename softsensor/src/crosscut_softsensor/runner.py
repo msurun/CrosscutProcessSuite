@@ -13,8 +13,8 @@ import numpy as np
 
 from crosscut_softsensor.bias import BiasTracker
 from crosscut_softsensor.config import SoftSensorConfig
-from crosscut_softsensor.features import build_lagged
 from crosscut_softsensor.pls import PlsModel
+from crosscut_softsensor.reference import build_model_features
 
 
 @dataclass(frozen=True, eq=False)
@@ -55,16 +55,16 @@ def run_softsensor(
 ) -> SoftSensorRun:
     """Run the model over a record and track the lab bias causally."""
     t = np.asarray(t_s, dtype=float)
-    x, _ = build_lagged(columns, config.input_tags, config.lags_s, config.sample_period_s)
-    est, validity = model.predict(x), model.validity(x)
+    feats = build_model_features(columns, config)
+    est, validity = model.predict(feats.x), model.validity(feats.x)
     tr = tracker if tracker is not None else BiasTracker(model.cv_sigma)
     tr.reset()
-    bias, drift, used = _bias_series(t, est, labs, tr)
+    bias, drift, used = bias_series(t, est, labs, tr)
     corrected = est + bias
     return SoftSensorRun(t, est, validity, corrected, bias, drift, used)
 
 
-def _bias_series(
+def bias_series(
     t: np.ndarray, est: np.ndarray, labs: LabResults, tr: BiasTracker
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Bias and drift series from the lab results in order of availability."""

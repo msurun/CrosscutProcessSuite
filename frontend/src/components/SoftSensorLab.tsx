@@ -1,7 +1,7 @@
 // Lab results of the Soft sensor page: paste CSV text or choose a CSV file (columns sample_time and
 // value), optionally with the ISO time of the first sample, upload it and read back the count and
 // the first and last time. Problems are shown with the API's own message (it names the line).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { uploadSoftSensorLab, type LabSummary } from "../api";
 import type { Translate } from "../findings";
 import { formatFixed } from "../format";
@@ -32,6 +32,8 @@ function LabStored({ summary, t }: { summary: LabSummary | null; t: Translate })
 export function SoftSensorLab({ sid, lab, originDefault, t }: LabProps) {
   const [text, setText] = useState("");
   const [origin, setOrigin] = useState(originDefault);
+  // The dataset's start time can arrive after the first render; fill the origin then, unless typed.
+  useEffect(() => setOrigin((current) => (current === "" ? originDefault : current)), [originDefault]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -36,6 +36,7 @@ const RUN: SoftSensorRun = {
   drift_episodes: [{ start_s: 120, end_s: 180 }],
   lab_points: [{ t_s: 120, value: 12.5 }],
   n_lab_used: 1,
+  reference: [],
   latest: { t_s: 180, estimate: 13, corrected: 13, bias: 0.2, drift: true, validity: "out_of_range" },
 };
 
