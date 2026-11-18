@@ -27,6 +27,8 @@ Limits
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from crosscut_loops.tuning_rules import FopdtModel
@@ -41,6 +43,18 @@ _REGRESSION_COLUMNS = 3
 # Minimum one-step-ahead R^2, 1 - MSE/var(y): the share of the output variance
 # that a fitted delay must explain. Fits below it are mostly noise and are rejected.
 MIN_FIT_QUALITY = 0.3
+
+
+@dataclass(frozen=True)
+class IdentifiedFopdtModel(FopdtModel):
+    """FOPDT fit with explicit sampling-resolution evidence.
+
+    When delay_below_sample is true, delay_s is the conservative tuning bound,
+    not a measured delay; delay_s_max reports that upper bound in seconds.
+    """
+
+    delay_below_sample: bool = False
+    delay_s_max: float | None = None
 
 
 def identify_fopdt(
@@ -67,7 +81,8 @@ def identify_fopdt(
         max_delay_s: Largest dead time to scan, in seconds, positive.
 
     Returns:
-        The ``FopdtModel`` whose discrete equivalent best fits the data.
+        An IdentifiedFopdtModel; a zero-sample optimum has delay_below_sample=True
+        and delay_s_max=dt_s. Its legacy delay_s is a tuning bound, not an estimate.
 
     Raises:
         ValueError: If the signals are malformed, the sampling arguments are
@@ -378,9 +393,15 @@ def _to_fopdt(
     # tau = -dt_s / ln(a); with 0 < a < 1, ln(a) < 0, so tau > 0.
     time_constant_s = -dt_s / np.log(discrete_a)
 
-    # Dead time in seconds. A zero-sample delay is bumped to one sample
-    # so the FOPDT model has a strictly positive delay_s.
+    # For a zero-sample optimum, [0, dt_s] is the unresolved delay interval,
+    # in seconds. Preserve its upper bound for conservative downstream tuning.
     delay_s = max(delay_samples, 1) * dt_s
 
     # np.log returns a numpy scalar; FopdtModel stores plain floats.
-    return FopdtModel(gain=gain, time_constant_s=float(time_constant_s), delay_s=float(delay_s))
+    return IdentifiedFopdtModel(
+        gain=gain,
+        time_constant_s=float(time_constant_s),
+        delay_s=float(delay_s),
+        delay_below_sample=delay_samples == 0,
+        delay_s_max=float(dt_s) if delay_samples == 0 else None,
+    )

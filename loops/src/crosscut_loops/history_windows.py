@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from crosscut_loops.metrics import DEFAULT_QUANTISATION_MULTIPLIER, settling_band
+
 # A setpoint step must be at least this many times the PV noise standard
 # deviation to be distinguishable from noise.
 DEFAULT_MIN_STEP_NOISE_RATIO = 4.0
@@ -73,6 +75,8 @@ class ExcitationWindow:
         step_size: Signed setpoint change in SP units.
         settled: True if the PV settled inside the settle band before the
             window ended.
+        band_widened: True when sensor resolution widened the configured half-band.
+        settling_band: Applied settling half-band in PV units.
     """
 
     start: int
@@ -80,6 +84,8 @@ class ExcitationWindow:
     kind: str
     step_size: float
     settled: bool
+    band_widened: bool = False
+    settling_band: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,7 @@ class WindowSettings:
         max_samples: Maximum window length in samples.
         min_samples: Minimum window length in samples.
         settle_fraction: Settle band as a fraction of the step size.
+        quantisation_multiplier: Minimum settling half-band in detected PV sensor steps.
     """
 
     min_step_noise_ratio: float = DEFAULT_MIN_STEP_NOISE_RATIO
@@ -101,6 +108,7 @@ class WindowSettings:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_samples: int = DEFAULT_MIN_SAMPLES
     settle_fraction: float = DEFAULT_SETTLE_FRACTION
+    quantisation_multiplier: float = DEFAULT_QUANTISATION_MULTIPLIER
 
 
 @dataclass(frozen=True)
@@ -225,7 +233,10 @@ def _build_window(
     """Build the candidate window for one setpoint step event."""
     start = max(0, event.index - settings.pre_samples)
     new_setpoint = float(sp[event.index])
-    settled_at = _first_settled_index(pv, event, new_setpoint, settings.settle_fraction)
+    band, widened = settling_band(
+        pv, settings.settle_fraction * abs(event.step_size), settings.quantisation_multiplier
+    )
+    settled_at = _first_settled_index(pv, event, new_setpoint, band)
     stop = _window_stop(event, settled_at, (start, pv.size), settings)
     return ExcitationWindow(
         start=int(start),
@@ -233,19 +244,16 @@ def _build_window(
         kind=SETPOINT_STEP_KIND,
         step_size=float(event.step_size),
         settled=bool(_is_settled_before(settled_at, stop)),
+        band_widened=widened,
+        settling_band=band,
     )
-
-
-def _settle_band(step_size: float, settle_fraction: float) -> float:
-    """Absolute PV deviation from the new setpoint that counts as settled."""
-    return settle_fraction * abs(step_size)
 
 
 def _first_settled_index(
     pv: np.ndarray,
     event: _StepEvent,
     new_setpoint: float,
-    settle_fraction: float,
+    band: float,
 ) -> int | None:
     """Return the first index where PV enters the settle band and stays there.
 
@@ -253,7 +261,6 @@ def _first_settled_index(
     ``new_setpoint``. Returns ``None`` if the PV never settles after ``event.index``.
     """
     step_index = event.index
-    band = _settle_band(event.step_size, settle_fraction)
     inside = np.abs(pv[step_index:] - new_setpoint) <= band
     run_ends = _run_lengths(inside) >= SETTLE_CONSECUTIVE_SAMPLES
     first_run_end = np.argmax(run_ends)
@@ -320,4 +327,6 @@ def _trim_against_previous(
         kind=window.kind,
         step_size=window.step_size,
         settled=window.settled,
+        band_widened=window.band_widened,
+        settling_band=window.settling_band,
     )

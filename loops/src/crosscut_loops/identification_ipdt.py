@@ -55,7 +55,11 @@ class IpdtModel:
 
 @dataclass(frozen=True)
 class IpdtFit:
-    """Fitted model with quality figures and a verdict: ok, low_confidence or blocked."""
+    """Fitted model with quality figures and a verdict: ok, low_confidence or blocked.
+
+    A subsample raw model delay is diagnostic only; delay_s_max is its sampling
+    upper bound in seconds and delay_used_s never falls below that bound.
+    """
 
     model: IpdtModel
     r_squared: float
@@ -66,6 +70,8 @@ class IpdtFit:
     reasons: tuple[str, ...]
     delay_lower_s: float = 0.0
     delay_upper_s: float = 0.0
+    delay_below_sample: bool = False
+    delay_s_max: float | None = None
 
     @property
     def delay_used_s(self) -> float:
@@ -336,7 +342,13 @@ def identify_ipdt(
     verdict = "blocked" if blocked else ("low_confidence" if low else "ok")
     model = IpdtModel(float(coef[2]), theta)
     reasons = tuple(blocked + low)
-    return IpdtFit(model, r2, se, ratio, float(coef[1]), verdict, reasons, lower, upper)
+    sample_period_s = float(np.median(np.diff(t)))
+    unresolved = theta < sample_period_s
+    upper = max(upper, sample_period_s) if unresolved else upper
+    return IpdtFit(
+        model, r2, se, ratio, float(coef[1]), verdict, reasons, lower, upper,
+        unresolved, sample_period_s if unresolved else None,
+    )
 
 
 def fitted_pv(t_s: np.ndarray, out: np.ndarray, pv: np.ndarray, delay_s: float) -> np.ndarray:

@@ -13,6 +13,7 @@ from math import exp
 
 import numpy as np
 
+from crosscut_loops.metrics import settling_band
 from crosscut_loops.tuning_rules import FopdtModel
 
 HORIZON_FACTOR = 30.0  # horizon = 30 * (tau + theta), seconds: long enough for any sane tuning
@@ -45,6 +46,7 @@ class PreviewMetrics:
         settling_time_s: Last time outside the +-2 % band, seconds; None if never settled.
         ms: Peak of the sensitivity function |1 / (1 + L)|, dimensionless.
         diverged: True when the simulated PV left +-DIVERGENCE_LIMIT (unstable loop).
+        band_widened: True when detected sensor steps widened the 2 % settling half-band.
     """
 
     iae: float
@@ -52,6 +54,7 @@ class PreviewMetrics:
     settling_time_s: float | None
     ms: float
     diverged: bool
+    band_widened: bool = False
 
 
 def _horizon_s(model: FopdtModel) -> float:
@@ -109,8 +112,9 @@ def sensitivity_peak(model: FopdtModel, pid: PidTerms) -> float:
 
 
 def _settling_time_s(y: np.ndarray, dt: float) -> float | None:
-    """Return the time of the last sample outside the 2 % band; None if still outside at the end."""
-    outside = np.nonzero(np.abs(y - 1.0) > SETTLING_BAND)[0]
+    """Return settling time with a resolution-aware 2 % band; None if still outside."""
+    band, _ = settling_band(y, SETTLING_BAND)
+    outside = np.nonzero(np.abs(y - 1.0) > band)[0]
     if outside.size == 0:
         return 0.0
     if outside[-1] >= len(y) - 1:
@@ -127,6 +131,7 @@ def step_metrics(model: FopdtModel, pid: PidTerms) -> PreviewMetrics:
         settling_time_s=_settling_time_s(y, dt),
         ms=sensitivity_peak(model, pid),
         diverged=bool(np.max(np.abs(y)) >= DIVERGENCE_LIMIT),
+        band_widened=settling_band(y, SETTLING_BAND)[1],
     )
 
 

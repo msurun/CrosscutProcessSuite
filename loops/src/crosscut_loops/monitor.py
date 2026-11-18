@@ -1,4 +1,7 @@
-"""Per-loop performance report: service factor, saturation, oscillation, Harris index, findings."""
+"""Per-loop performance report and evidence for control-loop findings.
+
+Measurement references distinguish significant cycling from noise and resolution effects.
+"""
 
 from __future__ import annotations
 
@@ -21,13 +24,18 @@ from crosscut_loops.metrics import (
     harris_index,
     saturation_fraction,
 )
-from crosscut_loops.oscillation_acf import acf_regularity
+from crosscut_loops.oscillation_acf import (
+    OscillationReference,
+    acf_regularity,
+    oscillation_reference,
+)
 from crosscut_loops.stiction import detect_stiction
 from crosscut_loops.stiction_suspicion import SuspicionResult, stiction_suspicion
 
 MIN_STAMPS_FOR_PERIOD = 2
 REVERSAL_MIN_MOVE_PERCENT = 0.1  # of output span; smaller output moves are not valve motion
 MIN_KPI_SAMPLES = 50
+SATURATION_WARNING_LIMIT = 0.1  # fraction of active samples, an advisory policy
 
 # Per-loop knowledge a conclusion depends on. A conclusion whose knowledge is not in
 # LoopSettings.known is reported as "not assessed" instead of being computed from a placeholder
@@ -53,6 +61,9 @@ class LoopSettings:
 
     ``known`` names the fields that come from configuration rather than a placeholder; the
     default (all known) keeps callers that pass real values unchanged.
+    Saturation warns at 10 percent of active samples and faults above the existing
+    20 percent default. These are advisory policy thresholds, not universal plant limits;
+    keeping the fault unchanged avoids promoting an exploratory result into a standard.
     """
 
     delay_s: float  # process dead time, sets the Harris benchmark
@@ -68,6 +79,7 @@ class LoopSettings:
     scan_period_s: float | None = None  # nominal logging period; overrides the estimate when set
     process_kind: str = "self_regulating"  # or "integrating" (level loop): picks the signal tested
     known: frozenset[str] = KNOWN_ALL  # subset of KNOWN_ALL backed by configuration
+    saturation_warning_limit: float = SATURATION_WARNING_LIMIT
 
 
 def not_assessed(settings: LoopSettings) -> tuple[str, ...]:
@@ -116,6 +128,8 @@ class LoopReport:
     not_assessed: tuple[str, ...] = ()  # conclusions withheld for missing knowledge (WITHHELD_BY)
     oscillation_method: str | None = None  # OSC_HAGGLUND or OSC_ACF when a cycle was found
     oscillation_regularity: float | None = None  # Thornhill r of the ACF method, else None
+    oscillation_evidence: dict[str, float] | None = None  # measurement references in PV units
+    saturation_level: str = "ok"  # "not_assessed", "ok", "warning" or "fault"
 
 
 @dataclass(frozen=True)
@@ -125,6 +139,7 @@ class Oscillation:
     period_s: float | None = None
     method: str | None = None
     regularity: float | None = None
+    evidence: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -205,7 +220,8 @@ def _longest_run(mask: np.ndarray) -> slice:
 
 
 def _segment_metrics(
-    error: np.ndarray, dt_s: float, settings: LoopSettings
+    error: np.ndarray, dt_s: float, settings: LoopSettings,
+    reference: OscillationReference | None = None,
 ) -> tuple[float, Oscillation]:
     """Harris index and detected oscillation of one uninterrupted AUTO stretch.
 
@@ -237,7 +253,7 @@ def _segment_metrics(
     # divide by: both cases make the Harris index undefined, so report nothing.
     if len(error) < settings.min_segment_samples or np.var(error) == 0.0:
         return float("nan"), Oscillation()
-    return _harris_if_known(error, dt_s, settings), _oscillation(error, dt_s, settings)
+    return _harris_if_known(error, dt_s, settings), _oscillation(error, dt_s, settings, reference)
 
 
 def _harris_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> float:
@@ -251,21 +267,25 @@ def _harris_if_known(error: np.ndarray, dt_s: float, settings: LoopSettings) -> 
     return harris_index(error, delay_samples)
 
 
-def _oscillation(error: np.ndarray, dt_s: float, settings: LoopSettings) -> Oscillation:
-    """Detected cycle: Hagglund with configured limits, else ACF regularity (Thornhill 2003)."""
+def _oscillation(
+    error: np.ndarray, dt_s: float, settings: LoopSettings,
+    reference: OscillationReference | None = None,
+) -> Oscillation:
+    """Require significant amplitude as well as the existing sustained-cycle criterion."""
+    reference = reference or oscillation_reference(error, error)
+    if reference.amplitude <= reference.amplitude_threshold:
+        return Oscillation(evidence=reference.evidence)
     if OSCILLATION_LIMITS not in settings.known:
-        found = acf_regularity(error, dt_s)
-        return (
-            Oscillation(found.period_s, OSC_ACF, found.regularity)
-            if found.regular
-            else Oscillation()
-        )
+        found = acf_regularity(error, dt_s, reference=reference)
+        return Oscillation(found.period_s, OSC_ACF if found.regular else None,
+                           found.regularity, reference.evidence)
     # Hagglund's method detects a sustained oscillation (limit cycle) and returns it
     # with its period; a stretch that does not oscillate yields period None.
     hagglund = hagglund_oscillation(
         error, dt_s, settings.amplitude_limit, settings.ultimate_period_s
     )
-    return Oscillation(hagglund.period_s, OSC_HAGGLUND) if hagglund.detected else Oscillation()
+    return Oscillation(hagglund.period_s, OSC_HAGGLUND if hagglund.detected else None,
+                       evidence=reference.evidence)
 
 
 def _stiction_verdict(pv: np.ndarray, out: np.ndarray, dt_s: float, settings: LoopSettings) -> str:
@@ -363,6 +383,8 @@ def _findings(report: LoopReport, settings: LoopSettings) -> list[str]:
         then the loop classification, then stiction).
     """
     found = _flatline_findings(report, settings)
+    if report.saturation_level == "warning":
+        found.append(f"warning: output at its limit {report.saturation_fraction:.0%} of the time")
     found += _classification_findings(report)
     found += _stiction_findings(report)
     found += _valve_findings(report)
@@ -521,6 +543,8 @@ def _series_report(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         oscillation_period_s=arrays.oscillation.period_s,
         oscillation_method=arrays.oscillation.method,
         oscillation_regularity=arrays.oscillation.regularity,
+        oscillation_evidence=arrays.oscillation.evidence,
+        saturation_level=_saturation_level(saturation, settings),
         # Left empty on purpose: the classifier that runs afterwards assigns the label.
         classification="",
         # Left empty on purpose: findings are appended by the later analysis stages.
@@ -529,6 +553,15 @@ def _series_report(arrays: LoopArrays, settings: LoopSettings) -> LoopReport:
         stiction_suspicion=arrays.suspicion.score,
         stiction_advice=arrays.suspicion.advice,
     )
+
+
+def _saturation_level(fraction: float, settings: LoopSettings) -> str:
+    """Return the saturation advisory level without hiding other loop diagnoses."""
+    if OUT_RANGE not in settings.known:
+        return "not_assessed"
+    if fraction > settings.saturation_limit:
+        return "fault"
+    return "warning" if fraction >= settings.saturation_warning_limit else "ok"
 
 
 def _saturation_of(arrays: LoopArrays, settings: LoopSettings) -> float:
@@ -573,7 +606,10 @@ def _longest_segment_metrics(
 
     # The control error is process variable minus setpoint, computed sample-wise and then
     # restricted to the segment.
-    harris, oscillation = _segment_metrics((series.pv - series.sp)[segment], dt_s, settings)
+    error = (series.pv - series.sp)[segment]
+    reference = (oscillation_reference(error, series.pv[segment])
+                 if len(error) >= settings.min_segment_samples else None)
+    harris, oscillation = _segment_metrics(error, dt_s, settings, reference)
 
     # Stiction is detected from the relationship between the controller output (the valve
     # command, `out`) and the resulting process variable (`pv`), not from the error.

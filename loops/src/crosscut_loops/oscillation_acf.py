@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from crosscut_loops.metrics import detected_quantisation_step
+
 REGULARITY_THRESHOLD = 1.0  # r > 1: regular oscillation (Thornhill et al. 2003)
 MAX_ZERO_CROSSINGS = 11  # use at most the first 11 ACF zero crossings (10 intervals)
 MIN_ZERO_CROSSINGS = 7  # 5 period estimates; with 5, AR(1) phi=0.99 drift passed 21 % of runs
@@ -18,6 +20,55 @@ FLAT_RELATIVE_STD = 1e-12  # detrended std below this share of the signal scale 
 BAND_BARTLETT = "bartlett"
 BAND_WHITE = "white"
 BAND_BARTLETT_LAG = "bartlett_lag"  # Bartlett variance with n - k pairs at lag k (exp21)
+NOISE_AMPLITUDE_MULTIPLIER = 3.0  # noise standard deviations, a screening policy
+QUANTISATION_AMPLITUDE_MULTIPLIER = 2.0  # PV quantisation steps, a screening policy
+GAUSSIAN_MAD_SCALE = 1.4826  # convert Gaussian median absolute deviation to sigma
+AMPLITUDE_PERCENTILES = (5.0, 95.0)  # percent; trim isolated outliers from peak amplitude
+MIN_REFERENCE_SAMPLES = 3  # samples required to estimate a second difference
+
+
+@dataclass(frozen=True)
+class OscillationReference:
+    """Amplitude and measurement references, all in PV engineering units."""
+
+    amplitude: float
+    noise_sigma: float
+    quantisation_step: float
+
+    @property
+    def amplitude_threshold(self) -> float:
+        """Minimum peak amplitude required above measurement noise and resolution."""
+        return max(NOISE_AMPLITUDE_MULTIPLIER * self.noise_sigma,
+                   QUANTISATION_AMPLITUDE_MULTIPLIER * self.quantisation_step)
+
+    @property
+    def evidence(self) -> dict[str, float]:
+        """Return the measured amplitude and screening references for the report."""
+        return {"amplitude": self.amplitude, "noise_sigma": self.noise_sigma,
+                "quantisation_step": self.quantisation_step,
+                "amplitude_threshold": self.amplitude_threshold}
+
+
+def oscillation_reference(error: np.ndarray, pv: np.ndarray) -> OscillationReference:
+    """Estimate peak error amplitude, fast noise sigma and the PV quantisation step.
+
+    The noise estimate assumes locally smooth process motion plus independent sensor noise;
+    it is a screening reference, not an identification of coloured process disturbances.
+    Raises ValueError for non-finite, unequal or shorter-than-three-sample arrays.
+    """
+    error, pv = np.asarray(error, dtype=float), np.asarray(pv, dtype=float)
+    if (error.ndim != 1 or pv.shape != error.shape or error.size < MIN_REFERENCE_SAMPLES
+            or not np.all(np.isfinite(error)) or not np.all(np.isfinite(pv))):
+        raise ValueError("Provide equal finite 1-D error and PV arrays with at least three samples")
+    samples = _detrend(np.asarray(error, dtype=float))
+    # For 1-D PV-unit samples, second differences cancel local ramps. Independent noise
+    # has variance (1 + 4 + 1) sigma², so divide its robust scale by sqrt(6).
+    differences = np.diff(samples, n=2)
+    deviation = np.median(np.abs(differences - np.median(differences)))
+    noise_sigma = float(GAUSSIAN_MAD_SCALE * deviation / np.sqrt(6.0))
+    lower, upper = np.percentile(samples, AMPLITUDE_PERCENTILES)
+    return OscillationReference(float((upper - lower) / 2.0), noise_sigma,
+                                detected_quantisation_step(pv))
 
 
 @dataclass(frozen=True)
@@ -58,13 +109,18 @@ class AcfOscillation:
     reason: str
 
 
-def acf_regularity(error: np.ndarray, dt_s: float, config: AcfConfig = SHIPPED) -> AcfOscillation:
+def acf_regularity(
+    error: np.ndarray, dt_s: float, config: AcfConfig = SHIPPED,
+    reference: OscillationReference | None = None,
+) -> AcfOscillation:
     """Detect regular oscillation in a detrended control-loop error signal.
 
     Args:
         error: 1-D array of error samples, equally spaced in time.
         dt_s: Sampling interval in seconds.
         config: Detector variant; the default is the shipped one.
+        reference: Optional measurement reference; a monitor verdict requires peak amplitude
+            above both three noise sigmas and two PV quantisation steps.
 
     Returns:
         AcfOscillation with regularity, period and status.
@@ -91,6 +147,8 @@ def acf_regularity(error: np.ndarray, dt_s: float, config: AcfConfig = SHIPPED) 
         return AcfOscillation(False, None, float(regularity), f"irregular (r={regularity:.2f})")
     if config.peak_z > 0.0 and not _peak_is_strong(acf, sigma, zero_crossings, config.peak_z):
         return AcfOscillation(False, None, float(regularity), "weak ACF peak")
+    if reference is not None and reference.amplitude <= reference.amplitude_threshold:
+        return AcfOscillation(False, None, float(regularity), "amplitude below reference")
     return AcfOscillation(True, float(period_samples * dt_s), float(regularity), "")
 
 

@@ -57,7 +57,9 @@ class StepFit:
         model: 'fopdt' or 'ipdt'.
         gain: For FOPDT, K in PV units per OUT unit; None for IPDT.
         tau_s: For FOPDT, the time constant in seconds; None for IPDT.
-        theta_s: Dead time in seconds for both models.
+        theta_s: Raw optimizer dead time in seconds, retained for diagnostics.
+        delay_below_sample: True when theta_s is unresolved at the sampling period.
+        delay_s_max: Delay upper bound in seconds when unresolved; otherwise None.
         slope: For IPDT, k in PV units per second per OUT unit; None for FOPDT.
         r2: Coefficient of determination (1 - SSE/SST of PV).
         rmse: Root mean squared error of the fit, in PV units.
@@ -78,6 +80,8 @@ class StepFit:
     bic: float
     fitted: np.ndarray
     edges: tuple[str, ...]
+    delay_below_sample: bool = False
+    delay_s_max: float | None = None
 
 
 def effective_delay_s(fit: StepFit, dt_s: float) -> tuple[float, bool]:
@@ -100,7 +104,11 @@ def _flag_sampling_resolution(fit: StepFit, dt_s: float) -> StepFit:
     # The FOPDT tau search starts at dt seconds; hitting it cannot resolve a faster lag.
     if fit.tau_s is not None and fit.tau_s.value == dt_s:
         edges.append("tau_below_resolution")
-    return replace(fit, edges=tuple(edges))
+    unresolved = bool(fit.theta_s.value < dt_s)
+    return replace(
+        fit, edges=tuple(edges), delay_below_sample=unresolved,
+        delay_s_max=dt_s if unresolved else None,
+    )
 
 
 class StepFitError(ValueError):

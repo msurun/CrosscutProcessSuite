@@ -17,8 +17,59 @@ SATURATION_MARGIN_FRACTION = 0.005  # of the output range
 DEFAULT_MIN_EXCEEDANCES = 10  # large half cycles needed inside one window
 DEFAULT_WINDOW_HALF_CYCLES = 20  # window length, in half cycles
 DEFAULT_MIN_FLAT_RUN = 10  # identical consecutive samples that make a run "flat"
+DEFAULT_QUANTISATION_MULTIPLIER = 3.0  # minimum settling half-band, in sensor steps
+MIN_QUANTISATION_INCREMENTS = 20  # nonzero adjacent differences needed for evidence
+MIN_QUANTISATION_REPEATS = 3  # repeated increments needed to distinguish a lattice
+QUANTISATION_MODE_SHARE = 0.05  # minimum share of differences supporting the mode
+QUANTISATION_LATTICE_SHARE = 0.9  # share consistent with integer multiples of the step
+QUANTISATION_RELATIVE_TOLERANCE = 1e-5  # tolerance for rounded lattice multiples
+QUANTISATION_SIGNIFICANT_DIGITS = 6  # remove floating-point subtraction roundoff
 
 FULL_CIRCLE_RAD = 2.0 * np.pi  # radians in one full oscillation cycle
+
+
+def detected_quantisation_step(values: np.ndarray) -> float:
+    """Return a supported sensor step in signal units, or zero without lattice evidence.
+
+    One-dimensional PV samples may contain missing values; differences across gaps are
+    excluded. A repeated small difference must explain most increments as integer multiples.
+    """
+    increments = np.abs(np.diff(np.asarray(values, dtype=float)))
+    nonzero = increments[np.isfinite(increments) & (increments > 0.0)]
+    if nonzero.size < MIN_QUANTISATION_INCREMENTS:
+        return 0.0
+    rounded = np.array([float(f"{value:.{QUANTISATION_SIGNIFICANT_DIGITS}g}") for value in nonzero])
+    candidates, counts = np.unique(rounded[rounded <= np.median(rounded)], return_counts=True)
+    minimum_count = max(MIN_QUANTISATION_REPEATS, QUANTISATION_MODE_SHARE * nonzero.size)
+    return _supported_lattice_step(nonzero, candidates[counts >= minimum_count])
+
+
+def _supported_lattice_step(increments: np.ndarray, candidates: np.ndarray) -> float:
+    """Return the smallest repeated difference consistent with the observed increments."""
+    for step in candidates:
+        # On a quantised sensor, |PV[k+1]-PV[k]| / step is an integer (dimensionless).
+        multiples = increments / step
+        lattice = np.isclose(
+            multiples, np.round(multiples), rtol=QUANTISATION_RELATIVE_TOLERANCE
+        )
+        if float(np.mean(lattice)) >= QUANTISATION_LATTICE_SHARE:
+            return float(step)
+    return 0.0
+
+
+def settling_band(
+    pv: np.ndarray, configured_band: float,
+    quantisation_multiplier: float = DEFAULT_QUANTISATION_MULTIPLIER,
+) -> tuple[float, bool]:
+    """Return the settling half-band in PV units and whether sensor resolution widened it."""
+    if not np.isfinite(configured_band) or configured_band < 0.0:
+        raise ValueError("configured_band must be finite and non-negative")
+    if not np.isfinite(quantisation_multiplier) or quantisation_multiplier < 0.0:
+        raise ValueError("quantisation_multiplier must be finite and non-negative")
+    # A band narrower than several sensor codes cannot reliably describe settling.
+    resolution_band = quantisation_multiplier * detected_quantisation_step(pv)
+    band = max(configured_band, resolution_band)
+    return band, band > configured_band
 
 
 def _fit_ar(series: np.ndarray, order: int) -> tuple[np.ndarray, float]:

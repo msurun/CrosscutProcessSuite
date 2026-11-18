@@ -29,7 +29,7 @@ The continuous FOPDT parameters follow from the discrete coefficients:
 
     gain            = b / (1 - a)
     time_constant_s = -dt_s / ln(a)
-    delay_s         = max(d, 1) * dt_s
+    delay_s         = max(d, 1) * dt_s  (tuning bound when d = 0)
 
 Limits
 ------
@@ -97,7 +97,8 @@ def identify_fopdt_closed_loop(
         max_delay_s: Largest dead time to scan, in seconds, positive.
 
     Returns:
-        The ``FopdtModel`` whose discrete equivalent best fits the data.
+        An IdentifiedFopdtModel with delay_below_sample and delay_s_max evidence;
+        when unresolved, legacy delay_s is the conservative tuning upper bound.
 
     Raises:
         ValueError: If the signals are malformed, the setpoint is flat, or no

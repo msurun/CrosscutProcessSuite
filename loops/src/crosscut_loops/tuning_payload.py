@@ -248,6 +248,9 @@ def _settings_parts(report: TuningReport) -> dict[str, object]:
     }
 
 
-def _plain(value: object) -> dict[str, float]:
-    """Public numeric fields of a small dataclass as a dict."""
-    return {name: float(number) for name, number in vars(value).items()}
+def _plain(value: object) -> dict[str, float | bool | None]:
+    """Serialize numeric dataclass fields, preserving resolution flags and absent bounds."""
+    return {
+        name: number if number is None or isinstance(number, bool) else float(number)
+        for name, number in vars(value).items()
+    }
