@@ -224,3 +224,8 @@ def _build_series(tag: str, stamps: dict[float, float]) -> TagSeries:
     times = np.array(sorted(stamps), dtype=float)
     values = np.array([stamps[t] for t in times], dtype=float)
     return TagSeries(tag=tag, t_s=times, values=values)
+
+
+def parse_stamp(text: str, settings: LabReadSettings | None = None) -> float:
+    """Parse one stamp the way `load_long_csv` does (site time zone), in Unix seconds."""
+    return _parse_timestamp(text, 0.0, settings)
