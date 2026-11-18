@@ -55,10 +55,10 @@ def _model_from_fit(
     gain, tau_s, delay_samples, _ = best
     if gain <= 0.0 or tau_s <= 0.0:
         return fallback
-    # Subsample optima cannot resolve physical dead time: use dt_s seconds as
-    # a tuning bound and retain explicit evidence that it is not a point estimate.
+    # Keep the historical half-sample tuning floor; the flags separately express
+    # sampling uncertainty in seconds without changing the OE tuning model.
     unresolved = delay_samples < 1.0
-    delay_s = max(delay_samples, 1.0) * dt_s
+    delay_s = max(delay_samples, MIN_DELAY_SAMPLES) * dt_s
     return IdentifiedFopdtModel(
         gain=gain, time_constant_s=tau_s, delay_s=delay_s,
         delay_below_sample=unresolved, delay_s_max=dt_s if unresolved else None,

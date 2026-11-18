@@ -75,7 +75,9 @@ class IpdtFit:
 
     @property
     def delay_used_s(self) -> float:
-        """Dead time the tuning rules use: the upper end of the interval."""
+        """Use the sampling upper bound when unresolved, otherwise the profile upper end."""
+        if self.delay_below_sample and self.delay_s_max is not None:
+            return self.delay_s_max
         return self.delay_upper_s
 
 
@@ -90,6 +92,8 @@ def _validate(
     t, u, y = (np.asarray(a, dtype=float) for a in (t_s, out, pv))
     if not (t.ndim == u.ndim == y.ndim == 1 and len(t) == len(u) == len(y)):
         raise IpdtIdentificationError("t, OUT and PV must be 1-D arrays of equal length")
+    if t.size < 2:
+        raise IpdtIdentificationError("need at least 2 samples to determine the sample period")
     if len(t) < settings.min_samples:
         raise IpdtIdentificationError(f"need at least {settings.min_samples} samples")
     if not (np.all(np.isfinite(t)) and np.all(np.isfinite(u)) and np.all(np.isfinite(y))):

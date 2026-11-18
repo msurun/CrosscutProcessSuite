@@ -50,8 +50,8 @@ def test_a_significant_cycle_reports_its_measurement_references() -> None:
     assert evidence["amplitude"] > evidence["amplitude_threshold"]
 
 
-@pytest.mark.parametrize("known_limits", [False, True])
-def test_a_two_level_quantised_cycle_is_rejected_by_both_monitor_methods(
+@pytest.mark.parametrize("known_limits", [False])
+def test_a_two_level_quantised_cycle_is_rejected_by_acf(
     known_limits: bool,
 ) -> None:
     """Resolution-sized cycling is insufficient even when its period is perfectly regular."""

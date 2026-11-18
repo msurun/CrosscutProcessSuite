@@ -62,7 +62,8 @@ class LoopSettings:
     ``known`` names the fields that come from configuration rather than a placeholder; the
     default (all known) keeps callers that pass real values unchanged.
     Saturation warns at 10 percent of active samples and faults above the existing
-    20 percent default. These are advisory policy thresholds, not universal plant limits;
+    20 percent default. The 10 percent warning is an intended behaviour change.
+    These are advisory policy thresholds, not universal plant limits;
     keeping the fault unchanged avoids promoting an exploratory result into a standard.
     """
 
@@ -271,11 +272,11 @@ def _oscillation(
     error: np.ndarray, dt_s: float, settings: LoopSettings,
     reference: OscillationReference | None = None,
 ) -> Oscillation:
-    """Require significant amplitude as well as the existing sustained-cycle criterion."""
+    """Screen ACF amplitude; retain configured Hagglund limit verdicts."""
     reference = reference or oscillation_reference(error, error)
-    if reference.amplitude <= reference.amplitude_threshold:
-        return Oscillation(evidence=reference.evidence)
     if OSCILLATION_LIMITS not in settings.known:
+        if reference.amplitude <= reference.amplitude_threshold:
+            return Oscillation(evidence=reference.evidence)
         found = acf_regularity(error, dt_s, reference=reference)
         return Oscillation(found.period_s, OSC_ACF if found.regular else None,
                            found.regularity, reference.evidence)

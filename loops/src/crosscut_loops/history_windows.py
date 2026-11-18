@@ -144,7 +144,8 @@ def find_excitation_windows(
     sp_array, pv_array = _prepare_inputs(sp, pv, dt_s)
     step_threshold = _step_threshold(pv_array, settings)
     events = _detect_step_events(sp_array, step_threshold)
-    windows = [_build_window(event, sp_array, pv_array, settings) for event in events]
+    windows = [_build_window(event, sp_array, np.asarray(pv, dtype=float), settings)
+               for event in events]
     return _select_non_overlapping(windows, settings.min_samples)
 
 
@@ -233,10 +234,13 @@ def _build_window(
     """Build the candidate window for one setpoint step event."""
     start = max(0, event.index - settings.pre_samples)
     new_setpoint = float(sp[event.index])
+    window_end = min(start + settings.max_samples, pv.size)
+    # Detect sensor codes only on raw post-step samples; interpolation invents increments.
     band, widened = settling_band(
-        pv, settings.settle_fraction * abs(event.step_size), settings.quantisation_multiplier
+        pv[event.index:window_end], settings.settle_fraction * abs(event.step_size),
+        settings.quantisation_multiplier,
     )
-    settled_at = _first_settled_index(pv, event, new_setpoint, band)
+    settled_at = _first_settled_index(_interpolate_nans(pv), event, new_setpoint, band)
     stop = _window_stop(event, settled_at, (start, pv.size), settings)
     return ExcitationWindow(
         start=int(start),

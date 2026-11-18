@@ -60,14 +60,21 @@ def _supported_lattice_step(increments: np.ndarray, candidates: np.ndarray) -> f
 def settling_band(
     pv: np.ndarray, configured_band: float,
     quantisation_multiplier: float = DEFAULT_QUANTISATION_MULTIPLIER,
+    quantisation_step: float | None = None,
 ) -> tuple[float, bool]:
-    """Return the settling half-band in PV units and whether sensor resolution widened it."""
+    """Return the half-band in PV units and whether sensor resolution widened it.
+
+    Pass a precomputed quantisation_step in PV units when reusing the same series.
+    """
     if not np.isfinite(configured_band) or configured_band < 0.0:
         raise ValueError("configured_band must be finite and non-negative")
     if not np.isfinite(quantisation_multiplier) or quantisation_multiplier < 0.0:
         raise ValueError("quantisation_multiplier must be finite and non-negative")
     # A band narrower than several sensor codes cannot reliably describe settling.
-    resolution_band = quantisation_multiplier * detected_quantisation_step(pv)
+    step = detected_quantisation_step(pv) if quantisation_step is None else quantisation_step
+    if not np.isfinite(step) or step < 0.0:
+        raise ValueError("quantisation_step must be finite and non-negative")
+    resolution_band = quantisation_multiplier * step
     band = max(configured_band, resolution_band)
     return band, band > configured_band
 

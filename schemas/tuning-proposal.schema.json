@@ -198,6 +198,15 @@
               "minimum": 0,
               "description": "Time constant, seconds."
             },
+            "delay_below_sample": {
+              "type": "boolean",
+              "description": "True when sampling cannot resolve the fitted dead time."
+            },
+            "delay_s_max": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "description": "Sampling upper bound on dead time, seconds; null when resolved."
+            },
             "theta_s": {
               "type": "number",
               "minimum": 0,

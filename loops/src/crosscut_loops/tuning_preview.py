@@ -13,7 +13,6 @@ from math import exp
 
 import numpy as np
 
-from crosscut_loops.metrics import settling_band
 from crosscut_loops.tuning_rules import FopdtModel
 
 HORIZON_FACTOR = 30.0  # horizon = 30 * (tau + theta), seconds: long enough for any sane tuning
@@ -112,9 +111,9 @@ def sensitivity_peak(model: FopdtModel, pid: PidTerms) -> float:
 
 
 def _settling_time_s(y: np.ndarray, dt: float) -> float | None:
-    """Return settling time with a resolution-aware 2 % band; None if still outside."""
-    band, _ = settling_band(y, SETTLING_BAND)
-    outside = np.nonzero(np.abs(y - 1.0) > band)[0]
+    """Return settling time in a fixed dimensionless 2 % band; None if still outside."""
+    # The simulated unit-step response has no sensor resolution in engineering units.
+    outside = np.nonzero(np.abs(y - 1.0) > SETTLING_BAND)[0]
     if outside.size == 0:
         return 0.0
     if outside[-1] >= len(y) - 1:
@@ -131,7 +130,7 @@ def step_metrics(model: FopdtModel, pid: PidTerms) -> PreviewMetrics:
         settling_time_s=_settling_time_s(y, dt),
         ms=sensitivity_peak(model, pid),
         diverged=bool(np.max(np.abs(y)) >= DIVERGENCE_LIMIT),
-        band_widened=settling_band(y, SETTLING_BAND)[1],
+        band_widened=False,
     )
 
 

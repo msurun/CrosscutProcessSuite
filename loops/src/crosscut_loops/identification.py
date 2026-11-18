@@ -49,12 +49,10 @@ MIN_FIT_QUALITY = 0.3
 class IdentifiedFopdtModel(FopdtModel):
     """FOPDT fit with explicit sampling-resolution evidence.
 
-    When delay_below_sample is true, delay_s is the conservative tuning bound,
-    not a measured delay; delay_s_max reports that upper bound in seconds.
+    When delay_below_sample is true, delay_s retains the estimator's historical
+    tuning floor; delay_s_max separately reports the sampling upper bound in seconds.
     """
 
-    delay_below_sample: bool = False
-    delay_s_max: float | None = None
 
 
 def identify_fopdt(

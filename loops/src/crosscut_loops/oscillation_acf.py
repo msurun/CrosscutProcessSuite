@@ -24,7 +24,7 @@ NOISE_AMPLITUDE_MULTIPLIER = 3.0  # noise standard deviations, a screening polic
 QUANTISATION_AMPLITUDE_MULTIPLIER = 2.0  # PV quantisation steps, a screening policy
 GAUSSIAN_MAD_SCALE = 1.4826  # convert Gaussian median absolute deviation to sigma
 AMPLITUDE_PERCENTILES = (5.0, 95.0)  # percent; trim isolated outliers from peak amplitude
-MIN_REFERENCE_SAMPLES = 3  # samples required to estimate a second difference
+MIN_REFERENCE_SAMPLES = 10  # detrended samples required for robust amplitude and noise
 
 
 @dataclass(frozen=True)
@@ -54,13 +54,15 @@ def oscillation_reference(error: np.ndarray, pv: np.ndarray) -> OscillationRefer
 
     The noise estimate assumes locally smooth process motion plus independent sensor noise;
     it is a screening reference, not an identification of coloured process disturbances.
-    Raises ValueError for non-finite, unequal or shorter-than-three-sample arrays.
+    Raises ValueError for non-finite, unequal or shorter-than-ten-sample arrays.
     """
     error, pv = np.asarray(error, dtype=float), np.asarray(pv, dtype=float)
     if (error.ndim != 1 or pv.shape != error.shape or error.size < MIN_REFERENCE_SAMPLES
             or not np.all(np.isfinite(error)) or not np.all(np.isfinite(pv))):
-        raise ValueError("Provide equal finite 1-D error and PV arrays with at least three samples")
+        raise ValueError("Provide equal finite 1-D error and PV arrays with at least ten samples")
     samples = _detrend(np.asarray(error, dtype=float))
+    if samples.size < MIN_REFERENCE_SAMPLES:
+        raise ValueError("Detrending must retain at least ten samples")
     # For 1-D PV-unit samples, second differences cancel local ramps. Independent noise
     # has variance (1 + 4 + 1) sigma², so divide its robust scale by sqrt(6).
     differences = np.diff(samples, n=2)
