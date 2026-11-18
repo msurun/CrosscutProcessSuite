@@ -44,18 +44,17 @@ SITE = {
     "loops": [{"id": "L1", "pv": "t.pv", "sp": "t.sp", "out": "t.pv"}],
     "controllers": [CONTROLLER],
 }
-JOB = {"id": "j1", "kind": "controller", "controller": "c1", "source": "s1",
-       "period_s": 1, "enabled": True}
+JOB = {"id": "j1", "kind": "controller", "controller": "c1", "source": "s1", "enabled": True}
 
 
 class Clock:
-    """Advances 1 s per reading."""
+    """Advances one controller cycle (30 s) per reading."""
 
     def __init__(self) -> None:
         self.t = 1_000_000.0
 
     def __call__(self) -> float:
-        self.t += 1.0
+        self.t += 30.0
         return self.t
 
 
@@ -209,3 +208,23 @@ def test_host_is_rebuilt_when_a_dependency_changes(tmp_path: Path, change: str) 
         _rewrite(tmp_path, "_fuzzy/rb.json", rules)
     service.run_once()
     assert _built(service) is not first
+
+
+def test_job_period_is_derived_from_the_controller_cycle(tmp_path: Path) -> None:
+    service = _service(tmp_path, [], _site_with(lambda s: s["controllers"][0].update(cycle_s=40)))
+    service.run_once()
+    assert service._scheduler.get("j1").period_s == 40
+
+
+def test_job_period_different_from_cycle_is_a_load_error(tmp_path: Path) -> None:
+    service = _service(tmp_path, [])
+    RuntimeStore(tmp_path).save_jobs({"schema_version": 1, "jobs": [{**JOB, "period_s": 60}]})
+    service.run_once()
+    assert "period_s" in _state(tmp_path)["error"] and "cycle_s" in _state(tmp_path)["error"]
+
+
+def test_job_period_equal_to_cycle_is_accepted(tmp_path: Path) -> None:
+    service = _service(tmp_path, [])
+    RuntimeStore(tmp_path).save_jobs({"schema_version": 1, "jobs": [{**JOB, "period_s": 30}]})
+    service.run_once()
+    assert _state(tmp_path)["status"] == "ok"

@@ -35,7 +35,7 @@ from crosscut_runtime.jobs.anomaly_scan import ANOMALY_DIR, AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
-from crosscut_runtime.store import RuntimeStore
+from crosscut_runtime.store import RuntimeStore, controller_period, controller_period_problem
 
 _UNSET: Any = object()
 RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller")
@@ -48,6 +48,15 @@ def _failing_run(message: str) -> Callable[[], Any]:
         raise ValueError(message)
 
     return run
+
+
+def _controller_entry(job: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
+    """The site controller entry a job names; empty when it is absent."""
+    # site.get("controllers") and each entry come from untyped JSON, so name the shapes.
+    entry: dict[str, Any] = next(
+        (c for c in site.get("controllers", []) if c["id"] == job.get("controller")), {}
+    )
+    return entry
 
 
 def _controller_tag_ids(controller: dict[str, Any], loops: list[dict[str, Any]]) -> set[str]:
@@ -75,11 +84,7 @@ def _controller_cache_key(job: dict[str, Any], site: dict[str, Any], root: Path)
     Covers the job, the controller entry, its MV loops, the job's source (endpoint), the tag
     addresses it uses and the CONTENT of its rule base, so any change of them rebuilds the host.
     """
-    # site.get("controllers") and each entry come from untyped JSON, so name the shapes.
-    controller: dict[str, Any] = next(
-        (entry for entry in site.get("controllers", []) if entry["id"] == job["controller"]),
-        {},
-    )
+    controller = _controller_entry(job, site)
     loop_ids = {
         variable["binding"]["loop"] for variable in controller.get("variables", [])
         if variable["role"] == "MV"
@@ -191,15 +196,19 @@ class RuntimeService:
     def _sync_controller(self, job: dict[str, Any], site: dict[str, Any]) -> None:
         """Update a controller slot; cache its host per job and binding documents."""
         run = self._controller_run(job, site)
+        period = controller_period(job, _controller_entry(job, site))
         existing = self._scheduler.get(job["id"])
         if existing:
-            existing.run, existing.period_s = run, job["period_s"]
+            existing.run, existing.period_s = run, period
         else:
-            self._scheduler.put(JobSlot(job["id"], job["period_s"], run))
+            self._scheduler.put(JobSlot(job["id"], period, run))
 
     def _controller_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
         """The run function of a controller job; a job that cannot be built fails each pass."""
         try:
+            problem = controller_period_problem(job, _controller_entry(job, site))
+            if problem:
+                raise ValueError(problem)
             key = _controller_cache_key(job, site, self._store.root)
             cached = self._controller_jobs.get(job["id"])
             if cached is None or cached[0] != key:

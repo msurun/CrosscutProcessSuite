@@ -36,7 +36,6 @@
         "id",
         "kind",
         "source",
-        "period_s",
         "enabled"
       ],
       "properties": {
@@ -80,7 +79,7 @@
         "period_s": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "How often the job samples the source, in seconds."
+          "description": "How often the job samples the source, in seconds. Required except for controller jobs, whose period is the controller's cycle_s (a controller job may repeat it, a different value is refused)."
         },
         "window_s": {
           "type": "number",
@@ -148,6 +147,11 @@
           "then": {
             "required": [
               "controller"
+            ]
+          },
+          "else": {
+            "required": [
+              "period_s"
             ]
           }
         }

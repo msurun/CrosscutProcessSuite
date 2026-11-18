@@ -18,6 +18,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from crosscut_runtime.variable_status import DEFAULT_CYCLE_S
+
 RUNTIME_FOLDER = "_runtime"
 JOBS_FILE = "jobs.json"
 STATE_FILE = "state.json"
@@ -50,6 +52,22 @@ def job_problems(document: dict[str, Any]) -> list[str]:
     validator = Draft202012Validator(schema)
     errors = sorted(validator.iter_errors(document), key=lambda error: list(error.absolute_path))
     return [f"{_where(error.absolute_path)}: {error.message}" for error in errors]
+
+
+def controller_period(job: dict[str, Any], controller: dict[str, Any]) -> float:
+    """Period of a controller job: the controller's ``cycle_s`` (the only clock), 30 s default."""
+    return float(controller.get("cycle_s", DEFAULT_CYCLE_S))
+
+
+def controller_period_problem(job: dict[str, Any], controller: dict[str, Any]) -> str | None:
+    """Message when the job sets a ``period_s`` that differs from the controller's ``cycle_s``."""
+    period = controller_period(job, controller)
+    if "period_s" in job and float(job["period_s"]) != period:
+        return (
+            f"job.period_s: {job['period_s']} differs from controller {controller.get('id')!r} "
+            f"cycle_s {period:g}; omit period_s, the controller cycle_s is the job period"
+        )
+    return None
 
 
 def _where(path: Any) -> str:

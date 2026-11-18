@@ -255,3 +255,36 @@ def test_anomaly_id_can_be_updated(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert RuntimeStore(tmp_path).load_jobs()["jobs"][0]["anomaly_id"] == "model_a"
+
+
+def _controller_site(root: Path) -> TestClient:
+    """A client over a site with a controller whose cycle is 30 s."""
+    controller = {"id": "c1", "type": "fuzzy", "cycle_s": 30, "variables": [
+        {"id": "cv1", "role": "CV", "binding": {"tag": "t.pv"}},
+        {"id": "mv1", "role": "MV", "binding": {"loop": "L1"}, "limits": {"move_max": 1.0}},
+    ]}
+    save_site(root, {**SITE_DOCUMENT, "controllers": [controller]})
+    app = FastAPI()
+    app.include_router(build_runtime_router(root))
+    return TestClient(app)
+
+
+def test_controller_job_period_different_from_cycle_is_refused(tmp_path: Path) -> None:
+    """#118: controller.cycle_s is the only clock; a different job period gets 422."""
+    client = _controller_site(tmp_path)
+    job = {"id": "c1", "kind": "controller", "source": "s1", "controller": "c1",
+           "period_s": 60, "enabled": False}
+
+    response = client.post("/runtime/jobs", json=job)
+
+    assert response.status_code == 422
+    assert "cycle_s" in str(response.json()["detail"])
+
+
+def test_controller_job_without_period_is_accepted(tmp_path: Path) -> None:
+    client = _controller_site(tmp_path)
+    job = {"id": "c1", "kind": "controller", "source": "s1", "controller": "c1", "enabled": False}
+
+    assert client.post("/runtime/jobs", json=job).status_code in (200, 201)
+    job2 = {**job, "id": "c2", "period_s": 30}
+    assert client.post("/runtime/jobs", json=job2).status_code in (200, 201)

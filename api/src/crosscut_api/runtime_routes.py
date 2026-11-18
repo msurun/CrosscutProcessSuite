@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Annotated, Any, cast
 
 from crosscut_connectors.site import SiteError, load_site
-from crosscut_runtime.store import JobStoreError, RuntimeStore, read_variable_status
+from crosscut_runtime.store import (
+    JobStoreError,
+    RuntimeStore,
+    controller_period_problem,
+    read_variable_status,
+)
 from fastapi import APIRouter, Body, HTTPException, Query
 from jsonschema import Draft202012Validator
 
@@ -101,10 +106,11 @@ def _check_controller(job: dict[str, Any], site_doc: dict[str, Any]) -> list[str
     """A controller job must name a controller that exists in the site catalogue."""
     if job.get("kind") != "controller" or not job.get("controller"):
         return []
-    known = {controller.get("id") for controller in site_doc.get("controllers", [])}
-    if job["controller"] in known:
-        return []
-    return [f"job.controller: unknown controller {job['controller']!r}"]
+    entries = {c.get("id"): c for c in site_doc.get("controllers", [])}
+    if job["controller"] not in entries:
+        return [f"job.controller: unknown controller {job['controller']!r}"]
+    problem = controller_period_problem(job, entries[job["controller"]])
+    return [problem] if problem else []
 
 
 def _check_duplicate_id(job: dict[str, Any], existing_ids: set[str]) -> list[str]:
