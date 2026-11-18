@@ -1,6 +1,6 @@
 # exp41: regime-aware anomaly engine and stuck exemptions on PRONTO multiphase flow data - issue #102
 
-Status: protocol frozen, not run. Module: anomaly. Predecessor: exp38 (`experiments/exp38_pronto_public/`, issue #87): one model per
+Status: run once 2026-11-18, one of four targets met (`results.md`). Module: anomaly. Predecessor: exp38 (`experiments/exp38_pronto_public/`, issue #87): one model per
 day fitted on minutes at one set point, quiet alarm share 0.96, 140 of 153 events stuck-rule events. This is a validation case
 for the two engine features of issue #102 (not a feature); both are described in the exp40 README:
 

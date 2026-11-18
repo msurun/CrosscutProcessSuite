@@ -1,6 +1,6 @@
 # exp40: regime-aware anomaly engine and stuck exemptions on SKAB and Petrobras 3W - issue #102
 
-Status: protocol frozen, not run. Module: anomaly. Predecessor: exp36 (`experiments/exp36_anomaly_public/`, issue #87), whose run
+Status: run once 2026-11-18, every target missed (`results.md`). Module: anomaly. Predecessor: exp36 (`experiments/exp36_anomaly_public/`, issue #87), whose run
 missed every target (one PCA model per record, alarm share 0.86 to 1.00, stuck events on signals constant by nature). This is a
 validation case for two new engine features (issue #102), not a feature:
 
