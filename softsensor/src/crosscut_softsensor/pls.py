@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 
 from crosscut_softsensor.config import SoftSensorConfig
-from crosscut_softsensor.features import feature_names, lag_samples
+from crosscut_softsensor.reference import lag_gap, model_feature_names
 
 SCHEMA_VERSION = "1.0.0"
 RANGE_MARGIN = 0.05
@@ -174,8 +174,8 @@ def fit_pls(
     domain instead of the labelled rows. Raises PlsModelError for constant columns, too few
     rows or a bad shape.
     """
-    names = feature_names(config.input_tags, config.lags_s)
-    gap = max(lag_samples(config.lags_s, config.sample_period_s))
+    names = model_feature_names(config)
+    gap = lag_gap(config)
     xv, yv, idx = _valid_rows(x, y, names, max(10, 3 * config.cv_blocks))
     a_max = min(config.max_components, len(names), len(yv) - 1)
     splits = cv_split(idx, config.cv_blocks, gap)
@@ -217,7 +217,7 @@ def _final_model(
     w, p, q = nipals_pls1((x - mx) / sx, (y - my) / sy, used)
     beta = _coefficients(w, p, q) * sy / sx
     model = PlsModel(
-        feature_names=tuple(feature_names(config.input_tags, config.lags_s)),
+        feature_names=tuple(model_feature_names(config)),
         x_mean=mx, x_scale=sx, y_mean=float(my), y_scale=float(sy),
         weights=w, loadings=p, y_loadings=q, n_components=w.shape[1],
         beta=beta, intercept=float(my - mx @ beta), cv_rmse=tuple(rmse),

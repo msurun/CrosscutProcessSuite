@@ -6,6 +6,18 @@ import { DEFAULT_LAGS_S, DEFAULT_LAB_DELAY_S, DEFAULT_SAMPLE_PERIOD_S } from "..
 
 const DEFAULT_MAX_COMPONENTS = 8;
 const DEFAULT_CV_BLOCKS = 5;
+const PERCENT = 100;
+
+/** The reference inputs as one line each, or "none"; the coverage is shown in per cent. */
+function referencesText(config: SoftSensorConfig, t: Translate): string {
+  const refs = config.reference_inputs ?? [];
+  if (refs.length === 0) return t("soft.config.none");
+  return refs
+    .map((r) => t("soft.config.referenceItem", {
+      tag: r.tag, window: r.window_s, shift: r.shift_s, coverage: Number((r.min_coverage * PERCENT).toFixed(1)), weight: r.bias_weight,
+    }))
+    .join("; ");
+}
 
 /** The configuration as a definition list. */
 export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfig; t: Translate }) {
@@ -19,6 +31,7 @@ export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfi
     [t("soft.config.samplePeriod"), seconds(config.sample_period_s ?? DEFAULT_SAMPLE_PERIOD_S)],
     [t("soft.config.maxComponents"), String(config.max_components ?? DEFAULT_MAX_COMPONENTS)],
     [t("soft.config.cvBlocks"), String(config.cv_blocks ?? DEFAULT_CV_BLOCKS)],
+    [t("soft.config.references"), referencesText(config, t)],
   ];
   return (
     <section aria-label={t("soft.config.title")}>

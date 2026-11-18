@@ -1,12 +1,13 @@
 // Run form and result of the Soft sensor page: a window in hours (default: the whole record), the
 // estimate chart with the flags rule, the validity counts, the summary numbers and the bias chart
 // with the drift episodes. Estimates are advisory; nothing is written anywhere.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { runSoftSensor, type LabRow, type SoftSensorModelSummary, type SoftSensorRun as RunResult } from "../api";
 import type { Translate } from "../findings";
 import { validateWindow } from "../anomaly";
 import { scoreAgainstLabs } from "../softsensorSeries";
 import { BiasChart, EstimateChart } from "./SoftSensorCharts";
+import { SoftSensorReference } from "./SoftSensorReference";
 import { SoftSensorDrift, SoftSensorScores } from "./SoftSensorScores";
 import { SoftSensorValidityView } from "./SoftSensorValidity";
 import { AnomalyWindowFields } from "./AnomalyWindowFields";
@@ -40,6 +41,7 @@ function RunResultView({ result, model, labs, labDelayS, t }: ResultProps) {
     <div data-testid="soft-result">
       <EstimateChart series={result.series} labs={labs} labDelayS={labDelayS} t={t} />
       <SoftSensorValidityView counts={result.validity_counts} t={t} />
+      <SoftSensorReference rows={result.reference} t={t} />
       <SoftSensorScores all={all} afterCut={afterCut} nLabUsed={result.n_lab_used} t={t} />
       <BiasChart series={result.series} cvSigma={model.cv_sigma} t={t} />
       <SoftSensorDrift episodes={result.drift_episodes} model={model} t={t} />
@@ -52,6 +54,11 @@ export function SoftSensorRun({ datasetId, sensorId, recordHours, model, labs, l
   const wholeRecord = recordHours === null ? "" : String(Math.ceil(recordHours * HOUR_DECIMAL_SCALE) / HOUR_DECIMAL_SCALE);
   const [startText, setStart] = useState("0");
   const [endText, setEnd] = useState(wholeRecord);
+  // The record length can arrive after the first render: follow it until the user types an end.
+  const typedEnd = useRef(false);
+  useEffect(() => {
+    if (!typedEnd.current) setEnd(wholeRecord);
+  }, [wholeRecord]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -73,7 +80,7 @@ export function SoftSensorRun({ datasetId, sensorId, recordHours, model, labs, l
       <h3>{t("soft.run.title")}</h3>
       <p className="hint">{t("soft.run.hint")}</p>
       <form className="toolbar" onSubmit={run}>
-        <AnomalyWindowFields startText={startText} endText={endText} onStart={setStart} onEnd={setEnd} check={check} recordHours={recordHours} t={t} />
+        <AnomalyWindowFields startText={startText} endText={endText} onStart={setStart} onEnd={(text) => { typedEnd.current = true; setEnd(text); }} check={check} recordHours={recordHours} t={t} />
         <button type="submit" disabled={!check.ok || busy || datasetId === ""}>{busy ? t("soft.run.running") : t("soft.run.run")}</button>
       </form>
       {error !== null && <p className="status status-error" role="alert">{error}</p>}

@@ -21,9 +21,11 @@ import numpy as np
 from crosscut_softsensor.alignment import AlignmentError, scan_alignment
 from crosscut_softsensor.bias import BiasTrackerError
 from crosscut_softsensor.config import SoftSensorConfig, SoftSensorConfigError, load_config
-from crosscut_softsensor.features import FeatureError, build_lagged, feature_names
+from crosscut_softsensor.features import FeatureError
 from crosscut_softsensor.long_format import TagSeries
 from crosscut_softsensor.pls import PlsModel, PlsModelError, fit_pls
+from crosscut_softsensor.reference import ModelFeatures, build_model_features, model_feature_names
+from crosscut_softsensor.reference_check import reference_report
 from crosscut_softsensor.runner import LabResults, SoftSensorRun, run_softsensor
 from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
@@ -220,7 +222,7 @@ class _SoftSensorEndpoints:
         before = t_s < end
         if not before.any():
             raise HTTPException(status_code=422, detail="train_end_s: no samples before it")
-        x, _ = build_lagged(columns, config.input_tags, config.lags_s, config.sample_period_s)
+        x = _features_or_422(columns, config).x
         labs = aligned_labs(self.folder.parent, rows, config)
         y = training_target(t_s[before], labs, end)
         model = _fit_or_422(x[before], y, config)
@@ -244,7 +246,7 @@ class _SoftSensorEndpoints:
         """Run the fitted model over the window with lab bias tracking."""
         config = _config_or_422(self.get_softsensor(sid))
         model, _ = self._model(sid)
-        if model.feature_names != tuple(feature_names(config.input_tags, config.lags_s)) or (
+        if model.feature_names != tuple(model_feature_names(config)) or (
             model.sample_period_s != config.sample_period_s
         ):
             raise HTTPException(status_code=422, detail="input_tags: model is stale, fit it again")
@@ -253,7 +255,10 @@ class _SoftSensorEndpoints:
         labs = aligned_labs(self.folder.parent, rows, config)
         rows = list(zip(labs.t_s.tolist(), labs.values.tolist(), strict=True))
         result = _run_or_422(model, config, t_s, columns, labs)
-        return _run_document(result, rows, request.max_points)
+        document = _run_document(result, rows, request.max_points)
+        features = _features_or_422(columns, config)
+        document["reference"] = reference_report(config, features, t_s, labs)
+        return document
 
     def post_alignment_scan(
         self, dataset_id: str, sid: Sid, request: AlignmentScanRequest
@@ -307,7 +312,8 @@ class _SoftSensorEndpoints:
         """Bin start times and bin means by input tag (NaN where no good sample)."""
         t_s, columns = self.load_seconds(dataset_id)
         quality = self.load_quality(dataset_id)
-        missing = [tag for tag in config.input_tags if tag not in columns]
+        tags = list(dict.fromkeys([*config.input_tags, *(r.tag for r in config.reference_inputs)]))
+        missing = [tag for tag in tags if tag not in columns]
         if missing:
             raise HTTPException(status_code=422, detail=f"unknown tags: {missing}")
         keep = _window_mask(t_s, window)
@@ -315,7 +321,7 @@ class _SoftSensorEndpoints:
         bins = ((t_s[keep] - t0) // period).astype(int)
         n_bins = int(bins[-1]) + 1
         means = {}
-        for tag in config.input_tags:
+        for tag in tags:
             good = np.isfinite(columns[tag][keep]) & (quality[tag][keep] == 0)
             means[tag] = _bin_means(bins, columns[tag][keep], good, n_bins)
         return t0 + period * np.arange(n_bins), means
@@ -363,6 +369,14 @@ def _config_or_422(document: dict[str, Any]) -> SoftSensorConfig:
     try:
         return load_config(document)
     except SoftSensorConfigError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _features_or_422(columns: dict[str, np.ndarray], config: SoftSensorConfig) -> ModelFeatures:
+    """Model features (lagged inputs and reference window means); a bad window is HTTP 422."""
+    try:
+        return build_model_features(columns, config)
+    except FeatureError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 

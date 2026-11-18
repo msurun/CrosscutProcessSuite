@@ -16,7 +16,9 @@ MODES = ("off", "advisory")
 _REQUIRED = ("schema_version", "id", "target_tag", "input_tags", "mode")
 _OPTIONAL = (
     "description", "lags_s", "lab_delay_s", "sample_period_s", "max_components", "cv_blocks",
+    "reference_inputs",
 )
+_REFERENCE_KEYS = ("tag", "window_s", "shift_s", "min_coverage", "bias_weight")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 DEFAULT_LAGS_S = (0.0, 300.0, 900.0, 1800.0)
@@ -24,6 +26,22 @@ DEFAULT_LAGS_S = (0.0, 300.0, 900.0, 1800.0)
 
 class SoftSensorConfigError(ValueError):
     """A soft sensor configuration that is invalid (the message names the field)."""
+
+
+@dataclass(frozen=True)
+class ReferenceInput:
+    """A reference measurement used as a model input through a causal window mean.
+
+    The feature at time t is the mean of the tag over (t - shift_s - window_s, t - shift_s];
+    it is valid only when the share of bins with data (coverage) is at least ``min_coverage``.
+    ``bias_weight`` is the EWMA weight of the lab-minus-reference bias check. No defaults.
+    """
+
+    tag: str
+    window_s: float
+    shift_s: float
+    min_coverage: float
+    bias_weight: float
 
 
 @dataclass(frozen=True)
@@ -41,6 +59,7 @@ class SoftSensorConfig:
     mode: str = "advisory"
     schema_version: str = "1.0.0"
     description: str = ""
+    reference_inputs: tuple[ReferenceInput, ...] = ()
 
 
 def load_config(doc: Mapping[str, Any]) -> SoftSensorConfig:
@@ -65,6 +84,7 @@ def load_config(doc: Mapping[str, Any]) -> SoftSensorConfig:
         mode=_mode(doc),
         schema_version=_pattern(doc, "schema_version", _VERSION),
         description=description,
+        reference_inputs=_references(doc.get("reference_inputs", [])),
     )
 
 
@@ -143,3 +163,46 @@ def _integer(doc: Mapping[str, Any], key: str, default: int, low: int) -> int:
     if value < low:
         raise SoftSensorConfigError(f"{key}: {value} must be at least {low}")
     return value
+
+
+def _references(value: Any) -> tuple[ReferenceInput, ...]:
+    """Reference inputs: every field of every entry is required (no plant defaults)."""
+    if not isinstance(value, list | tuple):
+        raise SoftSensorConfigError("reference_inputs: must be an array")
+    refs = tuple(_reference(entry, i) for i, entry in enumerate(value))
+    if len({r.tag for r in refs}) != len(refs):
+        raise SoftSensorConfigError("reference_inputs: tags must be unique")
+    return refs
+
+
+def _reference(entry: Any, index: int) -> ReferenceInput:
+    """One reference input: required keys, no unknown keys, ranges as in the schema."""
+    where = f"reference_inputs[{index}]"
+    if not isinstance(entry, Mapping):
+        raise SoftSensorConfigError(f"{where}: must be an object")
+    for key in entry:
+        if key not in _REFERENCE_KEYS:
+            raise SoftSensorConfigError(f"{where}.{key}: unknown field")
+    for key in _REFERENCE_KEYS:
+        if key not in entry:
+            raise SoftSensorConfigError(f"{where}.{key}: required field is missing")
+    return ReferenceInput(
+        tag=_name(entry["tag"], f"{where}.tag"),
+        window_s=_ranged(entry, "window_s", where, 0.0, None, True),
+        shift_s=_ranged(entry, "shift_s", where, 0.0, None, False),
+        min_coverage=_ranged(entry, "min_coverage", where, 0.0, 1.0, True),
+        bias_weight=_ranged(entry, "bias_weight", where, 0.0, 1.0, True),
+    )
+
+
+def _ranged(
+    entry: Mapping[str, Any], key: str, where: str, low: float, high: float | None, strict: bool
+) -> float:
+    """A number above (strict) or at least ``low`` and at most ``high`` (if given)."""
+    value = entry[key]
+    name = f"{where}.{key}"
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise SoftSensorConfigError(f"{name}: must be a number")
+    if value < low or (strict and value == low) or (high is not None and value > high):
+        raise SoftSensorConfigError(f"{name}: {value} is out of range")
+    return float(value)
