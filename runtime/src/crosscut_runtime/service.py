@@ -18,6 +18,11 @@ from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
 
 from crosscut_runtime.addressing import AddressedConnector
+from crosscut_runtime.controllers.wiring import (
+    ControllerJob,
+    build_controller_job,
+    default_gateway_ports,
+)
 from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.anomaly_scan import AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
@@ -25,7 +30,7 @@ from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore
 
-RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review")
+RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller")
 
 
 def _failing_run(message: str) -> Callable[[], Any]:
@@ -45,12 +50,15 @@ class RuntimeService:
         root: Path,
         connector_factory: Callable[[dict[str, Any]], Any] = connector_from_source,
         clock: Callable[[], float] = time.time,
+        gateway_ports: Any = default_gateway_ports,
     ) -> None:
         """Initialize the service with a storage root and injected dependencies."""
         self._store = RuntimeStore(root)
         self._scheduler = Scheduler(clock)
         self._connector_factory = connector_factory
         self._clock = clock
+        self._gateway_ports = gateway_ports
+        self._controller_jobs: dict[str, tuple[dict[str, Any], ControllerJob]] = {}
         self._job_docs: dict[str, dict[str, Any]] = {}
         self._addresses: dict[str, dict[str, str]] = {}
         self._connectors: dict[str, Any] = {}
@@ -101,6 +109,8 @@ class RuntimeService:
                 self._sync_job(job, sources, addresses, lambda doc: self._loop_run(doc, loop_docs))
             elif job["kind"] == "anomaly_scan":
                 self._sync_job(job, sources, addresses, self._anomaly_run)
+            elif job["kind"] == "controller":
+                self._sync_controller(job, site)
 
         for job_id in self._scheduler.ids():
             if job_id not in active_ids:
@@ -112,6 +122,29 @@ class RuntimeService:
         self._kpi_jobs.pop(job_id, None)
         self._anomaly_jobs.pop(job_id, None)
         self._review_jobs.pop(job_id, None)
+        self._controller_jobs.pop(job_id, None)
+
+    def _sync_controller(self, job: dict[str, Any], site: dict[str, Any]) -> None:
+        """Update the JobSlot of a controller job; its host is cached per job doc."""
+        run = self._controller_run(job, site)
+        existing = self._scheduler.get(job["id"])
+        if existing:
+            existing.run, existing.period_s = run, job["period_s"]
+        else:
+            self._scheduler.put(JobSlot(job["id"], job["period_s"], run))
+
+    def _controller_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
+        """The run function of a controller job; a job that cannot be built fails each pass."""
+        cached = self._controller_jobs.get(job["id"])
+        if cached is None or cached[0] != job:
+            deps = (self._connector_factory, self._gateway_ports)
+            try:
+                built = build_controller_job(job, site, self._store.root, deps)
+            except (ValueError, ImportError) as error:
+                return _failing_run(str(error))
+            cached = (job, built)
+            self._controller_jobs[job["id"]] = cached
+        return cached[1].run
 
     def _sync_review(self, job: dict[str, Any]) -> None:
         """Update the JobSlot of a tuning_review job; no connector needed."""
@@ -242,6 +275,7 @@ class RuntimeService:
                     st["samples"] = run.result.get("samples")
                     st["kpi"] = run.result.get("kpi")
                     st["scan"] = run.result.get("scan")
+                    st["controller"] = run.result.get("controller")
                 else:
                     st.update({"status": "error", "error": run.error})
                     self._store.append_log("error", run.error, job_id)

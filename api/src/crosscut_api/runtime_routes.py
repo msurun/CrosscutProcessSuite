@@ -26,7 +26,7 @@ LOG_LIMIT_MAX = 2000
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "job.schema.json"
 _JOB_FIELDS = frozenset(
-    {"id", "kind", "source", "loops", "tags", "period_s", "window_s", "enabled"}
+    {"id", "kind", "source", "loops", "tags", "controller", "period_s", "window_s", "enabled"}
 )
 
 

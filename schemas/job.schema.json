@@ -48,9 +48,10 @@
           "enum": [
             "loop_kpi",
             "anomaly_scan",
-            "tuning_review"
+            "tuning_review",
+            "controller"
           ],
-          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'."
+          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'. controller: runs the site controllers[] entry named in 'controller' one cycle per run (APC core); it proposes writes through the gateway only."
         },
         "source": {
           "$ref": "#/$defs/identifier",
@@ -80,33 +81,73 @@
         "window_s": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Length of the rolling window the KPI is computed on, in seconds. Required for every kind except tuning_review, which derives its windows from the proposal's process model."
+          "description": "Length of the rolling window the KPI is computed on, in seconds. Required for loop_kpi and anomaly_scan; tuning_review derives its windows from the proposal's process model."
         },
         "enabled": {
           "type": "boolean",
           "description": "Whether the runtime runs the job; the GUI start/stop acts on this flag."
+        },
+        "controller": {
+          "$ref": "#/$defs/identifier",
+          "description": "Id of an entry in the site's controllers; required for controller jobs."
         }
       },
-      "if": {
-        "properties": {
-          "kind": {
-            "const": "tuning_review"
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tuning_review"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "loops"
+            ]
           }
         },
-        "required": [
-          "kind"
-        ]
-      },
-      "then": {
-        "required": [
-          "loops"
-        ]
-      },
-      "else": {
-        "required": [
-          "window_s"
-        ]
-      }
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "loop_kpi",
+                  "anomaly_scan"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "window_s"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "controller"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "controller"
+            ]
+          }
+        }
+      ]
     }
   }
 }
