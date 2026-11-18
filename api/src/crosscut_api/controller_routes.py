@@ -185,7 +185,7 @@ def _override_of(body: VariableBody) -> Doc:
 
 def _check_live_override(entry: Doc, variable: Doc, body: VariableBody) -> None:
     """Refuse overrides the controller cannot apply, then validate requested limits."""
-    if entry["type"] != "fuzzy":
+    if entry.get("type") != "fuzzy":
         raise HTTPException(status_code=409, detail=["live_limits_unsupported"])
     if body.operator is not None:
         _check_operator(variable, body.operator)
