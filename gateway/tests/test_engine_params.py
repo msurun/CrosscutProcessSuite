@@ -381,13 +381,14 @@ def test_dry_run_checks_live_values_but_writes_nothing() -> None:
 
 
 def test_external_change_goes_hold_off_without_release_or_heartbeat() -> None:
+    """External changes after settling hold off without restoring the tuning."""
     gw, plant = make()
     gw.approve(queued(gw, it(KP, 3.0)), actor_ctx=BOB)
-    gw.tick(NOW + S)
+    gw.tick(NOW + 2 * S)
     assert gw.status()[KP] == "enabled"
     plant.params[KP] = 2.5  # operator retunes at the DCS
-    gw.tick(NOW + 2 * S)
     gw.tick(NOW + 3 * S)
+    gw.tick(NOW + 4 * S)
     assert gw.status()[KP] == "hold_off"
     changed = events(gw, "param_changed_externally")
     assert len(changed) == 1 and changed[0]["value"] == "2.5" and changed[0]["review"] == "invalid"
@@ -398,10 +399,12 @@ def test_external_change_goes_hold_off_without_release_or_heartbeat() -> None:
 
 
 def test_target_in_hold_off_refuses_new_sets() -> None:
+    """A DCS change after verification blocks further tuning proposals."""
     gw, plant = make()
     gw.approve(queued(gw, it(KP, 3.0)), actor_ctx=BOB)
-    plant.params[KP] = 2.5
     gw.tick(NOW + 2 * S)
+    plant.params[KP] = 2.5
+    gw.tick(NOW + 3 * S)
     refused = gw.propose_params(pset(it(KP, 2.6, 2.5), pid="p2"), actor_ctx=ALICE)
     assert refused.reason_code == "target_hold_off"
 

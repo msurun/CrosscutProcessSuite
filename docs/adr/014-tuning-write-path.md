@@ -293,7 +293,7 @@ Each intent record stores:
 
 ### 2. Lifecycle in Apply
 - **Pre-Write Intent**: In `_apply`, the intent is persisted with state `"open"` **before** the first parameter write reaches the control system. If writing the intent fails, the request fails closed immediately with no plant write.
-- **Close on Success**: After all plant writes succeed, read-backs match, the `param_write` audit succeeds, and the ledger records the change in `_applied`, the intent record is marked `"closed"`.
+- **Close on Success**: After all plant writes succeed, immediate and delayed read-backs match, the `param_write` audit succeeds, and the ledger records the change, the intent record is marked `"closed"`.
 - **Close on Clean Revert**: When a write refusal or read-back mismatch triggers a partial revert that completely succeeds for all written items and the `partial_revert` event is audited, the intent is also marked `"closed"`.
 - **Stays Open on Unhandled Failure**: If a revert fails or an audit fails, the intent remains `"open"`.
 
@@ -311,5 +311,21 @@ The engine method `resolve_intent(key, actor)` resolves an open intent:
 - Reads every target in the intent from the plant.
 - If any target read fails, the intent remains open and the method refuses with `read_failed`.
 - When all reads succeed, the method audits `"intent_resolved"` recording intended and live read values along with `actor`, marks the intent `"closed"`, and performs **no** plant write.
-- There is no automatic rollback anywhere.
+- Restart reconciliation performs no automatic rollback.
 - After a restart the in-memory ledger is empty; any rollback proposal referencing a pre-crash proposal is refused fail closed without a baseline.
+
+## Addendum: Delayed Read-Back Verification (issue #54)
+
+After a successful parameter apply, the gateway schedules a second read of every written
+parameter on its existing engine tick, using the injected engine clock and no new threads.
+The optional per-parameter policy field `verify_after_s` is a settle time in seconds; omitted
+values use `DEFAULT_VERIFY_AFTER_S = 2.0`. The whole set is checked after the longest settle
+time among its parameters, so each parameter has settled before the atomic set is verified.
+Until this pass completes, these targets are excluded from ordinary external-change monitoring.
+A value outside its parameter's `readback_tolerance` triggers the existing partial-revert path
+for all written parameters, restoring their `from` values, auditing
+`readback_mismatch_delayed`, and stopping further writes under the existing target and intent
+rules. A failed revert raises the existing check-DCS alarm. The durable intent stays open until
+verification succeeds or an audited revert completes; a crash during the settle interval
+therefore leaves `reconcile_required` after restart. Once verification succeeds, normal
+external-change monitoring resumes and retains its existing no-write-back behavior.

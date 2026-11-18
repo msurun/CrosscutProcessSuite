@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from crosscut_gateway.interfaces import (
+    DEFAULT_VERIFY_AFTER_S,
     ParamItem,
     ParamPolicy,
     WriteDecision,
@@ -394,9 +395,9 @@ def _parse_param_tolerance(tag: str, val: Any, limits: tuple[float, float]) -> f
     return tolerance
 
 
-def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
-    """Parse one ``pid_param`` target dictionary into a ParamPolicy."""
-    unknown = sorted(str(key) for key in set(raw) - set(_PARAM_FIELDS))
+def _check_param_fields(tag: str, raw: dict[Any, Any]) -> str:
+    """Validate the policy shape and return its PID parameter name."""
+    unknown = sorted(str(key) for key in set(raw) - set(_PARAM_FIELDS) - {"verify_after_s"})
     if unknown:
         raise PolicyError(f"Target '{tag}': unknown field '{unknown[0]}'")
     for req in _PARAM_FIELDS:
@@ -405,6 +406,12 @@ def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
     param = raw["param"]
     if not isinstance(param, str) or param not in _PARAMS:
         raise PolicyError(f"Target '{tag}': param must be one of {_PARAMS}, got {param!r}")
+    return param
+
+
+def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
+    """Parse one ``pid_param`` target dictionary into a ParamPolicy."""
+    param = _check_param_fields(tag, raw)
     limits = _parse_param_limits(tag, param, raw["limits"])
     return ParamPolicy(
         loop=_parse_identifier(tag, "loop", raw["loop"]),
@@ -414,6 +421,9 @@ def _parse_param_target(tag: str, raw: dict[Any, Any]) -> ParamPolicy:
         limits=limits,
         max_ratio=_parse_max_ratio(tag, raw["max_ratio"]),
         readback_tolerance=_parse_param_tolerance(tag, raw["readback_tolerance"], limits),
+        verify_after_s=_parse_non_negative_float(
+            tag, "verify_after_s", raw.get("verify_after_s", DEFAULT_VERIFY_AFTER_S)
+        ),
         min_interval_s=_parse_non_negative_float(tag, "min_interval_s", raw["min_interval_s"]),
         allowed_loop_modes=_parse_allowed_modes(tag, raw["allowed_loop_modes"]),
     )

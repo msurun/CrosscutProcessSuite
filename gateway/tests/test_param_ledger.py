@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from auth_helpers import outbox, send
+from crosscut_gateway.interfaces import DEFAULT_VERIFY_AFTER_S
 from crosscut_gateway.param_ledger import EVENT_EXTERNAL, MAX_APPLIED, MAX_EVENTS, ParamLedger
 from test_service_params import (
     KP,
@@ -110,11 +111,13 @@ def test_service_rebuilds_the_ledger_at_start_from_the_audit_log(tmp_path: Path)
 
 
 def test_service_state_keeps_the_external_change_with_target_and_loop(tmp_path: Path) -> None:
+    """Retuning after verification remains visible with its target and loop."""
     env = make_param_env(tmp_path)
     propose(env)
     send(env, "approve", {"key": pending_key(env)}, **SECOND_ENGINEER)
+    env.clock.advance(DEFAULT_VERIFY_AFTER_S)
+    env.service.poll_once()
     env.plant.params[KP] = 2.5  # type: ignore[attr-defined]  # an operator retunes at the DCS
-    for _ in range(3):
-        env.service.poll_once()
+    env.service.poll_once()
     events = [e for e in state(env)["param_events"] if e["event"] == "param_changed_externally"]
     assert events and events[0]["target"] == KP and events[0]["loop"] == "L1"

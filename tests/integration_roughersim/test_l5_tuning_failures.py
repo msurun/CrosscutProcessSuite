@@ -41,9 +41,9 @@ def test_tf2_not_writable_preserves_gain(tmp_path: Path, checkout: None) -> None
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "TF3 live finding: with hooks RougherSim shows a written value only after the next step "
-        "(offset appears one step late); the gateway reads back once at write time, so a delayed "
-        "divergence is not detected. Needs delayed read-back verification (ADR 014 follow-up)."
+        "TF3 still asserts synchronous refusal before a verification tick and restoration of "
+        "the pre-hook baseline from offset-biased from-values; delayed verification alone "
+        "does not satisfy these assertions (see docs/L5_FINDINGS.md, issue #54)."
     ),
     raises=AssertionError,
 )

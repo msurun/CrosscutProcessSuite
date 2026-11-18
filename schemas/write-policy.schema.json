@@ -193,6 +193,11 @@
           "minimum": 0,
           "description": "Maximum absolute deviation between written value and read-back, in the unit above."
         },
+        "verify_after_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Settle time in seconds before delayed verification. If omitted, the gateway uses 2.0 seconds; the whole set is checked after its longest settle time."
+        },
         "min_interval_s": {
           "type": "number",
           "minimum": 0,
