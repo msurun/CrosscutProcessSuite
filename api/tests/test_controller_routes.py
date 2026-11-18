@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from auth_support import DEFAULT_USERS, TEST_CONFIG, FakeClock, csrf, login, seed_users
+from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.audit import read_records
 from crosscut_api.auth.deps import AUDIT_FILE, AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
@@ -93,6 +94,7 @@ def test_list_without_record_is_off(world: tuple[FastAPI, Path]) -> None:
     client, _ = as_user(world[0], "view1")
     rows = client.get("/controllers").json()["controllers"]
     assert [(r["id"], r["state"], r["reason"]) for r in rows] == [("C1", "off", "new")]
+    assert rows[0]["record_unreadable"] is False
 
 
 def test_list_and_detail_join_record_and_status(world: tuple[FastAPI, Path]) -> None:
@@ -107,6 +109,7 @@ def test_list_and_detail_join_record_and_status(world: tuple[FastAPI, Path]) -> 
         "mv1: +1",
     )
     detail = client.get("/controllers/C1").json()
+    assert detail["record_unreadable"] is False
     cv = next(v for v in detail["variables"] if v["id"] == "cv1")
     assert (cv["status"], cv["reasons"], cv["value"]) == ("bad", ["stale"], 4.5)
     mv = next(v for v in detail["variables"] if v["id"] == "mv1")
@@ -192,3 +195,63 @@ def test_override_is_stored_audited_and_shown(world: tuple[FastAPI, Path]) -> No
         ).status_code
         == 404
     )
+
+
+@pytest.mark.parametrize("url", ["/controllers", "/controllers/C1"])
+def test_read_handlers_require_view_without_route_enforcer(tmp_path: Path, url: str) -> None:
+    """The handlers enforce view permission even in a router used without the route table."""
+    app = FastAPI()
+    app.include_router(build_controller_router(tmp_path))
+    actor = ActorContext("denied", (), "session", "127.0.0.1", False, frozenset())
+    app.dependency_overrides[actor_of] = lambda: actor
+    response = TestClient(app).get(url)
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("contents", [b"{", b"[]", b"\xff"])
+@pytest.mark.parametrize("url", ["/controllers", "/controllers/C1"])
+def test_unreadable_record_has_unknown_state(
+    world: tuple[FastAPI, Path], contents: bytes, url: str
+) -> None:
+    """Malformed JSON, nonobjects and invalid UTF-8 never imply off/new."""
+    app, root = world
+    record = root / "_runtime" / "controllers" / "C1.json"
+    record.parent.mkdir(parents=True)
+    record.write_bytes(contents)
+    client, _ = as_user(app, "view1")
+    body = client.get(url).json()
+    row = body["controllers"][0] if url == "/controllers" else body
+    assert row["record_unreadable"] is True
+    assert (row["state"], row["reason"]) == ("unknown", "record_unreadable")
+
+
+def test_record_read_failure_has_unknown_state(
+    world: tuple[FastAPI, Path],
+) -> None:
+    """An unreadable host path is reported as unknown rather than a new controller."""
+    app, root = world
+    record = root / "_runtime" / "controllers" / "C1.json"
+    record.mkdir(parents=True)
+    client, _ = as_user(app, "view1")
+    row = client.get("/controllers/C1").json()
+    assert row["record_unreadable"] is True
+    assert row["state"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "body", [{"enabled": False}, {"enabled": True, "operator": {"lo": 20, "hi": 80}}]
+)
+def test_unsupported_controller_refuses_override(
+    world: tuple[FastAPI, Path], monkeypatch: pytest.MonkeyPatch, body: dict[str, Any]
+) -> None:
+    """A future catalogue type cannot accept an override it would ignore."""
+    app, root = world
+    entry = {**SITE["controllers"][0], "type": "unsupported"}
+    monkeypatch.setattr("crosscut_api.controller_routes._find", lambda *_: entry)
+    client, headers = as_user(app, "op1")
+    audit_before = read_records(auth_dir(root) / AUDIT_FILE)
+    response = client.put("/controllers/C1/variables/mv1", json=body, headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == ["live_limits_unsupported"]
+    assert read_overrides(root, "C1") == {}
+    assert read_records(auth_dir(root) / AUDIT_FILE) == audit_before

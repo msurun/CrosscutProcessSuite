@@ -11,6 +11,7 @@ const STATE_LEVEL: Record<ControllerState, StatusLevel> = {
   advisory: "warning",
   shed: "problem",
   off: "unused",
+  unknown: "problem",
 };
 
 /** The chip level of a controller state; an unknown state stays neutral. */

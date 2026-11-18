@@ -11,7 +11,7 @@ import { apiFetch } from "./http";
 const API_PREFIX = "/api/controllers";
 
 export type ControllerCommand = "switch_on" | "switch_off" | "standby";
-export type ControllerState = "off" | "standby" | "on" | "advisory" | "shed";
+export type ControllerState = "off" | "standby" | "on" | "advisory" | "shed" | "unknown";
 
 export interface Bounds {
   lo: number;
@@ -25,6 +25,7 @@ export interface ControllerSummary {
   description: string;
   cycle_s: number;
   state: ControllerState;
+  record_unreadable: boolean;
   reason: string;
   last_cycle_utc: string | null;
   last_duration_s: number | null;

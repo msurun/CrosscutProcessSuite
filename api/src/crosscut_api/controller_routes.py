@@ -44,6 +44,7 @@ RECORD_DEFAULTS: Doc = {
     "last_explanation": "",
     "last_advice": None,
     "warnings": None,
+    "record_unreadable": False,
 }
 
 
@@ -71,9 +72,16 @@ def _read_record(root: Path, controller_id: str) -> Doc:
     """The host's record as stored (never restored: this is what the host last wrote)."""
     try:
         data = json.loads(record_path(root, controller_id).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        return _unreadable_record()
+    return {**data, "record_unreadable": False} if isinstance(data, dict) else _unreadable_record()
+
+
+def _unreadable_record() -> Doc:
+    """Mark unavailable host state without implying that the controller is stopped."""
+    return {"state": "unknown", "reason": "record_unreadable", "record_unreadable": True}
 
 
 def _site_controllers(root: Path) -> list[Doc]:
@@ -175,6 +183,14 @@ def _override_of(body: VariableBody) -> Doc:
     return override
 
 
+def _check_live_override(entry: Doc, variable: Doc, body: VariableBody) -> None:
+    """Refuse overrides the controller cannot apply, then validate requested limits."""
+    if entry.get("type") != "fuzzy":
+        raise HTTPException(status_code=409, detail=["live_limits_unsupported"])
+    if body.operator is not None:
+        _check_operator(variable, body.operator)
+
+
 class _Endpoints:
     """Handlers of the controller routes."""
 
@@ -182,12 +198,16 @@ class _Endpoints:
         """Bind the data root and the audit clock."""
         self._root, self._clock = root, clock
 
-    def list(self) -> Doc:
+    def list(self, actor: Annotated[ActorContext, Depends(actor_of)]) -> Doc:
         """All controllers of the site with their last known state."""
+        actor.require("ctl.view")
         return {"controllers": [_summary(self._root, e) for e in _site_controllers(self._root)]}
 
-    def detail(self, controller_id: str) -> Doc:
+    def detail(
+        self, controller_id: str, actor: Annotated[ActorContext, Depends(actor_of)]
+    ) -> Doc:
         """One controller with its variables; 404 when the site has no such controller."""
+        actor.require("ctl.view")
         return _detail(self._root, _find(self._root, controller_id))
 
     def command(
@@ -217,8 +237,7 @@ class _Endpoints:
         entry = _find(self._root, controller_id)
         var = _find_variable(entry, variable_id)
         actor.require("ctl.operate")
-        if body.operator is not None:
-            _check_operator(var, body.operator)
+        _check_live_override(entry, var, body)
         override = _override_of(body)
         text = json.dumps(override, sort_keys=True)
         self._audit(

@@ -7,8 +7,8 @@
 import type { ControllerCommand, ControllerDetail as Detail, VariableOverride } from "../controllersApi";
 import type { Translate } from "../findings";
 import { ControllerVariableRow } from "./ControllerVariableRow";
-import { reasonText, stateLevel } from "./controllersFormat";
-import { StatusChip } from "./StatusChip";
+import { ControllerStateChip } from "./ControllerStateChip";
+import { reasonText } from "./controllersFormat";
 
 export interface ControllerDetailProps {
   detail: Detail;
@@ -46,8 +46,8 @@ export function ControllerDetail({ detail, canOperate, onCommand, onSave, t }: C
     <section className="notice" data-testid="controllers-detail" aria-labelledby="controller-detail-title">
       <h2 id="controller-detail-title">{detail.id}</h2>
       <p>
-        <StatusChip level={stateLevel(detail.state)} label={t(`controllers.state.${detail.state}`)} />{" "}
-        <span className="hint">{reasonText(t, detail.reason)}</span>
+        <ControllerStateChip row={detail} t={t} />{" "}
+        {!detail.record_unreadable && <span className="hint">{reasonText(t, detail.reason)}</span>}
       </p>
       {detail.description && <p className="hint">{detail.description}</p>}
       {canOperate && <CommandButtons onCommand={onCommand} t={t} />}
