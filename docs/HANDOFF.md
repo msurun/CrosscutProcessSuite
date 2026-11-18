@@ -1,4 +1,15 @@
-# Handoff (updated 2026-11-02): product reset, Phase 1 in progress
+# Handoff (updated 2026-11-18): Phase 2.5 APC core merged, night run over the kanban board
+
+Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`, then this file, then `docs/IMPLEMENTATION_LOG.md` (entry 2026-11-17..18 lists every merged PR and the decisions taken without the owner).
+
+## State on 2026-11-18
+
+- main holds Phase 2.5 (variable model, live status, MV readiness, controller host, fuzzy controller, operator console, L5 C rows), ADR 016 handover, security follow-ups, delayed read-back verification, PI Web API and SQL historian connectors, one site-settings function for all importers, soft-sensor reference input and lab alignment scan. RougherSim is pinned at rs-v0.13.1 (pv_fault hooks).
+- Open PRs: #94 validation report generator (#40), #95 public benchmarks (#21, experiments/exp32 needs owner approval as a new experiment line), #97 L5 matrix executors (#53), and the #96 tuning-live e2e fix. #94/#95 wait for #96 (same e2e job fails).
+- Owner decisions waiting: ADR 015 defaults (cycle 30 s, 3 overruns -> shed, who may switch on); L5-P1-dq targets; TEP/C-MAPSS licences; #17; #20; the items below from 2026-11-06.
+
+---
+
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md` (product definition, phases 0-8, owner decisions), then this file, then `docs/IMPLEMENTATION_LOG.md` for per-step detail.
 
