@@ -17,6 +17,21 @@
     "sample_period_s": {"type": "number", "exclusiveMinimum": 0, "default": 60},
     "max_components": {"type": "integer", "minimum": 1, "default": 8},
     "cv_blocks": {"type": "integer", "minimum": 2, "default": 5},
-    "mode": {"enum": ["off", "advisory"]}
+    "mode": {"enum": ["off", "advisory"]},
+    "reference_inputs": {
+      "description": "Sparse or window-aggregated reference measurements (analyser, inferential) used as model inputs through a causal window mean over (t - shift_s - window_s, t - shift_s]. No defaults: every field is required.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["tag", "window_s", "shift_s", "min_coverage", "bias_weight"],
+        "properties": {
+          "tag": {"type": "string", "minLength": 1},
+          "window_s": {"type": "number", "exclusiveMinimum": 0},
+          "shift_s": {"type": "number", "minimum": 0},
+          "min_coverage": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "bias_weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+        }
+      }
+    }
   }
 }
