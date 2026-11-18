@@ -1,7 +1,7 @@
 // Fit form of the Soft sensor page: the train end in hours of the record (default: three quarters of
 // the record), checked before it is sent. Only lab results that were AVAILABLE (sampled and reported)
 // before the train end are used; the text says so. A successful fit hands the summary to the page.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fitSoftSensor, type SoftSensorModelSummary } from "../api";
 import type { Translate } from "../findings";
 import { defaultTrainEndHours, validateTrainEnd } from "../softsensor";
@@ -21,6 +21,11 @@ interface FitProps {
 export function SoftSensorFit({ datasetId, sensorId, recordHours, hasLab, labDelayS, t, onFitted }: FitProps) {
   const defaultHours = defaultTrainEndHours(recordHours);
   const [endText, setEnd] = useState(String(defaultHours));
+  // The record length can arrive after the first render: follow the default until the user types.
+  const typed = useRef(false);
+  useEffect(() => {
+    if (!typed.current) setEnd(String(defaultHours));
+  }, [defaultHours]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const check = validateTrainEnd(endText, recordHours);
@@ -44,7 +49,7 @@ export function SoftSensorFit({ datasetId, sensorId, recordHours, hasLab, labDel
       <form className="toolbar" onSubmit={run}>
         <label>
           {t("soft.fit.trainEnd")}
-          <input type="text" inputMode="decimal" value={endText} onChange={(event) => setEnd(event.target.value)} aria-invalid={problem !== null} />
+          <input type="text" inputMode="decimal" value={endText} onChange={(event) => { typed.current = true; setEnd(event.target.value); }} aria-invalid={problem !== null} />
         </label>
         <button type="button" onClick={() => setEnd(String(defaultHours))}>{t("soft.fit.useDefault", { hours: defaultHours })}</button>
         <button type="submit" disabled={!check.ok || busy || datasetId === "" || !hasLab}>{busy ? t("soft.fit.running") : t("soft.fit.run")}</button>

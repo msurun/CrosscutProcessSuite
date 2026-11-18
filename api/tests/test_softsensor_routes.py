@@ -216,3 +216,49 @@ def test_writes_stay_under_the_softsensor_folder(client: TestClient, root: Path)
     _fitted(client, root)
     new = {p for p in root.rglob("*") if p.is_file()} - before
     assert new and all((root / "_softsensor") in p.parents for p in new)
+
+
+REFERENCE = {
+    "tag": PREFIX + "cyc_water", "window_s": 60, "shift_s": 20, "min_coverage": 0.6,
+    "bias_weight": 0.3,
+}
+
+
+def test_run_without_reference_inputs_reports_an_empty_list(client: TestClient, root: Path) -> None:
+    dataset = _fitted(client, root)
+    body = client.post(f"/datasets/{dataset}/softsensor/p80lab/run", json={}).json()
+    assert body["reference"] == []
+
+
+def test_reference_input_is_fitted_and_reported_with_validity_and_bias_check(
+    client: TestClient, root: Path
+) -> None:
+    dataset = _dataset_id(client)
+    config = {**CONFIG, "reference_inputs": [REFERENCE]}
+    assert client.put("/softsensor/p80lab", json=config).status_code == 200
+    body = {"csv_text": _lab_csv(root, dataset)}
+    assert client.post("/softsensor/p80lab/lab", json=body).status_code == 200
+    fit = client.post(f"/datasets/{dataset}/softsensor/p80lab/fit", json={})
+    assert fit.status_code == 200, fit.text
+    run = client.post(f"/datasets/{dataset}/softsensor/p80lab/run", json={})
+    document = json.loads(run.text, parse_constant=_refuse_constant)
+    (ref,) = document["reference"]
+    assert ref["tag"] == REFERENCE["tag"] and ref["min_coverage"] == 0.6
+    assert 0.9 < ref["valid_share"] <= 1.0 and ref["latest_valid"] is True
+    assert ref["n_pairs"] > 5 and ref["rmse_raw"] is not None and ref["rmse_corrected"] is not None
+    assert isinstance(ref["helps"], bool)
+
+
+def test_unknown_reference_tag_is_422_and_bad_reference_config_names_the_field(
+    client: TestClient, root: Path
+) -> None:
+    bad = {**CONFIG, "reference_inputs": [{**REFERENCE, "bias_weight": 2}]}
+    response = client.put("/softsensor/p80lab", json=bad)
+    assert response.status_code == 422 and "bias_weight" in response.json()["detail"]
+    ghost = {**CONFIG, "reference_inputs": [{**REFERENCE, "tag": "sim.mc.nope"}]}
+    assert client.put("/softsensor/p80lab", json=ghost).status_code == 200
+    dataset = _dataset_id(client)
+    body = {"csv_text": _lab_csv(root, dataset)}
+    assert client.post("/softsensor/p80lab/lab", json=body).status_code == 200
+    fit = client.post(f"/datasets/{dataset}/softsensor/p80lab/fit", json={})
+    assert fit.status_code == 422 and "unknown tags" in fit.json()["detail"]

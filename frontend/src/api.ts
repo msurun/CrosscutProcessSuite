@@ -1078,6 +1078,29 @@ export interface SoftSensorConfig {
   max_components?: number;
   cv_blocks?: number;
   mode: "off" | "advisory";
+  reference_inputs?: ReferenceInputConfig[];
+}
+
+/** A reference measurement used as a model input through a causal window mean (no defaults). */
+export interface ReferenceInputConfig {
+  tag: string;
+  window_s: number;
+  shift_s: number;
+  min_coverage: number;
+  bias_weight: number;
+}
+
+/** Per reference input: window coverage and validity, and the lab bias check (RMSE with and without). */
+export interface ReferenceReport extends ReferenceInputConfig {
+  coverage_mean: number | null;
+  valid_share: number | null;
+  latest_coverage: number | null;
+  latest_valid: boolean;
+  n_pairs: number;
+  rmse_raw: number | null;
+  rmse_corrected: number | null;
+  /** True when the correction lowers the RMSE, false when it raises it, null with too few pairs. */
+  helps: boolean | null;
 }
 
 /** One laboratory result; `t_s` is the sample time in seconds from the first sample of the record. */
@@ -1141,6 +1164,7 @@ export interface SoftSensorRun {
   drift_episodes: DriftEpisode[];
   lab_points: LabRow[];
   n_lab_used: number;
+  reference: ReferenceReport[];
   latest: {
     t_s: number;
     estimate: number | null;
