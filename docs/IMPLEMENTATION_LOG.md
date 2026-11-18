@@ -1095,3 +1095,9 @@ Engine gaps from the public data are collected in issue #102. Owner items: scipy
 ## 2026-11-18 - config editor: JSON buffer and nested forms (#127)
 
 The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete text stays, the parse error is shown, only valid JSON is committed. Objects and arrays of objects are generated from the JSON schema (NestedEditor, schemaNested.ts: fieldset per object, add/remove rows per array); schemas with oneOf/anyOf/allOf/patternProperties or dynamic keys keep the raw JSON editor as an "advanced" fallback. New strings configEditor.addRow/removeRow/invalidJson/advancedJson in en/pl/es.
+## 2026-11-18 - Review fixes C: site catalogue adapter, one loop-knowledge home, remap sync, job checks
+
+- #122: `api/site_loops.py` reads tag `eng_limits` and `loop.out_limits` (flat `eng_min/eng_max` of a dataset row still win); site and dataset tag rows are merged field by field.
+- #123 (ADR 015): knowledge of a catalogue loop lives in its `site.json` entry (new optional loop keys in `site.schema.json`), flows into `LoopTags`, and `PUT .../knowledge` writes there (`"source": "site"`); `project.json` only for loops outside the catalogue.
+- #124: catalogue remap updates generated `_anomaly/_softsensor` default configs when untouched (sidecar fingerprint), else reports `conflict` in `module_configs`/`stale_configs`.
+- #125 (API part): job validation refuses an unknown controller; `anomaly_id` accepted on PATCH. `rate_max` is handled with #115.

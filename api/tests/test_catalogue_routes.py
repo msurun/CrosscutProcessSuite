@@ -202,3 +202,39 @@ def test_mapping_drives_loop_anomaly_and_softsensor(client: TestClient) -> None:
     assert soft_cfg["target_tag"] == target_tag
     for inp in input_tags:
         assert inp in soft_cfg["input_tags"]
+
+
+def _mapping(inputs: list[str]) -> dict[str, object]:
+    """A mapping body with the given anomaly input tags and no loops."""
+    return {"signals": [{"tag": t, "role": "input"} for t in inputs], "loops": []}
+
+
+def _anomaly_tags(root: Path) -> list[str]:
+    """Tags of the stored default anomaly config."""
+    import json
+
+    path = root / "_anomaly" / "default.json"
+    tags: list[str] = json.loads(path.read_text(encoding="utf-8"))["tags"]
+    return tags
+
+
+def test_remap_updates_a_generated_anomaly_config(client: TestClient, test_root: Path) -> None:
+    """#124: a config the catalogue generated follows a remap A/B/C -> D/E/F."""
+    assert client.put("/catalogue/mapping", json=_mapping(["A", "B", "C"])).status_code == 200
+    response = client.put("/catalogue/mapping", json=_mapping(["D", "E", "F"]))
+    assert response.json()["module_configs"]["anomaly"]["status"] == "updated"
+    assert response.json()["stale_configs"] == []
+    assert _anomaly_tags(test_root) == ["D", "E", "F"]
+
+
+def test_remap_flags_a_hand_edited_config_and_keeps_it(
+    client: TestClient, test_root: Path
+) -> None:
+    """#124: a hand-edited config is not overwritten; the response marks it stale."""
+    client.put("/catalogue/mapping", json=_mapping(["A", "B", "C"]))
+    path = test_root / "_anomaly" / "default.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"advisory"', '"off"'), "utf-8")
+    response = client.put("/catalogue/mapping", json=_mapping(["D", "E", "F"]))
+    assert response.json()["module_configs"]["anomaly"]["status"] == "conflict"
+    assert response.json()["stale_configs"] == ["anomaly"]
+    assert _anomaly_tags(test_root) == ["A", "B", "C"]

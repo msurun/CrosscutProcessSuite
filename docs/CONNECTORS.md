@@ -43,3 +43,13 @@ semantics; the simulator collector still timestamps from elapsed plant time.
 `AsyncOpcUaReads` provides native async reads on an already connected OPC UA session.
 `OpcUaSessionConnector` implements this extension so legacy quality conversion retains
 native DataValues and the collector reads its clock and tags in one atomic batch.
+
+## Catalogue mapping and generated module configs
+
+`PUT /catalogue/mapping` saves signals and loops to `_site/site.json` and (re)generates the default module configs `_anomaly/default.json` and `_softsensor/default.json`. Next to each generated file a sidecar `default.generated.sha256` stores the fingerprint of the text the catalogue wrote. On a remap:
+
+- no config yet: created;
+- config text still equals the sidecar fingerprint (never edited): updated to the new mapping;
+- config edited by hand, or without a sidecar (unknown origin): left untouched and reported as `conflict`.
+
+The response carries `module_configs` (`{anomaly|softsensor: {status, path}}`, status one of `created`, `updated`, `unchanged`, `conflict`) and `stale_configs` (the modules in conflict), so the GUI can show that a config no longer follows the catalogue. The owner resolves a conflict by editing the config or deleting it and saving the mapping again.

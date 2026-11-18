@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import numpy as np
-from crosscut_connectors.site import load_site, site_path
+from crosscut_connectors.site import SiteError, load_site, save_site
 from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_edit import (
@@ -54,6 +54,7 @@ from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.runtime_routes import build_runtime_router
 from crosscut_api.schema_routes import build_schema_router
+from crosscut_api.site_loops import flat_tag_rows, site_entry_names, site_loops_of
 from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
@@ -144,57 +145,6 @@ class BenefitQuery:
     def to_request(self) -> BenefitRequest:
         """The same values as the library's request object."""
         return BenefitRequest(**vars(self))
-
-
-def _site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
-    """Return LoopTags defined in <root>/_site/site.json when present."""
-    if not site_path(root).exists():
-        return []
-    try:
-        site_doc = load_site(root)
-        if not site_doc.get("loops"):
-            return []
-        site_tags = {t["id"]: t for t in site_doc.get("tags", [])}
-        tag_dict = {t["id"]: t for t in tags}
-        combined = {**site_tags, **tag_dict}
-        usable = [entry for entry in site_doc["loops"] if _stated_tags_in(entry, tag_dict)]
-        return [_build_site_loop(entry, combined) for entry in usable]
-    except Exception:
-        return []
-
-
-def _stated_tags_in(entry: dict[str, Any], tag_dict: dict[str, dict[str, Any]]) -> bool:
-    """True unless a PV or OUT id the site loop states is missing from the dataset.
-
-    An empty or absent PV/OUT is not stated, so the loop is kept (onboarding
-    readiness reports out-less loops as amber).
-    """
-    stated = [str(entry.get(role, "") or "") for role in ("pv", "out")]
-    return all(tag in tag_dict for tag in stated if tag)
-
-
-def _build_site_loop(entry: dict[str, Any], tag_map: dict[str, dict[str, Any]]) -> LoopTags:
-    """Build one LoopTags from a site catalog loop entry."""
-    lid = str(entry.get("id", ""))
-    pv = str(entry.get("pv", "") or "")
-    sp = str(entry.get("sp", "") or "")
-    out = str(entry.get("out", "") or "")
-    mode = str(entry.get("mode", "") or "")
-    pv_tag = tag_map.get(pv, {})
-    out_tag = tag_map.get(out, {})
-    return LoopTags(
-        name=str(entry.get("name") or lid),
-        pv=pv,
-        sp=sp,
-        out=out,
-        mode=mode,
-        unit=str(pv_tag.get("unit", "") or ""),
-        eng_min=float(pv_tag["eng_min"]) if pv_tag.get("eng_min") is not None else None,
-        eng_max=float(pv_tag["eng_max"]) if pv_tag.get("eng_max") is not None else None,
-        out_low=float(out_tag["eng_min"]) if out_tag.get("eng_min") is not None else None,
-        out_high=float(out_tag["eng_max"]) if out_tag.get("eng_max") is not None else None,
-        vendor=entry.get("vendor"),
-    )
 
 
 def _loops_of(dataset_dir: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
@@ -305,7 +255,7 @@ class DatasetStore:
         """The control loops of a dataset (its project.json, else site.json, else naming)."""
         dataset_dir = _dataset_dir(self.root, dataset_id)
         tags = self.tags_of(dataset_dir)
-        site_loops = _site_loops_of(self.root, tags)
+        site_loops = site_loops_of(self.root, tags)
         if site_loops:
             return site_loops
         return _loops_of(dataset_dir, tags)
@@ -562,7 +512,12 @@ def _driver_record_loader(store: DatasetStore) -> Callable[[str, str, str], Step
 
 
 class _KnowledgeEndpoints:
-    """Handlers that read and edit the per-loop knowledge kept in a dataset's project.json."""
+    """Handlers that read and edit the per-loop knowledge of a dataset's loops.
+
+    A loop of the site catalogue keeps its knowledge in the site.json entry; any other loop
+    keeps it in the dataset's project.json. The same file is read by the analysis, so a write
+    never lands in a file the analysis ignores (ADR 015).
+    """
 
     def __init__(self, store: DatasetStore) -> None:
         self.store = store
@@ -570,26 +525,46 @@ class _KnowledgeEndpoints:
     def get_knowledge(self, dataset_id: str, loop_name: str) -> dict[str, Any]:
         """The delay, ultimate period, amplitude limit and process kind of one loop."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
-        return self._document(dataset_dir, self._project_of(dataset_dir), loop_name)
+        document, _ = self._source(dataset_dir, loop_name)
+        return self._document(dataset_dir, document, loop_name)
 
     def put_knowledge(
         self, dataset_id: str, loop_name: str, update: Annotated[dict[str, Any], Body()]
     ) -> dict[str, Any]:
-        """Change some of a loop's knowledge; None clears a value. Writes project.json only."""
+        """Change some of a loop's knowledge; None clears a value."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        document, in_site = self._source(dataset_dir, loop_name)
+        tags = self._range_tags(dataset_dir, in_site)
         try:
-            project = apply_knowledge(
-                self._project_of(dataset_dir),
-                loop_name,
-                update,
-                self.store.tags_of(dataset_dir),
-            )
+            edited = apply_knowledge(document, loop_name, update, tags)
         except KnowledgeError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
-        write_project_atomic(dataset_dir / PROJECT_FILE, project)
-        return self._document(dataset_dir, project, loop_name)
+        self._save(dataset_dir, edited, in_site)
+        return self._document(dataset_dir, edited, loop_name)
+
+    def _source(self, dataset_dir: Path, loop_name: str) -> tuple[dict[str, Any], bool]:
+        """The document that holds the loop's knowledge, and whether it is the site file."""
+        tags = self.store.tags_of(dataset_dir)
+        if loop_name in site_entry_names(self.store.root, tags):
+            return load_site(self.store.root), True
+        return self._project_of(dataset_dir), False
+
+    def _range_tags(self, dataset_dir: Path, in_site: bool) -> list[dict[str, Any]]:
+        """Tag rows for the range check; site rows carry their eng_limits as flat fields."""
+        tags = self.store.tags_of(dataset_dir)
+        return flat_tag_rows(self.store.root, tags) if in_site else tags
+
+    def _save(self, dataset_dir: Path, document: dict[str, Any], in_site: bool) -> None:
+        """Write the edited document to the file it came from."""
+        if not in_site:
+            write_project_atomic(dataset_dir / PROJECT_FILE, document)
+            return
+        try:
+            save_site(self.store.root, document)
+        except SiteError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     def _project_of(self, dataset_dir: Path) -> dict[str, Any]:
         """The dataset's project file, or one built from the loops found by naming convention."""
@@ -603,16 +578,20 @@ class _KnowledgeEndpoints:
     ) -> dict[str, Any]:
         """The knowledge of one loop plus which engineering ranges the tags already give."""
         loop = self.store.find_loop(dataset_dir, loop_name)
+        in_site = loop_name in site_entry_names(self.store.root, self.store.tags_of(dataset_dir))
         try:
             knowledge = loop_knowledge(project, loop_name)
-            defaults = tag_range_defaults(project, loop_name, self.store.tags_of(dataset_dir))
+            defaults = tag_range_defaults(
+                project, loop_name, self._range_tags(dataset_dir, in_site)
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
         return {
             "loop": loop_name,
             "knowledge": knowledge,
             **defaults,
-            "saved": (dataset_dir / PROJECT_FILE).exists(),
+            "saved": in_site or (dataset_dir / PROJECT_FILE).exists(),
+            "source": "site" if in_site else "project",
             "ranges": {
                 "pv": _range_or_none(loop.eng_min, loop.eng_max),
                 "out": _range_or_none(loop.out_low, loop.out_high),

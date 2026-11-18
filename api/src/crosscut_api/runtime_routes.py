@@ -26,7 +26,8 @@ LOG_LIMIT_MAX = 2000
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "job.schema.json"
 _JOB_FIELDS = frozenset(
-    {"id", "kind", "source", "loops", "tags", "controller", "period_s", "window_s", "enabled"}
+    {"id", "kind", "source", "loops", "tags", "controller", "period_s", "window_s", "enabled",
+     "anomaly_id"}
 )
 
 
@@ -61,6 +62,7 @@ def _cross_check_problems(
     problems = _check_source(job, site_doc)
     problems += _check_loops(job, site_doc)
     problems += _check_tags(job, site_doc)
+    problems += _check_controller(job, site_doc)
     problems += _check_duplicate_id(job, existing_ids)
     return problems
 
@@ -93,6 +95,16 @@ def _check_tags(job: dict[str, Any], site_doc: dict[str, Any]) -> list[str]:
         return ["job.tags: required and non-empty for anomaly_scan jobs"]
     known = {tag.get("id") for tag in site_doc.get("tags", [])}
     return [f"job.tags: unknown tag {tag_id!r}" for tag_id in tag_ids if tag_id not in known]
+
+
+def _check_controller(job: dict[str, Any], site_doc: dict[str, Any]) -> list[str]:
+    """A controller job must name a controller that exists in the site catalogue."""
+    if job.get("kind") != "controller" or not job.get("controller"):
+        return []
+    known = {controller.get("id") for controller in site_doc.get("controllers", [])}
+    if job["controller"] in known:
+        return []
+    return [f"job.controller: unknown controller {job['controller']!r}"]
 
 
 def _check_duplicate_id(job: dict[str, Any], existing_ids: set[str]) -> list[str]:
