@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from crosscut_gateway.engine import WriteGateway
@@ -21,7 +22,7 @@ from crosscut_gateway.param_intent_store import (
     ParamIntentRecord,
     ParamIntentStore,
 )
-from crosscut_gateway.service import GatewayService, serve
+from crosscut_gateway.service import MAX_INTENT_ARG_LENGTH, GatewayService, serve
 from test_gateway_scenarios import POLICY, TAG, S, SimPlant
 
 CLOCK_START_S = 1000.0
@@ -290,6 +291,53 @@ def test_list_open_intents_returns_empty_when_no_intents_exist(env) -> None:
     assert payload["ok"] is True
     assert payload["result"]["store_state"] == "ok"
     assert payload["result"]["intents"] == []
+
+
+@pytest.mark.parametrize("store_error", [OSError("unreadable"), ValueError("invalid store")])
+def test_list_open_intents_reports_store_read_errors_as_damaged(
+    env, monkeypatch: pytest.MonkeyPatch, store_error: Exception
+) -> None:
+    """Storage access and parsing failures still produce a damaged-store mailbox reply."""
+    root, _clock, _plant, gateway, service = env
+    monkeypatch.setattr(gateway, "open_intents", Mock(side_effect=store_error))
+    write_command(root, "list-error", {"id": "list-error", "cmd": "list_open_intents", "args": {}})
+
+    service.poll_once()
+
+    payload = outbox_payload(root, "list-error")
+    assert payload["ok"] is True
+    assert payload["result"] == {"store_state": "damaged", "intents": []}
+    assert not inbox_path(root, "list-error").exists()
+
+
+@pytest.mark.parametrize("argument_name", ["key", "actor"])
+@pytest.mark.parametrize(
+    "invalid_value", ["a" * (MAX_INTENT_ARG_LENGTH + 1), "has space", "line\nbreak", "bad!", ""]
+)
+def test_resolve_intent_refuses_invalid_identifiers(env, argument_name, invalid_value) -> None:
+    """Invalid resolve identifiers use the normal bad-arguments reply before engine dispatch."""
+    root, _clock, _plant, gateway, service = env
+    gateway.resolve_intent = Mock(side_effect=AssertionError("must not reach engine"))
+    args = {"key": "key-123", "actor": "engineer1", argument_name: invalid_value}
+    write_command(root, "bad-resolve", {"id": "bad-resolve", "cmd": "resolve_intent", "args": args})
+
+    service.poll_once()
+
+    payload = outbox_payload(root, "bad-resolve")
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_args"
+    assert (root / "_gateway" / "rejected" / "bad-resolve.json").exists()
+    gateway.resolve_intent.assert_not_called()
+
+
+@pytest.mark.parametrize("argument_name", ["key", "actor"])
+@pytest.mark.parametrize("valid_value", ["a" * MAX_INTENT_ARG_LENGTH, "Abc019._:-/@"])
+def test_resolve_intent_accepts_identifiers_at_the_limits(env, argument_name, valid_value) -> None:
+    """The length boundary and every supported punctuation character remain valid."""
+    _root, _clock, _plant, _gateway, service = env
+    args = {"key": "key-123", "actor": "engineer1", argument_name: valid_value}
+
+    service._validate_args("resolve_intent", args)
 
 
 def test_list_open_intents_reports_damaged_store_without_crashing(tmp_path: Path) -> None:

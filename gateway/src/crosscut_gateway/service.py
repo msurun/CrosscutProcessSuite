@@ -49,8 +49,13 @@ from crosscut_gateway.service_params import (
 # the file-name limit.
 MAX_ID_LENGTH = 128
 
+# Bound resolve identifiers in characters so command and audit fields stay compact.
+MAX_INTENT_ARG_LENGTH = 200
+INTENT_ARG_PUNCTUATION = "._:-/@"
+
 # Validation kinds:
 # "str": non-empty string
+# "intent_identifier": non-empty bounded string of letters, digits or identifier punctuation
 # "text": any string
 # "number": int or float, not bool
 # "int": int, not bool
@@ -76,7 +81,7 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "policy_pin": [("digest", "str")],
     "policy_reload": [],
     "list_open_intents": [],
-    "resolve_intent": [("key", "str"), ("actor", "str")],
+    "resolve_intent": [("key", "intent_identifier"), ("actor", "intent_identifier")],
 }
 
 
@@ -326,6 +331,7 @@ class GatewayService:
     def _check_arg(self, cmd: str, name: str, val: Any, kind: str) -> None:
         checkers = {
             "str": self._assert_is_non_empty_string,
+            "intent_identifier": self._assert_is_intent_identifier,
             "text": self._assert_is_string,
             "number": self._assert_is_number,
             "int": self._assert_is_int,
@@ -333,6 +339,17 @@ class GatewayService:
             "str_list": self._assert_is_str_list,
         }
         checkers[kind](cmd, name, val)
+
+    def _assert_is_intent_identifier(self, cmd: str, name: str, val: Any) -> None:
+        """Reject resolve identifiers that exceed the size or character limits."""
+        self._assert_is_non_empty_string(cmd, name, val)
+        if len(val) > MAX_INTENT_ARG_LENGTH or not all(
+            character.isalnum() or character in INTENT_ARG_PUNCTUATION for character in val
+        ):
+            raise CommandError(
+                f"{cmd}: {name} must be at most {MAX_INTENT_ARG_LENGTH} characters "
+                f"using letters, digits or {INTENT_ARG_PUNCTUATION}"
+            )
 
     def _assert_is_non_empty_string(self, cmd: str, name: str, val: Any) -> None:
         if not isinstance(val, str) or not val:
@@ -517,7 +534,7 @@ class GatewayService:
         # crash with an unhandled exception. We report the damaged state explicitly.
         try:
             records = self._gateway.open_intents()
-        except IntentStoreUnreadableError:
+        except (IntentStoreUnreadableError, OSError, ValueError):
             return {"store_state": "damaged", "intents": []}
         intents = [self._serialize_open_intent(record) for record in records]
         return {"store_state": "ok", "intents": intents}
