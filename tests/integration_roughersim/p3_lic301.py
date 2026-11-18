@@ -1,7 +1,7 @@
 """LIC301 level-loop acceptance chain for L5-P3: weak detection, model, live tuning, rollback.
 
 The pinned fitter returns zero dead time at the 60 s recorder resolution, so this chain uses a
-documented one-sample delay floor; the raw zero-delay refusal is a separate FINDING test.
+production half-sample delay floor while preserving the raw fitted delay for inspection.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from crosscut_gateway.actor import ActorContext
 from crosscut_gateway.engine_params import ParamConfig, param_set_key
 from crosscut_gateway.interfaces import ParamItem, ParamPolicy, ParamSetProposal
 from p3_chain import AUTO_MODE, calculate_iae, closed_window, verify_improvement
-from p3_data import SAMPLE_INTERVAL_S
 from rs_harness import Harness, S, plant_map_for, rs_server
 
 LOOP = "LIC301"
@@ -26,7 +25,6 @@ GAIN, TI = f"{LOOP}.GAIN", f"{LOOP}.TI"
 WEAK_TUNING = {"gain": 11.0, "ti": 10000.0}  # flagged poor_performance; still 5 pp headroom
 WEAK_TARGETS = {GAIN: WEAK_TUNING["gain"], TI: WEAK_TUNING["ti"]}
 ROBUSTNESS = 1.0  # SIMC slider: the robust end of the range
-MIN_DELAY_S = SAMPLE_INTERVAL_S  # documented one-sample floor for the zero fitted delay
 SERVER_SPEED = 20.0  # simulation seconds per wall second, as in the gateway rows
 PROPOSAL_LIFETIME_S = 3600
 ALICE = ActorContext(actor="alice", roles=("engineer",))

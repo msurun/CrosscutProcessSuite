@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from crosscut_loops.step_fit import effective_delay_s
 from golden import checkout_problem, load_pin, roughersim_dir
 from p3_chain import (
     AUTO_MODE,
@@ -28,12 +29,11 @@ from p3_chain import (
     validate_identification,
     verify_improvement,
 )
-from p3_data import load_truth, record_tuning
+from p3_data import SAMPLE_INTERVAL_S, load_truth, record_tuning
 from p3_lic301 import (
     LOOP as LIC301,
 )
 from p3_lic301 import (
-    MIN_DELAY_S,
     ROBUSTNESS,
     WEAK_TARGETS,
     WEAK_TUNING,
@@ -74,7 +74,7 @@ def lic301(tmp_path_factory: pytest.TempPathFactory, checkout: None) -> dict[str
     baseline = record_tuning(directory / "baseline", WEAK_TUNING, loop_tag=LIC301)
     truth = load_truth(directory / "baseline", loop_tag=LIC301)
     fitted = identify_model(baseline, loop_tag=LIC301)
-    model = validate_identification(fitted, truth, minimum_delay_s=MIN_DELAY_S)
+    model = validate_identification(fitted, truth)
     proposal = propose_tuning(model, WEAK_TUNING, loop_tag=LIC301, robustness=ROBUSTNESS)
     return {"baseline": baseline, "truth": truth, "fitted": fitted, "model": model,
             "proposal": proposal}
@@ -139,25 +139,22 @@ def test_lic301_weak_tuning_is_detected_with_step_headroom(
 def test_lic301_identification_matches_ground_truth(
     lic301: dict[str, Any], record_property: Any,
 ) -> None:
-    """Gain and tau stay inside 25% of truth; the delay floor is exactly one sample."""
+    """Gain and tau stay inside 25% of truth; the delay floor is half a sample."""
     model = lic301["model"]
     record_property("lic301_model", repr(model))
-    assert model.delay_s == MIN_DELAY_S
+    assert model.delay_s == effective_delay_s(lic301["fitted"], SAMPLE_INTERVAL_S)[0]
     assert abs(model.gain / abs(lic301["truth"]["gain"]) - 1.0) <= RELATIVE_MODEL_TOLERANCE
     assert abs(model.time_constant_s / lic301["truth"]["tau_s"] - 1.0) <= RELATIVE_MODEL_TOLERANCE
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason="FINDING: fit_step returns theta=0 for LIC301 at 60 s sampling; FopdtModel refuses "
-           "zero dead time, so the raw identification cannot be tuned without a delay floor.",
-)
-def test_lic301_raw_zero_delay_identification_is_refused(lic301: dict[str, Any]) -> None:
-    """The unfloored fit exposes the zero-dead-time defect instead of being silently clamped."""
-    assert lic301["fitted"].theta_s.value == 0.0
-    validate_identification(lic301["fitted"], lic301["truth"])
+def test_lic301_zero_delay_identification_uses_the_production_floor(lic301: dict[str, Any]) -> None:
+    """The raw zero delay stays visible while the tuning model uses the half-sample floor."""
+    fitted = lic301["fitted"]
+    model = validate_identification(fitted, lic301["truth"])
+    assert fitted.theta_s.value == 0.0
+    assert "theta_below_resolution" in fitted.edges
+    assert (model.delay_s, True) == effective_delay_s(fitted, SAMPLE_INTERVAL_S)
 
 
 @pytest.mark.slow

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from dataclasses import replace
 
 import numpy as np
+from crosscut_loops import step_analyzer
 from crosscut_loops.step_analyzer import analyze_steps
 from crosscut_loops.step_consistency import add_consistency
+from crosscut_loops.step_fit import Param
 
 DT_S = 10.0
 N_SAMPLES = 1500
@@ -260,3 +263,19 @@ def test_fewer_than_four_ok_rows_leaves_them_untouched():
     assert all(row["verdict"] == "ok" for row in rows)
     assert all("inconsistent_with_median" not in row["reasons"] for row in rows)
     assert summary[0]["n_consistent"] == 3
+
+
+def test_analyzer_exposes_the_delay_floor_with_the_resolution_reason(monkeypatch):
+    """Rows preserve raw theta and expose an explicit tuning delay when unresolved."""
+    original_fit_step = step_analyzer.fit_step
+
+    def fit_with_unresolved_delay(*args):
+        """Keep the real fit statistics while emulating a delay below recorder resolution."""
+        fitted = original_fit_step(*args)
+        return replace(fitted, theta_s=Param(0.0, 0.0), edges=("theta_below_resolution",))
+
+    monkeypatch.setattr(step_analyzer, "fit_step", fit_with_unresolved_delay)
+    row = _analyze(_build_record())["rows"][0]
+    assert "theta_below_resolution" in row["reasons"]
+    assert row["delay_floor_s"] == DT_S / 2.0
+    assert row["params"]["theta_s"]["value"] == 0.0

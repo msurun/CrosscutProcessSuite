@@ -16,7 +16,7 @@ from crosscut_loops.step_events import (
     find_step_events,
     robust_noise_sd,
 )
-from crosscut_loops.step_fit import Param, StepFit, StepFitError, fit_step
+from crosscut_loops.step_fit import Param, StepFit, StepFitError, effective_delay_s, fit_step
 
 # Maximum number of points in the per-row sample payload (for GUI display).
 MAX_SAMPLE_POINTS = 300
@@ -312,6 +312,7 @@ def _assemble_row(
     row["snr"] = _json_float(snr)
     row["model"] = model_name
     row["params"] = params
+    _add_delay_floor(row, fit_result, context)
     row["r2"] = _json_float(fit_result.r2)
     row["rmse"] = _json_float(fit_result.rmse)
     row["n"] = fit_result.n
@@ -322,6 +323,14 @@ def _assemble_row(
     row["logbook"] = _logbook_entries(origin_utc_s + event.t_s, logbook)
     row["sample"] = _sample_payload(context, fit_result)
     return row
+
+
+def _add_delay_floor(row: dict[str, Any], fit: StepFit, context: _RowContext) -> None:
+    """Expose effective delay in seconds when the raw delay is below resolution."""
+    if "theta_below_resolution" in fit.edges:
+        finite = np.isfinite(context.window_pv) & np.isfinite(context.window_out)
+        dt_s = _median_dt(context.window_t_s[finite])
+        row["delay_floor_s"] = effective_delay_s(fit, dt_s)[0]
 
 
 def _params_dict(fit: StepFit) -> dict[str, dict[str, float | None]]:
