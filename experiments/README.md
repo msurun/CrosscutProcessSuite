@@ -40,3 +40,5 @@ New experiments must serve a product feature named in `docs/PRODUCT.md`; a valid
 | exp31 | virtual sensors | validation case | Online analyser vs lab, plant-1 validation case: R1 passes both primary targets; R2 misses one (RMSE 1.074 vs limit 1.05) and passes the other; R3 misses both; bias correction is not a default for the failing target. |
 | exp35_valve_friction_public | loop monitoring/tuning | validation case | Stroke test deadband on public graphite valve data (Marques, CC BY 4.0) vs published Choudhury S 26.42: Crosscut 31.2-31.3 (T1 met by 0.1-0.3 only), independent reference 32.2-32.6 (T2 missed); verdict inconclusive, DAMADICS blocked on terms. |
 | review_pack | foundations | active | Blind-review pack for the loop worklist (HANDOFF step 3). |
+| exp40_anomaly_regimes_public | anomaly | protocol frozen, not run | Re-validation of exp36 (SKAB, 3W) with regime-aware PCA and stuck exemptions on new splits (#102); same targets as exp36. |
+| exp41_pronto_regimes | anomaly | protocol frozen, not run | Re-validation of exp38 (PRONTO) with regime-aware PCA and stuck exemptions, leave-one-day-out (#102); same targets as exp38. |
