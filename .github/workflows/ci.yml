@@ -48,8 +48,19 @@ jobs:
           cache-dependency-path: requirements-dev.txt
       - name: Install Python dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('core/CMakeLists.txt') }}
       - name: Configure
-        run: cmake -S core -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            cmake -S core -B build -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps" && exit 0
+            echo "Configure attempt $attempt failed, retrying"; sleep 10
+          done
+          exit 1
       - name: Build
         run: cmake --build build --config Release
       - name: C++ unit tests
