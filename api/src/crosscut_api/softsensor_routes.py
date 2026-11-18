@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
+from crosscut_softsensor.alignment import AlignmentError, scan_alignment
 from crosscut_softsensor.bias import BiasTrackerError
 from crosscut_softsensor.config import SoftSensorConfig, SoftSensorConfigError, load_config
 from crosscut_softsensor.features import FeatureError, build_lagged, feature_names
+from crosscut_softsensor.long_format import TagSeries
 from crosscut_softsensor.pls import PlsModel, PlsModelError, fit_pls
 from crosscut_softsensor.runner import LabResults, SoftSensorRun, run_softsensor
 from fastapi import APIRouter, HTTPException
@@ -28,6 +30,12 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from crosscut_api.anomaly_routes import WindowRequest, _bin_means, _window_mask
+from crosscut_api.target_alignment import (
+    aligned_labs,
+    catalogue_metadata,
+    rows_series,
+    training_target,
+)
 
 DIR_NAME = "_softsensor"
 SID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
@@ -51,6 +59,15 @@ class FitRequest(BaseModel):
     """Training cut: only lab results available before ``train_end_s`` are used."""
 
     train_end_s: float | None = None
+
+
+class AlignmentScanRequest(BaseModel):
+    """Candidate physical delays in seconds, bounded by the numerical scan validator."""
+
+    reference_tag: str = Field(min_length=1)
+    min_delay_s: float = Field(allow_inf_nan=False)
+    max_delay_s: float = Field(allow_inf_nan=False)
+    step_s: float = Field(gt=0, allow_inf_nan=False)
 
 
 class RunRequest(WindowRequest):
@@ -204,11 +221,16 @@ class _SoftSensorEndpoints:
         if not before.any():
             raise HTTPException(status_code=422, detail="train_end_s: no samples before it")
         x, _ = build_lagged(columns, config.input_tags, config.lags_s, config.sample_period_s)
-        y = _training_target(t_s[before], rows, config.lab_delay_s, end)
+        labs = aligned_labs(self.folder.parent, rows, config)
+        y = training_target(t_s[before], labs, end)
         model = _fit_or_422(x[before], y, config)
         window = {"start_s": float(t_s[0]), "end_s": end}
         manifest = _manifest(config, model, dataset_id, window)
         manifest["r2_train"] = _r2(model, x[before], y)
+        return self._save_fit(sid, model, manifest)
+
+    def _save_fit(self, sid: str, model: PlsModel, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Persist a fitted model and return the figures used by the GUI."""
         _write_text(self._path(sid, ".model.json"), json.dumps(model.to_dict(), indent=2))
         _write_text(self._path(sid, ".manifest.json"), json.dumps(manifest, indent=2))
         return _summary(model, manifest, manifest["r2_train"])
@@ -228,11 +250,35 @@ class _SoftSensorEndpoints:
             raise HTTPException(status_code=422, detail="input_tags: model is stale, fit it again")
         t_s, columns = self._binned(dataset_id, config, request)
         rows = self._lab_rows(sid)
-        labs = LabResults.with_delay(
-            np.array([r[0] for r in rows]), np.array([r[1] for r in rows]), config.lab_delay_s
-        )
+        labs = aligned_labs(self.folder.parent, rows, config)
+        rows = list(zip(labs.t_s.tolist(), labs.values.tolist(), strict=True))
         result = _run_or_422(model, config, t_s, columns, labs)
         return _run_document(result, rows, request.max_points)
+
+    def post_alignment_scan(
+        self, dataset_id: str, sid: Sid, request: AlignmentScanRequest
+    ) -> dict[str, Any]:
+        """Scan the user's dataset against uploaded target results with catalogue timing."""
+        config = _config_or_422(self.get_softsensor(sid))
+        lab = rows_series(config.target_tag, self._lab_rows(sid))
+        reference = self._reference_series(dataset_id, request.reference_tag)
+        metadata = catalogue_metadata(self.folder.parent, config.target_tag)
+        options = request.model_dump(exclude={"reference_tag"})
+        options["reference_metadata"] = catalogue_metadata(
+            self.folder.parent, request.reference_tag)
+        try:
+            return scan_alignment(lab, reference, metadata, options)
+        except AlignmentError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    def _reference_series(self, dataset_id: str, tag: str) -> TagSeries:
+        """Read good-quality reference samples; bad quality is represented by NaN."""
+        times, columns = self.load_seconds(dataset_id)
+        if tag not in columns:
+            raise HTTPException(status_code=422, detail=f"unknown reference tag: {tag}")
+        quality = self.load_quality(dataset_id)
+        values = np.where(quality[tag] == 0, columns[tag], np.nan)
+        return TagSeries(tag, times, values)
 
     def _path(self, sid: str, suffix: str) -> Path:
         """File of one id (``sid`` was checked against SID_PATTERN by the route)."""
@@ -289,6 +335,7 @@ def build_softsensor_router(
     endpoints = _SoftSensorEndpoints(root, load_seconds, load_quality)
     one, on_dataset = "/softsensor/{sid}", "/datasets/{dataset_id}/softsensor/{sid}"
     table: list[tuple[str, str, Callable[..., Any]]] = [
+        (f"{on_dataset}/alignment-scan", "POST", endpoints.post_alignment_scan),
         ("/softsensor", "GET", endpoints.list_softsensors),
         (one, "GET", endpoints.get_softsensor),
         (one, "PUT", endpoints.put_softsensor),
@@ -317,18 +364,6 @@ def _config_or_422(document: dict[str, Any]) -> SoftSensorConfig:
         return load_config(document)
     except SoftSensorConfigError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-
-
-def _training_target(
-    t_bins: np.ndarray, rows: list[tuple[float, float]], delay_s: float, end_s: float
-) -> np.ndarray:
-    """Lab value on the bin holding its sample time; only results sampled and available < end."""
-    y = np.full(len(t_bins), np.nan)
-    for t, value in rows:
-        row = int(np.searchsorted(t_bins, t, side="right")) - 1
-        if row >= 0 and t < end_s and t + delay_s < end_s:
-            y[row] = value
-    return y
 
 
 def _fit_or_422(x: np.ndarray, y: np.ndarray, config: SoftSensorConfig) -> PlsModel:

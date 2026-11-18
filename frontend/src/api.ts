@@ -464,7 +464,7 @@ export interface FuzzyReplay {
   actual: Record<string, (number | null)[]>;
 }
 
-async function sendJson<T>(method: string, url: string, body: unknown): Promise<T> {
+export async function sendJson<T>(method: string, url: string, body: unknown): Promise<T> {
   const response = await apiFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
