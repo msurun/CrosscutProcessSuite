@@ -1,7 +1,7 @@
-# exp37 results (protocol exp37_v1, run once 2026-11-18, issue #87)
+# exp38 results (protocol exp38_v1, run once 2026-11-18, issue #87)
 
 Aggregate numbers only; no PRONTO-derived data is committed (CC BY 4.0, used locally). Protocol and targets: README.md (frozen in
-commit f7a7b5d). Run: `run_exp37.py --data <folder with the case-study tree>`.
+commit e65bae6). Run: `run_exp38.py --data <folder with the case-study tree>`.
 
 ## Outcome: every frozen target is missed
 
@@ -41,4 +41,4 @@ Per day: 0907 40 events (32 stuck), 0911 80 (78 stuck), 0912 33 (30 stuck). Fit 
 ## Next steps
 
 - Same as exp36: diagnose the shift (per-set-point models or models fitted on several blocks, drop constant tags from the stuck rule,
-  scale per record); a change makes exp37_v2.
+  scale per record); a change makes exp38_v2.

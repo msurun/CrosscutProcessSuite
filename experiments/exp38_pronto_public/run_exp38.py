@@ -1,4 +1,4 @@
-"""exp37: anomaly engine on PRONTO multiphase flow process data (protocol: README.md).
+"""exp38: anomaly engine on PRONTO multiphase flow process data (protocol: README.md).
 
 Reads local copies of the public data (never committed), applies the frozen protocol once and
 prints a JSON result; without the data it prints SKIP and exits 0. Issue #87, sibling of exp36.
@@ -168,13 +168,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
     if not all((args.data / f).is_file() for f in FILES.values()):
-        print(f"SKIP exp37: PRONTO process-data files not found in {args.data}")
+        print(f"SKIP exp38: PRONTO process-data files not found in {args.data}")
         return 0
     days = {}
     for day, rel in FILES.items():
         x, start_s = read_day(args.data / rel)
         days[day] = score_day(x, start_s, BLOCKS[day])
-    res = {"protocol": "exp37_v1", "days": days, "summary": summarize(days)}
+    res = {"protocol": "exp38_v1", "days": days, "summary": summarize(days)}
     text = json.dumps(res, indent=2, default=str)
     if args.out:
         args.out.write_text(text, encoding="utf-8")

@@ -1,4 +1,4 @@
-# exp37: anomaly engine on PRONTO multiphase flow data (SKAB/3W sibling of exp36) - issue #87
+# exp38: anomaly engine on PRONTO multiphase flow data (SKAB/3W sibling of exp36) - issue #87
 
 Status: protocol FROZEN before the first run. Same detector, same metrics and same targets as exp36 (README there), applied to the
 Cranfield multiphase flow facility. Owner decision 2026-11-17: public data only; this is a validation case, not a feature.
@@ -14,7 +14,7 @@ Cranfield multiphase flow facility. Owner decision 2026-11-17: public data only;
 - Tags: the 19 process measurement columns after TIMESTAMP (Air In1 ... water tank level), minus columns constant in the fit window.
   The remaining 12 columns (controller OUT/SP/PV copies) are duplicates and are not used.
 - Time axis: row i is second i after the first timestamp of the file (timestamps are printed to the minute only). Clock times
-  come from the operation log (Excel day fractions). The log is sloppy; the transcription of blocks is in `run_exp37.py`
+  come from the operation log (Excel day fractions). The log is sloppy; the transcription of blocks is in `run_exp38.py`
   (`BLOCKS`), ambiguous stretches are excluded, not guessed.
 
 ## Detector (one configuration, no tuning)
@@ -51,6 +51,6 @@ Also reported without target: quiet metrics split by same / other set point, sha
 ## Honesty rules
 
 Run once, report all numbers. A missed target stays missed; no threshold, tag, block or window change after the first run
-(a change makes `exp37_v2`). Bug fixes that do not change a definition are listed in results.md.
+(a change makes `exp38_v2`). Bug fixes that do not change a definition are listed in results.md.
 
-Run: `python experiments/exp37_pronto_public/run_exp37.py --data <scratch folder with the case-study tree>`; without the data it prints SKIP, exit 0.
+Run: `python experiments/exp38_pronto_public/run_exp38.py --data <scratch folder with the case-study tree>`; without the data it prints SKIP, exit 0.
