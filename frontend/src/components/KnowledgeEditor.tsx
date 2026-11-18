@@ -70,23 +70,29 @@ function RangeInfo({ range, presentKey, missingKey, t }: {
   return <p>{t(presentKey, { range: text })}</p>;
 }
 
+/** Diff of the last save and the save error, with a reset of both. */
+function useSaveStatus() {
+  const [changes, setChanges] = useState<FieldChange[] | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const clearStatus = (): void => {
+    setChanges(null);
+    setSaveError(null);
+  };
+  return { changes, setChanges, saveError, setSaveError, clearStatus };
+}
+
 /** State and actions of the form: draft, save status, the diff of the last save. */
 function useKnowledgeForm(datasetId: string, loopName: string, knowledge: LoopKnowledge, onSaved: () => void) {
   const [loaded, setLoaded] = useState<LoopKnowledge>(knowledge);
   const [draft, setDraft] = useState<KnowledgeDraft>(draftFromValues(knowledge.knowledge));
   const [isSaving, setIsSaving] = useState(false);
-  const [changes, setChanges] = useState<FieldChange[] | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const { changes, setChanges, saveError, setSaveError, clearStatus } = useSaveStatus();
 
   useEffect(() => {
     setLoaded(knowledge);
     setDraft(draftFromValues(knowledge.knowledge));
   }, [knowledge]);
 
-  const clearStatus = (): void => {
-    setChanges(null);
-    setSaveError(null);
-  };
   const edit = (patch: Partial<KnowledgeDraft>): void => {
     setDraft((current) => ({ ...current, ...patch }));
     clearStatus();

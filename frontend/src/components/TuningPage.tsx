@@ -149,27 +149,19 @@ function downloadMarkdown(markdown: string, fileName: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Step 1: pick one of the backend's suggested windows, or keep the automatic one. */
-function WindowStep({
-  datasetId,
-  loop,
-  payload,
-  window,
-  onSelectWindow,
-  t,
-}: {
+type WindowStepProps = {
   datasetId: string;
   loop: LoopSummary;
   payload: TuningPayload;
   window: TuningWindow;
   onSelectWindow: (window: TuningWindow) => void;
   t: Translate;
-}) {
-  const current = payload.window;
+};
 
+/** The suggested-window chips, or a note when the backend found none. */
+function WindowSuggestions({ payload, window, onSelectWindow, t }: Omit<WindowStepProps, "datasetId" | "loop">) {
   return (
-    <section className="tuning-step">
-      <h3>{t("tuning.step1")}</h3>
+    <>
       {payload.windows.length === 0 ? (
         <p className="status">{t("tuning.window.none")}</p>
       ) : (
@@ -191,6 +183,14 @@ function WindowStep({
           })}
         </button>
       ))}
+    </>
+  );
+}
+
+/** Description of the window in use, plus the padding note when the backend padded it. */
+function CurrentWindowInfo({ current, t }: { current: TuningPayload["window"]; t: Translate }) {
+  return (
+    <>
       <p>
         {t("tuning.window.current", {
           start: toMinutes(current.start_s),
@@ -206,6 +206,19 @@ function WindowStep({
           })}
         </p>
       )}
+    </>
+  );
+}
+
+/** Step 1: pick one of the backend's suggested windows, or keep the automatic one. */
+function WindowStep({ datasetId, loop, payload, window, onSelectWindow, t }: WindowStepProps) {
+  const current = payload.window;
+
+  return (
+    <section className="tuning-step">
+      <h3>{t("tuning.step1")}</h3>
+      <WindowSuggestions payload={payload} window={window} onSelectWindow={onSelectWindow} t={t} />
+      <CurrentWindowInfo current={current} t={t} />
       <WindowPicker
         datasetId={datasetId}
         loop={loop}
@@ -248,16 +261,44 @@ function checkChartData(payload: TuningPayload): (number | null)[][] | null {
   return [t_s, measured, model];
 }
 
-/** Step 2: warnings, model fit verdict, key numbers and the check overlay. */
-function ModelStep({
-  payload,
-  unit,
-  swing,
-  datasetId,
-  loopName,
-  actions,
-  t,
-}: {
+/** Error block for a blocked tuning run (IPDT refusal gets its own view). */
+function BlockedNotice({ payload, t }: { payload: TuningPayload; t: Translate }) {
+  if (payload.blocked_code === "ipdt_refused") {
+    return <IpdtRefusal reasons={payload.blocked_reasons ?? []} t={t} />;
+  }
+  if (payload.blocked_code === null) return null;
+  return <p className="status status-error">{t(`tuning.blocked.${payload.blocked_code}`)}</p>;
+}
+
+/** Chip with the model fit verdict, when a fit exists. */
+function FitChip({ payload, t }: { payload: TuningPayload; t: Translate }) {
+  if (payload.fit === null) return null;
+  return (
+    <StatusChip
+      level={fitVerdictLevel(payload.fit.verdict)}
+      label={t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) })}
+    />
+  );
+}
+
+/** Measured PV against the model (or fitted ramp), when the backend sent a check. */
+function CheckChart({ payload, ipdt, t }: { payload: TuningPayload; ipdt: boolean; t: Translate }) {
+  const checkData = checkChartData(payload);
+  if (checkData === null) return null;
+  return (
+    <TrendPane
+      data={checkData}
+      labels={[t("tuning.check.measured"), t(ipdt ? "tuning.check.ramp" : "tuning.check.model")]}
+      colors={["--series-1", "--series-2"]}
+      height={200}
+      syncKey="tuning-check"
+      xIsTime={false}
+      xLabel={t("tuning.check.xLabel")}
+    />
+  );
+}
+
+type ModelStepProps = {
   payload: TuningPayload;
   unit: string;
   swing: { text: SwingText; onChange: (max: string, load: string) => void };
@@ -265,8 +306,10 @@ function ModelStep({
   loopName: string;
   actions: { onKindSaved: () => void };
   t: Translate;
-}) {
-  const checkData = checkChartData(payload);
+};
+
+/** Step 2: warnings, model fit verdict, key numbers and the check overlay. */
+function ModelStep({ payload, unit, swing, datasetId, loopName, actions, t }: ModelStepProps) {
   const model = payload.model;
   const ipdt = isIpdtModel(model);
 
@@ -280,19 +323,8 @@ function ModelStep({
         onKindSaved={actions.onKindSaved}
         t={t}
       />
-      {payload.blocked_code === "ipdt_refused" ? (
-        <IpdtRefusal reasons={payload.blocked_reasons ?? []} t={t} />
-      ) : (
-        payload.blocked_code !== null && (
-          <p className="status status-error">{t(`tuning.blocked.${payload.blocked_code}`)}</p>
-        )
-      )}
-      {payload.fit !== null && (
-        <StatusChip
-          level={fitVerdictLevel(payload.fit.verdict)}
-          label={t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) })}
-        />
-      )}
+      <BlockedNotice payload={payload} t={t} />
+      <FitChip payload={payload} t={t} />
       {model !== null && model.kind === "fopdt" && <FopdtModelView model={model} unit={unit} t={t} />}
       {ipdt && <IpdtModelView model={model} unit={unit} spanS={payload.window.end_s - payload.window.start_s} t={t} />}
       {ipdt && (
@@ -305,17 +337,7 @@ function ModelStep({
           t={t}
         />
       )}
-      {checkData !== null && (
-        <TrendPane
-          data={checkData}
-          labels={[t("tuning.check.measured"), t(ipdt ? "tuning.check.ramp" : "tuning.check.model")]}
-          colors={["--series-1", "--series-2"]}
-          height={200}
-          syncKey="tuning-check"
-          xIsTime={false}
-          xLabel={t("tuning.check.xLabel")}
-        />
-      )}
+      <CheckChart payload={payload} ipdt={ipdt} t={t} />
     </section>
   );
 }
@@ -348,16 +370,61 @@ function RobustnessSlider({
   );
 }
 
-/** Step 3: robustness trade-off, PI settings, step preview, DCS forms and export. */
-function SettingsStep({
-  payload,
-  robustness,
-  onRobustnessChange,
-  datasetId,
-  loopName,
-  unit,
-  t,
-}: {
+type PiSettings = NonNullable<TuningPayload["settings"]>;
+
+/** Recommendation sentence (or the IPDT variant) with the fit verdict appended. */
+function Recommendation({ payload, settings, t }: { payload: TuningPayload; settings: PiSettings; t: Translate }) {
+  const fitText =
+    payload.fit === null
+      ? ""
+      : t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) });
+  if (isIpdtModel(payload.model)) {
+    return <IpdtRecommendation payload={payload} settings={settings} fitText={fitText} t={t} />;
+  }
+  return (
+    <p className="recommendation" role="status">
+      {t("tuning.recommendation", {
+        kc: formatNumber(settings.simc.kc),
+        ti: formatNumber(settings.simc.ti_s),
+        fit: fitText,
+      })}
+    </p>
+  );
+}
+
+/** Simulated closed-loop step response: PV and controller output panes. */
+function StepPreview({ payload, unit, t }: { payload: TuningPayload; unit: string; t: Translate }) {
+  if (!payload.step) return null;
+  const pvData = [payload.step.t_s, payload.step.pv];
+  const outData = [payload.step.t_s, payload.step.out];
+  return (
+    <>
+      <p>{t("tuning.preview")}</p>
+      <TrendPane
+        data={pvData}
+        labels={[t("tuning.preview.pvPane")]}
+        colors={["--series-1"]}
+        unit={unit}
+        height={160}
+        syncKey="tuning-step"
+        xIsTime={false}
+        xLabel={t("tuning.preview.xLabel")}
+      />
+      <TrendPane
+        data={outData}
+        labels={[t("tuning.preview.outPane")]}
+        colors={["--series-3"]}
+        unit="%"
+        height={160}
+        syncKey="tuning-step"
+        xIsTime={false}
+        xLabel={t("tuning.preview.xLabel")}
+      />
+    </>
+  );
+}
+
+type SettingsStepProps = {
   payload: TuningPayload;
   robustness: number;
   onRobustnessChange: (value: number) => void;
@@ -365,60 +432,22 @@ function SettingsStep({
   loopName: string;
   unit: string;
   t: Translate;
-}) {
+};
+
+/** Step 3: robustness trade-off, PI settings, step preview, DCS forms and export. */
+function SettingsStep({ payload, robustness, onRobustnessChange, datasetId, loopName, unit, t }: SettingsStepProps) {
   const settings = payload.settings;
   if (settings === null) return null;
   if (payload.blocked_code !== null) return null;
 
-  const pvData = payload.step ? [payload.step.t_s, payload.step.pv] : null;
-  const outData = payload.step ? [payload.step.t_s, payload.step.out] : null;
-  const fitText =
-    payload.fit === null
-      ? ""
-      : t(`tuning.fit.${payload.fit.verdict}`, { r2: formatFixed(payload.fit.r_squared, 2) });
-
   return (
     <section className="tuning-step">
       <h3>{t("tuning.step3")}</h3>
-      {isIpdtModel(payload.model) ? (
-        <IpdtRecommendation payload={payload} settings={settings} fitText={fitText} t={t} />
-      ) : (
-        <p className="recommendation" role="status">
-          {t("tuning.recommendation", {
-            kc: formatNumber(settings.simc.kc),
-            ti: formatNumber(settings.simc.ti_s),
-            fit: fitText,
-          })}
-        </p>
-      )}
+      <Recommendation payload={payload} settings={settings} t={t} />
       <RobustnessSlider value={robustness} onChange={onRobustnessChange} t={t} />
       <PiSettingsTable settings={settings} t={t} />
       <CurrentSettingsCompare storageKey={`crosscut.currentSettings.${datasetId}.${loopName}`} settings={settings} t={t} />
-      {pvData !== null && outData !== null && (
-        <>
-          <p>{t("tuning.preview")}</p>
-          <TrendPane
-            data={pvData}
-            labels={[t("tuning.preview.pvPane")]}
-            colors={["--series-1"]}
-            unit={unit}
-            height={160}
-            syncKey="tuning-step"
-            xIsTime={false}
-            xLabel={t("tuning.preview.xLabel")}
-          />
-          <TrendPane
-            data={outData}
-            labels={[t("tuning.preview.outPane")]}
-            colors={["--series-3"]}
-            unit="%"
-            height={160}
-            syncKey="tuning-step"
-            xIsTime={false}
-            xLabel={t("tuning.preview.xLabel")}
-          />
-        </>
-      )}
+      <StepPreview payload={payload} unit={unit} t={t} />
       <h4>{t("tuning.dcs")}</h4>
       <DcsForms forms={payload.dcs_forms} t={t} />
       <VendorBlock payload={payload} t={t} />
@@ -480,8 +509,8 @@ function buildSteps(payload: TuningPayload, t: Translate): StepInfo[] {
   ];
 }
 
-/** Full tuning page for one loop: window picker, model report and settings. */
-export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSaved }: TuningPageProps) {
+/** Page state: selected window, robustness, averaging inputs and the loaded payload. */
+function useTuningPage(datasetId: string, loopName: string, onKnowledgeSaved?: () => void) {
   const [window, setWindow] = useState<TuningWindow>(null);
   const [robustness, setRobustness] = useState(ROBUSTNESS_DEFAULT);
   const [swingText, setSwingText] = useState<SwingText>({ max: "", load: "" });
@@ -490,7 +519,7 @@ export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSa
   const appliedMax = useDebouncedValue(swingText.max, ROBUSTNESS_DEBOUNCE_MS);
   const appliedLoad = useDebouncedValue(swingText.load, ROBUSTNESS_DEBOUNCE_MS);
 
-  const { payload, status, errorReason } = useTuning(datasetId, loopName, {
+  const loaded = useTuning(datasetId, loopName, {
     window,
     robustness: appliedRobustness,
     swing: { max: appliedMax, load: appliedLoad },
@@ -500,6 +529,74 @@ export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSa
     setReloadKey((key) => key + 1);
     onKnowledgeSaved?.();
   };
+
+  return { ...loaded, window, setWindow, robustness, setRobustness, swingText, setSwingText, onKindSaved };
+}
+
+type TuningPageState = ReturnType<typeof useTuningPage>;
+
+/** Wizard progress indicator with localised step states. */
+function TuningStepper({ payload, t }: { payload: TuningPayload; t: Translate }) {
+  return (
+    <Stepper
+      steps={buildSteps(payload, t)}
+      ariaLabel={t("tuning.stepper")}
+      stateLabels={{
+        todo: t("tuning.stepState.todo"),
+        active: t("tuning.stepState.active"),
+        done: t("tuning.stepState.done"),
+        blocked: t("tuning.stepState.blocked"),
+      }}
+    />
+  );
+}
+
+/** The stepper and the three wizard steps, shown once a payload exists. */
+type TuningStepsProps = {
+  payload: TuningPayload;
+  state: TuningPageState;
+  props: Pick<TuningPageProps, "datasetId" | "loopName" | "loop" | "t">;
+};
+
+function TuningSteps({ payload, state, props }: TuningStepsProps) {
+  const { datasetId, loopName, loop, t } = props;
+  return (
+    <>
+      <TuningStepper payload={payload} t={t} />
+      <WindowStep
+        datasetId={datasetId}
+        loop={loop}
+        payload={payload}
+        window={state.window}
+        onSelectWindow={state.setWindow}
+        t={t}
+      />
+      <ModelStep
+        payload={payload}
+        unit={loop.unit}
+        swing={{ text: state.swingText, onChange: (max, load) => state.setSwingText({ max, load }) }}
+        datasetId={datasetId}
+        loopName={loopName}
+        actions={{ onKindSaved: state.onKindSaved }}
+        t={t}
+      />
+      <SettingsStep
+        payload={payload}
+        robustness={state.robustness}
+        onRobustnessChange={state.setRobustness}
+        datasetId={datasetId}
+        loopName={loopName}
+        unit={loop.unit}
+        t={t}
+      />
+    </>
+  );
+}
+
+/** Full tuning page for one loop: window picker, model report and settings. */
+export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSaved }: TuningPageProps) {
+  const state = useTuningPage(datasetId, loopName, onKnowledgeSaved);
+  const { payload, status, errorReason } = state;
 
   return (
     <>
@@ -514,46 +611,7 @@ export function TuningPage({ datasetId, loopName, loop, t, onBack, onKnowledgeSa
       <p className="banner" role="note">
         {t("tuning.banner")}
       </p>
-      {payload !== null && (
-        <>
-          <Stepper
-            steps={buildSteps(payload, t)}
-            ariaLabel={t("tuning.stepper")}
-            stateLabels={{
-              todo: t("tuning.stepState.todo"),
-              active: t("tuning.stepState.active"),
-              done: t("tuning.stepState.done"),
-              blocked: t("tuning.stepState.blocked"),
-            }}
-          />
-          <WindowStep
-            datasetId={datasetId}
-            loop={loop}
-            payload={payload}
-            window={window}
-            onSelectWindow={setWindow}
-            t={t}
-          />
-          <ModelStep
-            payload={payload}
-            unit={loop.unit}
-            swing={{ text: swingText, onChange: (max, load) => setSwingText({ max, load }) }}
-            datasetId={datasetId}
-            loopName={loopName}
-            actions={{ onKindSaved }}
-            t={t}
-          />
-          <SettingsStep
-            payload={payload}
-            robustness={robustness}
-            onRobustnessChange={setRobustness}
-            datasetId={datasetId}
-            loopName={loopName}
-            unit={loop.unit}
-            t={t}
-          />
-        </>
-      )}
+      {payload !== null && <TuningSteps payload={payload} state={state} props={{ datasetId, loopName, loop, t }} />}
     </>
   );
 }

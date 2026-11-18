@@ -52,6 +52,62 @@ export interface LibraryState {
   markSaved: (document: FuzzyDocument) => void;
 }
 
+/** Loads the document of the selected system and stores it as the saved baseline. */
+function useSelectedSystemLoader(
+  selectedId: string,
+  setDocument: (document: FuzzyDocument) => void,
+  setSavedJson: (json: string) => void,
+  setLoadError: (message: string | null) => void,
+): void {
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadSystem(): Promise<void> {
+      if (selectedId === "") return;
+      try {
+        const loaded = await fetchFuzzySystem(selectedId);
+        if (isCancelled) return;
+        setDocument(loaded);
+        setSavedJson(JSON.stringify(loaded));
+        setLoadError(null);
+      } catch (error) {
+        if (isCancelled) return;
+        setLoadError(error instanceof Error ? error.message : String(error));
+      }
+    }
+    void loadSystem();
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedId, setDocument, setSavedJson, setLoadError]);
+}
+
+/** Reads the system list once on mount and selects the first system. */
+function useSystemListLoader(
+  setSystems: (systems: FuzzySystemInfo[]) => void,
+  setSelectedId: (systemId: string) => void,
+  setLoadError: (message: string | null) => void,
+): void {
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadList(): Promise<void> {
+      try {
+        const list = await fetchFuzzySystems();
+        if (isCancelled) return;
+        setSystems(list);
+        setSelectedId(firstSystemId(list, ""));
+      } catch (error) {
+        if (isCancelled) return;
+        setLoadError(error instanceof Error ? error.message : String(error));
+      }
+    }
+    void loadList();
+    return () => {
+      isCancelled = true;
+    };
+    // The list is read once on mount; later reloads go through reloadLibrary.
+  }, []);
+}
+
 /**
  * Owns the system library and the loaded document.
  *
@@ -74,46 +130,8 @@ export function useFuzzyLibrary(t: Translate): LibraryState {
     setSelectedId(systemId);
   }, []);
 
-  useEffect(() => {
-    let isCancelled = false;
-    async function loadSystem(): Promise<void> {
-      if (selectedId === "") return;
-      try {
-        const loaded = await fetchFuzzySystem(selectedId);
-        if (isCancelled) return;
-        setDocumentState(loaded);
-        setSavedJson(JSON.stringify(loaded));
-        setLoadError(null);
-      } catch (error) {
-        if (isCancelled) return;
-        setLoadError(error instanceof Error ? error.message : String(error));
-      }
-    }
-    void loadSystem();
-    return () => {
-      isCancelled = true;
-    };
-  }, [selectedId]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    async function loadList(): Promise<void> {
-      try {
-        const list = await fetchFuzzySystems();
-        if (isCancelled) return;
-        setSystems(list);
-        setSelectedId(firstSystemId(list, selectedId));
-      } catch (error) {
-        if (isCancelled) return;
-        setLoadError(error instanceof Error ? error.message : String(error));
-      }
-    }
-    void loadList();
-    return () => {
-      isCancelled = true;
-    };
-    // The list is read once on mount; later reloads go through reloadLibrary.
-  }, []);
+  useSelectedSystemLoader(selectedId, setDocumentState, setSavedJson, setLoadError);
+  useSystemListLoader(setSystems, setSelectedId, setLoadError);
 
   const markSaved = useCallback((document: FuzzyDocument): void => {
     setDocumentState(document);

@@ -145,8 +145,6 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
   if (status === "error") {
     return <p className="status status-error">{t("trends.error", { reason: errorReason })}</p>;
   }
-
-  const toList = () => navigate(withLoop(route, null));
   if (route.loop === null) {
     return (
       <>
@@ -157,8 +155,20 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
   }
 
   const loop = loops.find((one) => one.name === route.loop);
+  const toList = () => navigate(withLoop(route, null));
   if (loop === undefined) return <LoopNotFound name={route.loop} onBack={toList} t={t} />;
+  return <LoopView {...{ datasetId, route, navigate, t, loop, reload }} />;
+}
 
+/** Props of the view of one loop: the page props plus the selected loop and the list reload. */
+interface LoopViewProps extends Omit<LoopsPageProps, "onAnalysed"> {
+  loop: LoopSummary;
+  reload: () => void;
+}
+
+/** Builds the breadcrumb trail of the selected loop's current page. */
+function buildCrumbs({ route, navigate, t, loop }: LoopViewProps): Crumb[] {
+  const toList = () => navigate(withLoop(route, null));
   const toDetail = () => navigate(withLoop(route, loop.name, "detail"));
   const crumbs: Crumb[] = [{ label: t("loops.title"), onSelect: toList }];
   if (route.sub === "detail") {
@@ -168,10 +178,18 @@ export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
     const pageTitleKey = { tuning: "tuning.title", benefit: "benefit.title", valve: "valve.title" }[route.sub];
     crumbs.push({ label: t(pageTitleKey) });
   }
+  return crumbs;
+}
+
+/** The breadcrumb and the detail, tuning, benefit or valve page of one loop. */
+function LoopView(props: LoopViewProps) {
+  const { datasetId, route, navigate, t, loop, reload } = props;
+  const toList = () => navigate(withLoop(route, null));
+  const toDetail = () => navigate(withLoop(route, loop.name, "detail"));
 
   return (
     <>
-      <Breadcrumb crumbs={crumbs} label={t("nav.breadcrumb")} />
+      <Breadcrumb crumbs={buildCrumbs(props)} label={t("nav.breadcrumb")} />
       {route.sub === "tuning" && (
         <TuningPage datasetId={datasetId} loopName={loop.name} loop={loop} t={t} onBack={toDetail} onKnowledgeSaved={reload} />
       )}

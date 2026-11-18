@@ -394,6 +394,28 @@ function ReconcileIntentsSection({
   );
 }
 
+/** The detail panel and actions of the selected proposal. */
+function SelectedSection({
+  proposal,
+  nowMs,
+  onChanged,
+  onRefresh,
+  t,
+}: {
+  proposal: TuningProposal;
+  nowMs: number;
+  onChanged: (updated: TuningProposal) => void;
+  onRefresh: () => void;
+  t: Translate;
+}) {
+  return (
+    <section>
+      <TuningProposalDetail proposal={proposal} nowMs={nowMs} t={t} />
+      <TuningProposalActions proposal={proposal} onChanged={onChanged} onRefresh={onRefresh} t={t} />
+    </section>
+  );
+}
+
 /** The proposals view. */
 export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
   const { list, error, hasMore, announce, refresh, loadMore, replace } = useTuningProposals(t);
@@ -419,12 +441,7 @@ export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
         <h2>{t("tuning.proposals.title")}</h2>
         <p className="hint">{t("tuning.proposals.subtitle")}</p>
       </div>
-      <ReconcileIntentsSection
-        storeState={storeState}
-        intents={activeIntents}
-        onResolved={onIntentResolved}
-        t={t}
-      />
+      <ReconcileIntentsSection storeState={storeState} intents={activeIntents} onResolved={onIntentResolved} t={t} />
       <ListStatus list={list} shown={rows.length} error={error} t={t} />
       <Filters loops={loopsOf(list ?? [])} value={filter} onChange={setFilter} t={t} />
       {rows.length > 0 && (
@@ -434,10 +451,7 @@ export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
         <MoreControls shown={list.length} hasMore={hasMore} announce={announce} onMore={() => void loadMore()} t={t} />
       )}
       {selected !== null && (
-        <section>
-          <TuningProposalDetail proposal={selected} nowMs={nowMs} t={t} />
-          <TuningProposalActions proposal={selected} onChanged={onChanged} onRefresh={() => void refresh()} t={t} />
-        </section>
+        <SelectedSection proposal={selected} nowMs={nowMs} onChanged={onChanged} onRefresh={() => void refresh()} t={t} />
       )}
     </div>
   );

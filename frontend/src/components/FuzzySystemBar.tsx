@@ -14,6 +14,22 @@ interface SystemBarProps {
   t: Translate;
 }
 
+/** Drop-down listing the available rule bases. */
+function SystemSelect({ library, t }: SystemBarProps) {
+  return (
+    <label>
+      {t("fuzzy.system")}
+      <select value={library.selectedId} onChange={(event) => library.selectSystem(event.target.value)}>
+        {library.systems.map((system) => (
+          <option key={system.id} value={system.id}>
+            {`${systemName(t, system.id, system.name)} (${t(`fuzzy.source.${system.source}`)})`}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** System picker: choose a rule base, then save a copy under a name of your own. */
 export function SystemBar({ library, t }: SystemBarProps) {
   const [saveName, setSaveName] = useState("");
@@ -42,16 +58,7 @@ export function SystemBar({ library, t }: SystemBarProps) {
 
   return (
     <div className="toolbar">
-      <label>
-        {t("fuzzy.system")}
-        <select value={library.selectedId} onChange={(event) => library.selectSystem(event.target.value)}>
-          {library.systems.map((system) => (
-            <option key={system.id} value={system.id}>
-              {`${systemName(t, system.id, system.name)} (${t(`fuzzy.source.${system.source}`)})`}
-            </option>
-          ))}
-        </select>
-      </label>
+      <SystemSelect library={library} t={t} />
       <label>
         {t("fuzzy.saveAs")}
         <input value={saveName} onChange={(event) => setSaveName(event.target.value)} />

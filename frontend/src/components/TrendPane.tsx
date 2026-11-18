@@ -131,50 +131,62 @@ function seriesOptions(props: TrendPaneProps, index: number): uPlot.Series {
   return { ...base, paths: () => null, points: { show: true, size: MARKER_SIZE_PX, stroke, fill: stroke } };
 }
 
+/** The x series: label plus a locale-formatted cursor readout when x is clock time. */
+function xSeriesOptions(props: TrendPaneProps, isTime: boolean): uPlot.Series {
+  const formatCursor = timeFormatter(CURSOR_FORMAT);
+  return { label: props.timeLabel ?? (isTime ? "time" : (props.xLabel ?? "x")), ...(isTime ? { value: (_: uPlot, v: number | null) => (v === null ? "--" : formatCursor(v)) } : {}) };
+}
+
+/** The x and y axes, coloured from the resolved theme colours. */
+function axesOptions(props: TrendPaneProps, isTime: boolean, textColor: string, gridColor: string): uPlot.Axis[] {
+  const formatTick = timeFormatter(TICK_FORMAT);
+  return [
+    {
+      label: props.xLabel,
+      stroke: textColor,
+      grid: { stroke: gridColor },
+      ...(isTime ? { space: TIME_TICK_SPACE_PX, values: (_: uPlot, ticks: number[]) => ticks.map(formatTick) } : {}),
+    },
+    { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
+  ];
+}
+
+/** Plot hooks: cursor report, MODE band painting and zoom tracking. */
+function hooksOptions(props: TrendPaneProps, callbacks: PlotCallbacks, textColor: string): uPlot.Hooks.Arrays {
+  return {
+    setCursor: [
+      (self) => {
+        const index = self.cursor.idx;
+        props.onCursor?.(index == null ? null : (self.data[0][index] ?? null));
+      },
+    ],
+    drawClear: [(self) => drawModeBand(self, callbacks.spans(), textColor)],
+    setScale: [
+      (self, scaleKey) => {
+        if (scaleKey !== "x") return;
+        const range = visibleRange(self.scales.x.min, self.scales.x.max, self.data[0] ?? []);
+        if (!range) return;
+        callbacks.onRange(range[0], range[1]);
+        props.onZoom?.(range[0], range[1]);
+      },
+    ],
+  };
+}
+
 /** Build the uPlot options: colours are resolved once, series come from labels/colors. */
 function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallbacks): uPlot.Options {
   const textColor = readCssVar("--text-muted");
   const gridColor = readCssVar("--grid");
   const isTime = props.xIsTime ?? true;
-  const formatTick = timeFormatter(TICK_FORMAT);
-  const formatCursor = timeFormatter(CURSOR_FORMAT);
-  const series: uPlot.Series[] = [
-    { label: props.timeLabel ?? (isTime ? "time" : (props.xLabel ?? "x")), ...(isTime ? { value: (_: uPlot, v: number | null) => (v === null ? "--" : formatCursor(v)) } : {}) },
-    ...props.labels.map((_, index) => seriesOptions(props, index)),
-  ];
+  const series: uPlot.Series[] = [xSeriesOptions(props, isTime), ...props.labels.map((_, index) => seriesOptions(props, index))];
   return {
     width,
     height: props.height ?? DEFAULT_HEIGHT_PX,
     cursor: { sync: { key: props.syncKey ?? DEFAULT_SYNC_KEY } },
     scales: { x: { time: props.xIsTime ?? true } },
-    axes: [
-      {
-        label: props.xLabel,
-        stroke: textColor,
-        grid: { stroke: gridColor },
-        ...(isTime ? { space: TIME_TICK_SPACE_PX, values: (_: uPlot, ticks: number[]) => ticks.map(formatTick) } : {}),
-      },
-      { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
-    ],
+    axes: axesOptions(props, isTime, textColor, gridColor),
     series,
-    hooks: {
-      setCursor: [
-        (self) => {
-          const index = self.cursor.idx;
-          props.onCursor?.(index == null ? null : (self.data[0][index] ?? null));
-        },
-      ],
-      drawClear: [(self) => drawModeBand(self, callbacks.spans(), textColor)],
-      setScale: [
-        (self, scaleKey) => {
-          if (scaleKey !== "x") return;
-          const range = visibleRange(self.scales.x.min, self.scales.x.max, self.data[0] ?? []);
-          if (!range) return;
-          callbacks.onRange(range[0], range[1]);
-          props.onZoom?.(range[0], range[1]);
-        },
-      ],
-    },
+    hooks: hooksOptions(props, callbacks, textColor),
   };
 }
 
@@ -242,27 +254,22 @@ function RangeToolbar(props: {
   );
 }
 
-/**
- * A synced, resizable time-series pane backed by uPlot.
- * Re-creates the plot when labels, colors, height or syncKey change;
- * calls setData on data changes to avoid flicker.
- */
-export function TrendPane(props: TrendPaneProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const plotRef = useRef<uPlot | null>(null);
-  const themeVersion = useThemeVersion();
-  const rangeHistory = useRangeHistory(plotRef);
-  const times = props.data[0] as number[];
-  const spans = props.mode ? modeSpans(times, props.mode) : [];
-  const spansRef = useRef<readonly TimeSpan[]>(spans);
-  spansRef.current = spans;
+/** Refs and callbacks that connect the plot lifecycle to the component. */
+interface PlotWiring {
+  containerRef: { current: HTMLDivElement | null };
+  plotRef: { current: uPlot | null };
+  onRange: (min: number, max: number) => void;
+  spansRef: { current: readonly TimeSpan[] };
+}
 
-  // Create (or re-create) the plot when structural props change.
+/** Create (or re-create) the plot when structural props change; keeps it sized to its container. */
+function usePlotLifecycle(props: TrendPaneProps, wiring: PlotWiring, themeVersion: number): void {
+  const { containerRef, plotRef, onRange, spansRef } = wiring;
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const width = Math.max(container.clientWidth, MIN_WIDTH_PX);
-    const callbacks = { spans: () => spansRef.current, onRange: rangeHistory.onRange };
+    const callbacks = { spans: () => spansRef.current, onRange };
     const plot = new uPlot(buildOptions(props, width, callbacks), props.data as uPlot.AlignedData, container);
     plotRef.current = plot;
 
@@ -278,7 +285,10 @@ export function TrendPane(props: TrendPaneProps) {
     };
     // Deps intentionally exclude `data` and `unit`: those update without re-creating.
   }, [props.labels.join("|"), props.colors.join("|"), props.roles?.join("|"), props.markerSeries?.join("|"), props.height, props.syncKey, props.xIsTime, themeVersion]);
+}
 
+/** Keeps an existing plot in step with data, external x range and mode changes. */
+function usePlotSync(props: TrendPaneProps, plotRef: { current: uPlot | null }, times: number[], resetHistory: () => void): void {
   // Push new data into the existing plot without re-creating it.
   useEffect(() => {
     plotRef.current?.setData(props.data as uPlot.AlignedData);
@@ -291,7 +301,7 @@ export function TrendPane(props: TrendPaneProps) {
     if (!plot) return;
     const range = props.xRange ?? (times.length > 0 ? [times[0], times[times.length - 1]] : null);
     if (range) plot.setScale("x", { min: range[0], max: range[1] });
-    rangeHistory.reset();
+    resetHistory();
   }, [props.xRange?.[0], props.xRange?.[1], props.data]);
 
   // Repaint the MODE band when the mode data changes. uPlot commits its first scales in a microtask;
@@ -301,6 +311,24 @@ export function TrendPane(props: TrendPaneProps) {
     const plot = plotRef.current;
     if (plot && plot.scales.x.min != null) plot.redraw();
   }, [props.mode]);
+}
+
+/**
+ * A synced, resizable time-series pane backed by uPlot.
+ * Re-creates the plot when labels, colors, height or syncKey change;
+ * calls setData on data changes to avoid flicker.
+ */
+export function TrendPane(props: TrendPaneProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<uPlot | null>(null);
+  const themeVersion = useThemeVersion();
+  const rangeHistory = useRangeHistory(plotRef);
+  const times = props.data[0] as number[];
+  const spans = props.mode ? modeSpans(times, props.mode) : [];
+  const spansRef = useRef<readonly TimeSpan[]>(spans);
+  spansRef.current = spans;
+  usePlotLifecycle(props, { containerRef, plotRef, onRange: rangeHistory.onRange, spansRef }, themeVersion);
+  usePlotSync(props, plotRef, times, rangeHistory.reset);
 
   const showPreset = (preset: RangePreset) => {
     const range = presetRange(times, preset);

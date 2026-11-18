@@ -241,6 +241,34 @@ function NoMatch({ onClear, t }: { onClear: () => void; t: Translate }) {
   );
 }
 
+/** The scrollable worklist table: header plus one row per loop. */
+function LoopsTable({
+  loops,
+  query,
+  onSort,
+  onOpen,
+  t,
+}: {
+  loops: LoopSummary[];
+  query: OverviewQuery;
+  onSort: (key: SortKey) => void;
+  onOpen: (loopName: string) => void;
+  t: Translate;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="loops-table">
+        <LoopsTableHeader query={query} onSort={onSort} t={t} />
+        <tbody>
+          {loops.map((loop) => (
+            <LoopRow key={loop.name} loop={loop} onOpen={onOpen} t={t} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /**
  * Overview of every loop: attention line, status filters, search and the worklist table.
  * Shows a placeholder paragraph when there is no loop to display.
@@ -282,16 +310,7 @@ export function LoopsOverview({
       {shownLoops.length === 0 ? (
         <NoMatch onClear={() => setQuery(DEFAULT_QUERY)} t={t} />
       ) : (
-        <div className="table-scroll">
-          <table className="loops-table">
-            <LoopsTableHeader query={query} onSort={(key) => setQuery(nextSort(query, key))} t={t} />
-            <tbody>
-              {shownLoops.map((loop) => (
-                <LoopRow key={loop.name} loop={loop} onOpen={onOpen} t={t} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LoopsTable loops={shownLoops} query={query} onSort={(key) => setQuery(nextSort(query, key))} onOpen={onOpen} t={t} />
       )}
     </div>
   );
