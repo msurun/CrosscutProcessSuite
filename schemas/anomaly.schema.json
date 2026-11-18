@@ -20,6 +20,15 @@
     "stuck_samples": {"anyOf": [{"const": 0}, {"type": "integer", "minimum": 3}], "default": 0},
     "ramp_min_hours": {"type": "number", "exclusiveMinimum": 0, "default": 6},
     "counter_like_share": {"type": "number", "minimum": 0.5, "maximum": 1, "default": 0.9},
+    "setpoint_like": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "regimes": {
+      "type": "object", "additionalProperties": false, "required": ["by"],
+      "properties": {
+        "by": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "min_rows": {"type": "integer", "minimum": 1, "default": 200},
+        "quantum": {"type": "object", "additionalProperties": {"type": "number", "exclusiveMinimum": 0}}
+      }
+    },
     "mode": {"enum": ["off", "advisory"]}
   }
 }

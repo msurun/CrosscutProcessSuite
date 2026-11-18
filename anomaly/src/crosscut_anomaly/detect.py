@@ -58,6 +58,8 @@ class ScanResult:
     n_skipped: int
     skipped_reasons: dict[str, int] = field(default_factory=dict)
     limit_methods: dict[str, str] = field(default_factory=dict)
+    rows_unscored: int = 0
+    stuck_exemptions: dict[str, int] = field(default_factory=dict)
 
     @property
     def n_pca_events(self) -> int:
@@ -294,14 +296,111 @@ def scan(
         ok &= ~_gap_invalid(t, model.dynamic_lags, config.sample_period_s)
     a_index = np.flatnonzero(ok)
     events = list(_pca_events(model, aug[a_index], (a_index, t[a_index]), config))
+    exemptions: dict[str, int] = {}
     if config.stuck_samples:
-        events += _stuck_events(model.monitored_tags, x[index], (index, t[index]),
-                                stuck_thresholds(model, config))
+        held, exemptions = scan_stuck(model, x[index], (index, t[index]), config)
+        events += held
     events.sort(key=lambda e: e.start_index)
     n_lag = len(index) - len(a_index)
     reasons = {"nan": n_nan, "quality": n_quality, **({"lag": n_lag} if model.dynamic_lags else {})}
     return ScanResult(
         events=tuple(events), n_valid=len(a_index), n_skipped=n_nan + n_quality + n_lag,
-        skipped_reasons=reasons,
+        skipped_reasons=reasons, stuck_exemptions=exemptions,
         limit_methods={"t2": "hotelling_f", "spe": model.spe_limit_method},
     )
+
+
+def _classify_hold(profile: dict, value: float, is_short: bool,
+                   is_setpoint: bool) -> str | None:
+    """Classify a hold using tag-unit tolerances and precomputed run evidence."""
+    if is_setpoint or profile.get("setpoint_like"):
+        return "setpoint_like"
+    if is_short:
+        return "training_run"
+    resolution = profile.get("resolution", 0.0)
+    # Absolute tolerances have the tag's engineering units; relative tolerance
+    # would incorrectly exempt large-valued signals far from their trained limits.
+    tolerance = max(resolution, 1e-12) if np.isfinite(resolution) else 1e-12
+    if any(np.isclose(value, profile.get(extreme, np.nan), rtol=0, atol=tolerance)
+           for extreme in ("min", "max")):
+        return "training_limit"
+    if np.isfinite(resolution) and resolution > 0 and any(
+        abs(value - level) <= resolution for level in profile.get("levels", [])
+    ):
+        return "quantised_level"
+    return None
+
+
+def stuck_exemption(model: PcaModel, tag: int, run: tuple[float, int],
+                    config: AnomalyConfig) -> str | None:
+    """Explain a legitimate held run, using training evidence in engineering units."""
+    value, length = run
+    profile = model.stuck_profiles[tag] if model.stuck_profiles else {}
+    return _classify_hold(profile, value, length < stuck_thresholds(model, config)[tag],
+                          model.monitored_tags[tag] in config.setpoint_like)
+
+
+def scan_stuck(model: PcaModel, rows: np.ndarray, orig: tuple[np.ndarray, np.ndarray],
+               config: AnomalyConfig) -> tuple[list[AnomalyEvent], dict[str, int]]:
+    """Return unexplained holds and exclusive exemption counts for candidate runs."""
+    events: list[AnomalyEvent] = []
+    exemptions: dict[str, int] = {}
+    thresholds = stuck_thresholds(model, config)
+    for tag, name in enumerate(model.monitored_tags):
+        profile = model.stuck_profiles[tag] if model.stuck_profiles else {}
+        for first, last in _stuck_runs(rows[:, tag], config.stuck_samples):
+            reason = _classify_hold(profile, rows[first, tag], last - first + 1 < thresholds[tag],
+                                    name in config.setpoint_like)
+            if reason:
+                exemptions[reason] = exemptions.get(reason, 0) + 1
+            elif _others_moving(rows, tag, first, config.stuck_samples):
+                events.append(_stuck_event(name, (first, last), len(rows), orig))
+    return events, exemptions
+
+
+def scan_regimes(model_set, t_s: Sequence[float], x: np.ndarray,
+                 quality=None, config: AnomalyConfig | None = None, mode_ids=None) -> ScanResult:
+    """Scan contiguous operating segments; unknown regimes receive no verdict.
+
+    min_consecutive/close_after and dynamic lags restart at every regime boundary.
+    Conservatively, a transition is scored only once the new regime has enough history.
+    """
+    from dataclasses import replace
+
+    from crosscut_anomaly.pca_model import regime_keys
+    config = config or model_set.config
+    rows, times = np.asarray(x, dtype=float), np.asarray(t_s, dtype=float)
+    keys = regime_keys(rows, config, mode_ids)
+    cuts = [0] + [i for i in range(1, len(keys)) if keys[i] != keys[i - 1]] + [len(keys)]
+    events, results, unscored = [], [], 0
+    for first, end in zip(cuts[:-1], cuts[1:], strict=True):
+        model = model_set.models.get(keys[first]) if end > first else None
+        if model is None:
+            unscored += end - first
+            continue
+        subset_quality = None if quality is None else np.asarray(quality)[first:end]
+        result = scan(model, times[first:end], rows[first:end], subset_quality, config)
+        results.append(result)
+        events.extend(replace(event, start_index=event.start_index + first,
+                              end_index=event.end_index + first,
+                              peak_index=event.peak_index + first)
+                      for event in result.events)
+    return combine_regime_results(events, results, unscored)
+
+
+def combine_regime_results(events: list[AnomalyEvent], results: list[ScanResult],
+                           unscored: int) -> ScanResult:
+    """Aggregate counts without treating unknown regimes as valid or anomalous."""
+    reasons: dict[str, int] = {}
+    exemptions: dict[str, int] = {}
+    limit_methods: dict[str, str] = {}
+    for result in results:
+        limit_methods.update(result.limit_methods)
+        for reason, count in result.skipped_reasons.items():
+            reasons[reason] = reasons.get(reason, 0) + count
+        for reason, count in result.stuck_exemptions.items():
+            exemptions[reason] = exemptions.get(reason, 0) + count
+    return ScanResult(tuple(events), sum(result.n_valid for result in results),
+                      sum(result.n_skipped for result in results), reasons,
+                      rows_unscored=unscored, stuck_exemptions=exemptions,
+                      limit_methods=limit_methods)
