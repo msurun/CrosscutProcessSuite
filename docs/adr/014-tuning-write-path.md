@@ -321,11 +321,24 @@ parameter on its existing engine tick, using the injected engine clock and no ne
 The optional per-parameter policy field `verify_after_s` is a settle time in seconds; omitted
 values use `DEFAULT_VERIFY_AFTER_S = 2.0`. The whole set is checked after the longest settle
 time among its parameters, so each parameter has settled before the atomic set is verified.
-Until this pass completes, these targets are excluded from ordinary external-change monitoring.
-A value outside its parameter's `readback_tolerance` triggers the existing partial-revert path
-for all written parameters, restoring their `from` values, auditing
-`readback_mismatch_delayed`, and stopping further writes under the existing target and intent
-rules. A failed revert raises the existing check-DCS alarm. The durable intent stays open until
-verification succeeds or an audited revert completes; a crash during the settle interval
-therefore leaves `reconcile_required` after restart. Once verification succeeds, normal
-external-change monitoring resumes and retains its existing no-write-back behavior.
+Ordinary external-change monitoring skips a target while its set settles, so a value that
+reaches the DCS one plant step late is not taken for an external change. A DCS change inside the
+window is caught by the delayed pass, reported like an external change and kept, never overwritten.
+
+**No automatic revert on a delayed mismatch.** A value outside its parameter's
+`readback_tolerance` cannot be distinguished from an operator's change at the DCS, so the
+gateway does not write: it handles the divergence exactly like an external change detected by
+the ordinary monitoring (the target is held off, the applied record is marked invalid through
+`param_changed_externally`, same audit fields) and adds the audit event
+`readback_mismatch_delayed`. The write intent of the set is closed after that audit, so a
+person resolves the plant state. A read that fails during verification is fail-closed as
+before: the target goes `stopped:comm`, the failure is audited and the durable intent stays
+open until reconciliation. The intent stays open until verification passes; a crash during the
+settle interval therefore leaves `reconcile_required` after restart.
+
+A new proposal (apply or rollback) for a target that still has a pending verification runs that
+verification immediately and synchronously, before the usual checks, and then continues with
+the normal decision. An immediate rollback after a good apply is therefore accepted; a
+mismatch found that way stops the target and the proposal is refused for the stopped target.
+Once verification succeeds, normal external-change monitoring resumes and retains its existing
+no-write-back behavior.

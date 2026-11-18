@@ -29,20 +29,28 @@ Open: the full P3 row (step test, KPI, rollback) needs the closed-loop pieces an
 ## TF3: delayed parameter read-back (issue #54)
 
 With RougherSim hooks, a written PID parameter and its offset can appear one plant step late.
-The gateway now keeps the write intent open and verifies every written parameter again on an
+The gateway keeps the write intent open and verifies every written parameter again on an
 engine tick after the set's longest `verify_after_s` settle time (2.0 seconds when omitted).
-A delayed mismatch audits `readback_mismatch_delayed` through the existing `partial_revert`
-path, restores the written parameters to their recorded `from` values, and stops further
-writes under the existing rules. Failed restoration leaves the intent open for reconciliation.
+A delayed mismatch is **never written back**: it cannot be told apart from an operator's
+change at the DCS, so the gateway handles it exactly like an external change (the target is
+held off, the applied record is marked invalid through `param_changed_externally`, no plant
+write) and adds the audit event `readback_mismatch_delayed`. The set's intent is closed after
+that audit; a failed read leaves it open for reconciliation. Ordinary external-change
+monitoring skips a settling target; a DCS change inside the window is caught by the delayed pass
+and kept, not overwritten. A new proposal (apply or rollback) for a target with a pending verification
+runs that verification synchronously first, so an immediate rollback after a good apply is
+accepted instead of refused with `reconcile_required`.
 
 TF3 retains its strict xfail because its current assertions do not match this asynchronous
 behavior. `reject_mismatched_gain` asserts a synchronous refusal from approval with
 `revert_failed` and an immediate `readback_mismatch` audit, before advancing the gateway tick.
 A successful immediate read-back now returns `applied`; delayed verification requires a
-subsequent tick and reports `readback_mismatch_delayed`. The row also requires restoration of
-the original pre-hook plant baseline after hook expiry, whereas the proposal reads its
-`from` values during the active offset: reverting those recorded values can preserve a biased
-baseline. Keep that original-plant assertion until the hook and baseline semantics are
-resolved. The gateway unit tests cover delayed divergence, successful settling, and an open
-intent after a crash before verification; they do not establish that TF3's plant-baseline
-assertion passes.
+subsequent tick and reports `readback_mismatch_delayed` without restoring anything. The row
+also requires restoration of the original pre-hook plant baseline after hook expiry, whereas
+the proposal reads its `from` values during the active offset: reverting those recorded values
+can preserve a biased baseline. That is a second reason not to revert automatically: only a
+person can decide whether the value at the DCS is the operator's intent. Keep that
+original-plant assertion until the hook and baseline semantics are resolved. The gateway unit
+tests cover delayed divergence (held-off target, invalid record, no write), a proposal during a
+pending verification, and an open intent after a crash before verification; they do not
+establish that TF3's plant-baseline assertion passes.
