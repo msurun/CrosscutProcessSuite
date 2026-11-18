@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 from asyncua import Client, ua
 from asyncua.common.node import Node
-from asyncua.ua.attribute_ids import AttributeIds
+from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
 from crosscut_sim.dataset import DEFAULT_START_UTC, DatasetInfo, Samples, write_dataset
 from crosscut_sim.run import PLANTS, parse_duration
 from crosscut_sim.scenarios import build_scenario
@@ -45,7 +45,7 @@ async def _discover_plant_nodes(client: Client, idx: int) -> tuple[Node, list[No
 
 async def _find_plant_object(client: Client) -> Node:
     """Return the server's plant object node. Raise RuntimeError when it is absent."""
-    for child in await client.nodes.objects.get_children():
+    for child in await OpcUaSessionConnector(client).browse_nodes():
         if (await child.read_browse_name()).Name == PLANT_OBJECT_NAME:
             return child
     raise RuntimeError(f"no '{PLANT_OBJECT_NAME}' object in the server address space")
@@ -56,7 +56,7 @@ async def _collect_plant_tags(plant_obj: Node, idx: int) -> tuple[Node, list[Nod
     time_node: Node | None = None
     tag_nodes: list[Node] = []
     tag_ids: list[str] = []
-    for node in await plant_obj.get_children(nodeclassmask=ua.NodeClass.Variable):
+    for node in await OpcUaSessionConnector.browse_variables(plant_obj):
         tag_id = str(node.nodeid.Identifier)
         if tag_id == TIME_TAG:
             time_node = node
@@ -172,9 +172,10 @@ async def _poll_until_done(
     may be slower than real time). The deadline uses monotonic time, which is immune to system
     clock adjustments.
     """
+    connector = OpcUaSessionConnector(client)
     deadline = time.monotonic() + config.timeout_s
     while True:
-        data_values = await client.read_attributes(all_nodes, AttributeIds.Value)
+        data_values = await connector.read_raw_batch(all_nodes)
         # Plant time in seconds; unrelated to wall-clock time.
         plant_time = float(data_values[0].Value.Value)  # type: ignore[union-attr]
         recording.offer(plant_time, data_values[1:])

@@ -28,7 +28,7 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 
 | Layer | Responsibility | Exists today | Gap |
 |---|---|---|---|
-| **Connect** | Read history and live values, browse metadata; write only through the gateway | CSV wide/long import, SQLite and any DB-API/ODBC connection (pyodbc is not a dependency), OPC UA polling and subscription, a Parquet collector | One connector interface. No PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
+| **Connect** | Read history and live values, browse metadata; write only through the gateway | One read connector interface; CSV wide/long history and imports, SQLite and any DB-API/ODBC connection (pyodbc is not a dependency), OPC UA polling and subscription, a Parquet collector | No PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
 | **Project catalogue** | Sources, tags, units, ranges, missing codes, time zone, loops (PV/SP/OUT/mode/PID parameters in vendor form), lab definitions; edited in the GUI | Does not exist. Import settings (missing codes, −9999 sentinel) live in `loops/.../plant_import.py` as code-level settings | Whole layer. The −9999 default constant must be removed (issue #42) |
 | **Engines** | Offline design mode and online run mode for each module | Loops, fuzzy, supervisor, anomaly, soft sensor: offline, on demand, over a stored window; loop KPI and anomaly scan also run online as runtime jobs | Online run mode for soft sensor and supervisor. Generic schema-driven configuration editor exists; not every configuration is editable |
 | **APC core** (section 3.2, Phase 2.5) | Shared variable model, live variable status, loop readiness as MV handle, controller host with a state machine, operator console | Does not exist. Each module keeps its own variable notion and works on stored datasets | Whole layer (ADR 015) |
@@ -374,6 +374,11 @@ Every phase has a short detailed plan before its start and its own gates: `ruff`
 | **Phase 6** — Fuzzy closed loop | Strategy Canvas (section 4.4). Supervisor advice becomes setpoint write proposals through the gateway: `confirm` first, then `supervised` | Write proposals flow through the gateway; run in `confirm` then `supervised` tested against the DCS simulator |
 | **Phase 7** — MPC | Identification from step tests and an editable model matrix in the GUI. Linear MPC with constraints (QP) checked on `sim/`. C++ runtime per ADR 001 | MPC writes setpoints through the gateway in `supervised` mode against the DCS simulator |
 | **Phase 8** — ML and optimisation | Operating-range recommendation and an economic layer (RTO) above MPC and fuzzy | Plan accepted by the owner. Economic objective and limits supplied by the owner |
+
+**Phase 1 item 1 (#43): implemented.** Legacy CSV wide/long, SQL, OPC UA polling,
+subscription and collector acquisition use connector adapters without changing their dataset
+contracts. CSV history applies UTC bounds `[start, end)` and last-value sampling per requested
+period for both layouts. See [Read connectors](CONNECTORS.md) for policy and compatibility details.
 
 ## 8. Evidence discipline and claim limits
 

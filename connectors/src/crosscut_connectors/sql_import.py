@@ -34,6 +34,7 @@ from crosscut_connectors.csv_import import (
     _sanitize_tag_name,
 )
 from crosscut_connectors.import_target import ImportTarget
+from crosscut_connectors.sql_connector import SqlConnector
 
 NS_PER_S = 1_000_000_000
 MIN_ROW_FIELDS = 3  # timestamp, tag, value
@@ -423,7 +424,8 @@ def import_sql(database: Path, query: str, target: ImportTarget) -> SqlImportRep
     SqlImportReport
         Summary of the import operation.
     """
-    return _import_rows(_read_rows(database, query), target)
+    connector = SqlConnector(str(database), {"query": query})
+    return _import_rows(connector.history([], "", "")["data"], target)
 
 
 def import_sql_connection(connection: Any, query: str, target: ImportTarget) -> SqlImportReport:
@@ -432,7 +434,8 @@ def import_sql_connection(connection: Any, query: str, target: ImportTarget) -> 
     Same query contract as :func:`import_sql` (ts, tag, value[, quality] as long format); the
     caller opens and closes the connection, so any driver and any credentials can be used.
     """
-    return _import_rows(fetch_rows(connection, query), target)
+    connector = SqlConnector("", {"connection": connection, "query": query})
+    return _import_rows(connector.history([], "", "")["data"], target)
 
 
 def _import_rows(

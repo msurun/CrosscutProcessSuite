@@ -264,10 +264,9 @@ async def _poll_rounds(
 
 async def _connect(client: Client) -> None:
     """Connect to the server, turning any low-level failure into a ConnectionError."""
-    try:
-        await client.connect()
-    except (TimeoutError, OSError, ua.UaError, ua.UaStatusCodeError) as error:
-        raise ConnectionError(f"could not connect to {client.server_url}: {error}") from error
+    from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
+
+    await OpcUaSessionConnector(client).connect_async()
 
 
 async def resolve_node_id(client: Client, node_id: str) -> str:
@@ -316,10 +315,9 @@ async def _restore_session_if_lost(client: Client) -> bool:
 
 async def _disconnect(client: Client) -> None:
     """Close the connection, ignoring failures since the dataset is already collected."""
-    try:
-        await client.disconnect()
-    except (OSError, ua.UaError):
-        pass
+    from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
+
+    await OpcUaSessionConnector(client).disconnect_async()
 
 
 async def _sleep_before_next_sample(sample_index: int, period_s: float) -> None:
@@ -351,8 +349,10 @@ async def _read_one(client: Client, node_id: str) -> tuple[float, int]:
     # The network call is the only step that can fail for reasons outside the
     # node itself (server down, socket closed, session expired). Any transport
     # or protocol error is a BAD reading rather than an exception to the caller.
+    from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
+
     try:
-        data_value = await client.get_node(node_id).read_data_value()
+        data_value = await OpcUaSessionConnector(client).read_raw(node_id)
     except (OSError, ua.UaError, ua.UaStatusCodeError):
         return float("nan"), BAD
     # The server answered, but the answer may carry a bad status code: the value
