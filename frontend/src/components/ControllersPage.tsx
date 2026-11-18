@@ -21,7 +21,8 @@ import {
 } from "../controllersApi";
 import type { Translate } from "../findings";
 import { ControllerDetail } from "./ControllerDetail";
-import { ageSeconds, clockText, isStale, reasonText, stateLevel } from "./controllersFormat";
+import { ControllerStateChip } from "./ControllerStateChip";
+import { ageSeconds, clockText, isStale, reasonText } from "./controllersFormat";
 import { StatusChip } from "./StatusChip";
 
 /** How often the page re-reads the controllers, in milliseconds. */
@@ -55,8 +56,8 @@ function ControllerRow({ row, selected, onOpen, t }: RowProps) {
       <th scope="row">
         <button type="button" className="filter-chip" data-testid={`controller-open-${row.id}`} onClick={onOpen}>{row.id}</button>
       </th>
-      <td><StatusChip level={stateLevel(row.state)} label={t(`controllers.state.${row.state}`)} /></td>
-      <td>{reasonText(t, row.reason)}</td>
+      <td><ControllerStateChip row={row} t={t} /></td>
+      <td>{row.record_unreadable ? none : reasonText(t, row.reason)}</td>
       <td>{clockText(row.last_cycle_utc, none)}{row.last_duration_s !== null && <div className="hint">{row.last_duration_s} s</div>}</td>
       <td>{row.consecutive_overruns} / {row.overruns}</td>
       <td><LivenessCell row={row} t={t} /></td>
@@ -111,12 +112,14 @@ export function ControllersPage({ t }: ControllersPageProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
+  const [accepted, setAccepted] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    fetchControllers().then(setRows).catch((error: unknown) => setProblems(problemsOf(error)));
+    const failed = (error: unknown) => setProblems([t("controllers.refreshFailed"), ...problemsOf(error)]);
+    fetchControllers().then(setRows).catch(failed);
     if (selected === null) return;
-    fetchController(selected).then(setDetail).catch((error: unknown) => setProblems(problemsOf(error)));
-  }, [selected]);
+    fetchController(selected).then(setDetail).catch(failed);
+  }, [selected, t]);
 
   useEffect(() => {
     refresh();
@@ -124,13 +127,18 @@ export function ControllersPage({ t }: ControllersPageProps) {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const act = (action: Promise<unknown>) =>
-    action.then(() => setProblems([])).then(refresh).catch((error: unknown) => setProblems(problemsOf(error)));
+  /** Keep write acceptance separate because a later read failure cannot undo the write. */
+  const act = (action: Promise<unknown>, message: string) => {
+    setAccepted(null);
+    setProblems([]);
+    return action.then(() => { setAccepted(message); refresh(); })
+      .catch((error: unknown) => setProblems(problemsOf(error)));
+  };
   const command = (one: ControllerCommand) => {
-    if (selected !== null) void act(sendControllerCommand(selected, one));
+    if (selected !== null) void act(sendControllerCommand(selected, one), "controllers.commandAccepted");
   };
   const save = (variableId: string, override: VariableOverride) => {
-    if (selected !== null) void act(putControllerVariable(selected, variableId, override).then(setDetail));
+    if (selected !== null) void act(putControllerVariable(selected, variableId, override).then(setDetail), "configEditor.saved");
   };
   const open = (id: string) => {
     setDetail(null);
@@ -143,6 +151,7 @@ export function ControllersPage({ t }: ControllersPageProps) {
         <h1>{t("controllers.title")}</h1>
         <p className="hint">{t("controllers.subtitle")}</p>
       </div>
+      {accepted !== null && <p className="notice" role="status" data-testid="controllers-accepted">{t(accepted)}</p>}
       {problems.length > 0 && (
         <ul className="notice notice-warning" role="alert" data-testid="controllers-error">
           {problems.map((line) => <li key={line}>{line}</li>)}

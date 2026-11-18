@@ -16,6 +16,7 @@ const summary: api.ControllerSummary = {
   description: "",
   cycle_s: 30,
   state: "on",
+  record_unreadable: false,
   reason: "running",
   last_cycle_utc: "2026-01-01T00:00:00+00:00",
   last_duration_s: 0.2,
@@ -127,5 +128,37 @@ describe("ControllersPage", () => {
     const alert = await screen.findByTestId("controllers-error");
     expect(alert).toHaveTextContent("operator.lo must be below operator.hi");
     expect(alert.querySelectorAll("li")).toHaveLength(2);
+    expect(screen.queryByTestId("controllers-accepted")).toBeNull();
+  });
+
+  it("shows unreadable records as problems in the list and detail", async () => {
+    mockApi();
+    vi.mocked(api.fetchControllers).mockResolvedValue([{ ...summary, record_unreadable: true }]);
+    vi.mocked(api.fetchController).mockResolvedValue({ ...detail, record_unreadable: true });
+    await openAs("viewer");
+    const chip = screen.getByTestId("controller-row-C1").querySelector(".status-chip--problem");
+    expect(chip).toHaveTextContent("controllers.recordUnreadable");
+    expect(screen.getByTestId("controllers-detail")).toHaveTextContent("controllers.recordUnreadable");
+    expect(screen.getByTestId("controllers-detail")).not.toHaveTextContent("controllers.state.on");
+  });
+
+  it("keeps command acceptance visible when the list refresh fails", async () => {
+    mockApi();
+    await openAs("operator");
+    vi.mocked(api.fetchControllers).mockRejectedValue(new Error("list unavailable"));
+    fireEvent.click(screen.getByTestId("controller-on"));
+    expect(await screen.findByTestId("controllers-accepted")).toHaveTextContent("controllers.commandAccepted");
+    expect(await screen.findByTestId("controllers-error")).toHaveTextContent("list unavailable");
+    expect(screen.getByTestId("controllers-error")).toHaveTextContent("controllers.refreshFailed");
+  });
+
+  it("keeps a successful save visible when the detail refresh fails", async () => {
+    mockApi();
+    await openAs("operator");
+    vi.mocked(api.fetchController).mockRejectedValue(new Error("detail unavailable"));
+    fireEvent.click(screen.getByTestId("controller-save-mv1"));
+    expect(await screen.findByTestId("controllers-accepted")).toHaveTextContent("configEditor.saved");
+    expect(await screen.findByTestId("controllers-error")).toHaveTextContent("detail unavailable");
+    expect(screen.getByTestId("controllers-error")).toHaveTextContent("controllers.refreshFailed");
   });
 });
