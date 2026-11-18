@@ -3,21 +3,23 @@
  * describeFields and reports each field's edited text to the owner.
  */
 import { SchemaField } from "./SchemaField";
-import type { Field } from "./schemaFormModel";
+import type { Field, Translate } from "./schemaFormModel";
 
 export interface SchemaFormProps {
   fields: Field[];
   onFieldChange: (field: Field, text: string) => void;
+  t: Translate;
 }
 
 /** Displays the schema fields in order, each wired to the change handler. */
-export function SchemaForm({ fields, onFieldChange }: SchemaFormProps) {
+export function SchemaForm({ fields, onFieldChange, t }: SchemaFormProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {fields.map((field) => (
         <SchemaField
           key={field.name}
           field={field}
+          t={t}
           onTextChange={(text) => onFieldChange(field, text)}
         />
       ))}
