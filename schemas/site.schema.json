@@ -354,12 +354,14 @@
           "required": ["meaning"],
           "description": "What the time stamp of a result means.",
           "properties": {
-            "meaning": {"enum": ["start", "end", "middle"], "description": "Start, end or middle of the sampling window."},
+            "meaning": {"enum": ["start", "end", "middle", "mid"], "description": "Start, end or middle of the sampling window."},
             "offset_s": {"type": "number", "description": "Seconds to add to the stamp to reach the sample time."}
           }
         },
         "composite_window_s": {"type": "number", "exclusiveMinimum": 0, "description": "Length of the composite sample window."},
         "latency_s": {"type": "number", "minimum": 0, "description": "Delay from sampling to a result in the system."},
+        "report_delay_s": {"type": "number", "minimum": 0, "description": "Seconds from the represented sampling window end to report availability; overrides latency_s."},
+        "analyser_delay_s": {"type": "number", "minimum": 0, "description": "Physical transport and analyser delay in seconds, subtracted from represented sample times; separate from report availability."},
         "missing_codes": {"$ref": "#/$defs/number_list"},
         "valid_range": {"$ref": "#/$defs/limits"}
       }

@@ -1734,5 +1734,18 @@
   "tuning.reconcile.damaged": "Magazyn intencji parametr\u00f3w jest uszkodzony. Zapis parametr\u00f3w jest zablokowany do momentu naprawy lub usuni\u0119cia magazynu przez administratora po sprawdzeniu DCS.",
   "tuning.reconcile.success": "Intencja zapisu parametr\u00f3w zosta\u0142a rozwi\u0105zana.",
   "tuning.reconcile.unknown": "nieznana",
-  "gateway.error.useTuning": "To zestaw parametrów PID: zatwierdź lub odrzuć go w widoku Nastawy, gdzie widać całą różnicę."
+  "gateway.error.useTuning": "To zestaw parametrów PID: zatwierdź lub odrzuć go w widoku Nastawy, gdzie widać całą różnicę.",
+  "soft.alignment.title": "Skan wyr?wnania op??nienia",
+  "soft.alignment.hint": "Por?wnaj wczytane wyniki laboratoryjne z analizatorem online lub sygna?em procesu. Dodatnie op??nienie oznacza, ?e sygna? odniesienia jest obserwowany p??niej ni? pr?bka. Stosowane s? czasy i kody brakuj?cych warto?ci z katalogu.",
+  "soft.alignment.reference": "Tag odniesienia",
+  "soft.alignment.min_delay_s": "Minimalne op??nienie (s)",
+  "soft.alignment.max_delay_s": "Maksymalne op??nienie (s)",
+  "soft.alignment.step_s": "Krok op??nienia (s)",
+  "soft.alignment.scan": "Skanuj op??nienia",
+  "soft.alignment.scanning": "Skanowanie?",
+  "soft.alignment.result": "Najlepsze op??nienie: {best} s; przedzia? niepewno?ci: {low} do {high} s.",
+  "soft.alignment.method": "Metoda niepewno?ci: {method}",
+  "soft.alignment.profile": "Profil korelacji",
+  "soft.alignment.delay": "Op??nienie (s)",
+  "soft.alignment.correlation": "Korelacja"
 }

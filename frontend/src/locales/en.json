@@ -1723,5 +1723,18 @@
   "tuning.reconcile.damaged": "The parameter intent store is damaged. All parameter writes are blocked until an administrator repairs or removes it after checking the DCS.",
   "tuning.reconcile.success": "Parameter intent resolved successfully.",
   "tuning.reconcile.unknown": "unknown",
-  "gateway.error.useTuning": "This is a PID parameter set: approve or reject it in the Tuning view, where the whole diff is shown."
+  "gateway.error.useTuning": "This is a PID parameter set: approve or reject it in the Tuning view, where the whole diff is shown.",
+  "soft.alignment.title": "Delay alignment scan",
+  "soft.alignment.hint": "Compare uploaded laboratory results with an online analyser or process tag. Positive delay means the reference is observed later than the lab sample. Catalogue timing and missing-value codes are applied.",
+  "soft.alignment.reference": "Reference tag",
+  "soft.alignment.min_delay_s": "Minimum delay (s)",
+  "soft.alignment.max_delay_s": "Maximum delay (s)",
+  "soft.alignment.step_s": "Delay step (s)",
+  "soft.alignment.scan": "Scan delays",
+  "soft.alignment.scanning": "Scanning?",
+  "soft.alignment.result": "Best delay: {best} s; uncertainty interval: {low} to {high} s.",
+  "soft.alignment.method": "Uncertainty method: {method}",
+  "soft.alignment.profile": "Correlation profile",
+  "soft.alignment.delay": "Delay (s)",
+  "soft.alignment.correlation": "Correlation"
 }

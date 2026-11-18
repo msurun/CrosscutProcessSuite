@@ -6,6 +6,7 @@ import { DEFAULT_LAB_DELAY_S } from "../softsensor";
 import { SoftSensorConfigSummary } from "./SoftSensorConfigSummary";
 import { SoftSensorFit } from "./SoftSensorFit";
 import { SoftSensorLab } from "./SoftSensorLab";
+import { SoftSensorAlignment } from "./SoftSensorAlignment";
 import { SoftSensorModel } from "./SoftSensorModel";
 import { SoftSensorRun } from "./SoftSensorRun";
 import { useSoftLab, useSoftModel, useSoftSensors, type SoftSensorsState } from "./SoftSensorState";
@@ -60,6 +61,7 @@ function SensorBody({ state, datasetId, recordHours, startUtc, t }: BodyProps) {
     <>
       <SoftSensorConfigSummary config={state.config} t={t} />
       <SoftSensorLab key={state.selectedId} sid={state.selectedId} lab={lab} originDefault={startUtc} t={t} />
+      <SoftSensorAlignment key={`alignment|${key}`} datasetId={datasetId} sensorId={state.selectedId} t={t} />
       <SoftSensorFit key={key} datasetId={datasetId} sensorId={state.selectedId} recordHours={recordHours} hasLab={lab.value !== null} labDelayS={labDelayS} t={t} onFitted={model.set} />
       {model.error !== null && <p className="status status-error" role="alert">{model.error}</p>}
       {model.loaded && <SoftSensorModel model={model.value} t={t} />}
