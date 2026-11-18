@@ -11,6 +11,8 @@ from crosscut_loops.sensor_faults import (
     SensorFaultConfig,
     SensorFaultFinding,
     detect_sensor_faults,
+    estimate_resolution,
+    merge_findings,
     score_findings,
 )
 
@@ -136,7 +138,7 @@ def test_a_missing_time_gap_does_not_extend_a_short_flat_run() -> None:
 
 def test_too_few_spikes_do_not_make_a_spiky_window() -> None:
     times, values = daily_signal()
-    values[[500, 510]] += 5
+    values[[500]] += 5
     assert detect_sensor_faults(times, values) == []
 
 
@@ -172,3 +174,64 @@ def test_all_missing_values_return_no_events() -> None:
     times, values = daily_signal()
     values[:] = np.nan
     assert detect_sensor_faults(times, values) == []
+
+
+def test_two_spikes_across_a_window_boundary_form_one_cluster() -> None:
+    times, values = daily_signal()
+    values[[479, 509]] += 5
+    findings = detect_sensor_faults(times, values, "level")
+    assert len(findings) == 1
+    assert findings[0].evidence["count"] == 2
+
+
+def test_a_gap_longer_than_the_limit_splits_spike_clusters() -> None:
+    times, values = daily_signal()
+    indices = np.array([400, 410, 500, 510])
+    values[indices + 1] = values[indices - 1]
+    values[indices] += 5
+    findings = detect_sensor_faults(times, values, "level")
+    assert len(findings) == 2
+
+
+def test_matching_does_not_reuse_a_prediction_for_two_truths() -> None:
+    event = truth("freeze", 100, 400)
+    expected = [truth("freeze", 100, 200), truth("freeze", 300, 400)]
+    assert score_findings([event], expected) == (1.0, 0.5)
+
+
+def test_matching_calls_do_not_share_visited_state() -> None:
+    event = truth("freeze", 100, 200)
+    score_findings([event], [event])
+    assert score_findings([event], [event]) == (1.0, 1.0)
+
+
+def test_resolution_requires_twenty_repeated_steps() -> None:
+    values = np.arange(10) * 0.001
+    assert estimate_resolution(values) < 0.001
+
+
+def test_resolution_rejects_a_step_above_one_percent_of_range() -> None:
+    values = np.tile(np.arange(10), 30).astype(float)
+    assert estimate_resolution(values) < 1.0
+
+
+def test_resolution_accepts_a_supported_fine_lattice() -> None:
+    values = np.arange(300) * 0.001
+    assert estimate_resolution(values) == pytest.approx(0.001)
+
+
+def test_nearly_constant_slopes_do_not_produce_a_drift() -> None:
+    times = np.arange(1440) * 60.0
+    values = times * 1e-8 + np.clip(times - 30000, 0, 12000) * 1e-13
+    findings = detect_sensor_faults(times, values, "level")
+    assert score_findings(findings, [truth("drift", 0, float(times[-1]))])[1] == 0.0
+
+
+def test_consecutive_drift_windows_merge_into_one_event() -> None:
+    first = SensorFaultFinding("level", "drift", 0, 3600, 5, {
+        "slope_per_s": 0.01, "last_window_start_s": 0, "step_s": 1800})
+    second = SensorFaultFinding("level", "drift", 1800, 5400, 6, {
+        "slope_per_s": 0.02, "last_window_start_s": 1800, "step_s": 1800})
+    merged = merge_findings([first, second])
+    assert len(merged) == 1
+    assert merged[0].end_s == 5400

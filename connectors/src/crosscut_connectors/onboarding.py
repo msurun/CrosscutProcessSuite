@@ -8,7 +8,7 @@ and soft sensor calibration.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -20,6 +20,8 @@ from crosscut_loops.readiness import (
     check_readiness,
 )
 from crosscut_loops.sensor_faults import SensorFaultFinding, detect_sensor_faults
+
+SENSOR_ROLES = frozenset({"pv", "input", "target", "lab", "dv"})
 
 VERDICT_OK = "ok"
 VERDICT_WARNING = "warning"
@@ -47,6 +49,7 @@ class DatasetReadiness:
     verdict: str  # "ok" | "warning" | "not_ready"
     modules: dict[str, ModuleVerdict]
     sensor_faults: dict[str, list[SensorFaultFinding]] = field(default_factory=dict)
+    sensor_faults_skipped: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert readiness summary to JSON-serializable dictionary."""
@@ -54,6 +57,7 @@ class DatasetReadiness:
             "dataset_id": self.dataset_id,
             "verdict": self.verdict,
             "modules": {k: v.to_dict() for k, v in self.modules.items()},
+            "sensor_faults_skipped": self.sensor_faults_skipped,
             "sensor_faults": {tag: [event.to_dict() for event in events]
                               for tag, events in self.sensor_faults.items()},
         }
@@ -98,7 +102,9 @@ def evaluate_dataset_readiness(
     }
     overall = _aggregate_verdicts(modules.values())
     return DatasetReadiness(dataset_id=dataset_id, verdict=overall, modules=modules,
-                            sensor_faults=evaluate_sensor_faults(t_s, columns))
+                            sensor_faults=evaluate_sensor_faults(t_s, columns, loops, site_doc),
+                            sensor_faults_skipped={"not_a_sensor": count_non_sensors(
+                                columns, sensor_roles(loops, site_doc))})
 
 
 def _aggregate_verdicts(verdicts: Sequence[ModuleVerdict]) -> str:
@@ -263,11 +269,73 @@ def _inspect_series_quality(
     return has_fail, has_warn
 
 
+def sensor_roles(
+    loops: Sequence[LoopTags], site_doc: dict[str, Any] | None,
+) -> dict[str, tuple[str, str]]:
+    """Map tags to role and loop identity; explicit loop bindings take precedence."""
+    roles = {signal["tag"]: (signal["role"], signal.get("loop", ""))
+             for signal in (site_doc or {}).get("signals", [])}
+    for loop in loops:
+        for role in ("pv", "sp", "out", "mode"):
+            tag = getattr(loop, role)
+            if tag:
+                roles[tag] = (role, loop.name)
+    return roles
+
+
+def count_non_sensors(
+    columns: Mapping[str, np.ndarray], roles: Mapping[str, tuple[str, str]],
+) -> int:
+    """Count excluded tags; a plain export without roles retains every tag."""
+    return sum(roles.get(tag, ("", ""))[0] not in SENSOR_ROLES for tag in columns) if roles else 0
+
+
 def evaluate_sensor_faults(
     t_s: np.ndarray, columns: Mapping[str, np.ndarray],
+    loops: Sequence[LoopTags] = (), site_doc: dict[str, Any] | None = None,
 ) -> dict[str, list[SensorFaultFinding]]:
-    """Add per-tag events when timestamps permit analysis; preserve invalid-time verdicts."""
+    """Analyse measured tags and attribute overlapping loop findings to frozen PVs."""
     times = np.asarray(t_s, dtype=float)
+    roles = sensor_roles(loops, site_doc)
     if times.ndim != 1 or not np.all(np.isfinite(times)) or np.any(np.diff(times) <= 0):
         return {tag: [] for tag in columns}
-    return {tag: detect_sensor_faults(times, values, tag) for tag, values in columns.items()}
+    findings = {
+        tag: detect_sensor_faults(times, values, tag)
+        if not roles or roles.get(tag, ("", ""))[0] in SENSOR_ROLES else []
+        for tag, values in columns.items()}
+    return attribute_consequences(findings, roles)
+
+
+def attribute_consequences(
+    findings: dict[str, list[SensorFaultFinding]], roles: Mapping[str, tuple[str, str]],
+) -> dict[str, list[SensorFaultFinding]]:
+    """Drop overlapping findings on loop siblings and annotate their PV cause."""
+    result = {tag: list(events) for tag, events in findings.items()}
+    for tag, events in findings.items():
+        role, loop = roles.get(tag, ("", ""))
+        if role != "pv" or not loop:
+            continue
+        for event in events:
+            if event.kind == "freeze":
+                consequences = remove_consequences(result, roles, event, loop)
+                annotated = replace(event, evidence={**event.evidence,
+                                                      "consequences": consequences})
+                result[tag][result[tag].index(event)] = annotated
+    return result
+
+
+def remove_consequences(
+    findings: dict[str, list[SensorFaultFinding]], roles: Mapping[str, tuple[str, str]],
+    cause: SensorFaultFinding, loop: str,
+) -> list[str]:
+    """Remove findings whose interval intersects a frozen PV in the same loop."""
+    consequences = []
+    for tag, events in findings.items():
+        if tag == cause.tag or roles.get(tag, ("", ""))[1] != loop:
+            continue
+        retained = [event for event in events
+                    if event.end_s < cause.start_s or event.start_s > cause.end_s]
+        if len(retained) != len(events):
+            consequences.append(tag)
+            findings[tag] = retained
+    return sorted(consequences)

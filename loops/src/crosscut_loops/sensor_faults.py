@@ -18,6 +18,9 @@ SETPOINT_SHARE = 0.9  # fraction of exactly unchanged adjacent values
 VARIABILITY_FACTOR = 4.0  # required movement relative to quantisation
 MAX_GAP_PERIODS = 1.5  # largest connected gap, in median sample periods
 RETURN_SIGMA = 2.0  # tolerated distance from the pre-spike value, in sigma
+STEP_MIN_COUNT = 20  # minimum repeated differences supporting quantisation
+STEP_MAX_RANGE_SHARE = 0.01  # largest resolution fraction of the observed range
+SLOPE_FLOOR = 1e-12  # minimum slope scale in engineering units per second
 STEP_SUPPORT = 0.05  # minimum share supporting the smallest quantisation step
 STEP_RELATIVE_TOLERANCE = 1e-5  # relative rounding tolerance on repeated steps
 NUMERICAL_MARGIN = 16  # floating-point epsilon multiplier, dimensionless
@@ -28,14 +31,15 @@ class SensorFaultConfig:
     """Window durations in seconds; sigma thresholds are dimensionless.
 
     Windows overlap by half by default. Freeze requires 30 minutes, drift two
-    hours, and spike windows require three returning excursions above six sigma.
+    hours, and spike clusters require two returning excursions above six sigma.
     """
 
     window_s: float = 3600.0
     step_s: float = 1800.0
     freeze_min_s: float = 1800.0
     spike_k: float = 6.0
-    spike_min_count: int = 3
+    spike_min_count: int = 2
+    spike_gap_s: float = 3600.0
     drift_z: float = 4.0
     drift_min_s: float = 7200.0
 
@@ -93,8 +97,11 @@ def estimate_resolution(values: np.ndarray) -> float:
     if not positive.size:
         return floor
     candidate = float(np.quantile(positive, STEP_SUPPORT))
-    supported = np.mean(np.isclose(positive, candidate, rtol=STEP_RELATIVE_TOLERANCE, atol=floor))
-    return candidate if supported >= STEP_SUPPORT else floor
+    repeats = np.count_nonzero(
+        np.isclose(positive, candidate, rtol=STEP_RELATIVE_TOLERANCE, atol=floor))
+    supported = repeats >= STEP_MIN_COUNT and repeats / positive.size >= STEP_SUPPORT
+    plausible = candidate <= STEP_MAX_RANGE_SHARE * float(np.ptp(values))
+    return candidate if supported and plausible else floor
 
 
 def validate_series(t_s: np.ndarray, values: np.ndarray) -> None:
@@ -162,7 +169,8 @@ def collect_findings(record: SensorRecord) -> list[SensorFaultFinding]:
     windows = build_windows(times, valid, config)
     findings = [SensorFaultFinding(tag, "freeze", start, end, score, evidence)
                 for start, end, score, evidence in freezes]
-    findings.extend(find_window_faults(record, windows, spikes))
+    findings.extend(cluster_spikes(record, spikes))
+    findings.extend(find_window_faults(record, windows))
     return merge_findings(findings)
 
 
@@ -244,8 +252,25 @@ def build_windows(
     return windows
 
 
+def cluster_spikes(record: SensorRecord, spikes: np.ndarray) -> list[SensorFaultFinding]:
+    """Group returning excursions by elapsed time, independently of analysis windows."""
+    spike_times = record.times[spikes]
+    if not spike_times.size:
+        return []
+    # A 1-D array of event times (seconds) splits only when the quiet gap exceeds the limit.
+    boundaries = np.flatnonzero(np.diff(spike_times) > record.config.spike_gap_s) + 1
+    findings = []
+    for cluster in np.split(spike_times, boundaries):
+        count = len(cluster)
+        if count >= record.config.spike_min_count:
+            findings.append(SensorFaultFinding(
+                record.tag, "spike", float(cluster[0]), float(cluster[-1]),
+                count / record.config.spike_min_count, {"count": count}))
+    return findings
+
+
 def find_window_faults(
-    record: SensorRecord, windows: list[np.ndarray], spikes: np.ndarray,
+    record: SensorRecord, windows: list[np.ndarray],
 ) -> list[SensorFaultFinding]:
     """Compare robust window slopes with the record's typical slope distribution."""
     times, values, config = record.times, record.adjusted, record.config
@@ -253,28 +278,26 @@ def find_window_faults(
         return []
     slopes = np.array([fit_slope(times[indices], values[indices]) for indices in windows])
     center = float(np.median(slopes))
-    scale = max(robust_sigma(slopes), np.finfo(float).eps)
+    # Slopes have units/second: one instrument step per window bounds credible precision.
+    resolution = estimate_resolution(record.samples[record.valid])
+    scale = max(robust_sigma(slopes), resolution / config.window_s, SLOPE_FLOOR)
     findings = []
     for indices, slope in zip(windows, slopes, strict=True):
-        findings.extend(classify_window(record, indices, spikes, (slope, center, scale)))
+        findings.extend(classify_window(record, indices, (slope, center, scale)))
     merged = merge_findings(findings)
     return [event for event in merged if event.kind != "drift"
             or event.end_s - event.start_s >= config.drift_min_s]
 
 
 def classify_window(
-    record: SensorRecord, indices: np.ndarray, spikes: np.ndarray,
+    record: SensorRecord, indices: np.ndarray,
     slope_statistics: tuple[float, float, float],
 ) -> list[SensorFaultFinding]:
-    """Produce window candidates from spike counts and normalised slope deviations."""
+    """Produce drift candidates from normalised slope deviations."""
     slope, center, scale = slope_statistics
     config, tag = record.config, record.tag
     start, end = float(record.times[indices[0]]), float(record.times[indices[-1]])
-    count = int(np.count_nonzero(spikes[indices]))
     findings = []
-    if count >= config.spike_min_count:
-        findings.append(SensorFaultFinding(tag, "spike", start, end,
-                        count / config.spike_min_count, {"count": count}))
     # A robust z score compares units/second against the same units/second.
     strength = abs(slope - center) / scale
     if strength >= config.drift_z:
