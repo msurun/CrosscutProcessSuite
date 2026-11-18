@@ -54,3 +54,21 @@ controller `on`) passes. The host's state machine (`state.py`) sheds only from `
 CV bad from t=0 `switch_on` is refused (`standby`, reason `no_good_cv`, no proposals; own test).
 C02b uses `gw.pv_fault_dic202_late.v1` (RougherSim 0.13.1, fault from 120 s): the controller is
 `on`, then sheds with `no_good_cv`. All C rows pass; no xfail left.
+
+## Matrix rows P1, P1-dq, P2-e2e, P3, P4, P6, P7 (issue #53)
+
+Ready with executors: L5-P1 (`p1_live.py`: nominal recording -> `roughersim export-crosscut-project`
+-> site catalogue validated with `validate_site` and addressed by OPC UA node -> `LoopKpiJob` on
+`roughersim serve` for 60 ticks -> a KPI row with `service_factor`, `saturation_fraction`,
+`flatline_fraction`, `classification` for each of the 13 loops), L5-P2-e2e (gateway scenario tests
+plus the 12 G rows) and L5-P3 (the LIC301 chain of `test_l5_p3.py`: detect, identify, propose,
+apply through the confirm-mode gateway, KPI improves, rollback replay).
+
+| Row | State | What blocks it |
+|---|---|---|
+| L5-P1 | ready, partial | The "GUI e2e" part of the criterion (catalogue built in the browser) is not driven; the catalogue is built from the export helper through the schema. The live KPI is checked against nominal expectations (service factor, frozen share), not against a numeric ground-truth KPI: a live server starts without warm-up, so level loops (LIC301, LIC311, LIC321, LIC331) show 13 to 50 % saturation in the first minutes. |
+| L5-P1-dq | pending (feature missing) | `check_readiness` and `evaluate_dataset_readiness` return per-tag shares over the whole export (missing share, flat share) and no time windows. The scenario `rs.sensor_faults.mix.v1` injects a 5400 s freeze (LIT311), a 14400 s drift (DIT202) and spikes (FIT401) in 24 h; the freeze is 6 % of the record, below the 50 % flat warning, and no check detects drift or spikes. Needs a windowed fault detector in the onboarding report plus agreed precision and recall targets (owner item). |
+| L5-P3 | ready | The FIC203 chain stays a strict xfail (fit_step tau grid starts at 60 s); the LIC301 chain meets the criterion. |
+| L5-P4 | pending (feature missing) | No generic virtual-sensor engine with a validity flag exists (softsensor is per-site); milestone is post-MVP and needs lab samples (owner item). |
+| L5-P6 | pending (feature missing) | The fuzzy closed loop in confirm then supervised mode with an "operator wins" test needs a hardness_shift plant map and the P6 product feature. Rows C01..C05 cover only P2.5. |
+| L5-P7 | pending (feature missing) | No MPC exists. |
