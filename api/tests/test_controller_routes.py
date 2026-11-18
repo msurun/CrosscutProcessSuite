@@ -255,3 +255,39 @@ def test_unsupported_controller_refuses_override(
     assert response.json()["detail"] == ["live_limits_unsupported"]
     assert read_overrides(root, "C1") == {}
     assert read_records(auth_dir(root) / AUDIT_FILE) == audit_before
+
+
+def _write_gateway_state(root: Path, liveness: dict[str, Any]) -> None:
+    """A gateway state.json with only the liveness block."""
+    write_json_atomic(root / "_gateway" / "state.json", {"liveness": liveness})
+
+
+def test_list_without_gateway_state_has_unknown_liveness(world: tuple[FastAPI, Path]) -> None:
+    """No gateway state: liveness is unknown and never lost; the default cycles is 3."""
+    client, _ = as_user(world[0], "view1")
+    row = client.get("/controllers").json()["controllers"][0]
+    assert row["gateway_liveness"] == {
+        "known": False, "age_s": None, "lost": False, "runtime_lost": False,
+        "runtime_age_s": None,
+    }
+    assert row["liveness_cycles"] == 3
+
+
+def test_list_shows_gateway_beat_age_and_lost_flag(world: tuple[FastAPI, Path]) -> None:
+    """The controller row carries the age of its last beat and the lost flag of the gateway."""
+    app, root = world
+    _write_gateway_state(root, {"runtime": {"age_s": 2.0, "lost": False},
+                                "controllers": {"C1": {"age_s": 4.5, "lost": True}}})
+    client, _ = as_user(app, "view1")
+    detail = client.get("/controllers/C1").json()
+    assert detail["gateway_liveness"]["known"] is True
+    assert (detail["gateway_liveness"]["age_s"], detail["gateway_liveness"]["lost"]) == (4.5, True)
+
+
+def test_lost_runtime_marks_every_controller_lost(world: tuple[FastAPI, Path]) -> None:
+    """A lost runtime process shows as lost on each controller row."""
+    app, root = world
+    _write_gateway_state(root, {"runtime": {"age_s": 99.0, "lost": True}, "controllers": {}})
+    client, _ = as_user(app, "view1")
+    live = client.get("/controllers").json()["controllers"][0]["gateway_liveness"]
+    assert (live["lost"], live["runtime_lost"]) == (True, True)

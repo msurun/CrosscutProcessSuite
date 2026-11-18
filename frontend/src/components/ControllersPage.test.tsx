@@ -162,3 +162,41 @@ describe("ControllersPage", () => {
     expect(screen.getByTestId("controllers-error")).toHaveTextContent("controllers.refreshFailed");
   });
 });
+
+describe("gateway liveness indicator (ADR 015)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const withLiveness = (gateway_liveness: api.GatewayLiveness) => {
+    vi.spyOn(api, "fetchControllers").mockResolvedValue([{ ...summary, gateway_liveness }]);
+    vi.spyOn(api, "fetchController").mockResolvedValue(detail);
+  };
+  const base = { known: true, age_s: 4.2, lost: false, runtime_lost: false, runtime_age_s: 1 };
+
+  it("shows the age of the last beat and no alarm while alive", async () => {
+    withLiveness(base);
+    await renderAs("view1", <ControllersPage t={mockT} />, "view1", "controllers-page");
+    const cell = await screen.findByTestId("controller-gwliveness-C1");
+    expect(cell.textContent).toContain("controllers.gwLiveness.ok");
+    expect(screen.queryByTestId("controller-lost-C1")).toBeNull();
+  });
+
+  it("raises an alarm when the gateway declared the controller lost", async () => {
+    withLiveness({ ...base, lost: true });
+    await renderAs("view1", <ControllersPage t={mockT} />, "view1", "controllers-page");
+    const alarm = await screen.findByTestId("controller-lost-C1");
+    expect(alarm.getAttribute("role")).toBe("alert");
+    expect(alarm.textContent).toContain("controllers.gwLiveness.alarm");
+  });
+
+  it("uses the runtime alarm text when the whole runtime is lost", async () => {
+    withLiveness({ ...base, lost: true, runtime_lost: true });
+    await renderAs("view1", <ControllersPage t={mockT} />, "view1", "controllers-page");
+    expect((await screen.findByTestId("controller-lost-C1")).textContent).toContain("controllers.gwLiveness.runtimeAlarm");
+  });
+
+  it("says so when the gateway never saw a beat", async () => {
+    withLiveness({ ...base, known: false, age_s: null });
+    await renderAs("view1", <ControllersPage t={mockT} />, "view1", "controllers-page");
+    expect((await screen.findByTestId("controller-gwliveness-C1")).textContent).toContain("controllers.gwLiveness.unknown");
+  });
+});

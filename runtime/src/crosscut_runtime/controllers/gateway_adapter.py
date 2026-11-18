@@ -60,6 +60,45 @@ def make_gateway_ports(
     return _availability(client, actor), propose
 
 
+LivenessSend = Callable[[str, str, str, int, float, int, list[str]], None]
+LIVENESS_PERMISSION = "gw.propose"  # the existing service-role permission; no new one needed
+
+
+def make_liveness_sender(root: Path, sender_id: str, kind: str) -> LivenessSend:
+    """Beat callable ``(kind, id, state, count, cycle_s, liveness_cycles, targets)``.
+
+    Sent as a signed ``liveness`` mailbox command by the service principal of ``sender_id``.
+    A gateway that cannot be reached is logged, never raised: a beat must not stop a cycle.
+    """
+    from crosscut_api.auth.actor import ActorContext  # noqa: PLC0415
+    from crosscut_api.gateway_client import FileGatewayClient  # noqa: PLC0415
+
+    client = FileGatewayClient(root)
+    actor = ActorContext(
+        actor=f"svc:{kind}:{sender_id}",
+        roles=("service",),
+        session="0" * 16,
+        source_ip="127.0.0.1",
+        stepup=False,
+        permissions=frozenset({LIVENESS_PERMISSION}),
+    )
+
+    def send(
+        kind_: str, ident: str, state: str, count: int, cycle_s: float, cycles: int,
+        targets: list[str],
+    ) -> None:
+        args = {
+            "kind": kind_, "id": ident, "state": state, "count": count,
+            "cycle_s": cycle_s, "liveness_cycles": cycles, "targets": targets,
+        }
+        try:
+            client.liveness(args, actor=actor)
+        except CLIENT_ERRORS as error:
+            LOGGER.warning("liveness beat of %s failed: %s", ident, error)
+
+    return send
+
+
 def _availability(client: Any, actor: Any) -> Availability:
     """Availability query; a gateway that cannot be asked answers nothing (every MV is down)."""
 

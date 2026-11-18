@@ -142,3 +142,11 @@ def test_cycle_out_of_range_fails_schema(cycle: float) -> None:
         doc["controllers"][0]["cycle_s"] = cycle
 
     assert _problems(set_cycle)
+
+
+@pytest.mark.parametrize(("cycles", "ok"), [(1, False), (2, True), (3, True), (2.5, False)])
+def test_liveness_cycles_is_an_integer_of_at_least_two(cycles: float, ok: bool) -> None:
+    def set_cycles(doc: dict[str, Any]) -> None:
+        doc["controllers"][0]["liveness_cycles"] = cycles
+
+    assert (_problems(set_cycles) == []) is ok

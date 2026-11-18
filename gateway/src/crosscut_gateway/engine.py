@@ -35,6 +35,14 @@ from crosscut_gateway.interfaces import (
     WritePolicy,
     WriteProposal,
 )
+from crosscut_gateway.liveness import (
+    KIND_CONTROLLER,
+    Beat,
+    LivenessError,
+    LivenessMonitor,
+    holders_of,
+    watchdog_problems,
+)
 from crosscut_gateway.out_steps import (
     OutputPlant,
     OutputPolicy,
@@ -395,6 +403,7 @@ class WriteGateway:
         if self._killed:
             self._release_all_killed()
             return
+        self._check_liveness()
 
         for tag in self._states:
             if self._holding.get(tag, False):
@@ -661,6 +670,8 @@ class WriteGateway:
         self._last_write_t_ns: dict[str, int] = {}
         self._hold_until_ns: dict[str, int] = {}
         self._holding: dict[str, bool] = {tag: False for tag in policies}
+        self._holder: dict[str, str] = {}
+        self._liveness = LivenessMonitor()
 
     def _validate_tag(self, tag: str) -> None:
         """Raise KeyError when a tag has no policy."""
@@ -764,6 +775,37 @@ class WriteGateway:
         self._release_target(tag, "watchdog")
         self._holding[tag] = False
         return True
+
+    def record_beat(self, beat: Beat, now_ns: int) -> None:
+        """Take a liveness beat of the runtime or a controller (ADR 015).
+
+        Raises LivenessError, and audits ``liveness_refused``, when a target the controller
+        writes has ``watchdog_s`` below two controller cycles. Writes nothing to the DCS.
+        """
+        problems = watchdog_problems(beat, self._policies)
+        if problems:
+            self._log("liveness_refused", "", f"{beat.sender}: {problems[0]}")
+            raise LivenessError(f"liveness: {problems[0]}")
+        self._liveness.record(beat, now_ns)
+
+    def liveness_view(self) -> dict[str, Any]:
+        """Last beat age, state and lost flag of the runtime and each controller; read-only."""
+        return self._liveness.view(self._now_ns, self._controller_holds)
+
+    def _controller_holds(self, controller_id: str) -> bool:
+        """True when ``controller:<id>`` holds a target at this gateway."""
+        return bool(holders_of(self._holding, self._holder, controller_id))
+
+    def _check_liveness(self) -> None:
+        """Release what a lost controller (or a lost runtime) holds; audit ``runtime_lost``."""
+        for kind, sender in self._liveness.newly_lost(self._now_ns, self._controller_holds):
+            if kind != KIND_CONTROLLER:
+                self._log("runtime_lost", "", "runtime")
+                continue
+            self._log("runtime_lost", "", f"controller:{sender}")
+            for tag in holders_of(self._holding, self._holder, sender):
+                if self._release_target(tag, "runtime_lost"):
+                    self._holding[tag] = False
 
     def _send_heartbeat_safely(self) -> None:
         """Send a heartbeat; any communication error stops all holding targets."""
@@ -906,6 +948,7 @@ class WriteGateway:
         self._last_written[tag] = value
         self._last_write_t_ns[tag] = proposal.t_ns
         self._holding[tag] = True
+        self._holder[tag] = proposal.proposer
         self._seen_proposals[key] = WriteDecision(
             accepted=True,
             reason_code=decision.reason_code,
@@ -1052,6 +1095,7 @@ class WriteGateway:
             self._flush_pending_tag(tag)
             self._states.pop(tag, None)
             self._holding.pop(tag, None)
+            self._holder.pop(tag, None)
             self._last_written.pop(tag, None)
             self._last_write_t_ns.pop(tag, None)
             self._hold_until_ns.pop(tag, None)

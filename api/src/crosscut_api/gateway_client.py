@@ -321,6 +321,15 @@ class FileGatewayClient:
         result = self._send_command("mv_availability", {"targets": targets}, actor)
         return result if isinstance(result, dict) else {}
 
+    def liveness(self, args: dict[str, Any], actor: ActorContext | None = None) -> None:
+        """Send a signed liveness beat of the runtime or a controller (ADR 015).
+
+        Args:
+            args: kind (runtime or controller), id, state, count, cycle_s, liveness_cycles, targets.
+            actor: The service principal of the sender.
+        """
+        self._send_command("liveness", args, actor)
+
     def kill(self, actor: ActorContext | None = None) -> None:
         """Trigger the emergency kill switch on all targets."""
         self._send_command("kill", {}, actor)

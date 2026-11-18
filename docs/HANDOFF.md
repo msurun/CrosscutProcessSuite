@@ -23,6 +23,7 @@ Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. P
 
 - main holds Phase 2.5 (variable model, live status, MV readiness, controller host, fuzzy controller, operator console, L5 C rows), ADR 016 handover, security follow-ups, delayed read-back verification, PI Web API and SQL historian connectors, one site-settings function for all importers, soft-sensor reference input and lab alignment scan. RougherSim is pinned at rs-v0.13.1 (pv_fault hooks).
 - Open PRs: #94 validation report generator (#40), #95 public benchmarks (#21, experiments/exp32 needs owner approval as a new experiment line), #97 L5 matrix executors (#53), and the #96 tuning-live e2e fix. #94/#95 wait for #96 (same e2e job fails).
+- #112 (PR on feat/adr015-defaults): runtime and controller liveness beats through the signed mailbox, gateway releases a lost controller's targets and audits `runtime_lost`, console shows the beat age and an alarm; see ADR 015 "Liveness implementation".
 - Owner decisions waiting: ADR 015 heartbeat placement (defaults decided 2026-11-18); L5-P1-dq targets; Kaggle files (#88); the items below from 2026-11-06.
 
 ---

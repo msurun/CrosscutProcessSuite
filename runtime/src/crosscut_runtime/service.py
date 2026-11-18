@@ -19,6 +19,8 @@ from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
 
 from crosscut_runtime.addressing import AddressedConnector
+from crosscut_runtime.controllers.gateway_adapter import make_liveness_sender
+from crosscut_runtime.controllers.runtime_beat import RuntimeBeat
 from crosscut_runtime.controllers.wiring import (
     ControllerJob,
     build_controller_job,
@@ -31,6 +33,7 @@ from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore
 
+_UNSET: Any = object()
 RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller")
 
 
@@ -67,6 +70,7 @@ class RuntimeService:
         connector_factory: Callable[[dict[str, Any]], Any] = connector_from_source,
         clock: Callable[[], float] = time.time,
         gateway_ports: Any = default_gateway_ports,
+        liveness_factory: Any = _UNSET,
     ) -> None:
         """Initialize the service with a storage root and injected dependencies."""
         self._store = RuntimeStore(root)
@@ -74,6 +78,12 @@ class RuntimeService:
         self._connector_factory = connector_factory
         self._clock = clock
         self._gateway_ports = gateway_ports
+        self._liveness_factory = (
+            (make_liveness_sender if gateway_ports is default_gateway_ports else None)
+            if liveness_factory is _UNSET
+            else liveness_factory
+        )
+        self._runtime_beat = RuntimeBeat(root, clock, self._liveness_factory)
         self._controller_jobs: dict[str, tuple[dict[str, Any], ControllerJob]] = {}
         self._job_docs: dict[str, dict[str, Any]] = {}
         self._addresses: dict[str, dict[str, str]] = {}
@@ -96,6 +106,7 @@ class RuntimeService:
         self._sync_scheduler(jobs_doc.get("jobs", []), site)
         results = self._scheduler.tick(self._clock())
         self._flush_samples()
+        self._runtime_beat.maybe_send(bool(self._controller_jobs))
         self._update_state(jobs_doc.get("jobs", []), results)
 
     def stop(self) -> None:
@@ -155,7 +166,7 @@ class RuntimeService:
             key = _controller_cache_key(job, site)
             cached = self._controller_jobs.get(job["id"])
             if cached is None or cached[0] != key:
-                deps = (self._connector_factory, self._gateway_ports)
+                deps = (self._connector_factory, self._gateway_ports, self._liveness_factory)
                 built = build_controller_job(job, site, self._store.root, deps)
                 cached = (key, built)
                 self._controller_jobs[job["id"]] = cached

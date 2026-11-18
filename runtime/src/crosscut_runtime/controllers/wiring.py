@@ -30,6 +30,7 @@ from crosscut_runtime.controllers.host import (
 )
 from crosscut_runtime.controllers.state import DEFAULT_MAX_OVERRUNS
 from crosscut_runtime.store import RuntimeStore
+from crosscut_runtime.variable_status import DEFAULT_CYCLE_S
 
 FUZZY_FOLDER = "_fuzzy"
 BAD_QUALITY = 2  # Connector quality code for an unusable value.
@@ -54,19 +55,43 @@ class AddressedSnapshot:
         return Snapshot(snap.cycle_utc, values, snap.comm_ok, reason)
 
 
-class ControllerJob:
-    """One runtime job: queued commands, then one controller cycle."""
+Beat = Callable[[str, int], None]  # (controller state, cycle count) -> None
+DEFAULT_LIVENESS_CYCLES = 3
 
-    def __init__(self, host: ControllerHost, root: Path, controller_id: str) -> None:
-        """Bind the host and the place its command queue lives."""
+
+class ControllerJob:
+    """One runtime job: queued commands, then one controller cycle and its liveness beat."""
+
+    def __init__(
+        self, host: ControllerHost, root: Path, controller_id: str, beat: Beat | None = None
+    ) -> None:
+        """Bind the host, the place its command queue lives and the optional beat sender."""
         self._host, self._root, self._id = host, root, controller_id
+        self._beat, self._count = beat, 0
 
     def run(self) -> dict[str, Any]:
         """Apply the newest operator command, run one cycle and return the record."""
         command = pick_command(take_commands(self._root, self._id))
         if command is not None:
             self._host.request(command)
-        return {"controller": asdict(self._host.run_cycle())}
+        record = self._host.run_cycle()
+        self._count += 1
+        if self._beat is not None:
+            self._beat(record.state, self._count)
+        return {"controller": asdict(record)}
+
+
+def _beat_of(
+    deps: tuple[Any, ...], root: Path, doc: Mapping[str, Any], targets: Mapping[str, str]
+) -> Beat | None:
+    """The cycle-beat sender of a controller; ``deps[2]`` is the sender factory (none: no beat)."""
+    if len(deps) < 3 or deps[2] is None:
+        return None
+    send = deps[2](root, doc["id"], "controller")
+    cycle_s = float(doc.get("cycle_s", DEFAULT_CYCLE_S))
+    cycles = int(doc.get("liveness_cycles", DEFAULT_LIVENESS_CYCLES))
+    tags = sorted(set(targets.values()))
+    return lambda state, count: send("controller", doc["id"], state, count, cycle_s, cycles, tags)
 
 
 def _latest_kpi_row(root: Path, loop_id: str) -> Mapping[str, Any] | None:
@@ -154,9 +179,9 @@ def build_controller_job(
     job: Mapping[str, Any],
     site: Mapping[str, Any],
     root: Path,
-    deps: tuple[Callable[[dict[str, Any]], Any], GatewayPorts],
+    deps: tuple[Any, ...],
 ) -> ControllerJob:
-    """Build the job; ``deps`` is ``(connector_factory, gateway_ports_factory)``."""
+    """Build the job; ``deps`` is ``(connector_factory, gateway_ports_factory[, beat_factory])``."""
     doc = _find(site, job["controller"])
     if doc["type"] != "fuzzy":
         raise ValueError(f"unsupported_type: {doc['type']}")
@@ -174,4 +199,4 @@ def build_controller_job(
     )
     ports = HostPorts(connector, availability, propose, readiness=make_readiness(root))
     host = ControllerHost(controller, config, ports)
-    return ControllerJob(host, root, doc["id"])
+    return ControllerJob(host, root, doc["id"], _beat_of(deps, root, doc, targets))

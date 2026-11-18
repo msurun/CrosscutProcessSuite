@@ -33,6 +33,7 @@ from crosscut_api.auth.store import auth_dir
 
 Doc = dict[str, Any]
 DEFAULT_CYCLE_S = 30
+DEFAULT_LIVENESS_CYCLES = 3
 RECORD_DEFAULTS: Doc = {
     "state": "off",
     "reason": "new",
@@ -84,6 +85,29 @@ def _unreadable_record() -> Doc:
     return {"state": "unknown", "reason": "record_unreadable", "record_unreadable": True}
 
 
+def _gateway_liveness(root: Path) -> Doc:
+    """The ``liveness`` block of the gateway state; empty when the gateway state is unreadable."""
+    try:
+        state = json.loads((root / "_gateway" / "state.json").read_text(encoding="utf-8"))
+        block = state.get("liveness", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return block if isinstance(block, dict) else {}
+
+
+def _liveness_of(block: Doc, controller_id: str) -> Doc:
+    """Gateway-side liveness of one controller: last beat age and the lost flag (read-only)."""
+    runtime = block.get("runtime") or {}
+    row = (block.get("controllers") or {}).get(controller_id)
+    return {
+        "known": row is not None,
+        "age_s": None if row is None else row.get("age_s"),
+        "lost": bool(row and row.get("lost")) or bool(runtime.get("lost")),
+        "runtime_lost": bool(runtime.get("lost")),
+        "runtime_age_s": runtime.get("age_s"),
+    }
+
+
 def _site_controllers(root: Path) -> list[Doc]:
     """Controller entries of the site catalogue; empty when there is no readable site."""
     try:
@@ -116,7 +140,9 @@ def _summary(root: Path, entry: Doc) -> Doc:
         "type": entry["type"],
         "description": entry.get("description", ""),
         "cycle_s": entry.get("cycle_s", DEFAULT_CYCLE_S),
+        "liveness_cycles": entry.get("liveness_cycles", DEFAULT_LIVENESS_CYCLES),
         **{key: record[key] for key in RECORD_DEFAULTS},
+        "gateway_liveness": _liveness_of(_gateway_liveness(root), entry["id"]),
         "disabled": off,
     }
 

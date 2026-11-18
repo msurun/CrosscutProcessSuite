@@ -22,6 +22,7 @@ import {
 import type { Translate } from "../findings";
 import { ControllerDetail } from "./ControllerDetail";
 import { ControllerStateChip } from "./ControllerStateChip";
+import { GatewayLivenessCell } from "./GatewayLivenessCell";
 import { ageSeconds, clockText, isStale, reasonText } from "./controllersFormat";
 import { StatusChip } from "./StatusChip";
 
@@ -60,7 +61,10 @@ function ControllerRow({ row, selected, onOpen, t }: RowProps) {
       <td>{row.record_unreadable ? none : reasonText(t, row.reason)}</td>
       <td>{clockText(row.last_cycle_utc, none)}{row.last_duration_s !== null && <div className="hint">{row.last_duration_s} s</div>}</td>
       <td>{row.consecutive_overruns} / {row.overruns}</td>
-      <td><LivenessCell row={row} t={t} /></td>
+      <td>
+        <LivenessCell row={row} t={t} />
+        <GatewayLivenessCell id={row.id} liveness={row.gateway_liveness} t={t} />
+      </td>
       <td>
         {row.last_explanation || none}
         {row.state === "advisory" && (

@@ -1078,3 +1078,10 @@ Still open for the owner: the three ADR 015 defaults (cycle 30 s, 3 overruns -> 
 
 Merged after the first handoff: #94 validation report generator (#40), #95 public benchmark loaders (#21, experiments/exp32), #97 L5 matrix executors (#53: P1, P2-e2e, P3 ready), #98 tuning intents API returns `targets` (#96, root cause of the intermittent tuning-live e2e), #99 owner decisions in PRODUCT.md (#80), #100 soft-sensor backup mode (#82), #106 step-test assistant OUT in MAN, confirm only (#81, ADR 017, other-vendor security review findings fixed, L5 row live), and public-data experiments exp33 two-tank (#86: 5 met, 1 missed, 1 not exercised), exp34 cascaded tanks (#83: K1-K4 met, no real step in the record), exp35 valve friction (#84: inconclusive), exp36 anomaly SKAB/3W (#87: every target missed - the anomaly engine does not transfer to real data yet), exp37 sealed worklist protocol (#85: not run, needs scipy).
 Engine gaps from the public data are collected in issue #102. Owner items: scipy install for #85, Kaggle files for #88, PRONTO run for #87, licences TEP/C-MAPSS, exp32 as a new experiment line, ADR 015 defaults.
+
+## 2026-11-18 - Runtime and controller liveness (#112, ADR 015)
+
+- Gateway: `liveness.py` (monitor, beat parsing, watchdog rule), `record_beat`/`liveness_view`/loss check in `engine.py`, signed mailbox command `liveness` (permission `gw.propose`, service role unchanged), `liveness` block in `state.json`. Loss releases the holder's targets through the existing release path and audits `runtime_lost`; an idle controller (not `on`, holds nothing) never triggers.
+- Runtime: `make_liveness_sender` (gateway_adapter), controller beat per cycle (`ControllerJob`), process beat every 10 s (`controllers/runtime_beat.py`); injected gateway ports (tests) send nothing.
+- Site schema: `controllers[].liveness_cycles` (integer >= 2, default 3). API: `gateway_liveness` and `liveness_cycles` in the controller list/detail. Frontend: `GatewayLivenessCell` with alarm text (en/pl/es).
+- Tests: `gateway/tests/test_liveness.py`, `runtime/tests/test_liveness_beat.py`, controller routes, ControllersPage unit tests.

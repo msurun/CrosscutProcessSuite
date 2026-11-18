@@ -18,6 +18,15 @@ export interface Bounds {
   hi: number;
 }
 
+/** Liveness seen by the write gateway (read-only): last beat age and the lost flag. */
+export interface GatewayLiveness {
+  known: boolean;
+  age_s: number | null;
+  lost: boolean;
+  runtime_lost: boolean;
+  runtime_age_s: number | null;
+}
+
 /** One row of GET /controllers: the host's last record plus the disabled variable ids. */
 export interface ControllerSummary {
   id: string;
@@ -32,6 +41,9 @@ export interface ControllerSummary {
   overruns: number;
   consecutive_overruns: number;
   liveness_utc: string | null;
+  /** Cycles without a beat before the gateway releases the targets; 3 by default. */
+  liveness_cycles?: number;
+  gateway_liveness?: GatewayLiveness;
   last_explanation: string;
   /** Moves the controller would make in the advisory state (never proposed). */
   last_advice: { variable_id: string; target_tag: string; value: number; reason: string }[] | null;

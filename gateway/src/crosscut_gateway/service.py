@@ -35,6 +35,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
+from crosscut_gateway.liveness import LivenessError, parse_beat
 from crosscut_gateway.out_steps import OutputRequest
 from crosscut_gateway.param_intent_store import IntentStoreUnreadableError, ParamIntentRecord
 from crosscut_gateway.param_ledger import ParamLedger
@@ -79,6 +80,15 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
     "re_enable": [("tag", "str")],
     "set_mode": [("mode", "str")],
     "mv_availability": [("targets", "str_list")],
+    "liveness": [
+        ("kind", "str"),
+        ("id", "str"),
+        ("state", "str"),
+        ("count", "int"),
+        ("cycle_s", "number"),
+        ("liveness_cycles", "int"),
+        ("targets", "str_list"),
+    ],
     "kill": [],
     "kill_reset": [],
     "policy_draft": [("document", "object")],
@@ -426,6 +436,7 @@ class GatewayService:
             "approve": self._handle_approve,
             "reject": self._handle_reject,
             "mv_availability": self._handle_mv_availability,
+            "liveness": self._handle_liveness,
             "kill": self._handle_kill,
             "kill_reset": self._handle_kill_reset,
             "re_enable": self._handle_re_enable,
@@ -489,6 +500,17 @@ class GatewayService:
     ) -> dict[str, Any]:
         """Read-only: report which targets can be written now; changes no state."""
         return self._gateway.mv_availability(args["targets"])
+
+    def _handle_liveness(
+        self, args: dict[str, Any], _ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Take a runtime or controller liveness beat (ADR 015); it never writes to the DCS."""
+        try:
+            beat = parse_beat(args)
+            self._gateway.record_beat(beat, int(self._clock() * 1_000_000_000))
+        except LivenessError as exc:
+            raise CommandError(str(exc)) from exc
+        return {}
 
     def _handle_kill(self, _args: dict[str, Any], ctx: ActorContext | None) -> dict[str, Any]:
         self._gateway.kill(actor_ctx=ctx)
@@ -641,6 +663,7 @@ class GatewayService:
             "updated_at_utc": datetime.fromtimestamp(now, tz=UTC).isoformat(),
             "mode": self._gateway.mode,
             "targets": self._gateway.status(),
+            "liveness": self._gateway.liveness_view(),
             "alarms": self._gateway.alarms(),
             "pending": self._get_pending_entries(),
             "pending_params": self._get_pending_params(),
