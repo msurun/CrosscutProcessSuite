@@ -391,3 +391,13 @@ describe("site schema controllers section", () => {
     expect(field?.text).toContain('"fuzzy"');
   });
 });
+
+
+it("keeps integer module settings numeric when edited", () => {
+  const schema: SchemaObject = {
+    properties: { dynamic_lags: { type: "integer", minimum: 0 } },
+  };
+  const [field] = describeFields(schema, { dynamic_lags: 1 }, "anomaly", (key) => key);
+  expect(field.inputType).toBe("number");
+  expect(applyField({ dynamic_lags: 1 }, field, "2")).toEqual({ dynamic_lags: 2 });
+});

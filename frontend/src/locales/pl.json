@@ -245,6 +245,7 @@
   "catalogue.wizard.title": "Kreator mapowania",
   "configEditor.loading": "Ładowanie…",
   "configEditor.notStored": "Dla tego identyfikatora nic jeszcze nie jest zapisane; formularz startuje pusty, a zapis utworzy dokument.",
+  "configEditor.reload": "Wczytaj ponownie",
   "configEditor.save": "Zapisz",
   "configEditor.saveFailed": "Zapis nie powiódł się: {detail}",
   "configEditor.saved": "Zapisano.",

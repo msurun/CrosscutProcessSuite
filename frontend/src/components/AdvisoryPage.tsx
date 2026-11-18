@@ -2,6 +2,7 @@
 // record and keep a decision log. Advisory only: nothing here writes to a plant; a banner says so.
 import type { Translate } from "../findings";
 import { AdvisoryConfigSummary } from "./AdvisoryConfigSummary";
+import { ConfigEditorPage } from "../ConfigEditorPage";
 import { AdvisoryLog } from "./AdvisoryLog";
 import { AdvisoryRun } from "./AdvisoryRun";
 import { useAdvisoryLog, useSupervisors, type SupervisorsState } from "./AdvisoryState";
@@ -39,6 +40,7 @@ function SupervisorBody({ state, datasetId, t }: { state: SupervisorsState; data
   return (
     <>
       {state.config !== null && <AdvisoryConfigSummary config={state.config} t={t} />}
+      <ConfigEditorPage key={state.selectedId} kind="supervisor" configId={state.selectedId} t={t} onSaved={state.refreshConfig} />
       <AdvisoryRun datasetId={datasetId} supervisorId={state.selectedId} t={t} onRecorded={reload} />
       <AdvisoryLog supervisorId={state.selectedId} log={log} error={error} t={t} onChanged={reload} />
     </>

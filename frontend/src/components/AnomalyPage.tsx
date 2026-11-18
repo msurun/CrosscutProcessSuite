@@ -3,6 +3,7 @@
 // plant, and two notes say so and how far the alarm limits can be trusted.
 import type { Translate } from "../findings";
 import { AnomalyConfigSummary } from "./AnomalyConfigSummary";
+import { ConfigEditorPage } from "../ConfigEditorPage";
 import { AnomalyFit } from "./AnomalyFit";
 import { AnomalyModel } from "./AnomalyModel";
 import { AnomalyScan } from "./AnomalyScan";
@@ -53,6 +54,7 @@ function DetectorBody({ state, datasetId, recordHours, t }: BodyProps) {
   return (
     <>
       {state.config !== null && <AnomalyConfigSummary config={state.config} t={t} />}
+      <ConfigEditorPage key={state.selectedId} kind="anomaly" configId={state.selectedId} t={t} onSaved={state.refreshConfig} />
       <AnomalyFit key={`${state.selectedId}|${datasetId}`} datasetId={datasetId} detectorId={state.selectedId} recordHours={recordHours} t={t} onFitted={stored.set} />
       {stored.error !== null && <p className="status status-error" role="alert">{stored.error}</p>}
       {stored.loaded && <AnomalyModel model={stored.model} t={t} />}

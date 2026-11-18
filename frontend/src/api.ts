@@ -1351,9 +1351,18 @@ export async function fetchSchema(name: string): Promise<SchemaObject> {
   return getJson<SchemaObject>(`${API_PREFIX}/schemas/${encodeURIComponent(name)}`);
 }
 
+/** Choose the module route so domain validation also runs when saving the generic form. */
+function configDocumentUrl(kind: string, configId: string): string {
+  const moduleRoutes: Record<string, string> = {
+    supervisor: "supervisors", anomaly: "anomaly", softsensor: "softsensor",
+  };
+  const route = moduleRoutes[kind] ?? `config/${encodeURIComponent(kind)}`;
+  return `${API_PREFIX}/${route}/${encodeURIComponent(configId)}`;
+}
+
 /** The stored configuration document. @throws {ApiError} 404 when nothing is stored for the id yet. */
 export async function fetchConfig(kind: string, configId: string): Promise<JsonDocument> {
-  return getJson<JsonDocument>(`${API_PREFIX}/config/${encodeURIComponent(kind)}/${encodeURIComponent(configId)}`);
+  return getJson<JsonDocument>(configDocumentUrl(kind, configId));
 }
 
 /**
@@ -1363,7 +1372,7 @@ export async function fetchConfig(kind: string, configId: string): Promise<JsonD
 export async function saveConfig(kind: string, configId: string, document: JsonDocument): Promise<JsonDocument> {
   return sendJson<JsonDocument>(
     "PUT",
-    `${API_PREFIX}/config/${encodeURIComponent(kind)}/${encodeURIComponent(configId)}`,
+    configDocumentUrl(kind, configId),
     document,
   );
 }

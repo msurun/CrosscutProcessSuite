@@ -4,6 +4,7 @@
 import type { Translate } from "../findings";
 import { DEFAULT_LAB_DELAY_S } from "../softsensor";
 import { SoftSensorConfigSummary } from "./SoftSensorConfigSummary";
+import { ConfigEditorPage } from "../ConfigEditorPage";
 import { SoftSensorFit } from "./SoftSensorFit";
 import { SoftSensorLab } from "./SoftSensorLab";
 import { SoftSensorModel } from "./SoftSensorModel";
@@ -59,6 +60,7 @@ function SensorBody({ state, datasetId, recordHours, startUtc, t }: BodyProps) {
   return (
     <>
       <SoftSensorConfigSummary config={state.config} t={t} />
+      <ConfigEditorPage key={state.selectedId} kind="softsensor" configId={state.selectedId} t={t} onSaved={state.refreshConfig} />
       <SoftSensorLab key={state.selectedId} sid={state.selectedId} lab={lab} originDefault={startUtc} t={t} />
       <SoftSensorFit key={key} datasetId={datasetId} sensorId={state.selectedId} recordHours={recordHours} hasLab={lab.value !== null} labDelayS={labDelayS} t={t} onFitted={model.set} />
       {model.error !== null && <p className="status status-error" role="alert">{model.error}</p>}

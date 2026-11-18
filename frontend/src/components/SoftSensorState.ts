@@ -35,6 +35,7 @@ export interface SoftSensorsState {
   config: SoftSensorConfig | null;
   error: string | null;
   loadExample: () => Promise<void>;
+  refreshConfig: () => void;
 }
 
 /** Loads the sensor ids once; the first becomes selected; `loadExample` saves the bundled config. */
@@ -42,6 +43,7 @@ export function useSoftSensors(t: Translate): SoftSensorsState {
   const [ids, setIds] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, select] = useState("");
+  const [configRevision, setConfigRevision] = useState(0);
   const [config, setConfig] = useState<SoftSensorConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,8 +63,9 @@ export function useSoftSensors(t: Translate): SoftSensorsState {
     void reload();
   }, [reload]);
 
+  useEffect(() => { setConfig(null); }, [selectedId]);
+
   useEffect(() => {
-    setConfig(null);
     if (selectedId === "") return;
     let isCancelled = false;
     fetchSoftSensorConfig(selectedId)
@@ -71,7 +74,7 @@ export function useSoftSensors(t: Translate): SoftSensorsState {
     return () => {
       isCancelled = true;
     };
-  }, [selectedId, t]);
+  }, [selectedId, t, configRevision]);
 
   const loadExample = useCallback(async () => {
     try {
@@ -82,7 +85,8 @@ export function useSoftSensors(t: Translate): SoftSensorsState {
     }
   }, [reload, t]);
 
-  return { ids, loaded, selectedId, select, config, error, loadExample };
+  return { ids, loaded, selectedId, select, config, error, loadExample,
+    refreshConfig: () => setConfigRevision((revision) => revision + 1) };
 }
 
 /** A value stored on the server: `null` while loading or when none exists; `set` after an upload or a fit. */
