@@ -1,7 +1,7 @@
 // src/components/KnowledgeEditor.test.tsx
 // Unit tests for the knowledge editor: parsing helpers, load/open states, validation and saving.
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LoopKnowledge, LoopKnowledgeValues } from "../api";
@@ -19,6 +19,9 @@ vi.mock("../api", () => ({
 
 import { fetchKnowledge, saveKnowledge } from "../api";
 import { KnowledgeEditor } from "./KnowledgeEditor";
+
+// findBy/waitFor default to 1000 ms, which is too tight when the full suite loads the CPU.
+configure({ asyncUtilTimeout: 5000 });
 
 /**
  * Fake translator: returns the key plus stringified params so a test can assert
@@ -200,7 +203,7 @@ describe("KnowledgeEditor validation", () => {
 
     fireEvent.change(delay, { target: { value: "abc" } });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("knowledge.invalid");
+    expect(await screen.findByRole("alert")).toHaveTextContent("knowledge.invalid");
     expect(save).toBeDisabled();
   });
 
