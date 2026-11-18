@@ -15,6 +15,8 @@ from crosscut_connectors.opcua_connector import OpcUaConnector
 from crosscut_connectors.piwebapi_connector import PiWebApiConnector
 from crosscut_connectors.sql_connector import SqlConnector
 
+PROFILE_KEYS = ("profile", "profile_path")
+
 
 def create_connector(
     driver: str,
@@ -35,11 +37,18 @@ def create_connector(
 
 
 def connector_from_source(source_def: Mapping[str, Any]) -> Connector:
-    """Instantiate a connector from a site catalogue source specification."""
+    """Instantiate a connector from a site catalogue source specification.
+
+    A source-level ``profile`` or ``profile_path`` is copied into the driver options,
+    where every adapter reads its settings; explicit options win if both are present.
+    """
     driver = str(source_def["driver"])
     endpoint = str(source_def.get("endpoint", ""))
     options = dict(source_def.get("options") or {})
     for field in ("base_url", "data_server", "web_id", "auth"):
         if field in source_def:
             options[field] = source_def[field]
+    for key in PROFILE_KEYS:
+        if key in source_def and key not in options:
+            options[key] = source_def[key]
     return create_connector(driver, endpoint, options)

@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crosscut.local/schemas/sql-historian-profile.schema.json",
+  "title": "SQL historian profile",
+  "description": "One vendor's SQL templates and quality-code map for reading a historian through the generic SQL connector. Every template uses qmark (?) parameters and is bound, never formatted with user values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "vendor",
+    "description",
+    "quality",
+    "browse",
+    "metadata",
+    "history",
+    "latest"
+  ],
+  "properties": {
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "File stem used in the site source options: profile."
+    },
+    "vendor": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "unverified": {
+      "type": "array",
+      "description": "Table and column names that were not confirmed against vendor documentation or a real site.",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "quality": {"$ref": "#/$defs/qualityMap"},
+    "browse": {"$ref": "#/$defs/browseQuery"},
+    "metadata": {"$ref": "#/$defs/metadataQuery"},
+    "history": {"$ref": "#/$defs/historyQuery"},
+    "latest": {"$ref": "#/$defs/latestQuery"}
+  },
+  "$defs": {
+    "columnIndex": {"type": "integer", "minimum": 0},
+    "columns": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "0-based positions in the SELECT list for each named value.",
+      "properties": {
+        "tag": {"$ref": "#/$defs/columnIndex"},
+        "description": {"$ref": "#/$defs/columnIndex"},
+        "unit": {"$ref": "#/$defs/columnIndex"},
+        "data_type": {"$ref": "#/$defs/columnIndex"},
+        "eng_min": {"$ref": "#/$defs/columnIndex"},
+        "eng_max": {"$ref": "#/$defs/columnIndex"},
+        "timestamp": {"$ref": "#/$defs/columnIndex"},
+        "value": {"$ref": "#/$defs/columnIndex"},
+        "quality": {"$ref": "#/$defs/columnIndex"}
+      }
+    },
+    "browseQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sql", "columns"],
+      "properties": {
+        "sql": {"type": "string", "minLength": 1},
+        "columns": {
+          "allOf": [
+            {"$ref": "#/$defs/columns"},
+            {"required": ["tag"]}
+          ]
+        }
+      }
+    },
+    "metadataQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sql", "columns"],
+      "properties": {
+        "sql": {"type": "string", "minLength": 1},
+        "columns": {
+          "allOf": [
+            {"$ref": "#/$defs/columns"},
+            {"required": ["description"]}
+          ]
+        }
+      }
+    },
+    "historyQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sql", "columns"],
+      "properties": {
+        "sql": {"type": "string", "minLength": 1},
+        "period_sql": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional query used when the caller asks for a sample period; it binds one extra trailing value, the period in seconds."
+        },
+        "columns": {
+          "allOf": [
+            {"$ref": "#/$defs/columns"},
+            {"required": ["timestamp", "value", "quality"]}
+          ]
+        }
+      }
+    },
+    "latestQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sql", "columns"],
+      "properties": {
+        "sql": {"type": "string", "minLength": 1},
+        "columns": {
+          "allOf": [
+            {"$ref": "#/$defs/columns"},
+            {"required": ["timestamp", "value", "quality"]}
+          ]
+        }
+      }
+    },
+    "qualityRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "max": {"type": "integer", "minimum": 0, "maximum": 65535}
+      }
+    },
+    "qualityMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["good", "uncertain", "bad", "default"],
+      "description": "Vendor codes per LiveValue class; ranges are inclusive. A code outside every range maps to default.",
+      "properties": {
+        "good": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/qualityRange"}
+        },
+        "uncertain": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/qualityRange"}
+        },
+        "bad": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/qualityRange"}
+        },
+        "default": {"enum": ["good", "uncertain", "bad"]}
+      }
+    }
+  }
+}

@@ -257,7 +257,28 @@
           "if": {"properties": {"kind": {"enum": ["basic", "bearer"]}}},
           "then": {"required": ["credential_env"]}
         },
-        "options": {"type": "object", "description": "Driver options without credentials."}
+        "profile": {
+          "type": "string",
+          "description": "Shipped SQL historian profile name, for example aveva_wonderware."
+        },
+        "profile_path": {
+          "type": "string",
+          "description": "Path to a site copy of a SQL historian profile; it overrides profile."
+        },
+        "options": {
+          "type": "object",
+          "description": "Driver options without credentials.",
+          "properties": {
+            "profile": {
+              "type": "string",
+              "description": "Shipped SQL historian profile name, for example aveva_wonderware."
+            },
+            "profile_path": {
+              "type": "string",
+              "description": "Path to a site copy of a SQL historian profile; it overrides profile."
+            }
+          }
+        }
       }
     },
     "units": {

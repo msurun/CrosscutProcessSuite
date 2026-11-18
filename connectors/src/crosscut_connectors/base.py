@@ -39,6 +39,7 @@ class NodeInfo:
     has_children: bool
     data_type: str | None = None
     unit: str | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
