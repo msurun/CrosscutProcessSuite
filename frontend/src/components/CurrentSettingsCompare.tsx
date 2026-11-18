@@ -144,21 +144,8 @@ function isClose(changePercent: number): boolean {
   return Math.abs(changePercent) <= CLOSE_THRESHOLD_PERCENT;
 }
 
-/**
- * Details panel comparing the proposed PI settings with values the user typed.
- *
- * `storageKey` identifies the localStorage entry holding {kc, ti}; the panel
- * works without storage, it just does not remember the values.
- */
-export function CurrentSettingsCompare({
-  storageKey,
-  settings,
-  t,
-}: {
-  storageKey: string;
-  settings: TuningSettings;
-  t: Translate;
-}) {
+/** State, validation and persistence of the two typed current values. */
+function useCurrentInputs(storageKey: string) {
   const [kcText, setKcText] = useState("");
   const [tiText, setTiText] = useState("");
 
@@ -195,28 +182,59 @@ export function CurrentSettingsCompare({
   // parse is the only case the user is warned about.
   const isKcInvalid = kcText.trim() !== "" && currentKc === null;
   const isTiInvalid = tiText.trim() !== "" && currentTi === null;
+  return {
+    kcText, tiText, currentKc, currentTi, isKcInvalid, isTiInvalid, handleKcChange, handleTiChange,
+  };
+}
+
+type CurrentInputsState = ReturnType<typeof useCurrentInputs>;
+
+/** The Kc and Ti input fields. */
+function CurrentInputs({ input, t }: { input: CurrentInputsState; t: Translate }) {
+  return (
+    <div className="current-inputs">
+      <CurrentField
+        label={t("tuning.current.kc")}
+        text={input.kcText}
+        isInvalid={input.isKcInvalid}
+        onChange={input.handleKcChange}
+        errorText={t("tuning.current.invalid")}
+      />
+      <CurrentField
+        label={t("tuning.current.ti")}
+        text={input.tiText}
+        isInvalid={input.isTiInvalid}
+        onChange={input.handleTiChange}
+        errorText={t("tuning.current.invalid")}
+      />
+    </div>
+  );
+}
+
+/**
+ * Details panel comparing the proposed PI settings with values the user typed.
+ *
+ * `storageKey` identifies the localStorage entry holding {kc, ti}; the panel
+ * works without storage, it just does not remember the values.
+ */
+export function CurrentSettingsCompare({
+  storageKey,
+  settings,
+  t,
+}: {
+  storageKey: string;
+  settings: TuningSettings;
+  t: Translate;
+}) {
+  const input = useCurrentInputs(storageKey);
+  const { currentKc, currentTi } = input;
   const hasBothValues = currentKc !== null && currentTi !== null;
 
   return (
     <details className="current-compare">
       <summary>{t("tuning.current.title")}</summary>
       <p>{t("tuning.current.intro")}</p>
-      <div className="current-inputs">
-        <CurrentField
-          label={t("tuning.current.kc")}
-          text={kcText}
-          isInvalid={isKcInvalid}
-          onChange={handleKcChange}
-          errorText={t("tuning.current.invalid")}
-        />
-        <CurrentField
-          label={t("tuning.current.ti")}
-          text={tiText}
-          isInvalid={isTiInvalid}
-          onChange={handleTiChange}
-          errorText={t("tuning.current.invalid")}
-        />
-      </div>
+      <CurrentInputs input={input} t={t} />
       {hasBothValues ? (
         <ComparisonTable
           settings={settings}
