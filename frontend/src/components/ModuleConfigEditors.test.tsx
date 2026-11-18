@@ -52,7 +52,7 @@ async function verifyRoundTrip(view: ReactElement, kind: string, document: JsonD
   render(view);
   const editor = within(await screen.findByRole("region", { name: "Configuration" }));
   fireEvent.change(editor.getByLabelText("description"), { target: { value: "Persisted description" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save", exact: true }));
+  fireEvent.click(editor.getByRole("button", { name: /^Save$/ }));
   await editor.findByText("Saved.");
   expect(server.fetch).toHaveBeenCalledWith(server.url, expect.objectContaining({ method: "PUT" }));
   fireEvent.change(editor.getByLabelText("description"), { target: { value: "Discard me" } });
@@ -66,7 +66,7 @@ async function verifyValidation(view: ReactElement, kind: string, document: Json
   render(view);
   const editor = within(await screen.findByRole("region", { name: "Configuration" }));
   fireEvent.change(editor.getByLabelText("id *"), { target: { value: "wrong_id" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save", exact: true }));
+  fireEvent.click(editor.getByRole("button", { name: /^Save$/ }));
   expect(await editor.findByRole("alert")).toHaveTextContent("does not match");
   expect(editor.queryByText("Saved.")).not.toBeInTheDocument();
 }

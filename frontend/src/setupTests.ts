@@ -6,6 +6,12 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach } from "vitest";
 
+// jsdom has no window.matchMedia, and uPlot reads it when the chart module loads.
+if (!window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList;
+}
+
 beforeEach(() => {
   document.documentElement.lang = "en";
 });
