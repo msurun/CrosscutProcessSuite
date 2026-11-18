@@ -126,13 +126,15 @@ def test_a_delayed_divergence_is_handled_like_an_external_dcs_change() -> None:
 
 
 def test_a_dcs_change_inside_the_settle_window_is_seen_and_kept() -> None:
-    """Ordinary monitoring keeps running during settling, so an operator change is not undone."""
+    """A settling target is left to its verification, which reports the change and keeps it."""
     plant = DelayedParamPlant()
     gateway = make_gateway(plant)
     apply_gain(gateway)
     plant.params[KP] = DCS_GAIN
 
     gateway.tick(NOW + S)
+    assert gateway.status()[KP] == "enabled"  # a one-step-late value is not a change yet
+    gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
 
     assert gateway.status()[KP] == "hold_off"
     assert plant.params[KP] == DCS_GAIN and plant.param_writes == [(KP, CHANGED_GAIN)]
@@ -181,11 +183,11 @@ def test_a_stable_value_closes_the_intent_only_after_the_configured_settle_time(
 
     gateway.tick(NOW + int(LONG_SETTLE_S * S) - 1)
     assert gateway.has_open_intent("L1")
-    assert plant.read_targets == [KP, KP, KP]  # monitoring reads the target while it settles
+    assert plant.read_targets == [KP, KP]  # a settling target is not monitored
     gateway.tick(NOW + int(LONG_SETTLE_S * S))
 
     assert not gateway.has_open_intent("L1")
-    assert plant.read_targets == [KP, KP, KP, KP]
+    assert plant.read_targets == [KP, KP, KP]
     assert events(gateway, "partial_revert") == []
 
 
@@ -219,7 +221,7 @@ def test_the_set_waits_for_its_longest_settle_time_and_reads_every_item() -> Non
     assert gateway.has_open_intent("L1")
     gateway.tick(NOW + int(LONG_SETTLE_S * S))
 
-    assert plant.read_targets == [KP, TI, KP, TI]  # monitoring, then the delayed pass
+    assert plant.read_targets == [KP, TI]  # only the delayed pass reads the settling set
     assert not gateway.has_open_intent("L1")
 
 

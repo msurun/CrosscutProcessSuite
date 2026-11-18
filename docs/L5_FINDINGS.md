@@ -36,8 +36,8 @@ change at the DCS, so the gateway handles it exactly like an external change (th
 held off, the applied record is marked invalid through `param_changed_externally`, no plant
 write) and adds the audit event `readback_mismatch_delayed`. The set's intent is closed after
 that audit; a failed read leaves it open for reconciliation. Ordinary external-change
-monitoring keeps running during the settle window, so a DCS change inside the window is kept,
-not overwritten. A new proposal (apply or rollback) for a target with a pending verification
+monitoring skips a settling target; a DCS change inside the window is caught by the delayed pass
+and kept, not overwritten. A new proposal (apply or rollback) for a target with a pending verification
 runs that verification synchronously first, so an immediate rollback after a good apply is
 accepted instead of refused with `reconcile_required`.
 

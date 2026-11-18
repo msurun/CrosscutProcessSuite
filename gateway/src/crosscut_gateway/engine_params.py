@@ -819,14 +819,18 @@ class ParamManager:
                 self._run_verification(key, pending)
 
     def _verify_due_sets(self) -> set[str]:
-        """Verify the sets whose settle time has passed; return the targets checked now."""
-        verified: set[str] = set()
+        """Verify the due sets; return every target still settling or checked in this tick.
+
+        A settling target is left to its verification: a value that shows up one plant step
+        late must not count as an external change. A DCS change inside the window is caught
+        by the verification itself and reported, never overwritten.
+        """
+        skipped: set[str] = set()
         for key, pending in list(self._verifications.items()):
-            if self._env.now_ns() < pending.due_ns:
-                continue
-            verified.update(item.target for item in pending.proposal.items)
-            self._run_verification(key, pending)
-        return verified
+            skipped.update(item.target for item in pending.proposal.items)
+            if self._env.now_ns() >= pending.due_ns:
+                self._run_verification(key, pending)
+        return skipped
 
     def _run_verification(self, key: str, pending: PendingVerification) -> None:
         """Verify one set and forget it; an audit failure stops its targets and raises alarm."""
@@ -880,16 +884,12 @@ class ParamManager:
         )
 
     def tick(self) -> None:
-        """Verify settling sets, then monitor the other applied targets for external changes.
-
-        A target is only skipped in the tick that verified it: a DCS change during the
-        settling window must be seen (and never overwritten).
-        """
+        """Verify settling sets, then monitor the other applied targets for external changes."""
         if self._plant is None:
             return
-        verified = self._verify_due_sets()
+        skipped = self._verify_due_sets()
         for tag in list(self._last_applied):
-            if tag not in verified and self._states.get(tag) == "enabled":
+            if tag not in skipped and self._states.get(tag) == "enabled":
                 self._guarded_readback(self._plant, tag)
 
     def _guarded_readback(self, plant: ParamControlSystem, tag: str) -> None:

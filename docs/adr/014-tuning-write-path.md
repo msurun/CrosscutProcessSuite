@@ -321,9 +321,9 @@ parameter on its existing engine tick, using the injected engine clock and no ne
 The optional per-parameter policy field `verify_after_s` is a settle time in seconds; omitted
 values use `DEFAULT_VERIFY_AFTER_S = 2.0`. The whole set is checked after the longest settle
 time among its parameters, so each parameter has settled before the atomic set is verified.
-Ordinary external-change monitoring keeps running during the settle window (only the tick that
-performs the delayed pass skips those targets), so a DCS change inside the window is detected
-and kept rather than skipped.
+Ordinary external-change monitoring skips a target while its set settles, so a value that
+reaches the DCS one plant step late is not taken for an external change. A DCS change inside the
+window is caught by the delayed pass, reported like an external change and kept, never overwritten.
 
 **No automatic revert on a delayed mismatch.** A value outside its parameter's
 `readback_tolerance` cannot be distinguished from an operator's change at the DCS, so the
