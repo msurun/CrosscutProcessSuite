@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+DEFAULT_VERIFY_AFTER_S = 2.0  # Seconds for a parameter write to settle before verification.
+
 
 class NotRemoteError(Exception):
     """A setpoint write was refused because the loop is not in remote setpoint source (ADR 016)."""
@@ -44,7 +46,7 @@ class ParamPolicy:
 
     Out-of-range values are refused, never clamped. Units: ``limits`` and
     ``readback_tolerance`` in the unit ``unit``; ``max_ratio`` dimensionless (> 1);
-    ``min_interval_s`` in seconds.
+    ``min_interval_s`` and ``verify_after_s`` in seconds.
     """
 
     loop: str
@@ -56,6 +58,7 @@ class ParamPolicy:
     readback_tolerance: float
     min_interval_s: float
     allowed_loop_modes: tuple[str, ...]
+    verify_after_s: float = DEFAULT_VERIFY_AFTER_S
 
 
 @dataclass(frozen=True)

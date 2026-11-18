@@ -25,3 +25,24 @@ simulator; nothing here says how a real 800xA behaves.
 Not reproduced one-to-one: G03/G07 cannot assert "no write at all" at the plant for the take
 (Mode) write, only for the setpoint; G07 cannot assert a local setpoint (finding 9).
 Open: the full P3 row (step test, KPI, rollback) needs the closed-loop pieces and stays pending.
+
+## TF3: delayed parameter read-back (issue #54)
+
+With RougherSim hooks, a written PID parameter and its offset can appear one plant step late.
+The gateway now keeps the write intent open and verifies every written parameter again on an
+engine tick after the set's longest `verify_after_s` settle time (2.0 seconds when omitted).
+A delayed mismatch audits `readback_mismatch_delayed` through the existing `partial_revert`
+path, restores the written parameters to their recorded `from` values, and stops further
+writes under the existing rules. Failed restoration leaves the intent open for reconciliation.
+
+TF3 retains its strict xfail because its current assertions do not match this asynchronous
+behavior. `reject_mismatched_gain` asserts a synchronous refusal from approval with
+`revert_failed` and an immediate `readback_mismatch` audit, before advancing the gateway tick.
+A successful immediate read-back now returns `applied`; delayed verification requires a
+subsequent tick and reports `readback_mismatch_delayed`. The row also requires restoration of
+the original pre-hook plant baseline after hook expiry, whereas the proposal reads its
+`from` values during the active offset: reverting those recorded values can preserve a biased
+baseline. Keep that original-plant assertion until the hook and baseline semantics are
+resolved. The gateway unit tests cover delayed divergence, successful settling, and an open
+intent after a crash before verification; they do not establish that TF3's plant-baseline
+assertion passes.

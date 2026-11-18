@@ -313,7 +313,7 @@ def test_rollback_after_restart_refused_without_baseline(tmp_path: Path) -> None
 
 
 def test_normal_apply_leaves_no_open_intent(tmp_path: Path) -> None:
-    """A normal, successful apply closes its intent record on completion."""
+    """A successful apply closes its intent only after the settling verification."""
     plant = CrashPlant()
     gw = make_gateway(tmp_path, plant)
     proposal = pset(it(KP, 3.0))
@@ -321,6 +321,8 @@ def test_normal_apply_leaves_no_open_intent(tmp_path: Path) -> None:
     gw.propose_params(proposal, actor_ctx=ALICE)
     decision = gw.approve(key, actor_ctx=BOB)
     assert decision.accepted is True and decision.reason_code == "applied"
+    assert gw.has_open_intent("L1") is True
+    gw.tick(NOW + 2 * S)
     assert gw.has_open_intent("L1") is False
     assert gw.open_intents() == []
 

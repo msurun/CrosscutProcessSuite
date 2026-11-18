@@ -21,6 +21,7 @@ from crosscut_gateway.engine_params_apply import (
     COMM_ERRORS,
     ParamCommError,
     WriteOutcome,
+    detune_order,
     live_check,
     revert_items,
     stored_value,
@@ -132,6 +133,15 @@ class PendingParams:
     proposer_actor: str | None
 
 
+@dataclass(frozen=True)
+class PendingVerification:
+    """An applied set and its original policies, due on the injected tick clock in ns."""
+
+    proposal: ParamSetProposal
+    due_ns: int
+    policies: dict[str, ParamPolicy]
+
+
 def _state_reason(state: str) -> str:
     """Refusal reason of a target that is not enabled, e.g. ``target_stopped_comm``."""
     return f"target_{state.replace(':', '_')}"
@@ -148,6 +158,7 @@ class ParamManager:
         self._store = config.intent_store or ParamIntentStore()
         self._states: dict[str, str] = {tag: "enabled" for tag in config.policies}
         self._pending: dict[str, PendingParams] = {}
+        self._verifications: dict[str, PendingVerification] = {}
         self._seen: dict[str, WriteDecision] = {}
         self._ids: dict[str, str] = {}
         self._last_applied: dict[str, float] = {}
@@ -644,7 +655,7 @@ class ParamManager:
         audited = self._audit_applied(proposal, key, read)
         self._ledger.record(proposal, read, audited)  # only what was read, only after the audit
         if audited:
-            self._close_intent_safe(key)
+            self._schedule_verification(proposal, key)
             return decision
         return self._audit_failed(proposal, key)
 
@@ -743,11 +754,16 @@ class ParamManager:
             return WriteDecision(accepted=False, reason_code="read_failed")
         fields = _make_intent_resolved_fields(record, key, read_values, actor)
         self._audit_intent_resolved(fields)
+        return self._close_resolved_intent(key, fields)
+
+    def _close_resolved_intent(self, key: str, fields: Mapping[str, str]) -> WriteDecision:
+        """Close a reconciled intent and cancel its live verification, or report failure."""
         try:
             self._store.close_intent(key)
         except (OSError, IntentStoreUnreadableError):
             self._audit_intent_close_failed(fields)
             return WriteDecision(accepted=False, reason_code="intent_close_failed")
+        self._verifications.pop(key, None)
         return WriteDecision(accepted=True, reason_code="resolved")
 
     def _audit_intent_resolved(self, fields: Mapping[str, str]) -> None:
@@ -776,15 +792,66 @@ class ParamManager:
 
     # ------------------------------------------------------------------ tick and lifecycle
 
-    def tick(self) -> None:
-        """Read back every applied target; a changed value means someone changed it at the DCS.
+    def _schedule_verification(self, proposal: ParamSetProposal, key: str) -> None:
+        """Keep the intent open until every item has had its settling time in seconds."""
+        policies = {item.target: self._policies[item.target] for item in proposal.items}
+        # Atomic sets are checked together after the slowest parameter settles.
+        delay_ns = int(max(policy.verify_after_s for policy in policies.values()) * 1_000_000_000)
+        self._verifications[key] = PendingVerification(
+            proposal, self._env.now_ns() + delay_ns, policies
+        )
 
-        Read-back only: nothing is released, written back or kept alive.
-        """
+    def _verify_due_sets(self) -> set[str]:
+        """Verify due sets and return targets excluded from ordinary monitoring this tick."""
+        settling = set()
+        for key, pending in list(self._verifications.items()):
+            settling.update(item.target for item in pending.proposal.items)
+            if self._env.now_ns() >= pending.due_ns:
+                try:
+                    self._verify_set(key, pending)
+                except Exception:  # noqa: BLE001 - keep intent open when failure audit fails
+                    self._audit_failed(pending.proposal, key)
+                del self._verifications[key]
+        return settling
+
+    def _verify_set(self, key: str, pending: PendingVerification) -> None:
+        """Read every item; restore the whole set on mismatch or a failed read."""
+        assert self._plant is not None
+        failure = None
+        for item in pending.proposal.items:
+            try:
+                actual = self._plant.read_param(item.target)
+                expected = stored_value(self._plant, item.target, item.to_value)
+                if not within(actual, expected, pending.policies[item.target].readback_tolerance):
+                    failure = failure or ("readback_mismatch_delayed", item.target)
+            except Exception:  # noqa: BLE001 - an unverified write must fail closed
+                failure = ("comm_loss", item.target)
+        if failure is None:
+            self._close_intent_safe(key)
+        else:
+            self._revert_delayed(key, pending, failure)
+
+    def _revert_delayed(
+        self, key: str, pending: PendingVerification, failure: tuple[str, str]
+    ) -> None:
+        """Reuse immediate failure handling with the policies active when the set was applied."""
+        assert self._plant is not None
+        proposal = pending.proposal
+        written = detune_order(proposal.items)
+        failed = revert_items(self._plant, pending.policies, written)
+        for item in written:
+            self._last_applied.pop(item.target, None)
+        code, target = failure
+        outcome = WriteOutcome(False, code, target, tuple(item.target for item in written), failed)
+        self._failed(proposal, key, outcome)
+
+    def tick(self) -> None:
+        """Verify settling sets, then monitor verified targets for external DCS changes."""
         if self._plant is None:
             return
+        settling = self._verify_due_sets()
         for tag in list(self._last_applied):
-            if self._states.get(tag) == "enabled":
+            if tag not in settling and self._states.get(tag) == "enabled":
                 self._guarded_readback(self._plant, tag)
 
     def _guarded_readback(self, plant: ParamControlSystem, tag: str) -> None:
@@ -826,6 +893,7 @@ class ParamManager:
             self._set_state(tag, "killed")
         self._flush_all("killed")
         self._last_applied.clear()
+        self._verifications.clear()  # Leave durable intents open for reconciliation.
 
     def reset_kill(self) -> None:
         """After a kill reset every target needs an explicit re-enable."""
@@ -833,6 +901,7 @@ class ParamManager:
             self._states[tag] = "stopped:kill"
         self._flush_all("kill_reset")
         self._last_applied.clear()
+        self._verifications.clear()
 
     def re_enable(self, tag: str) -> None:
         """Re-enable a stopped or held-off target; the next apply sets a new baseline.

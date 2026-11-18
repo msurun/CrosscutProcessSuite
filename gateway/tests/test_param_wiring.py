@@ -26,6 +26,7 @@ from auth_helpers import (
 )
 from crosscut_gateway import engine, keyfile, policy_file, policy_pin
 from crosscut_gateway import service as gateway_service
+from crosscut_gateway.interfaces import DEFAULT_VERIFY_AFTER_S
 from crosscut_gateway.opcua_plant import OpcUaPlant
 from test_gateway_scenarios import S
 from test_gateway_service import FakeClock
@@ -180,9 +181,12 @@ def test_operator_approval_is_refused_and_nothing_is_written(rig: Rig) -> None:
 
 
 def test_external_change_on_the_server_puts_the_target_in_hold_off(rig: Rig) -> None:
+    """An operator retune after verification holds off without writing the node back."""
     env = rig.env
     send(env, "approve", {"key": propose_and_get_key(env)}, **SECOND_ENGINEER)
     assert state(env)["targets"][KP] == "enabled"
+    env.clock.advance(DEFAULT_VERIFY_AFTER_S)
+    env.service.poll_once()
     _set_param(rig.ctrl, "PD", 4.0)  # an operator changes the tuning at the DCS
     env.service.poll_once()
     assert state(env)["targets"][KP] == "hold_off"

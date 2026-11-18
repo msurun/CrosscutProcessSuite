@@ -111,19 +111,22 @@ def test_unexpected_error_after_write_reverts_and_stops_target(
 
 
 def test_param_tick_error_is_audited_and_stops_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unexpected monitoring error after settling stops and audits the target."""
     gw, plant = make()
     gw.approve(queued(gw, it(KP, 3.0)), actor_ctx=BOB)
+    gw.tick(NOW + 2 * S)
 
     def odd(tag: str) -> float:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(plant, "read_param", odd)
-    gw.tick(NOW + S)  # must not raise
+    gw.tick(NOW + 3 * S)  # must not raise
     assert gw.status()[KP] == "stopped:comm"
     assert events(gw, "param_tick_error")[0]["tag"] == KP
 
 
 def test_param_tick_runs_after_setpoint_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delayed parameter verification follows the setpoint heartbeat in the same tick."""
     gw, plant = make("supervised")
     gw.propose(WriteProposal(TAG, 55.0, "alice", NOW, "t"), actor_ctx=ALICE)
     gw.approve(queued(gw, it(KP, 3.0)), actor_ctx=BOB)
@@ -140,7 +143,7 @@ def test_param_tick_runs_after_setpoint_tick(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(plant, "send_heartbeat", heartbeat)
     monkeypatch.setattr(plant, "read_param", read)
-    gw.tick(NOW + S)
+    gw.tick(NOW + 2 * S)
     assert "heartbeat" in order and "param" in order
     assert order.index("heartbeat") < order.index("param")
 

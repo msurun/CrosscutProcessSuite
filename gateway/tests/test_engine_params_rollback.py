@@ -126,14 +126,17 @@ def test_limits_still_apply_to_a_verified_rollback() -> None:
 
 
 def test_replay_after_restart_valid_exactly_once(tmp_path: Path) -> None:
+    """Verified writes retain their rollback exemption exactly once across restarts."""
     path = tmp_path / "audit.jsonl"
     gw = _gateway(ParamPlant(), AuditLog(path))
     apply(gw, [it(KP, 3.5)], "p1", 0)
+    gw.tick(NOW + 2 * S)
     restarted = _gateway(ParamPlant(), AuditLog(path))
     rb = pset(it(KP, 2.0, frm=3.5), pid="p2", rollback_of="p1")
     assert restarted._params.rollback_refusal(rb) is None
     restarted._plant.params[KP] = 3.5  # type: ignore[attr-defined]
     assert rollback(restarted, [it(KP, 2.0, frm=3.5)], "p2", 5, "p1") == "applied"
+    restarted.tick(NOW + 7 * S)
     again = _gateway(ParamPlant(), AuditLog(path))
     assert again._params.rollback_refusal(rb) == "already_rolled_back"
     third = pset(it(KP, 3.5, frm=2.0), pid="p3", rollback_of="p2")
