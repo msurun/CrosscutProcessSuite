@@ -25,19 +25,23 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from crosscut_sim.core import BAD, GOOD
+from crosscut_sim.core import BAD, GOOD, UNCERTAIN
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_import import (
+    _add_site_ranges,
     _parse_iso8601,
+    _required_conversion,
     _resolve_instant,
     _sanitize_tag_name,
 )
 from crosscut_connectors.import_target import ImportTarget
+from crosscut_connectors.site import TagSettings
 from crosscut_connectors.sql_connector import SqlConnector
 
 NS_PER_S = 1_000_000_000
 MIN_ROW_FIELDS = 3  # timestamp, tag, value
+QUALITY_WORDS = {"": GOOD, "good": GOOD, "ok": GOOD, "uncertain": UNCERTAIN, "bad": BAD}
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,7 @@ def _parse_timestamp(ts: Any, tz: str, previous_ns: int | None = None) -> tuple[
 
 def _pivot_rows(
     rows: list[tuple[Any, ...]],
-    tz: str,
+    target: ImportTarget,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Pivot long-format query rows into wide (time x tag) grids.
 
@@ -113,8 +117,9 @@ def _pivot_rows(
     ----------
     rows: list[tuple[Any, ...]]
         List of rows from the query result.
-    tz: str
-        Timezone name used for naive timestamps.
+    target: ImportTarget
+        Output destination, the time zone used for naive timestamps and the site
+        settings that supply missing and quality codes.
 
     Returns
     -------
@@ -124,7 +129,7 @@ def _pivot_rows(
     """
     # Only four values per row are needed (time, tag, value, quality), so the raw
     # database rows are reduced here to four parallel flat arrays of equal length.
-    ts_ns, tag_ids, values, qualities, dst_repeats = _collect_samples(rows, tz)
+    ts_ns, tag_ids, values, qualities, dst_repeats = _collect_samples(rows, target)
     # Sorting by time first means every later step can assume time increases, which
     # allows _count_duplicates and _widen to use sorted data directly.
     ts_ns, tag_ids, values, qualities = _sort_by_time(ts_ns, tag_ids, values, qualities)
@@ -171,7 +176,7 @@ def _clean_value(raw: Any) -> float:
 
 
 def _parse_row(
-    row: tuple[Any, ...], tz: str, previous_ns: int | None = None
+    row: tuple[Any, ...], target: ImportTarget, previous_ns: int | None = None
 ) -> tuple[int, str, float, Any, bool]:
     """Return (timestamp ns, sanitized tag, value, quality, DST-repeat flag) for one query row.
 
@@ -192,8 +197,8 @@ def _parse_row(
     finite, which is the convention of the legacy "value only" query shape.
 
     :param row: one database row, positionally laid out as described above.
-    :param tz: IANA timezone name (for example "Europe/Paris") the stored
-        timestamp is expressed in.
+    :param target: output destination, time zone and site settings. The site file's
+        missing codes turn a value into NaN, and its quality codes map the quality column.
     :param previous_ns: instant of the previous row of the same tag, to tell the two passes of a
         repeated local time (DST fall-back) apart.
     :return: a tuple of (timestamp in nanoseconds since the Unix epoch,
@@ -201,14 +206,49 @@ def _parse_row(
     :raises ValueError: if the timestamp cannot be parsed. The check for fewer than three
         fields is made by the caller (``_read_row``).
     """
+    tag = _sanitize_tag_name(row[1])
+    tag_settings = target.settings_for(tag)
     # _clean_value returns a float or NaN, so np.isnan needs a float; NULL or
     # non-numeric cells become NaN here rather than raising.
-    value = _clean_value(row[2])
+    value = _missing_as_nan(_clean_value(row[2]), tag_settings)
     # The quality column is optional. Trust it only when we have a finite number:
     # NaN outranks the historian's own opinion and forces BAD.
-    quality = BAD if np.isnan(value) else (row[3] if len(row) > 3 else GOOD)
-    instant_ns, was_repeat = _parse_timestamp(row[0], tz, previous_ns)
-    return instant_ns, _sanitize_tag_name(row[1]), value, quality, was_repeat
+    quality = BAD if np.isnan(value) else _quality_flag(row, tag_settings, target)
+    instant_ns, was_repeat = _parse_timestamp(row[0], target.tz, previous_ns)
+    return instant_ns, tag, value, quality, was_repeat
+
+
+def _missing_as_nan(value: float, settings: TagSettings) -> float:
+    """A value equal to a missing code the site declares becomes NaN."""
+    if np.isnan(value) or settings.is_missing_number(value):
+        return float("nan")
+    return value
+
+
+def _quality_flag(row: tuple[Any, ...], settings: TagSettings, target: ImportTarget) -> Any:
+    """The quality of a finite value: the site mapping first, then the generic 0/1/2 words.
+
+    Without site settings the raw cell is kept, which is the historical behaviour.
+    Raises:
+        ValueError: with a site file, a code neither the file nor the generic words know.
+    """
+    if len(row) <= 3:
+        return GOOD
+    if target.settings is None:
+        return row[3]
+    mapped = settings.quality.classify(row[3])
+    if mapped is not None:
+        return mapped
+    text = str(row[3]).strip().casefold()
+    if text in QUALITY_WORDS:
+        return QUALITY_WORDS[text]
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError(
+            f"quality code {row[3]!r} is not declared; add it to quality.good_codes, "
+            "quality.bad_codes or quality.uncertain_codes in the site file"
+        ) from None
 
 
 def _key(row: tuple[Any, ...]) -> str:
@@ -224,7 +264,7 @@ def _check_identifier(raw_by_tag: dict[str, Any], tag: str, raw_tag: Any) -> Non
 
 
 def _collect_samples(
-    rows: list[tuple[Any, ...]], tz: str
+    rows: list[tuple[Any, ...]], target: ImportTarget
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Parse every row into parallel arrays of timestamps, tags, values and qualities.
 
@@ -251,7 +291,9 @@ def _collect_samples(
     last_ns_by_tag: dict[str, int] = {}
     dst_repeats = 0
     for row in rows:
-        ts, tag, value, quality, was_repeat = _read_row(row, tz, raw_by_tag, last_ns_by_tag)
+        ts, tag, value, quality, was_repeat = _read_row(
+            row, target, raw_by_tag, last_ns_by_tag
+        )
         dst_repeats += int(was_repeat)
         ts_ns.append(ts)
         tags.append(tag)
@@ -263,12 +305,16 @@ def _collect_samples(
 
 
 def _read_row(
-    row: tuple[Any, ...], tz: str, raw_by_tag: dict[str, Any], last_ns_by_tag: dict[str, int]
+    row: tuple[Any, ...],
+    target: ImportTarget,
+    raw_by_tag: dict[str, Any],
+    last_ns_by_tag: dict[str, int],
 ) -> tuple[int, str, float, Any, bool]:
     """Parse one row, check its tag identifier and record its instant as the tag's latest."""
     if len(row) < MIN_ROW_FIELDS:
         raise ValueError("a row needs at least timestamp, tag and value")
-    ts, tag, value, quality, was_repeat = _parse_row(row, tz, last_ns_by_tag.get(_key(row)))
+    previous_ns = last_ns_by_tag.get(_key(row))
+    ts, tag, value, quality, was_repeat = _parse_row(row, target, previous_ns)
     _check_identifier(raw_by_tag, tag, row[1])
     last_ns_by_tag[_key(row)] = ts
     return ts, tag, value, quality, was_repeat
@@ -453,8 +499,9 @@ def _import_rows(
     #   values     float64[num_rows, num_tags]   NaN = no sample or invalid
     #   qualities  uint8[num_rows, num_tags]     quality flag per cell
     ts_ns, tag_ids, values, qualities, n_duplicates_dropped, dst_repeats = _pivot_rows(
-        rows, target.tz
+        rows, target
     )
+    values = _converted_values(values, tag_ids, units or {}, target)
 
     write_dataset(
         target.out_dir,
@@ -465,7 +512,7 @@ def _import_rows(
             # start_utc is the dataset's first instant in ISO-8601 form; derived from ts_ns
             # rather than from `rows` so it matches the stored timestamps exactly.
             start_utc=_start_iso(ts_ns),
-            tags_document=_tags_document(tag_ids, units or {}),
+            tags_document=_tags_document(tag_ids, units or {}, target),
         ),
     )
 
@@ -478,7 +525,26 @@ def _start_iso(ts_ns: np.ndarray) -> str:
     return datetime.fromtimestamp(int(ts_ns[0]) // NS_PER_S, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _tags_document(tag_ids: np.ndarray, units: Mapping[str, str]) -> dict[str, Any]:
+def _converted_values(
+    values: np.ndarray,
+    tag_ids: np.ndarray,
+    source_units: Mapping[str, str],
+    target: ImportTarget,
+) -> np.ndarray:
+    """Convert every column from its source unit to the unit the site declares."""
+    converted = values.copy()
+    for column, tag_id in enumerate(tag_ids):
+        source_unit = source_units.get(str(tag_id), "")
+        site_unit = target.settings_for(str(tag_id)).unit
+        conversion = _required_conversion(target, source_unit, site_unit)
+        if conversion is not None:
+            converted[:, column] = conversion.convert(values[:, column])
+    return converted
+
+
+def _tags_document(
+    tag_ids: np.ndarray, units: Mapping[str, str], target: ImportTarget
+) -> dict[str, Any]:
     """Build the tags.json document: one float tag per identifier, sourced from SQL.
 
     A "tag" is the simulator's name for a single signal it can read or write, roughly
@@ -486,27 +552,35 @@ def _tags_document(tag_ids: np.ndarray, units: Mapping[str, str]) -> dict[str, A
     Each identifier in `tag_ids` becomes exactly one tag whose SQL address is the
     identifier itself (this database exposes every signal by its own id).
 
-    Returns a dict with two keys: "schema_version" (the version of the tags.json
-    format this document follows) and "tags" (one dict per identifier, in the order
-    the identifiers appear in the input array).
+    The site's unit, engineering limits and sampling period win over what the query knows.
     """
     return {
         "schema_version": "0.1.0",
         "tags": [
-            {
-                "id": tag_id,
-                "name": tag_id,
-                "description": "",
-                "unit": units.get(str(tag_id), ""),
-                "type": "float",
-                "role": "other",
-                # The driver tells the reader how to fetch the value: "sql" means the tag is
-                # read by querying the database, and "address" is the key to look it up with.
-                "source": {"driver": "sql", "address": tag_id},
-            }
+            _sql_tag_entry(str(tag_id), units.get(str(tag_id), ""), target)
             for tag_id in tag_ids
         ],
     }
+
+
+def _sql_tag_entry(tag_id: str, source_unit: str, target: ImportTarget) -> dict[str, Any]:
+    """One SQL tag entry with the site's unit, engineering limits and sampling period."""
+    site = target.settings_for(tag_id)
+    entry: dict[str, Any] = {
+        "id": tag_id,
+        "name": tag_id,
+        "description": "",
+        "unit": site.unit or source_unit,
+        "type": "float",
+        "role": "other",
+        # The driver tells the reader how to fetch the value: "sql" means the tag is
+        # read by querying the database, and "address" is the key to look it up with.
+        "source": {"driver": "sql", "address": tag_id},
+    }
+    _add_site_ranges(entry, site)
+    if site.sample_period_s is not None:
+        entry["sample_period_s"] = site.sample_period_s
+    return entry
 
 
 def _make_report(

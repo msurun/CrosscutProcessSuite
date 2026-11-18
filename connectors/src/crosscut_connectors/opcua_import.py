@@ -25,8 +25,9 @@ from asyncua import Client, ua
 from crosscut_sim.core import BAD, GOOD, UNCERTAIN
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
-from crosscut_connectors.csv_import import _sanitize_tag_name
+from crosscut_connectors.csv_import import _add_site_ranges, _sanitize_tag_name
 from crosscut_connectors.import_target import ImportTarget
+from crosscut_connectors.site import TagSettings
 
 CONNECT_TIMEOUT_S = 5.0
 RECONNECT_ATTEMPTS = 3  # tries to restore a lost session before the round stays BAD
@@ -125,22 +126,28 @@ def import_opcua(
     # columns be matched to the tags.
     node_ids = [nodes[tag] for tag in nodes]
 
+    # The site file gives each tag its missing codes, unit, limits and sampling period.
+    tag_settings = [target.settings_for(tag_id) for tag_id in unique_tag_ids]
+
     # One event loop runs the whole acquisition: connect, then read every node
     # ``n_samples`` times, sleeping ``period_s`` between rounds.
     # ``ts_ns`` are UTC epoch timestamps in nanoseconds (int64), shape
     # (n_samples,); ``values`` is shape (n_tags, n_samples); ``qualities`` is
     # the same shape and holds local GOOD/BAD ints, not raw OPC UA StatusCodes.
-    ts_ns, values, qualities = asyncio.run(_collect_samples(endpoint, node_ids, plan))
+    ts_ns, values, qualities = asyncio.run(
+        _collect_samples(endpoint, node_ids, plan, tag_settings)
+    )
+    values, qualities = _with_missing_codes(values, qualities, tag_settings)
 
     # Persist everything in one call: samples, tag list and source description.
-    info = _dataset_info(target.dataset_id, endpoint, ts_ns, (unique_tag_ids, node_ids))
+    info = _dataset_info(target, endpoint, ts_ns, unique_tag_ids)
     write_dataset(target.out_dir, Samples(ts_ns, unique_tag_ids, values, qualities), info)
 
     return _make_report(values, len(unique_tag_ids))
 
 
 def _dataset_info(
-    dataset_id: str,
+    target: ImportTarget,
     endpoint: str,
     ts_ns: np.ndarray,
     tags_and_nodes: tuple[list[str], list[str]],
@@ -152,11 +159,27 @@ def _dataset_info(
     """
     tag_ids, node_ids = tags_and_nodes
     return DatasetInfo(
-        dataset_id=dataset_id,
+        dataset_id=target.dataset_id,
         source={"kind": "opcua", "endpoint": endpoint},
         start_utc=_start_iso(ts_ns),
-        tags_document=_tags_document(tag_ids, node_ids),
+        tags_document=_tags_document(tag_ids, node_ids, target),
     )
+
+
+def _with_missing_codes(
+    values: np.ndarray, qualities: np.ndarray, tag_settings: list[TagSettings]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Read values equal to a tag's missing code as NaN with BAD quality.
+
+    ``values`` and ``qualities`` have shape (n_tags, n_samples); column i belongs to
+    ``tag_settings[i]``. Arrays are copied so the caller's data is never mutated.
+    """
+    masked_values, masked_qualities = values.copy(), qualities.copy()
+    for column, settings in enumerate(tag_settings):
+        is_missing = np.isin(masked_values[column], settings.missing_codes)
+        masked_values[column] = np.where(is_missing, np.nan, masked_values[column])
+        masked_qualities[column] = np.where(is_missing, BAD, masked_qualities[column])
+    return masked_values, masked_qualities
 
 
 def _validate_arguments(nodes: Mapping[str, str], plan: PollPlan) -> None:
@@ -213,17 +236,21 @@ async def _collect_samples(
     endpoint: str,
     node_ids: list[str],
     plan: PollPlan,
+    tag_settings: list[TagSettings] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Connect, take ``plan.n_samples`` samples ``plan.period_s`` apart, then disconnect.
 
     Returns timestamps ``(n_samples,)`` in nanoseconds since the epoch, then values and
     qualities, each shaped ``(len(node_ids), n_samples)``. A timestamp is shared by
-    every node read in the same round, so all columns line up.
+    every node read in the same round, so all columns line up. ``tag_settings``, when
+    given, maps the raw OPC UA status codes each site tag declares.
     """
     client = Client(url=endpoint, timeout=CONNECT_TIMEOUT_S)
     try:
         await _connect(client)
-        ts_ns, rows, column_qualities = await _poll_rounds(client, node_ids, plan)
+        ts_ns, rows, column_qualities = await _poll_rounds(
+            client, node_ids, plan, tag_settings
+        )
     finally:
         # Close the session even if a read or a sleep raised.
         await _disconnect(client)
@@ -237,7 +264,10 @@ async def _collect_samples(
 
 
 async def _poll_rounds(
-    client: Client, node_ids: list[str], plan: PollPlan
+    client: Client,
+    node_ids: list[str],
+    plan: PollPlan,
+    tag_settings: list[TagSettings] | None = None,
 ) -> tuple[list[int], list[list[float]], list[list[int]]]:
     """Read every node ``plan.n_samples`` times; return timestamps, value rows, quality columns."""
     # Accumulate in lists first; numpy arrays would need resizing on every round.
@@ -252,7 +282,7 @@ async def _poll_rounds(
         await _sleep_before_next_sample(sample_index, plan.period_s)
         ts_ns.append(time.time_ns())
         # `sample` is a list of (value, quality) pairs, one per node in `node_ids`.
-        sample = await _sample_all(client, resolved)
+        sample = await _sample_all(client, resolved, tag_settings)
         if all(np.isnan(value) for value, _ in sample) and await _restore_session_if_lost(client):
             resolved = [await resolve_node_id(client, node_id) for node_id in node_ids]
         rows.append([value for value, _ in sample])
@@ -326,12 +356,20 @@ async def _sleep_before_next_sample(sample_index: int, period_s: float) -> None:
         await asyncio.sleep(period_s)
 
 
-async def _sample_all(client: Client, node_ids: list[str]) -> list[tuple[float, int]]:
+async def _sample_all(
+    client: Client, node_ids: list[str], tag_settings: list[TagSettings] | None = None
+) -> list[tuple[float, int]]:
     """Read every node once and return (value, quality) per node, in input order."""
-    return [await _read_one(client, node_id) for node_id in node_ids]
+    settings = tag_settings or [None] * len(node_ids)
+    return [
+        await _read_one(client, node_id, settings[index])
+        for index, node_id in enumerate(node_ids)
+    ]
 
 
-async def _read_one(client: Client, node_id: str) -> tuple[float, int]:
+async def _read_one(
+    client: Client, node_id: str, tag_settings: TagSettings | None = None
+) -> tuple[float, int]:
     """Read one node, returning a float value with GOOD, or NaN with BAD on any problem.
 
     This is the read half of an OPC UA poll. OPC UA servers report a per-read
@@ -356,8 +394,10 @@ async def _read_one(client: Client, node_id: str) -> tuple[float, int]:
     except (OSError, ua.UaError, ua.UaStatusCodeError):
         return float("nan"), BAD
     # The server answered, but the answer may carry a bad status code: the value
-    # is present yet known to be stale, uncertain or produced by a fault.
-    if not _is_status_good(data_value.StatusCode):
+    # is present yet known to be stale, uncertain or produced by a fault. A site
+    # file that declares the raw code decides its quality before the severity.
+    quality = _status_quality(data_value.StatusCode, tag_settings)
+    if quality == BAD:
         return float("nan"), BAD
     # The inner Value is the variant payload (an untyped union); it is None when
     # the server has no value to offer for this node.
@@ -375,7 +415,17 @@ async def _read_one(client: Client, node_id: str) -> tuple[float, int]:
     # later average or max, and an infinity is almost always a sensor fault.
     if not np.isfinite(value):
         return float("nan"), BAD
-    return value, GOOD
+    return value, quality
+
+
+def _status_quality(status_code: Any, tag_settings: TagSettings | None) -> int:
+    """Quality of one status code: the site mapping wins, then the OPC UA severity."""
+    if tag_settings is not None:
+        raw_code = getattr(status_code, "value", status_code)
+        mapped = tag_settings.quality.classify(raw_code)
+        if mapped is not None:
+            return mapped
+    return quality_from_status(status_code)
 
 
 def _is_status_good(status_code: Any) -> bool:
@@ -417,12 +467,15 @@ def _start_iso(ts_ns: np.ndarray) -> str:
     return datetime.fromtimestamp(int(ts_ns[0]) // NS_PER_S, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _tags_document(tag_ids: list[str], node_ids: list[str]) -> dict[str, Any]:
+def _tags_document(
+    tag_ids: list[str], node_ids: list[str], target: ImportTarget
+) -> dict[str, Any]:
     """Build the tags.json document: one float tag per identifier, sourced from OPC UA.
 
     A "tag" is one named measurement a data historian should collect. Here each tag is
     identified by its tag_id and read from an OPC UA "node", while node_ids are the OPC UA
-    NodeId strings that address those values on the server.
+    NodeId strings that address those values on the server. The site file supplies each
+    tag's unit, engineering limits and sampling period.
     """
     # The two lists are zipped elementwise, so tag_ids[0] is read from node_ids[0].
     # strict=True makes zip() raise ValueError when the lists differ in length: a mismatch
@@ -442,18 +495,28 @@ def _tags_document(tag_ids: list[str], node_ids: list[str]) -> dict[str, Any]:
     return {
         "schema_version": "0.1.0",
         "tags": [
-            {
-                "id": tag_id,
-                "name": tag_id,
-                "description": "",
-                "unit": "",
-                "type": "float",
-                "role": "other",
-                "source": {"driver": "opcua", "address": node_id},
-            }
+            _opcua_tag_entry(tag_id, node_id, target)
             for tag_id, node_id in zip(tag_ids, node_ids, strict=True)
         ],
     }
+
+
+def _opcua_tag_entry(tag_id: str, node_id: str, target: ImportTarget) -> dict[str, Any]:
+    """One OPC UA tag entry with the site's unit, engineering limits and sampling period."""
+    site = target.settings_for(tag_id)
+    entry: dict[str, Any] = {
+        "id": tag_id,
+        "name": tag_id,
+        "description": "",
+        "unit": site.unit,
+        "type": "float",
+        "role": "other",
+        "source": {"driver": "opcua", "address": node_id},
+    }
+    _add_site_ranges(entry, site)
+    if site.sample_period_s is not None:
+        entry["sample_period_s"] = site.sample_period_s
+    return entry
 
 
 def _make_report(values: np.ndarray, n_tags: int) -> OpcUaImportReport:
