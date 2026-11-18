@@ -205,3 +205,18 @@ def scan_alignment(lab: TagSeries, reference: TagSeries,
         raise AlignmentError("Cannot estimate delay from constant data; provide varied samples.")
     selected = _bootstrap_delays(features, values, delays, samples)
     return _scan_report(delays, correlations, selected, len(values))
+
+
+def window_means_at_delay(lab: TagSeries, reference: TagSeries, metadata: dict,
+                          delay_s: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reference composite means at one delay, one row per valid lab result.
+
+    Returns (process_time_s, lab_values, reference_means); the mean is NaN where the
+    reference does not cover the composite window. Same convention as `scan_alignment`:
+    a positive delay means the reference is recorded later than the lab's process time.
+    """
+    targets = align_target(lab, metadata)
+    clean_reference = align_target(reference, {})
+    means = _window_values(clean_reference, targets.t_s + delay_s,
+                           _number(metadata, "composite_window_s"))
+    return targets.t_s, targets.values, means
