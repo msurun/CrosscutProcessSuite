@@ -135,3 +135,41 @@ Before the gateway writes PID parameters to the DCS, it records an intent file o
 - **What an open intent means:** The gateway may have written some, all, or none of the intended parameter values to the DCS before interruption. To prevent conflicting or inconsistent writes, any subsequent parameter write to that loop is blocked with `reconcile_required`.
 - **How to resolve an open intent:** A qualified engineer or lead inspects the current parameter values directly at the DCS console and compares them with the intended values listed in the Tuning view or gateway status. Once the physical controller state is verified or corrected, the operator resolves the intent via the Tuning view (or `POST /tuning/intents/{key}/resolve`), which requires `gw.approve.tuning` authority plus password step-up confirmation. Resolving the intent removes the block and allows new parameter proposals; it never writes to the plant.
 - **Damaged intent file:** If `param_intents.json` is corrupted, truncated, or unreadable, the intent store enters the `damaged` state. A damaged intent file blocks all parameter writes across all loops to prevent writing over an unreadable intent. The gateway and API report this state rather than crashing. To recover, an administrator must check the DCS controller states first, and then either repair the JSON syntax or remove the damaged file.
+
+## PI Web API connector (Phase 5, issue #49)
+
+PI reads use `pi` (or `piwebapi`) and point WebIds as tag addresses. Example source:
+
+```json
+{
+  "id": "historian",
+  "driver": "pi",
+  "base_url": "https://pi.example.invalid/piwebapi",
+  "data_server": "SYNTHETIC",
+  "auth": {"kind": "bearer", "credential_env": "PI_READ_TOKEN"}
+}
+```
+
+Set the named environment variable in the service environment. Never put credentials in a
+site file, endpoint URL or options. Basic authentication uses the same `credential_env`
+field; its environment value is `username:password`. Use HTTPS. Kerberos requires an injected
+GET transport that implements Negotiate using the service identity; the stdlib transport
+fails clearly when Kerberos is selected rather than silently sending unauthenticated requests.
+
+`web_id` selects a data server directly; otherwise `data_server` is resolved through
+`GET /dataservers`. With neither selector, root browsing lists servers. Optional driver
+`options.name_filter` filters point browsing; `options.max_count` sets recorded page size
+(default 1000 events, minimum 2). Recorded requests continue at the last timestamp and discard
+the repeated boundary event. A stalled timestamp raises an error rather than losing data.
+A positive `period_s` requests interpolated history with an interval in seconds.
+
+History returns a mapping from point WebId to sample dictionaries (`timestamp_utc`, `value`,
+`quality`, `reason`). PI Good=false and system digital states are bad (2); Questionable or
+Substituted is uncertain (1), otherwise numeric values are good (0). System states preserve
+their name in history reasons and snapshot reasons, with a null numeric value. Snapshot
+communication failures return all requested values bad with `comm_ok=false` and a reason;
+explicit browse/history/live reads raise `SourceConnectionError`. Snapshot reasons can also
+identify bad values when communication succeeds. Writes remain exclusively in the gateway.
+
+Protocol reference: [AVEVA PI Web API](https://docs.aveva.com/bundle/pi-web-api-reference/page/help/getting-started.html).
+Real-server authentication and performance checks remain owner tasks; tests use synthetic fixtures.

@@ -1,0 +1,46 @@
+{
+  "Items": [
+    {
+      "WebId": "temperature",
+      "Value": {
+        "Timestamp": "2026-01-01T00:00:00Z",
+        "Value": 10,
+        "Good": true,
+        "Questionable": false,
+        "Substituted": false
+      }
+    },
+    {
+      "WebId": "pressure",
+      "Value": {
+        "Timestamp": "2026-01-01T00:00:00Z",
+        "Good": false,
+        "Value": {
+          "Name": "Bad Input",
+          "Value": 255,
+          "IsSystem": true
+        }
+      }
+    },
+    {
+      "WebId": "flow",
+      "Value": {
+        "Timestamp": "2026-01-01T00:00:00Z",
+        "Value": 10,
+        "Good": true,
+        "Questionable": true,
+        "Substituted": false
+      }
+    },
+    {
+      "WebId": "level",
+      "Value": {
+        "Timestamp": "2026-01-01T00:00:00Z",
+        "Value": 10,
+        "Good": true,
+        "Questionable": false,
+        "Substituted": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "Items": [
+    {
+      "Timestamp": "2026-01-01T00:00:02Z",
+      "Value": 12,
+      "Good": true,
+      "Questionable": false,
+      "Substituted": false
+    }
+  ]
+}

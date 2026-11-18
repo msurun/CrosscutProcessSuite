@@ -1,0 +1,18 @@
+{
+  "Items": [
+    {
+      "Timestamp": "2026-01-01T00:00:01Z",
+      "Value": 11,
+      "Good": true,
+      "Questionable": false,
+      "Substituted": false
+    },
+    {
+      "Timestamp": "2026-01-01T00:00:02Z",
+      "Value": 12,
+      "Good": true,
+      "Questionable": false,
+      "Substituted": false
+    }
+  ]
+}

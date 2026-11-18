@@ -1,0 +1,8 @@
+{
+  "WebId": "temperature",
+  "Name": "SYN.temperature",
+  "EngineeringUnits": "degC",
+  "Zero": -20,
+  "Span": 200,
+  "Descriptor": "Synthetic temperature"
+}

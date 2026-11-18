@@ -241,8 +241,22 @@
       "required": ["id", "driver"],
       "properties": {
         "id": {"$ref": "#/$defs/identifier"},
-        "driver": {"enum": ["opcua", "pi", "sql", "csv"]},
+        "driver": {"enum": ["opcua", "pi", "piwebapi", "sql", "csv"]},
         "endpoint": {"type": "string", "description": "Address of the server or folder; no passwords."},
+        "base_url": {"type": "string", "format": "uri", "description": "PI Web API root without credentials."},
+        "data_server": {"type": "string", "minLength": 1},
+        "web_id": {"type": "string", "minLength": 1, "description": "Data server WebId."},
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {"enum": ["basic", "kerberos", "bearer"]},
+            "credential_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+          },
+          "if": {"properties": {"kind": {"enum": ["basic", "bearer"]}}},
+          "then": {"required": ["credential_env"]}
+        },
         "options": {"type": "object", "description": "Driver options without credentials."}
       }
     },

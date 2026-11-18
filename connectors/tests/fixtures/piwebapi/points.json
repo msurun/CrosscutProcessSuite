@@ -1,0 +1,10 @@
+{
+  "Items": [
+    {
+      "WebId": "temperature",
+      "Name": "SYN.temperature",
+      "PointType": "Float32",
+      "EngineeringUnits": "degC"
+    }
+  ]
+}
