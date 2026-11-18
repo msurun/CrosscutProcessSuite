@@ -178,18 +178,36 @@ function ValveNumbers({ loop, t }: { loop: LoopSummary; t: Translate }) {
   );
 }
 
-/** The one action the worklist ranks first for this loop, plus the loops that cycle with it. */
-function NextAction({
-  loop,
-  t,
-  onOpenLoop,
-  onOpenValve,
-}: {
+/** "Shared period" line: the loops that cycle with this one, as buttons when they can be opened. */
+function SharedPeriod({ names, t, onOpenLoop }: { names: string[]; t: Translate; onOpenLoop?: (name: string) => void }) {
+  return (
+    <p>
+      {t("loops.sharedPeriod", { loops: "" })}
+      {names.map((name, index) => (
+        <span key={name}>
+          {index > 0 && ", "}
+          {onOpenLoop ? (
+            <button type="button" className="link-button" onClick={() => onOpenLoop(name)}>
+              {name}
+            </button>
+          ) : (
+            name
+          )}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+type NextActionProps = {
   loop: LoopSummary;
   t: Translate;
   onOpenLoop?: (name: string) => void;
   onOpenValve?: () => void;
-}) {
+};
+
+/** The one action the worklist ranks first for this loop, plus the loops that cycle with it. */
+function NextAction({ loop, t, onOpenLoop, onOpenValve }: NextActionProps) {
   const suggestsValveTest = loop.next_action.code === "valve_test" || loop.next_action.code === "test_cycle_cause";
   return (
     <section className="next-action" aria-labelledby="next-action-title">
@@ -202,23 +220,7 @@ function NextAction({
           </button>
         </p>
       )}
-      {loop.same_period_as.length > 0 && (
-        <p>
-          {t("loops.sharedPeriod", { loops: "" })}
-          {loop.same_period_as.map((name, index) => (
-            <span key={name}>
-              {index > 0 && ", "}
-              {onOpenLoop ? (
-                <button type="button" className="link-button" onClick={() => onOpenLoop(name)}>
-                  {name}
-                </button>
-              ) : (
-                name
-              )}
-            </span>
-          ))}
-        </p>
-      )}
+      {loop.same_period_as.length > 0 && <SharedPeriod names={loop.same_period_as} t={t} onOpenLoop={onOpenLoop} />}
     </section>
   );
 }
@@ -289,20 +291,16 @@ function NextSteps({ loop, t }: { loop: LoopSummary; t: Translate }) {
   );
 }
 
-/** The two trend panes, or the loading/error message replacing them. */
-function Trends({
-  state,
-  loop,
-  t,
-  window,
-  modeSeries,
-}: {
+type TrendsProps = {
   state: SeriesState;
   loop: LoopSummary;
   t: Translate;
   window: [number, number] | undefined;
   modeSeries: Series | null;
-}) {
+};
+
+/** The two trend panes, or the loading/error message replacing them. */
+function Trends({ state, loop, t, window, modeSeries }: TrendsProps) {
   if (state.status === "loading") {
     return <p className="status">{t("trends.loading")}</p>;
   }
@@ -314,11 +312,13 @@ function Trends({
   if (!picked.ok) {
     return <p className="status status-error">{t("trends.error", { reason: picked.reason })}</p>;
   }
+  return <TrendPanes picked={picked.series} loop={loop} t={t} window={window} modeSeries={modeSeries} />;
+}
 
-  const pvSp = picked.series.slice(0, 2);
-  const out = picked.series.slice(2);
-  const pvSpData = toUplotData(pvSp);
-  const outData = toUplotData(out);
+/** The PV/SP and OUT panes for already picked series (PV, SP, OUT in that order). */
+function TrendPanes({ picked, loop, t, window, modeSeries }: Omit<TrendsProps, "state"> & { picked: Series[] }) {
+  const pvSpData = toUplotData(picked.slice(0, 2));
+  const outData = toUplotData(picked.slice(2));
   // Both panes share the time axis, so one window gives the same range for both.
   const range = windowToRange(pvSpData[0], window);
   const mode = modeSeries === null ? undefined : alignModeToAxis(pvSpData[0], modeSeries);
@@ -351,36 +351,84 @@ function Trends({
   );
 }
 
+/** Loop name, status chip and health score. */
+function LoopHeader({ loop, t }: { loop: LoopSummary; t: Translate }) {
+  return (
+    <h2 className="loop-header">
+      {loop.name}
+      <StatusChip level={loop.status} label={t(`status.${loop.status}`)} />
+      {loop.health_percent === null ? t("health.notScored") : t("health.label", { percent: loop.health_percent })}
+    </h2>
+  );
+}
+
+/** Buttons that open the tuning, benefit and (when available) valve test views. */
+function ActionButtons({
+  t,
+  onOpenTuning,
+  onOpenBenefit,
+  onOpenValve,
+}: {
+  t: Translate;
+  onOpenTuning: () => void;
+  onOpenBenefit: () => void;
+  onOpenValve?: () => void;
+}) {
+  return (
+    <p>
+      <button type="button" className="filter-chip" onClick={onOpenTuning}>
+        {t("tuning.title")}
+      </button>{" "}
+      <button type="button" className="filter-chip" onClick={onOpenBenefit}>
+        {t("benefit.title")}
+      </button>
+      {onOpenValve && (
+        <>
+          {" "}
+          <button type="button" className="filter-chip" onClick={onOpenValve}>
+            {t("valve.open")}
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
+type DetailGridProps = NextActionProps & { onShow: (window: [number, number] | undefined) => void };
+
+/** Two-column body: next action, findings and steps beside the key numbers. */
+function DetailGrid({ loop, t, onOpenLoop, onOpenValve, onShow }: DetailGridProps) {
+  return (
+    <div className="loop-detail-grid">
+      <div>
+        <NextAction loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} />
+        <section>
+          <h3>{t("loops.why")}</h3>
+          <Findings loop={loop} t={t} onShow={onShow} />
+        </section>
+        <section>
+          <h3>{t("loops.nextSteps")}</h3>
+          <NextSteps loop={loop} t={t} />
+        </section>
+      </div>
+      <section>
+        <h3>{t("loops.keyNumbers")}</h3>
+        <KeyNumbers loop={loop} t={t} />
+        <h3 className="subheading">{t("loops.valveSection")}</h3>
+        <ValveNumbers loop={loop} t={t} />
+      </section>
+    </div>
+  );
+}
+
 /**
  * Full detail view of one control loop.
  *
  * Renders the findings, the key numbers and the PV/SP and OUT trends. The trends
  * load from the backend whenever the dataset or the loop changes.
  */
-export function LoopDetail({
-  datasetId,
-  loop,
-  t,
-  onBack,
-  onOpenTuning,
-  onOpenBenefit,
-  onOpenValve,
-  onOpenLoop,
-  onKnowledgeSaved,
-}: {
-  datasetId: string;
-  loop: LoopSummary;
-  t: Translate;
-  onBack: () => void;
-  onOpenTuning: () => void;
-  onOpenBenefit: () => void;
-  /** Opens the guided valve stroke test; the button is hidden when absent. */
-  onOpenValve?: () => void;
-  /** Opens another loop (used by the "same period" links); the links are plain text when absent. */
-  onOpenLoop?: (loopName: string) => void;
-  /** Called after the loop data was saved, so the caller can fetch the analysis again. */
-  onKnowledgeSaved?: () => void;
-}) {
+export function LoopDetail(props: LoopDetailProps) {
+  const { datasetId, loop, t, onBack, onOpenTuning, onOpenBenefit, onOpenValve, onOpenLoop, onKnowledgeSaved } = props;
   const seriesState = useLoopSeries(datasetId, loop);
   const modeSeries = useModeSeries(datasetId, loop);
   const [shownWindow, setShownWindow] = useState<[number, number] | undefined>(undefined);
@@ -390,54 +438,10 @@ export function LoopDetail({
       <button type="button" className="link-button" onClick={onBack}>
         ← {t("loops.back")}
       </button>
-
-      <h2 className="loop-header">
-        {loop.name}
-        <StatusChip level={loop.status} label={t(`status.${loop.status}`)} />
-        {loop.health_percent === null
-          ? t("health.notScored")
-          : t("health.label", { percent: loop.health_percent })}
-      </h2>
-
-      <p>
-        <button type="button" className="filter-chip" onClick={onOpenTuning}>
-          {t("tuning.title")}
-        </button>{" "}
-        <button type="button" className="filter-chip" onClick={onOpenBenefit}>
-          {t("benefit.title")}
-        </button>
-        {onOpenValve && (
-          <>
-            {" "}
-            <button type="button" className="filter-chip" onClick={onOpenValve}>
-              {t("valve.open")}
-            </button>
-          </>
-        )}
-      </p>
-
+      <LoopHeader loop={loop} t={t} />
+      <ActionButtons t={t} onOpenTuning={onOpenTuning} onOpenBenefit={onOpenBenefit} onOpenValve={onOpenValve} />
       <NotAssessedNotice loop={loop} t={t} />
-
-      <div className="loop-detail-grid">
-        <div>
-          <NextAction loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} />
-          <section>
-            <h3>{t("loops.why")}</h3>
-            <Findings loop={loop} t={t} onShow={setShownWindow} />
-          </section>
-          <section>
-            <h3>{t("loops.nextSteps")}</h3>
-            <NextSteps loop={loop} t={t} />
-          </section>
-        </div>
-        <section>
-          <h3>{t("loops.keyNumbers")}</h3>
-          <KeyNumbers loop={loop} t={t} />
-          <h3 className="subheading">{t("loops.valveSection")}</h3>
-          <ValveNumbers loop={loop} t={t} />
-        </section>
-      </div>
-
+      <DetailGrid loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} onShow={setShownWindow} />
       <KnowledgeEditor datasetId={datasetId} loop={loop} t={t} onSaved={onKnowledgeSaved ?? noop} />
 
       <section>
@@ -451,3 +455,18 @@ export function LoopDetail({
     </>
   );
 }
+
+type LoopDetailProps = {
+  datasetId: string;
+  loop: LoopSummary;
+  t: Translate;
+  onBack: () => void;
+  onOpenTuning: () => void;
+  onOpenBenefit: () => void;
+  /** Opens the guided valve stroke test; the button is hidden when absent. */
+  onOpenValve?: () => void;
+  /** Opens another loop (used by the "same period" links); the links are plain text when absent. */
+  onOpenLoop?: (loopName: string) => void;
+  /** Called after the loop data was saved, so the caller can fetch the analysis again. */
+  onKnowledgeSaved?: () => void;
+};
