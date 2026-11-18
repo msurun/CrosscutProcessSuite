@@ -127,8 +127,15 @@ def test_mode_change_aborts_and_returns_verified_pretest_output(rig: GatewayRig)
     assert start(gateway).accepted
     plant.mode = "AUTO"
     gateway.tick(2)
-    assert plant.writes == [51, 50]
+    assert plant.writes == [51]  # never write OUT outside MAN
     assert plant.mode == "AUTO"
+    assert gateway.status()["OUT"] == "reconcile_required"
+    assert len(gateway._outputs.store.load_open()) == 1
+    assert audit_reasons(gateway, "out_restore_held") == ["loop_not_man"]
+    plant.mode = "MAN"  # the operator hands the loop back with OUT unchanged
+    gateway.tick(3)
+    assert plant.writes == [51, 50]
+    assert gateway._outputs.store.load_open() == []
 
 
 def test_operator_cancel_aborts_and_returns_verified_pretest_output(rig: GatewayRig) -> None:
@@ -225,3 +232,128 @@ def test_abort_reason_and_verified_baseline_are_audited(rig: GatewayRig) -> None
                event["reason_code"] == "operator_cancel" for event in events)
     assert any(event["event"] == "out_write_verified" and
                event["read"] == "50.0" for event in events)
+
+
+def audit_reasons(gateway: WriteGateway, event: str) -> list[str]:
+    """Reason codes of every audit record with ``event``."""
+    return [record["reason_code"] for record in gateway.audit_records()
+            if record["event"] == event]
+
+
+@pytest.mark.parametrize("pv", [POLICY.pv_limits[0], POLICY.pv_limits[1]])
+def test_pv_exactly_on_a_boundary_trips(rig: GatewayRig, pv: float) -> None:
+    """A PV at either limit (not only beyond it) aborts the test."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    plant.pv = pv
+    gateway.tick(2)
+    assert gateway.status()["OUT"] == "restored"
+
+
+def test_pv_just_inside_the_boundaries_does_not_trip(rig: GatewayRig) -> None:
+    """A PV strictly inside the limits keeps the test running."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    plant.pv = POLICY.pv_limits[1] - 0.001
+    gateway.tick(2)
+    assert gateway.status()["OUT"] == "running"
+
+
+def test_mode_flip_between_check_and_write_prevents_the_step_write(
+    rig: GatewayRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mode is re-read right before the step write (TOCTOU); no OUT write happens."""
+    plant, gateway, _ = rig
+    calls = iter(["MAN", "MAN", "AUTO"])  # start check, in-bounds check, pre-write check
+    monkeypatch.setattr(plant, "loop_mode", lambda target: next(calls, "AUTO"))
+    result = start(gateway)
+    assert result.reason_code == "loop_not_man"
+    assert plant.writes == []
+    assert audit_reasons(gateway, "out_abort") == ["loop_not_man"]
+    assert gateway._outputs.store.load_open() == []
+
+
+def test_operator_change_of_out_is_never_overwritten_on_restore(rig: GatewayRig) -> None:
+    """If the operator moved OUT during the test, the DCS value wins and the intent stays open."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    plant.output = 63.0  # operator's own MAN move
+    gateway.cancel_output("OUT", actor_ctx=HUMAN)
+    assert plant.writes == [51]
+    assert plant.output == 63.0
+    assert gateway.status()["OUT"] == "reconcile_required"
+    assert audit_reasons(gateway, "out_restore_held") == ["operator_changed_out"]
+    assert len(gateway._outputs.store.load_open()) == 1
+
+
+def test_restart_recovery_does_not_restore_over_a_changed_out(rig: GatewayRig) -> None:
+    """After a restart the stored baseline is only applied when OUT is still the step value."""
+    plant, gateway, directory = rig
+    assert start(gateway).accepted
+    plant.output = 70.0
+    restarted = WriteGateway(plant, {}, "confirm", gateway_dir=directory, outputs={"OUT": POLICY})
+    restarted.cancel_output("OUT", actor_ctx=HUMAN)
+    assert plant.writes == [51] and plant.output == 70.0
+    assert restarted.status()["OUT"] == "reconcile_required"
+    assert len(restarted._outputs.store.load_open()) == 1
+
+
+def test_restart_recovery_refuses_a_restore_while_not_man(rig: GatewayRig) -> None:
+    """After a restart a restore never writes OUT to a loop that left MAN."""
+    plant, gateway, directory = rig
+    assert start(gateway).accepted
+    plant.mode = "AUTO"
+    restarted = WriteGateway(plant, {}, "confirm", gateway_dir=directory, outputs={"OUT": POLICY})
+    restarted.cancel_output("OUT", actor_ctx=HUMAN)
+    assert plant.writes == [51]
+    assert audit_reasons(restarted, "out_restore_held") == ["loop_not_man"]
+
+
+def test_mode_flip_between_restore_check_and_write_prevents_the_restore_write(
+    rig: GatewayRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The restore write re-reads the mode too (TOCTOU)."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    monkeypatch.setattr(plant, "loop_mode", lambda target: "AUTO")
+    gateway.cancel_output("OUT", actor_ctx=HUMAN)
+    assert plant.writes == [51]
+    assert len(gateway._outputs.store.load_open()) == 1
+
+
+def test_intent_closes_even_when_the_restored_audit_fails(
+    rig: GatewayRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A verified restore must not leave the loop blocked by a failing audit write."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    original = gateway._outputs._audit
+
+    def failing(event: str, target: str, reason: str) -> None:
+        if event == "restored":
+            raise OSError("audit disk full")
+        original(event, target, reason)
+
+    monkeypatch.setattr(gateway._outputs, "_audit", failing)
+    with pytest.raises(OSError):
+        gateway.cancel_output("OUT", actor_ctx=HUMAN)
+    assert plant.output == 50.0
+    assert gateway._outputs.store.load_open() == []
+    assert gateway.status()["OUT"] == "restored"
+
+
+def test_outputs_require_a_durable_gateway_directory() -> None:
+    """Without a durable directory the baseline would not survive a restart."""
+    with pytest.raises(ValueError, match="durable"):
+        WriteGateway(Plant(), {}, "confirm", outputs={"OUT": POLICY})
+
+
+def test_reload_cannot_remove_a_target_with_an_open_intent(rig: GatewayRig) -> None:
+    """Removing a stepped target from the policy while its intent is open is refused."""
+    plant, gateway, _ = rig
+    assert start(gateway).accepted
+    plant.mode = "AUTO"
+    gateway.tick(2)  # restore held, intent open, nothing active is running a step
+    gateway._mode = "off"
+    with pytest.raises(ValueError, match="reconcile_required|open intent"):
+        gateway.swap_policies({}, "supervised", outputs={})

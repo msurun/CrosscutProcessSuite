@@ -37,8 +37,10 @@ OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
     "gw.approve",
     "gw.reject",
     "gw.re_enable.hold_off",
+    "gw.output.cancel",
 }
 ENGINEER_PERMISSIONS = OPERATOR_PERMISSIONS | {
+    "gw.output.start",
     "gw.approve.tuning",
     "data.import",
     "config.edit",
@@ -77,6 +79,7 @@ SIMPLE_COMMANDS = (
     ("propose", {}, "gw.propose"),
     ("approve", {}, "gw.approve"),
     ("reject", {}, "gw.reject"),
+    ("cancel_output", {}, "gw.output.cancel"),
     ("kill", {}, "gw.kill"),
     ("kill_reset", {}, "gw.kill.reset"),
 )

@@ -10,10 +10,10 @@ suggest conservative initial settings of one output engineering unit and ten sec
 the site must supply every safety bound. Schemas contain no `default` keywords.
 
 The operator puts the loop in MAN at the DCS. Crosscut never changes the loop mode.
-Starting a test is an explicit human confirmation requiring `gw.approve.tuning`, through
+Starting a test is an explicit human confirmation requiring the new `gw.output.start` (engineer, lead), through
 `POST /gateway/output-tests` and the authenticated `start_output` gateway command.
 The global gateway mode must be exactly `confirm`; even `supervised` is refused.
-Service actors cannot start tests. Cancellation requires `gw.reject` and uses
+Service actors cannot start tests. Cancellation requires the new `gw.output.cancel` (operator, engineer, lead) and uses
 `POST /gateway/output-tests/{target}/cancel` and `cancel_output`.
 
 The baseline is live OUT, not a value supplied by the browser. The requested value is
@@ -41,3 +41,21 @@ MAN, site bounds and abort behaviour in English, Polish and Spanish. Unit tests 
 each trip, reconnect and restart. The pinned L5 OUT row exercises live RougherSim OUT
 read-back and restoration; browser tests cover confirmation/cancel and axe accessibility.
 Simulator evidence does not replace the owner's site commissioning procedure.
+
+## Safety rules added after the independent security review
+
+1. The loop mode is re-read immediately before every OUT write (step and restore). A loop
+   that is not MAN is never written; the abort reason is `loop_not_man`.
+2. A restore writes the baseline only if OUT still equals baseline plus amplitude within the
+   read-back tolerance and the loop is MAN. If OUT already equals the baseline nothing is
+   written. If the operator changed OUT, the DCS value wins: no write, intent stays open,
+   state `reconcile_required`, audit `out_restore_held` with `operator_changed_out`.
+3. Crash recovery uses the same rule; the stored intent never restores unconditionally.
+4. Configuring OUT targets requires a durable gateway directory; construction fails otherwise.
+5. A verified restore closes its intent even if the `restored` audit write fails (the failure
+   is logged critical and re-raised), so a full audit disk cannot block the loop.
+6. PV exactly at either trip limit trips the test (the code is strict inside the limits).
+7. A reload cannot remove a target that has an open intent.
+8. Held intents (`loop_not_man`, `operator_changed_out`) are retried each cycle and close
+   when the operator returns the loop to MAN with the stepped OUT, or restores the baseline.
+   There is no other way to clear them yet.

@@ -290,11 +290,11 @@ class FileGatewayClient:
         self, args: dict[str, Any], actor: ActorContext | None = None
     ) -> dict[str, Any]:
         """Send explicit confirmation through the authenticated gateway mailbox."""
-        return self._send_command("start_output", args, actor)
+        return dict(self._send_command("start_output", args, actor))
 
     def cancel_output(self, target: str, actor: ActorContext | None = None) -> dict[str, Any]:
         """Ask the gateway to abort and verify its saved OUT baseline."""
-        return self._send_command("cancel_output", {"target": target}, actor)
+        return dict(self._send_command("cancel_output", {"target": target}, actor))
 
     def propose_params(
         self, args: dict[str, Any], actor: ActorContext | None = None

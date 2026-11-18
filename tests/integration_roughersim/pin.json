@@ -4,20 +4,5 @@
     "rs.nominal.base.v1/100001": "7c1fc5b4f90f0f8d845256495d19983a250852934910f45220da98248913f5dd",
     "rs.step_test.fic203.v1/100003": "51839a611b23b13cab14dee6b01fffc765af1a801c3ab5820bce6330c3ddd41b"
   },
-  "tag": "rs-v0.13.1",
-  "acceptance_rows": {
-    "L5-OUT": {
-      "test": "test_l5_output_step.py",
-      "target": "FIC203.OUT",
-      "mode": "MAN",
-      "aborts": [
-        "operator_cancel",
-        "timeout",
-        "mode_change",
-        "pv_limit",
-        "comm_loss"
-      ],
-      "restore": "pre-test OUT verified by live read-back"
-    }
-  }
+  "tag": "rs-v0.13.1"
 }

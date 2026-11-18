@@ -6,6 +6,7 @@ The engine tick supplies time; this module never changes a controller's mode.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +23,11 @@ from crosscut_gateway.param_intent_store import (
 
 NANOSECONDS_PER_SECOND = 1_000_000_000  # ns per second
 COMM_ERRORS = (ConnectionError, OSError, TimeoutError)
+LOGGER = logging.getLogger(__name__)
+
+
+class LoopNotManError(Exception):
+    """The DCS loop was not in MAN immediately before an OUT write; nothing was written."""
 
 
 class OutputPlant(Protocol):
@@ -99,6 +105,9 @@ class OutputSteps:
     def configure(self, policies: dict[str, OutputPolicy]) -> None:
         """Replace site bounds only when no test or unresolved intent exists."""
         self.check_reload()
+        open_targets = {item.target for record in self.store.load_open() for item in record.items}
+        if (open_targets & set(self.policies)) - set(policies):
+            raise ValueError("OUT policy reload blocked: target with open intent removed")
         self.policies = dict(policies)
         unresolved = {tag: state for tag, state in self.states.items()
                       if state == "reconcile_required"}
@@ -129,7 +138,8 @@ class OutputSteps:
             return "killed"
         if not self.env.clock_started():
             return "clock_not_started"
-        if not self.env.actor() or normalize_actor(self.env.actor()).startswith("svc:"):
+        actor = self.env.actor()
+        if not actor or normalize_actor(actor).startswith("svc:"):
             return "out_requires_human_confirmation"
         if request.target not in self.policies:
             return "no_policy"
@@ -157,6 +167,9 @@ class OutputSteps:
             return self._refuse(request, reason)
         try:
             return self._start_live(request)
+        except LoopNotManError:
+            self.abort(request.target, "loop_not_man")
+            return self._refuse(request, "loop_not_man")
         except COMM_ERRORS:
             if request.target in self.active:
                 self.abort(request.target, "comm_loss")
@@ -204,7 +217,7 @@ class OutputSteps:
         })
 
     def _live_reason(self, target: str) -> str:
-        """Check live DCS mode and inclusive PV trip boundaries on every cycle."""
+        """Check live DCS mode; PV at or beyond either boundary trips, on every cycle."""
         if self.plant.loop_mode(target) != "MAN":
             return "loop_not_man"
         process_value = self.plant.read_pv(target)
@@ -214,7 +227,9 @@ class OutputSteps:
         return ""
 
     def _write_verified(self, target: str, value: float) -> None:
-        """Verify each write using independent live read-back, including the return."""
+        """Write only while the loop is MAN (re-read right now) and verify by read-back."""
+        if self.plant.loop_mode(target) != "MAN":
+            raise LoopNotManError(target)
         if not self.plant.write_out(target, value):
             raise ConnectionError("OUT write refused; check DCS")
         actual = self.plant.read_out(target)
@@ -264,17 +279,44 @@ class OutputSteps:
             self._restore(target, test)
 
     def _restore(self, target: str, test: ActiveTest) -> None:
-        """Close intent only after the baseline read-back and restoration audit pass."""
+        """Return OUT only if the DCS value is still ours; the DCS value otherwise wins."""
         try:
-            self._write_verified(target, test.baseline)
-            self._audit("restored", target, self.restore_reasons[target])
-            self.store.close_intent(test.request.test_id)
+            hold = self._restore_hold(target, test)
+            if hold:
+                self._audit("restore_held", target, hold)
+                return
         except COMM_ERRORS:
             self._audit("restore_failed", target, "reconcile_required:check_DCS")
             return
-        del self.active[target]
-        del self.restore_reasons[target]
-        self.states[target] = "restored"
+        self._finish_restore(target, test)
+
+    def _restore_hold(self, target: str, test: ActiveTest) -> str:
+        """Write the baseline when allowed; return a hold reason when the intent must stay."""
+        tolerance = self.policies[target].readback_tolerance
+        current = self.plant.read_out(target)
+        if finite_number(current) and abs(current - test.baseline) <= tolerance:
+            return ""  # already at the pre-test value: nothing to write
+        intended = test.baseline + test.request.amplitude
+        if not finite_number(current) or abs(current - intended) > tolerance:
+            return "operator_changed_out"
+        try:
+            self._write_verified(target, test.baseline)
+        except LoopNotManError:
+            return "loop_not_man"
+        return ""
+
+    def _finish_restore(self, target: str, test: ActiveTest) -> None:
+        """Close the intent even if the restoration audit fails, then re-raise that failure."""
+        try:
+            self._audit("restored", target, self.restore_reasons[target])
+        except Exception:
+            LOGGER.critical("OUT restored for %s but the audit write failed", target)
+            raise
+        finally:
+            self.store.close_intent(test.request.test_id)
+            del self.active[target]
+            del self.restore_reasons[target]
+            self.states[target] = "restored"
 
     def _recover_test(self, target: str) -> None:
         """Allow explicit restoration of a crash intent without accepting a new test."""

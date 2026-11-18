@@ -131,8 +131,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/runtime/jobs/{job_id}/stop"): "job.stop",
 
     # gateway (various)
-    ("POST", "/gateway/output-tests"): "gw.approve.tuning",
-    ("POST", "/gateway/output-tests/{target}/cancel"): "gw.reject",
+    ("POST", "/gateway/output-tests"): "gw.output.start",
+    ("POST", "/gateway/output-tests/{target}/cancel"): "gw.output.cancel",
     ("GET", "/gateway/status"): "gw.view",
     ("GET", "/gateway/pending"): "gw.view",
     ("GET", "/gateway/mv-availability"): "gw.view",

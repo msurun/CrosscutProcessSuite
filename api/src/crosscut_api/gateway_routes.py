@@ -240,14 +240,14 @@ class _GatewayEndpoints:
 
     def start_output(self, body: OutputConfirmation, actor: ActorDep) -> dict[str, Any]:
         """POST /gateway/output-tests: explicit human confirmation, no API plant writes."""
-        actor.require("gw.approve.tuning")
+        actor.require("gw.output.start")
         arguments = {**body.model_dump(), "test_id": uuid4().hex}
         with _gateway_errors(value_error_status=409):
             return self._gw().start_output(arguments, actor)
 
     def cancel_output(self, target: str, actor: ActorDep) -> dict[str, Any]:
         """POST /gateway/output-tests/{target}/cancel: operator abort."""
-        actor.require("gw.reject")
+        actor.require("gw.output.cancel")
         with _gateway_errors(value_error_status=409):
             return self._gw().cancel_output(target, actor)
 

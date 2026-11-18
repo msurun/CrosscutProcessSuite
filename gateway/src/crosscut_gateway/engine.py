@@ -36,6 +36,7 @@ from crosscut_gateway.interfaces import (
     WriteProposal,
 )
 from crosscut_gateway.out_steps import (
+    OutputPlant,
     OutputPolicy,
     OutputRequest,
     OutputSteps,
@@ -116,9 +117,11 @@ class WriteGateway:
         self._init_targets(policies)
         self._params = ParamManager(self._param_env(), params)
         self._replay_param_audits()
-        output_store = _output_intent_store(gateway_dir, store)
-        self._outputs = OutputSteps(self._param_env(), plant, output_store)
-        check_output_wiring(plant, outputs or {}, set(policies) | set(params.policies))
+        output_store = _output_intent_store(gateway_dir, store, bool(outputs))
+        self._outputs = OutputSteps(self._param_env(), cast(OutputPlant, plant), output_store)
+        check_output_wiring(
+            cast(OutputPlant, plant), outputs or {}, set(policies) | set(params.policies)
+        )
         self._outputs.configure(outputs or {})
 
         # Proposal idempotency and confirm-mode queue.
@@ -1030,7 +1033,9 @@ class WriteGateway:
             new_params = self._params.policies() if params is None else params
             check_param_wiring(self._plant, policies, new_params)
             next_outputs = self._outputs.policies if outputs is None else outputs
-            check_output_wiring(self._plant, next_outputs, set(policies) | set(new_params))
+            check_output_wiring(
+                cast(OutputPlant, self._plant), next_outputs, set(policies) | set(new_params)
+            )
             self._drop_removed_tags(set(self._policies) - set(policies))
             self._add_new_tags(set(policies) - set(self._policies))
             self._params.swap_policies(new_params)
@@ -1078,12 +1083,17 @@ def _resolve_intent_store(
 
 
 def _output_intent_store(
-    directory: Path | None, parameter_store: ParamIntentStore
+    directory: Path | None, parameter_store: ParamIntentStore, required: bool = False
 ) -> ParamIntentStore:
-    """Place OUT intents beside the existing durable parameter-intent store."""
-    parameter_path = getattr(parameter_store, "_path", None)
-    if directory is None and isinstance(parameter_path, Path):
-        directory = parameter_path.parent
+    """Place OUT intents beside the durable parameter-intent store.
+
+    Raises:
+        ValueError: When OUT tests are configured but no durable directory exists, because an
+            in-memory baseline would be lost on a restart while the plant is still stepped.
+    """
+    directory = directory or parameter_store.directory
+    if directory is None and required:
+        raise ValueError("OUT tests require a durable gateway directory for restore intents")
     return ParamIntentStore(directory / "out-intents.json" if directory is not None else None)
 
 
