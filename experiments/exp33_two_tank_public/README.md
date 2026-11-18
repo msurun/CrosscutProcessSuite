@@ -62,3 +62,9 @@ recorded below as a FINDING (results go to `results.md`).
 
 `python experiments/exp33_two_tank_public/run_exp33.py --data <folder containing the extracted Dataset/ folder>`;
 exit 0 and nothing written when the files are absent. Prints the markdown tables used in `results.md`.
+
+## Outcome (2026-11-18, details in `results.md`)
+
+D1, S1, M1, I2, A2 met; I1 not met (the Baseline runs are not one plant: k falls with valve opening); A1 not exercised
+(1 of 10 runs reached medium confidence). Findings: the settling KPI needs a band wider than the 8-bit level
+quantisation; history tuning is unconfident on this closed-loop staircase data; delay is floored at one sample.
