@@ -6,6 +6,7 @@ mapping documents, and syncing signals to control loops, anomaly detection, and 
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Annotated, Any
@@ -19,6 +20,7 @@ ANOMALY_DIR = "_anomaly"
 SOFTSENSOR_DIR = "_softsensor"
 DEFAULT_CONFIG_ID = "default"
 SCHEMA_VERSION = "1.0.0"
+GENERATED_SUFFIX = ".generated.sha256"
 
 
 class SuggestRequest(BaseModel):
@@ -81,9 +83,18 @@ class _CatalogueEndpoints:
             raise HTTPException(status_code=422, detail=problems)
 
         save_site(self.root, doc)
-        _sync_anomaly_config(self.root, request.signals)
-        _sync_softsensor_config(self.root, request.signals)
-        return {"status": "ok", "signals": doc["signals"], "loops": doc["loops"]}
+        module_configs = {
+            "anomaly": _sync_anomaly_config(self.root, request.signals),
+            "softsensor": _sync_softsensor_config(self.root, request.signals),
+        }
+        stale = sorted(k for k, v in module_configs.items() if v and v["status"] == "conflict")
+        return {
+            "status": "ok",
+            "signals": doc["signals"],
+            "loops": doc["loops"],
+            "module_configs": module_configs,
+            "stale_configs": stale,
+        }
 
     def _get_or_create_site_doc(self) -> dict[str, Any]:
         """Load the existing site document, or initialise a minimal valid skeleton."""
@@ -118,31 +129,75 @@ class _CatalogueEndpoints:
                     existing.add(tag_id)
 
 
-def _sync_anomaly_config(root: Path, signals: list[dict[str, Any]]) -> None:
-    """Create or update default anomaly detector config from input signals."""
+def _config_text(config: dict[str, Any]) -> str:
+    """The exact text a generated module config is stored as."""
+    return json.dumps(config, indent=2)
+
+
+def _digest(text: str) -> str:
+    """Short stable fingerprint of a config text."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _stamp_path(config_path: Path) -> Path:
+    """Sidecar file that records the fingerprint of the config the catalogue generated."""
+    return config_path.with_name(f"{config_path.stem}{GENERATED_SUFFIX}")
+
+
+def _sync_generated_config(config_path: Path, config: dict[str, Any]) -> dict[str, str]:
+    """Write a catalogue-generated module config without overwriting hand edits.
+
+    A sidecar stores the fingerprint of the text the catalogue last generated. A config whose
+    current text still matches the sidecar was never edited, so a remap updates it. Any other
+    existing config (edited by hand, or of unknown origin) is left untouched and reported as
+    ``conflict`` so the API can show it as stale.
+
+    Returns:
+        ``{"status": created | updated | unchanged | conflict, "path": <file name>}``.
+    """
+    text = _config_text(config)
+    stamp = _stamp_path(config_path)
+    status = _decide_status(config_path, stamp, text)
+    if status in ("created", "updated"):
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(text, encoding="utf-8")
+    if status != "conflict":
+        stamp.write_text(_digest(text), encoding="utf-8")
+    return {"status": status, "path": config_path.name}
+
+
+def _decide_status(config_path: Path, stamp: Path, new_text: str) -> str:
+    """What to do with the config file: created, updated, unchanged or conflict."""
+    if not config_path.exists():
+        return "created"
+    current = config_path.read_text(encoding="utf-8")
+    if current == new_text:
+        return "unchanged"
+    generated = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else None
+    return "updated" if generated == _digest(current) else "conflict"
+
+
+def _sync_anomaly_config(root: Path, signals: list[dict[str, Any]]) -> dict[str, str] | None:
+    """Create or update the default anomaly detector config from input signals."""
     input_tags = [
         sig["tag"]
         for sig in signals
         if sig.get("role") == "input" and sig.get("module") in (None, "anomaly")
     ]
     if len(input_tags) < 3:
-        return
-    folder = root / ANOMALY_DIR
-    folder.mkdir(parents=True, exist_ok=True)
-    config_path = folder / f"{DEFAULT_CONFIG_ID}.json"
-    if not config_path.exists():
-        cfg = {
-            "schema_version": SCHEMA_VERSION,
-            "id": DEFAULT_CONFIG_ID,
-            "description": "Default anomaly detector from catalogue mapping",
-            "tags": input_tags,
-            "mode": "advisory",
-        }
-        config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        return None
+    cfg = {
+        "schema_version": SCHEMA_VERSION,
+        "id": DEFAULT_CONFIG_ID,
+        "description": "Default anomaly detector from catalogue mapping",
+        "tags": input_tags,
+        "mode": "advisory",
+    }
+    return _sync_generated_config(root / ANOMALY_DIR / f"{DEFAULT_CONFIG_ID}.json", cfg)
 
 
-def _sync_softsensor_config(root: Path, signals: list[dict[str, Any]]) -> None:
-    """Create or update default soft sensor config from target and input signals."""
+def _sync_softsensor_config(root: Path, signals: list[dict[str, Any]]) -> dict[str, str] | None:
+    """Create or update the default soft sensor config from target and input signals."""
     input_tags = [
         sig["tag"]
         for sig in signals
@@ -153,20 +208,16 @@ def _sync_softsensor_config(root: Path, signals: list[dict[str, Any]]) -> None:
         None,
     )
     if not target_tag or not input_tags:
-        return
-    folder = root / SOFTSENSOR_DIR
-    folder.mkdir(parents=True, exist_ok=True)
-    config_path = folder / f"{DEFAULT_CONFIG_ID}.json"
-    if not config_path.exists():
-        cfg = {
-            "schema_version": SCHEMA_VERSION,
-            "id": DEFAULT_CONFIG_ID,
-            "description": "Default soft sensor from catalogue mapping",
-            "target_tag": target_tag,
-            "input_tags": input_tags,
-            "mode": "advisory",
-        }
-        config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        return None
+    cfg = {
+        "schema_version": SCHEMA_VERSION,
+        "id": DEFAULT_CONFIG_ID,
+        "description": "Default soft sensor from catalogue mapping",
+        "target_tag": target_tag,
+        "input_tags": input_tags,
+        "mode": "advisory",
+    }
+    return _sync_generated_config(root / SOFTSENSOR_DIR / f"{DEFAULT_CONFIG_ID}.json", cfg)
 
 
 def build_catalogue_router(root: Path, load_tags: Any | None = None) -> APIRouter:
