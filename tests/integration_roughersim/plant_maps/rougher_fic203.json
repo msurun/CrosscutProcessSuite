@@ -36,6 +36,20 @@
       "data_type": "Double",
       "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/FIC203/Mode",
       "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3}
+    },
+    "LIC301.GAIN": {
+      "param_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Gain",
+      "readback_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Gain",
+      "data_type": "Double",
+      "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Mode",
+      "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3}
+    },
+    "LIC301.TI": {
+      "param_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Ti",
+      "readback_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Ti",
+      "data_type": "Double",
+      "mode_node": "nsu=urn:roughersim:abb800xa;s=Application/Loop/LIC301/Mode",
+      "mode_values": {"MAN": 0, "AUTO": 1, "CAS": 2, "RSP": 3}
     }
   }
 }
