@@ -35,7 +35,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
-from crosscut_gateway.liveness import LivenessError, parse_beat
+from crosscut_gateway.liveness import LivenessError, parse_beat, sender_matches
 from crosscut_gateway.out_steps import OutputRequest
 from crosscut_gateway.param_intent_store import IntentStoreUnreadableError, ParamIntentRecord
 from crosscut_gateway.param_ledger import ParamLedger
@@ -451,6 +451,7 @@ class GatewayService:
     def _handle_propose(
         self, args: dict[str, Any], ctx: ActorContext | None
     ) -> dict[str, Any]:
+        self._bind_proposer(args["proposer"], ctx)
         proposal = WriteProposal(
             target_tag=args["target_tag"],
             value=float(args["value"]),
@@ -502,15 +503,33 @@ class GatewayService:
         return self._gateway.mv_availability(args["targets"])
 
     def _handle_liveness(
-        self, args: dict[str, Any], _ctx: ActorContext | None
+        self, args: dict[str, Any], ctx: ActorContext | None
     ) -> dict[str, Any]:
         """Take a runtime or controller liveness beat (ADR 015); it never writes to the DCS."""
         try:
             beat = parse_beat(args)
-            self._gateway.record_beat(beat, int(self._clock() * 1_000_000_000))
+            self._bind_sender(ctx, beat.kind, beat.sender)
+            self._gateway.record_beat(beat)
         except LivenessError as exc:
             raise CommandError(str(exc)) from exc
         return {}
+
+    def _bind_proposer(self, proposer: str, ctx: ActorContext | None) -> None:
+        """A ``controller:<id>`` proposer must be the authenticated ``svc:controller:<id>``."""
+        prefix = "controller:"
+        if not proposer.startswith(prefix):
+            return
+        try:
+            self._bind_sender(ctx, "controller", proposer[len(prefix) :])
+        except LivenessError as exc:
+            raise CommandError(str(exc)) from exc
+
+    def _bind_sender(self, ctx: ActorContext | None, kind: str, sender: str) -> None:
+        """Refuse (and audit) a beat or controller proposal whose id is not the actor's own."""
+        if ctx is None or sender_matches(ctx.actor, kind, sender):
+            return
+        self._gateway.record_event("liveness_refused", ctx, f"actor_mismatch:{kind}:{sender}")
+        raise LivenessError("liveness: sender does not match the authenticated actor")
 
     def _handle_kill(self, _args: dict[str, Any], ctx: ActorContext | None) -> dict[str, Any]:
         self._gateway.kill(actor_ctx=ctx)

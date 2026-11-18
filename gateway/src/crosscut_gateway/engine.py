@@ -9,7 +9,8 @@ and kill-switch behaviour.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -54,6 +55,7 @@ from crosscut_gateway.param_intent_store import ParamIntentRecord, ParamIntentSt
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
 
 Mode = Literal["off", "advisory", "dry_run", "confirm", "supervised"]
+MAX_RELEASE_FAILURES = 3
 
 _MODE_ORDER = MODE_ORDER
 
@@ -84,6 +86,7 @@ class WriteGateway:
         intent_store: ParamIntentStore | Path | None = None,
         gateway_dir: Path | None = None,
         outputs: dict[str, OutputPolicy] | None = None,
+        monotonic_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
         """Create the gateway.
 
@@ -97,6 +100,7 @@ class WriteGateway:
             intent_store: Optional intent store or path for durable write intents.
             gateway_dir: Optional root gateway directory holding state and intent records.
             outputs: Site bounds for distinct manual-output test targets (ADR 017).
+            monotonic_ns: Clock of liveness ages and expiry (never the wall clock).
 
         Raises:
             ValueError: When mode is not one of the defined Mode values, a parameter target
@@ -112,6 +116,7 @@ class WriteGateway:
         if params.policies and params.plant is None:
             raise ValueError("parameter targets need a plant that reads and writes parameters")
         self._plant = plant
+        self._mono = monotonic_ns
         self._policies = policies
         self._mode: Mode = mode
         self._mode_cap: Mode = "supervised"
@@ -506,7 +511,7 @@ class WriteGateway:
         """Return the open DCS alarms of parameter targets (tag -> ``check_dcs``)."""
         output_alarms = {tag: "check_dcs" for tag, state in self._outputs.states.items()
                          if state == "reconcile_required"}
-        return {**self._params.alarms(), **output_alarms}
+        return {**self._params.alarms(), **output_alarms, **self._release_alarms}
 
     def audit_records(self) -> list[dict[str, str]]:
         """Return all audit records in append order."""
@@ -671,8 +676,10 @@ class WriteGateway:
         self._hold_until_ns: dict[str, int] = {}
         self._holding: dict[str, bool] = {tag: False for tag in policies}
         self._holder: dict[str, str] = {}
-        self._lost_pending: set[str] = set()
-        self._release_failed: set[str] = set()
+        self._lost_pending: dict[str, int] = {}  # lost controller -> monotonic time of the loss
+        self._held_at: dict[str, int] = {}
+        self._release_failures: dict[str, int] = {}
+        self._release_alarms: dict[str, str] = {}
         self._liveness = LivenessMonitor()
 
     def _validate_tag(self, tag: str) -> None:
@@ -681,12 +688,17 @@ class WriteGateway:
             raise KeyError(f"unknown tag: {tag}")
 
     def _liveness_refusal(self, proposal: WriteProposal) -> str | None:
-        """``liveness_missing`` for a ``controller:<id>`` proposer without a fresh valid beat."""
+        """Refuse a ``controller:<id>`` proposer without a fresh beat or with a short watchdog."""
         prefix = "controller:"
         if not proposal.proposer.startswith(prefix):
             return None
         sender = proposal.proposer[len(prefix) :]
-        return None if self._liveness.is_fresh(sender, self._now_ns) else "liveness_missing"
+        if not self._liveness.is_fresh(sender, self._mono()):
+            return "liveness_missing"
+        cycle_s = self._liveness.cycle_s_of(sender) or 0.0
+        if watchdog_problems(cycle_s, [proposal.target_tag], self._policies):
+            return "liveness_watchdog_short"
+        return None
 
     def _refusal_reason(self, tag: str) -> str | None:
         """Return the first applicable refusal reason, or None when the write may proceed."""
@@ -786,55 +798,83 @@ class WriteGateway:
         self._holding[tag] = False
         return True
 
-    def record_beat(self, beat: Beat, now_ns: int) -> None:
+    def record_beat(self, beat: Beat) -> None:
         """Take a liveness beat of the runtime or a controller (ADR 015).
 
-        Raises LivenessError, and audits ``liveness_refused``, when a target the controller
-        writes has ``watchdog_s`` below two controller cycles. Writes nothing to the DCS.
+        Raises LivenessError, and audits ``liveness_refused``, when a tag the controller declares
+        or already holds has ``watchdog_s`` below two controller cycles. No DCS write.
         """
-        problems = watchdog_problems(beat, self._policies)
+        held = []
+        if beat.kind == KIND_CONTROLLER:
+            held = holders_of(self._holding, self._holder, beat.sender)
+        problems = watchdog_problems(beat.cycle_s, [*beat.targets, *held], self._policies)
         if problems:
             self._liveness.forget(beat.kind, beat.sender)
             self._log("liveness_refused", "", f"{beat.sender}: {problems[0]}")
             raise LivenessError(f"liveness: {problems[0]}")
-        self._liveness.record(beat, now_ns)
+        self._liveness.record(beat, self._mono())
 
     def liveness_view(self) -> dict[str, Any]:
         """Last beat age, state and lost flag of the runtime and each controller; read-only."""
-        return self._liveness.view(self._now_ns, self._controller_holds)
+        return self._liveness.view(self._mono(), self._controller_holds)
 
     def _controller_holds(self, controller_id: str) -> bool:
         """True when ``controller:<id>`` holds a target at this gateway."""
         return bool(holders_of(self._holding, self._holder, controller_id))
 
     def _check_liveness(self) -> None:
-        """Release what a lost controller (or runtime) holds; retry failed releases each tick."""
-        for kind, sender in self._liveness.newly_lost(self._now_ns, self._controller_holds):
+        """Audit new losses and release what a lost controller holds, retrying each tick.
+
+        A pending release is not cancelled by a later beat: the controller must propose again
+        once it is fresh, and only holds taken before the loss are released.
+        """
+        now = self._mono()
+        for kind, sender in self._liveness.newly_lost(now, self._controller_holds):
             if kind != KIND_CONTROLLER:
                 self._log("runtime_lost", "", "runtime")
                 continue
-            self._log("runtime_lost", "", f"controller:{sender}")
-            self._lost_pending.add(sender)
+            self._log("controller_lost", "", f"controller:{sender}")
+            self._lost_pending[sender] = now
         for sender in sorted(self._lost_pending):
             self._release_lost(sender)
 
     def _release_lost(self, sender: str) -> None:
-        """Release the targets of a lost controller; keep it pending while one release fails."""
-        tags = holders_of(self._holding, self._holder, sender)
-        if not tags or self._liveness.is_fresh(sender, self._now_ns):
-            self._lost_pending.discard(sender)
-            return
+        """Release the targets a lost controller held at its loss; done when none are left."""
+        lost_ns = self._lost_pending[sender]
+        tags = [
+            t
+            for t in holders_of(self._holding, self._holder, sender)
+            if self._held_at.get(t, 0) <= lost_ns
+        ]
+        if not tags:
+            del self._lost_pending[sender]
         for tag in tags:
-            try:
-                self._plant.release(tag)
-            except Exception:  # noqa: BLE001 - a failed release is audited once, then retried
-                if tag not in self._release_failed:
-                    self._release_failed.add(tag)
-                    self._log("release", tag, "release_failed")
-                continue
-            self._release_failed.discard(tag)
-            self._holding[tag] = False
-            self._log("release", tag, "runtime_lost")
+            self._release_one(tag, sender, lost_ns)
+
+    def _release_one(self, tag: str, sender: str, lost_ns: int) -> None:
+        """Release one target unless a fresh proposal took it since the loss (re-checked here)."""
+        mine = self._holder.get(tag) == f"controller:{sender}"
+        if not (self._holding.get(tag, False) and mine and self._held_at.get(tag, 0) <= lost_ns):
+            return
+        try:
+            self._plant.release(tag)
+        except Exception:  # noqa: BLE001 - a failed release is audited, then retried
+            self._release_failed(tag)
+            return
+        self._release_failures.pop(tag, None)
+        self._release_alarms.pop(tag, None)
+        self._holding[tag] = False
+        self._log("release", tag, "controller_lost")
+
+    def _release_failed(self, tag: str) -> None:
+        """Count a failed release: audit the first, alarm after ``MAX_RELEASE_FAILURES``."""
+        count = self._release_failures.get(tag, 0) + 1
+        self._release_failures[tag] = count
+        if count == 1:
+            self._log("release", tag, "release_failed")
+        if count == MAX_RELEASE_FAILURES:
+            self._release_alarms[tag] = "release_failed"
+            self._log("release_failed", tag, f"{count} consecutive failures")
 
     def _send_heartbeat_safely(self) -> None:
         """Send a heartbeat; any communication error stops all holding targets."""
@@ -978,6 +1018,7 @@ class WriteGateway:
         self._last_write_t_ns[tag] = proposal.t_ns
         self._holding[tag] = True
         self._holder[tag] = proposal.proposer
+        self._held_at[tag] = self._mono()
         self._seen_proposals[key] = WriteDecision(
             accepted=True,
             reason_code=decision.reason_code,

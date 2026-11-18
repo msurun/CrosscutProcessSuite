@@ -1081,7 +1081,7 @@ Engine gaps from the public data are collected in issue #102. Owner items: scipy
 
 ## 2026-11-18 - Runtime and controller liveness (#112, ADR 015)
 
-- Gateway: `liveness.py` (monitor, beat parsing, watchdog rule), `record_beat`/`liveness_view`/loss check in `engine.py`, signed mailbox command `liveness` (permission `gw.propose`, service role unchanged), `liveness` block in `state.json`. Loss releases the holder's targets through the existing release path and audits `runtime_lost`; an idle controller (not `on`, holds nothing) never triggers.
+- Gateway: `liveness.py` (monitor, beat parsing, watchdog rule), `record_beat`/`liveness_view`/loss check in `engine.py`, signed mailbox command `liveness` (permission `gw.propose`, service role unchanged), `liveness` block in `state.json`. Loss releases the holder's targets through the existing release path and audits `controller_lost`; an idle controller (not `on`, holds nothing) never triggers.
 - Runtime: `make_liveness_sender` (gateway_adapter), controller beat per cycle (`ControllerJob`), process beat every 10 s (`controllers/runtime_beat.py`); injected gateway ports (tests) send nothing.
 - Site schema: `controllers[].liveness_cycles` (integer >= 2, default 3). API: `gateway_liveness` and `liveness_cycles` in the controller list/detail. Frontend: `GatewayLivenessCell` with alarm text (en/pl/es).
 - Tests: `gateway/tests/test_liveness.py`, `runtime/tests/test_liveness_beat.py`, controller routes, ControllersPage unit tests.

@@ -103,3 +103,13 @@ def test_runtime_service_beats_while_hosting_a_controller(tmp_path: Path) -> Non
     service._runtime_beat = RuntimeBeat(tmp_path, Clock(), sent)  # noqa: SLF001
     service.run_once()
     assert any(b[0] == "runtime" for b in sent.beats)
+
+
+def test_runtime_beat_precedes_the_first_controller_beat(tmp_path: Path) -> None:
+    """The gateway needs both beats before a controller may write: the runtime beats first."""
+    sent = Sent()
+    service = _service(tmp_path, [])
+    service._runtime_beat = RuntimeBeat(tmp_path, Clock(), sent)  # noqa: SLF001
+    service._liveness_factory = sent  # noqa: SLF001
+    service.run_once()
+    assert [b[0] for b in sent.beats][:2] == ["runtime", "controller"]

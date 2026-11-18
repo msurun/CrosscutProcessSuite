@@ -9,16 +9,22 @@ monitor keeps the newest beat per sender; a sender is *expired* when no beat arr
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import math
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from crosscut_gateway.actor import normalize_actor
 from crosscut_gateway.interfaces import WritePolicy
 
 KIND_RUNTIME = "runtime"
 KIND_CONTROLLER = "controller"
 KINDS = (KIND_RUNTIME, KIND_CONTROLLER)
+MIN_CYCLE_S = 10.0  # ADR 015: controller cycle 10-300 s; the gateway clamps what a sender claims
+MAX_CYCLE_S = 300.0
 MIN_LIVENESS_CYCLES = 2
+MAX_LIVENESS_CYCLES = 10
+MAX_COUNT = 2**53
 MIN_WATCHDOG_FACTOR = 2.0
 ON_STATE = "on"
 NS_PER_S = 1_000_000_000
@@ -48,23 +54,39 @@ class Beat:
 
 
 def parse_beat(args: Mapping[str, Any]) -> Beat:
-    """Build a Beat from mailbox arguments; LivenessError when a field is out of range."""
-    kind, cycle_s = args["kind"], float(args["cycle_s"])
-    cycles = int(args["liveness_cycles"])
+    """Build a Beat from mailbox arguments; LivenessError when a field is out of range.
+
+    The gateway clamps what the sender claims: ``cycle_s`` 10-300 s, ``liveness_cycles`` 2-10,
+    so a sender can never stretch its own timeout beyond the ADR 015 limits.
+    """
+    kind = args["kind"]
     if kind not in KINDS:
         raise LivenessError(f"liveness: unknown kind {kind!r}")
-    if cycle_s <= 0 or cycles < MIN_LIVENESS_CYCLES:
-        raise LivenessError("liveness: cycle_s must be > 0 and liveness_cycles >= 2")
+    cycle_s, cycles = float(args["cycle_s"]), int(args["liveness_cycles"])
+    count = int(args["count"])
+    if not math.isfinite(cycle_s) or not MIN_CYCLE_S <= cycle_s <= MAX_CYCLE_S:
+        raise LivenessError(f"liveness: cycle_s must be {MIN_CYCLE_S}-{MAX_CYCLE_S} s")
+    if not MIN_LIVENESS_CYCLES <= cycles <= MAX_LIVENESS_CYCLES:
+        raise LivenessError("liveness: liveness_cycles must be 2-10")
+    if not 0 <= count <= MAX_COUNT:
+        raise LivenessError("liveness: count out of range")
     targets = tuple(args["targets"])
-    return Beat(kind, args["id"], str(args["state"]), int(args["count"]), cycle_s, cycles, targets)
+    return Beat(kind, args["id"], str(args["state"]), count, cycle_s, cycles, targets)
 
 
-def watchdog_problems(beat: Beat, policies: Mapping[str, WritePolicy]) -> list[str]:
-    """Targets of the beat whose ``watchdog_s`` is below two controller cycles."""
-    limit = MIN_WATCHDOG_FACTOR * beat.cycle_s
+def sender_matches(actor: str, kind: str, sender: str) -> bool:
+    """True when the authenticated actor is the service principal ``svc:<kind>:<sender>``."""
+    return normalize_actor(actor) == normalize_actor(f"svc:{kind}:{sender}")
+
+
+def watchdog_problems(
+    cycle_s: float, tags: Iterable[str], policies: Mapping[str, WritePolicy]
+) -> list[str]:
+    """Tags whose ``watchdog_s`` is below two controller cycles."""
+    limit = MIN_WATCHDOG_FACTOR * cycle_s
     return [
-        f"{tag}: watchdog_s {policies[tag].watchdog_s} < 2 x cycle_s {beat.cycle_s}"
-        for tag in beat.targets
+        f"{tag}: watchdog_s {policies[tag].watchdog_s} < 2 x cycle_s {cycle_s}"
+        for tag in sorted(set(tags))
         if tag in policies and policies[tag].watchdog_s < limit
     ]
 
@@ -119,11 +141,20 @@ class LivenessMonitor:
         self._entries.pop((kind, sender), None)
 
     def is_fresh(self, sender: str, now_ns: int) -> bool:
-        """True when the controller has a valid beat inside its window and the runtime is alive."""
+        """True when the controller AND the runtime process both have a valid beat in window.
+
+        After a gateway restart both are unknown, so writes wait for both beats.
+        """
         entry = self._entries.get((KIND_CONTROLLER, sender))
+        runtime = [e for (kind, _), e in self._entries.items() if kind == KIND_RUNTIME]
         if entry is None or self._expired(entry, now_ns):
             return False
-        return not self._runtime_expired(now_ns)
+        return bool(runtime) and not self._runtime_expired(now_ns)
+
+    def cycle_s_of(self, sender: str) -> float | None:
+        """The ``cycle_s`` of the controller's newest valid beat, or None."""
+        entry = self._entries.get((KIND_CONTROLLER, sender))
+        return None if entry is None else entry.beat.cycle_s
 
     def controller_ids(self) -> list[str]:
         """Controllers that have beaten at least once."""

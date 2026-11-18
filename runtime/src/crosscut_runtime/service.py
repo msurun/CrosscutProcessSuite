@@ -104,9 +104,9 @@ class RuntimeService:
             return
 
         self._sync_scheduler(jobs_doc.get("jobs", []), site)
+        self._runtime_beat.maybe_send(bool(self._controller_jobs))
         results = self._scheduler.tick(self._clock())
         self._flush_samples()
-        self._runtime_beat.maybe_send(bool(self._controller_jobs))
         self._update_state(jobs_doc.get("jobs", []), results)
 
     def stop(self) -> None:
