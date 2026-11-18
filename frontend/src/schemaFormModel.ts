@@ -86,7 +86,7 @@ export function fieldKind(schema: SchemaObject, rootSchema?: SchemaObject): Fiel
  */
 function scalarInputType(resolved: SchemaObject): "string" | "number" | "boolean" {
   const declared = resolved.type ?? (resolved.default !== undefined ? typeof resolved.default : undefined);
-  if (declared === "number") return "number";
+  if (declared === "number" || declared === "integer") return "number";
   if (declared === "boolean") return "boolean";
   return "string";
 }

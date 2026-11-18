@@ -33,6 +33,7 @@ export interface AnomaliesState {
   config: AnomalyConfig | null;
   error: string | null;
   loadExample: () => Promise<void>;
+  refreshConfig: () => void;
 }
 
 /** Loads the detector ids once; the first becomes selected; `loadExample` saves the bundled config. */
@@ -40,6 +41,7 @@ export function useAnomalies(t: Translate): AnomaliesState {
   const [ids, setIds] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, select] = useState("");
+  const [configRevision, setConfigRevision] = useState(0);
   const [config, setConfig] = useState<AnomalyConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,8 +61,9 @@ export function useAnomalies(t: Translate): AnomaliesState {
     void reload();
   }, [reload]);
 
+  useEffect(() => { setConfig(null); }, [selectedId]);
+
   useEffect(() => {
-    setConfig(null);
     if (selectedId === "") return;
     let isCancelled = false;
     fetchAnomalyConfig(selectedId)
@@ -69,7 +72,7 @@ export function useAnomalies(t: Translate): AnomaliesState {
     return () => {
       isCancelled = true;
     };
-  }, [selectedId, t]);
+  }, [selectedId, t, configRevision]);
 
   const loadExample = useCallback(async () => {
     try {
@@ -80,7 +83,8 @@ export function useAnomalies(t: Translate): AnomaliesState {
     }
   }, [reload, t]);
 
-  return { ids, loaded, selectedId, select, config, error, loadExample };
+  return { ids, loaded, selectedId, select, config, error, loadExample,
+    refreshConfig: () => setConfigRevision((revision) => revision + 1) };
 }
 
 /** The stored model of one detector: `null` while loading or when none is fitted; `set` after a fit. */

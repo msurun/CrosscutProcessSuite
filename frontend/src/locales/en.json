@@ -245,6 +245,7 @@
   "catalogue.wizard.title": "Mapping Wizard",
   "configEditor.loading": "Loading…",
   "configEditor.notStored": "Nothing is stored for this id yet; the form starts empty and saving creates the document.",
+  "configEditor.reload": "Reload",
   "configEditor.save": "Save",
   "configEditor.saveFailed": "Saving failed: {detail}",
   "configEditor.saved": "Saved.",

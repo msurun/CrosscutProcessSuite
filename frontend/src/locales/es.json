@@ -245,6 +245,7 @@
   "catalogue.wizard.title": "Asistente de asignación",
   "configEditor.loading": "Cargando…",
   "configEditor.notStored": "Aún no hay nada guardado para este identificador; el formulario empieza vacío y al guardar se crea el documento.",
+  "configEditor.reload": "Volver a cargar",
   "configEditor.save": "Guardar",
   "configEditor.saveFailed": "El guardado falló: {detail}",
   "configEditor.saved": "Guardado.",

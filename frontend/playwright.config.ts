@@ -38,7 +38,8 @@ export default defineConfig({
         { name: "tuning-live", testMatch: /tuning-live\.spec\.ts/, dependencies: ["gateway-live"] },
       ]
     : [
-        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live)\.spec\.ts/ },
-        { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["main"] },
+        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live|config-editor-modules)\.spec\.ts/ },
+        { name: "config-editors", testMatch: /config-editor-modules\.spec\.ts/, dependencies: ["main"] },
+        { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["config-editors"] },
       ],
 });

@@ -28,6 +28,7 @@ export interface SupervisorsState {
   config: SupervisorConfig | null;
   error: string | null;
   loadExample: () => Promise<void>;
+  refreshConfig: () => void;
 }
 
 /** Loads the supervisor ids once; the first becomes selected; `loadExample` saves the bundled config. */
@@ -35,6 +36,7 @@ export function useSupervisors(): SupervisorsState {
   const [ids, setIds] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, select] = useState("");
+  const [configRevision, setConfigRevision] = useState(0);
   const [config, setConfig] = useState<SupervisorConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,8 +56,9 @@ export function useSupervisors(): SupervisorsState {
     void reload();
   }, [reload]);
 
+  useEffect(() => { setConfig(null); }, [selectedId]);
+
   useEffect(() => {
-    setConfig(null);
     if (selectedId === "") return;
     let isCancelled = false;
     fetchSupervisorConfig(selectedId)
@@ -64,7 +67,7 @@ export function useSupervisors(): SupervisorsState {
     return () => {
       isCancelled = true;
     };
-  }, [selectedId]);
+  }, [selectedId, configRevision]);
 
   const loadExample = useCallback(async () => {
     try {
@@ -75,7 +78,8 @@ export function useSupervisors(): SupervisorsState {
     }
   }, [reload]);
 
-  return { ids, loaded, selectedId, select, config, error, loadExample };
+  return { ids, loaded, selectedId, select, config, error, loadExample,
+    refreshConfig: () => setConfigRevision((revision) => revision + 1) };
 }
 
 /** The log of one supervisor and a reload function; null while loading or when no supervisor is chosen. */
