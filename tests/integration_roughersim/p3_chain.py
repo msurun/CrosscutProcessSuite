@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import numpy as np
 from crosscut_loops.monitor import DELAY, OUT_RANGE, LoopReport, LoopSettings, analyze_loop
-from crosscut_loops.step_fit import StepFit, fit_step
+from crosscut_loops.step_fit import StepFit, effective_delay_s, fit_step
 from crosscut_loops.tuning_proposal import (
     ProposalRequest,
     Stamp,
@@ -110,12 +110,11 @@ def identify_model(
 
 
 def validate_identification(
-    fitted: StepFit, truth: dict[str, float], minimum_delay_s: float = 0.0
+    fitted: StepFit, truth: dict[str, float]
 ) -> FopdtModel:
     """Require 25% gain/tau accuracy and at most one sample of absolute delay error.
 
-    A positive ``minimum_delay_s`` is a documented test-side floor: the pinned fitter returns
-    theta=0 for LIC301 at 60 s sampling, and FopdtModel/SIMC refuse zero dead time.
+    Use the production half-sample effective delay for tuning while validating raw theta.
     """
     assert fitted.gain is not None and fitted.tau_s is not None
     tau_error = abs(fitted.tau_s.value / truth["tau_s"] - 1.0)
@@ -129,7 +128,7 @@ def validate_identification(
     assert tau_error <= RELATIVE_MODEL_TOLERANCE
     assert abs(fitted.gain.value / truth["gain"] - 1.0) <= RELATIVE_MODEL_TOLERANCE
     assert abs(fitted.theta_s.value - truth["theta_s"]) <= SAMPLE_INTERVAL_S
-    delay_s = max(fitted.theta_s.value, minimum_delay_s)
+    delay_s, _ = effective_delay_s(fitted, SAMPLE_INTERVAL_S)
     # A reverse-acting loop keeps a positive vendor Gain; the DCS inverts the action.
     return FopdtModel(abs(fitted.gain.value), fitted.tau_s.value, delay_s)
 

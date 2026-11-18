@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from crosscut_loops.step_fit import StepFitError, fit_step
+from crosscut_loops.step_fit import StepFitError, effective_delay_s, fit_step
 
 DT_S = 10.0
 N_SAMPLES = 300
@@ -230,3 +230,39 @@ def test_fitted_array_has_window_length_and_starts_near_baseline():
     result = fit_step(t, pv, out, PRE_SAMPLES, "fopdt")
     assert len(result.fitted) == len(t)
     assert abs(result.fitted[0] - OU_BASELINE) <= 1.0
+
+
+COARSE_DT_S = 60.0  # recorder sample interval in seconds
+
+
+def _coarse_fopdt_fit(tau_s: float):
+    """Fit a synthetic lag with a true 10 s delay at 60 s recorder resolution."""
+    times = np.arange(N_SAMPLES) * COARSE_DT_S
+    out = _out_with_step()
+    response = _fopdt_response(times, out, gain=0.8, tau_s=tau_s, theta_s=10.0)
+    return fit_step(times, OU_BASELINE + response, out, PRE_SAMPLES, "fopdt")
+
+
+def test_coarse_sampling_flags_zero_delay_and_preserves_the_raw_fit():
+    """An unresolved 10 s delay is reported as raw zero with a 30 s tuning floor."""
+    fitted = _coarse_fopdt_fit(tau_s=300.0)
+    assert fitted.theta_s.value == 0.0
+    assert "theta_below_resolution" in fitted.edges
+    assert effective_delay_s(fitted, COARSE_DT_S) == (30.0, True)
+    assert fitted.theta_s.value == 0.0
+
+
+def test_a_fast_loop_is_flagged_at_the_lowest_tau_grid_point():
+    """A 5 s lag cannot be resolved by a tau grid starting at 60 s."""
+    fitted = _coarse_fopdt_fit(tau_s=5.0)
+    assert fitted.tau_s is not None
+    assert fitted.tau_s.value == COARSE_DT_S
+    assert "tau_below_resolution" in fitted.edges
+
+
+def test_a_resolved_delay_is_returned_without_a_floor():
+    """Well-sampled dynamics retain their fitted delay and have no edge flags."""
+    times, pv, out = _fopdt_case()
+    fitted = fit_step(times, pv, out, PRE_SAMPLES, "fopdt")
+    assert fitted.edges == ()
+    assert effective_delay_s(fitted, DT_S) == (fitted.theta_s.value, False)

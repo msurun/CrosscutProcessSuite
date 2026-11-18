@@ -8,7 +8,7 @@ Numpy only; no scipy.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -16,6 +16,8 @@ from crosscut_loops.identification_ipdt import _effective_n, _f95_one
 
 # Minimum samples required for a fit; below this the window is too short to identify.
 MIN_SAMPLES = 30
+# Dimensionless fraction of the sample interval used for effective delay, in seconds.
+DELAY_FLOOR_FRACTION_OF_DT = 0.5
 # Minimum OUT range (in OUT units) required for a fit; below this there is no detectable move.
 MIN_OUT_PTP = 1e-9
 # Number of points in the coarse tau log grid.
@@ -62,7 +64,7 @@ class StepFit:
         n: Number of samples in the fit.
         bic: Bayesian information criterion.
         fitted: Model PV values on the window samples, same length as inputs.
-        edges: Subset of ('theta_at_edge', 'tau_at_edge') that apply.
+        edges: Applicable upper-grid and sampling-resolution flags; raw values are unchanged.
     """
 
     model: str
@@ -76,6 +78,28 @@ class StepFit:
     bic: float
     fitted: np.ndarray
     edges: tuple[str, ...]
+
+
+def effective_delay_s(fit: StepFit, dt_s: float) -> tuple[float, bool]:
+    """Return effective dead time in seconds and whether the sampling floor was applied.
+
+    The half-rule accounts for sample-and-hold measurement adding about dt/2 to
+    effective dead time (Skogestad 2003, J. Process Control 13, "Simple analytic
+    rules for model reduction and PID controller tuning"). Raw fits stay unchanged.
+    """
+    minimum_delay_s = dt_s * DELAY_FLOOR_FRACTION_OF_DT
+    return max(fit.theta_s.value, minimum_delay_s), fit.theta_s.value < minimum_delay_s
+
+
+def _flag_sampling_resolution(fit: StepFit, dt_s: float) -> StepFit:
+    """Attach resolution flags without altering fitted parameters or existing edges."""
+    edges = list(fit.edges)
+    if effective_delay_s(fit, dt_s)[1]:
+        edges.append("theta_below_resolution")
+    # The FOPDT tau search starts at dt seconds; hitting it cannot resolve a faster lag.
+    if fit.tau_s is not None and fit.tau_s.value == dt_s:
+        edges.append("tau_below_resolution")
+    return replace(fit, edges=tuple(edges))
 
 
 class StepFitError(ValueError):
@@ -434,5 +458,7 @@ def fit_step(
     """
     t, pv_clean, out_clean, pre_new = _validate_fit_inputs(t_s, pv, out, pre, model)
     if model == "fopdt":
-        return _fopdt_fit(t, pv_clean, out_clean, pre_new)
-    return _ipdt_fit(t, pv_clean, out_clean, pre_new)
+        fit = _fopdt_fit(t, pv_clean, out_clean, pre_new)
+    else:
+        fit = _ipdt_fit(t, pv_clean, out_clean, pre_new)
+    return _flag_sampling_resolution(fit, float(np.median(np.diff(t))))
