@@ -393,6 +393,8 @@ uwierzytelnianie w UI; model uprawnień; cel optymalizacji; konwencje producent�
 | `docs/design/plant-import.md` | import całego pliku historyzatora |
 | `docs/design/step-analyzer.md` | projekt widoku Steps |
 | `docs/design/fuzzy-studio.md` | projekt edytora Fuzzy Studio |
+| `docs/design/mpc-design-note.md` | nota projektowa MPC (Faza 7; zablokowana przez ścieżkę zapisu z ADR 011) |
+| `docs/design/dml-operating-range-note.md` | nota o rekomendacji zakresu pracy DML: założenia przyczynowe, prawda generatora i ograniczenia |
 | `docs/adr/001` | rdzeń C++, narzędzia offline w Pythonie (zaakceptowany) |
 | `docs/adr/006` | zasady pochodzenia / materiałów firm trzecich |
 | `docs/adr/008` | licencjonowanie AGPL-3.0-only |
