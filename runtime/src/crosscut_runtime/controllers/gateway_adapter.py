@@ -42,8 +42,8 @@ def make_gateway_ports(
     root: Path, controller_id: str, now_ns: Callable[[], int], allowed_targets: frozenset[str]
 ) -> tuple[Callable[[list[str]], Mapping[str, Mapping[str, Any]]], Callable[[Move], None]]:
     """``(availability, propose)`` callables for the host; the client is built on first use."""
-    from crosscut_api.auth.actor import ActorContext  # type: ignore[import-untyped]  # noqa: PLC0415
-    from crosscut_api.gateway_client import (  # type: ignore[import-untyped]  # noqa: PLC0415
+    from crosscut_api.auth.actor import ActorContext  # noqa: PLC0415
+    from crosscut_api.gateway_client import (  # noqa: PLC0415
         FileGatewayClient,
     )
 

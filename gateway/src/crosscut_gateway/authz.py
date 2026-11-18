@@ -157,7 +157,7 @@ def _read_and_parse_json(path: Path) -> dict[str, Any]:
 def _load_validator_class() -> Any:
     """Import jsonschema's Draft 2020-12 validator lazily, reporting a missing package."""
     try:
-        from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+        from jsonschema import Draft202012Validator
     except ImportError as error:
         message = f"jsonschema is required to validate roles files: {error}"
         raise AuthzError(message) from error

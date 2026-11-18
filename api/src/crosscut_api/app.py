@@ -530,9 +530,10 @@ def _step_record_loader(store: DatasetStore) -> Callable[[str, str], StepRecord]
             windows = json.loads(windows_file.read_text(encoding="utf-8"))
         tags = (loop.pv, loop.sp, loop.out, loop.mode)
         arrays = [np.asarray(values[tag], dtype=float) for tag in tags]
+        pv, sp, out, mode = arrays
         return StepRecord(
-            t_s, *arrays, origin_utc_s=float(ts_ns[0]) / NS_PER_SECOND, unit=loop.unit,
-            process_kind=loop.process_kind, test_windows=windows,
+            t_s, pv, sp, out, mode, origin_utc_s=float(ts_ns[0]) / NS_PER_SECOND,
+            unit=loop.unit, process_kind=loop.process_kind, test_windows=windows,
         )  # fmt: skip
 
     return load

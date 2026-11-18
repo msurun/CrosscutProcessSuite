@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from crosscut_api.auth.actor import ActorContext
 from crosscut_api.auth.signing import MIN_KEY_BYTES, Signer, make_signed_command
@@ -49,10 +49,11 @@ def _read_json_retry(path: Path, attempts: int = 20, delay_s: float = 0.01) -> d
     """Read and parse a JSON file, retrying while another process holds or rewrites it."""
     for _ in range(attempts - 1):
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            # json.loads returns Any; state.json is a JSON object.
+            return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
         except (PermissionError, FileNotFoundError, json.JSONDecodeError):
             time.sleep(delay_s)
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
 
 class GatewayConflict(ValueError):
@@ -178,7 +179,8 @@ class FileGatewayClient:
                 self._sleep(self._poll_s)
             else:
                 os.remove(outbox_path)
-                return response
+                # json.load returns Any; an outbox reply is a JSON object.
+                return cast(dict[str, Any], response)
         raise TimeoutError("gateway did not answer")
 
     def _send_command(self, cmd: str, args: dict[str, Any], actor: ActorContext | None) -> Any:
@@ -194,17 +196,18 @@ class FileGatewayClient:
     def mode(self) -> str:
         """Return the active operating mode of the gateway."""
         state = self._read_state()
-        return state["mode"]
+        # state.json is written by the gateway; these keys always hold the shown shape.
+        return cast(str, state["mode"])
 
     def status(self) -> dict[str, str]:
         """Return the state of each target tag."""
         state = self._read_state()
-        return state["targets"]
+        return cast(dict[str, str], state["targets"])
 
     def pending(self) -> list[dict[str, Any]]:
         """Return proposals awaiting confirmation, each with its stable key."""
         state = self._read_state()
-        return state["pending"]
+        return cast(list[dict[str, Any]], state["pending"])
 
     def audit(self, limit: int) -> dict[str, Any]:
         """Return the newest audit records and the chain integrity flag."""

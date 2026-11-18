@@ -33,7 +33,8 @@ def _find_source(root: Path, source_id: str) -> dict[str, Any]:
     if not site_path(root).exists():
         raise HTTPException(status_code=404, detail="Site catalogue does not exist")
     site_doc = load_site(root)
-    sources = site_doc.get("sources", [])
+    # The site schema stores sources as a list of objects.
+    sources: list[dict[str, Any]] = site_doc.get("sources", [])
     for src in sources:
         if src.get("id") == source_id:
             return src

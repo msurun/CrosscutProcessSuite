@@ -43,7 +43,7 @@ class StepRecord:
     origin_utc_s: float
     unit: str
     process_kind: str
-    test_windows: list[dict]
+    test_windows: list[dict[str, Any]]
 
 
 class LogbookEntry(BaseModel):
@@ -71,7 +71,7 @@ def _bad_value(error: ValueError) -> HTTPException:
 
 def _record_for(
     body: StepsBody, dataset_id: str, load: RecordLoader, load_driver: DriverLoader | None
-):
+) -> tuple[str, StepRecord]:
     """The record of a loop, or of a driver/output tag pair; 422 unless exactly one is given."""
     has_pair = body.driver is not None and body.output is not None
     if (body.loop is None) == (not has_pair) or (body.driver is None) != (body.output is None):
