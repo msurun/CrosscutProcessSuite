@@ -1078,3 +1078,10 @@ Still open for the owner: the three ADR 015 defaults (cycle 30 s, 3 overruns -> 
 
 Merged after the first handoff: #94 validation report generator (#40), #95 public benchmark loaders (#21, experiments/exp32), #97 L5 matrix executors (#53: P1, P2-e2e, P3 ready), #98 tuning intents API returns `targets` (#96, root cause of the intermittent tuning-live e2e), #99 owner decisions in PRODUCT.md (#80), #100 soft-sensor backup mode (#82), #106 step-test assistant OUT in MAN, confirm only (#81, ADR 017, other-vendor security review findings fixed, L5 row live), and public-data experiments exp33 two-tank (#86: 5 met, 1 missed, 1 not exercised), exp34 cascaded tanks (#83: K1-K4 met, no real step in the record), exp35 valve friction (#84: inconclusive), exp36 anomaly SKAB/3W (#87: every target missed - the anomaly engine does not transfer to real data yet), exp37 sealed worklist protocol (#85: not run, needs scipy).
 Engine gaps from the public data are collected in issue #102. Owner items: scipy install for #85, Kaggle files for #88, PRONTO run for #87, licences TEP/C-MAPSS, exp32 as a new experiment line, ADR 015 defaults.
+
+## 2026-11-18 - review fixes B (#116, #119, #121, #126)
+
+- #116 soft-sensor backup substitutes only rows the model marks `ok`; an invalid estimate gives quality "unavailable" (NaN output), never "substituted".
+- #126 a configured analyser flag with NaN/missing value is `analyser_flag_unknown` (invalid, backup); flag 0 stays OK.
+- #119 loop KPI `_pull` drops non-GOOD samples; PV/SP/OUT/MODE are paired by timestamp (PV stamps anchor, nearest other sample within half `period_s`, anchors with a missing channel are dropped) instead of by position.
+- #121 history store persists the connector quality code per sample (new nullable `quality` column, migrated on open); NULL/missing reads as UNCERTAIN (1), never GOOD. The anomaly scan reads quality from the store, so a restart keeps BAD as BAD. No source/provenance field exists on `LiveValue`, so none is stored.
