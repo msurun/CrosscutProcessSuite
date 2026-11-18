@@ -8,10 +8,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Translate } from "../findings";
-import { fetchTuningProposals, PAGE_SIZE, type TuningProposal } from "../tuningApi";
+import {
+  fetchOpenIntents,
+  fetchTuningProposals,
+  PAGE_SIZE,
+  type ParamIntentRecord,
+  type TuningProposal,
+} from "../tuningApi";
 import { errorText, expiryText, isOpen, loopsOf, matchesFilter, STATUS_GROUPS } from "../tuningRules";
 import { ProposalStatusChip, TuningProposalDetail } from "./TuningProposalDetail";
 import { TuningProposalActions } from "./TuningProposalActions";
+import { TuningReconcileCard } from "./TuningReconcileCard";
 
 /** How often the list is re-read, in milliseconds. */
 export const POLL_INTERVAL_MS = 5000;
@@ -327,16 +334,82 @@ function MoreControls({
   );
 }
 
+interface OpenIntentsState {
+  storeState: string;
+  intents: ParamIntentRecord[];
+  refresh: () => Promise<void>;
+}
+
+/** Polls open write intents and damaged store state while mounted. */
+export function useOpenIntents(): OpenIntentsState {
+  const [storeState, setStoreState] = useState<string>("healthy");
+  const [intents, setIntents] = useState<ParamIntentRecord[]>([]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const payload = await fetchOpenIntents();
+      setStoreState(payload.store_state);
+      setIntents(payload.intents);
+    } catch {
+      // Non-fatal to proposal listing
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  return { storeState, intents, refresh };
+}
+
+/** Section rendering open write intents and damaged store banner. */
+function ReconcileIntentsSection({
+  storeState,
+  intents,
+  onResolved,
+  t,
+}: {
+  storeState: string;
+  intents: ParamIntentRecord[];
+  onResolved: () => void;
+  t: Translate;
+}) {
+  if (storeState !== "damaged" && intents.length === 0) {
+    return null;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {storeState === "damaged" && (
+        <div className="notice notice-warning" data-testid="tuning-store-damaged" role="alert">
+          <h3>{t("tuning.reconcile.title")}</h3>
+          <p>{t("tuning.reconcile.damaged")}</p>
+        </div>
+      )}
+      {intents.map((intent) => (
+        <TuningReconcileCard key={intent.key} intent={intent} onResolved={onResolved} t={t} />
+      ))}
+    </div>
+  );
+}
+
 /** The proposals view. */
 export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
   const { list, error, hasMore, announce, refresh, loadMore, replace } = useTuningProposals(t);
+  const { storeState, intents, refresh: refreshIntents } = useOpenIntents();
   const [filter, setFilter] = useState<FilterState>({ loop: "", group: "" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const nowMs = useNow((list ?? []).some((p) => isOpen(p.status)));
   const rows = (list ?? []).filter((p) => matchesFilter(p, filter.loop, filter.group));
   const selected = (list ?? []).find((p) => p.id === selectedId) ?? null;
+  const activeIntents = filter.loop ? intents.filter((i) => i.loop_id === filter.loop) : intents;
   const onChanged = (updated: TuningProposal): void => {
     replace(updated);
+    void refresh();
+  };
+  const onIntentResolved = (): void => {
+    void refreshIntents();
     void refresh();
   };
 
@@ -346,6 +419,12 @@ export function TuningProposalsPage({ t }: TuningProposalsPageProps) {
         <h2>{t("tuning.proposals.title")}</h2>
         <p className="hint">{t("tuning.proposals.subtitle")}</p>
       </div>
+      <ReconcileIntentsSection
+        storeState={storeState}
+        intents={activeIntents}
+        onResolved={onIntentResolved}
+        t={t}
+      />
       <ListStatus list={list} shown={rows.length} error={error} t={t} />
       <Filters loops={loopsOf(list ?? [])} value={filter} onChange={setFilter} t={t} />
       {rows.length > 0 && (

@@ -127,3 +127,11 @@ Crosscut protects against unauthenticated browser users, operators exceeding the
 - a person who knows another person's password.
 
 Deployment mitigations: separate service accounts for API and gateway, a secrets directory readable only by them, an inbox writable only by the API account, and no interactive logins on service accounts. These settings are guardrails inside the software; the DCS remains the last line of defence.
+
+## 9. Parameter write intents and reconciliation
+
+Before the gateway writes PID parameters to the DCS, it records an intent file on disk (`<root>/_gateway/param_intents.json`). If the gateway process or host crashes mid-write, the intent stays open on restart.
+
+- **What an open intent means:** The gateway may have written some, all, or none of the intended parameter values to the DCS before interruption. To prevent conflicting or inconsistent writes, any subsequent parameter write to that loop is blocked with `reconcile_required`.
+- **How to resolve an open intent:** A qualified engineer or lead inspects the current parameter values directly at the DCS console and compares them with the intended values listed in the Tuning view or gateway status. Once the physical controller state is verified or corrected, the operator resolves the intent via the Tuning view (or `POST /tuning/intents/{key}/resolve`), which requires `gw.approve.tuning` authority plus password step-up confirmation. Resolving the intent removes the block and allows new parameter proposals; it never writes to the plant.
+- **Damaged intent file:** If `param_intents.json` is corrupted, truncated, or unreadable, the intent store enters the `damaged` state. A damaged intent file blocks all parameter writes across all loops to prevent writing over an unreadable intent. The gateway and API report this state rather than crashing. To recover, an administrator must check the DCS controller states first, and then either repair the JSON syntax or remove the damaged file.

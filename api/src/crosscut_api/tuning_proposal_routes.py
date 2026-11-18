@@ -172,6 +172,16 @@ class TuningGateway(Protocol):
     def reject(self, key: str, actor: ActorContext | None = None) -> None:
         """Discard a queued set."""
 
+    def list_open_intents(
+        self, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """List open write intents and store status."""
+
+    def resolve_intent(
+        self, key: str, actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Resolve an open parameter write intent."""
+
 
 @dataclass(frozen=True)
 class TuningDeps:
@@ -661,6 +671,55 @@ class _Endpoints:
             raise HTTPException(status_code=503, detail="gateway_state_unreadable")
         return self._refresh(record, snap)
 
+    def get_intents(
+        self, actor: ActorDep, loop_id: str | None = None
+    ) -> dict[str, Any]:
+        """GET /tuning/intents: List open write intents and store status."""
+        actor.require("gw.view")
+        gateway = self._gw()
+        with gateway_errors():
+            payload = gateway.list_open_intents(actor=actor)
+        if loop_id is not None:
+            raw = payload.get("intents", [])
+            filtered = [i for i in raw if isinstance(i, dict) and i.get("loop_id") == loop_id]
+            return {**payload, "intents": filtered}
+        return payload
+
+    def post_resolve_intent(self, key: str, actor: ActorDep) -> dict[str, Any]:
+        """POST /tuning/intents/{key}/resolve: Settle an open write intent."""
+        # In plain words:
+        # After an interrupted parameter write or gateway crash, the intent stays open.
+        # Resolving verifies actual plant values, emits audit records, and marks the intent
+        # closed without writing anything to the plant. Requires gw.approve.tuning and step-up.
+        actor.require("gw.approve.tuning")
+        actor.require_stepup()
+        gateway = self._gw()
+        self._audit_resolve_intent(key, actor, "resolving")
+        with gateway_errors():
+            decision = gateway.resolve_intent(key, actor=actor)
+        if not decision.get("accepted"):
+            code = str(decision.get("reason_code", "refused"))
+            self._audit_resolve_intent(key, actor, f"refused:{code}")
+            raise HTTPException(status_code=409, detail=code)
+        self._audit_resolve_intent(key, actor, "resolved")
+        return {"ok": True, "key": key, "reason_code": "resolved", "decision": decision}
+
+    def _audit_resolve_intent(
+        self, key: str, actor: ActorContext, outcome: str
+    ) -> None:
+        """Write an intent resolution event to the API auth audit log."""
+        audit = AuthAudit(auth_dir(self.deps.sources.root) / AUDIT_FILE, self.deps.clock)
+        try:
+            audit.append(
+                "intent_resolved",
+                actor=actor.actor,
+                gateway_key=key,
+                outcome=outcome,
+                source_ip=actor.source_ip,
+            )
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=503, detail="audit_unavailable") from error
+
 
 def build_tuning_proposal_router(deps: TuningDeps) -> APIRouter:
     """Construct the router of the tuning proposal routes."""
@@ -676,5 +735,9 @@ def build_tuning_proposal_router(deps: TuningDeps) -> APIRouter:
     router.add_api_route(f"{action}/escape", endpoints.post_escape, methods=["POST"])
     router.add_api_route(
         f"{action}/rollback", endpoints.post_rollback, methods=["POST"], status_code=201
+    )
+    router.add_api_route("/tuning/intents", endpoints.get_intents, methods=["GET"])
+    router.add_api_route(
+        "/tuning/intents/{key}/resolve", endpoints.post_resolve_intent, methods=["POST"]
     )
     return router

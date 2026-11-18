@@ -1707,5 +1707,17 @@
   "controllers.reason.anomaly": "anomaly flagged",
   "controllers.reason.operator_off": "switched off by the operator",
   "controllers.reason.advisory": "advice only",
-  "controllers.reason.readiness_unknown": "readiness unknown, not blocking"
+  "controllers.reason.readiness_unknown": "readiness unknown, not blocking",
+  "tuning.err.reconcile_required": "Loop has an unresolved parameter write intent; reconcile before applying new tuning.",
+  "tuning.reconcile.title": "Reconciliation Required",
+  "tuning.reconcile.subtitle": "This loop has an open parameter write intent. Verify values against the DCS and resolve the intent before applying new tuning.",
+  "tuning.reconcile.target": "Target",
+  "tuning.reconcile.intended": "Intended",
+  "tuning.reconcile.current": "Current DCS",
+  "tuning.reconcile.resolve": "Resolve Intent",
+  "tuning.reconcile.resolving": "Resolving...",
+  "tuning.reconcile.damaged": "The parameter intent store is damaged. All parameter writes are blocked until an administrator repairs or removes it after checking the DCS.",
+  "tuning.reconcile.success": "Parameter intent resolved successfully.",
+  "tuning.reconcile.unknown": "unknown",
+  "gateway.error.useTuning": "This is a PID parameter set: approve or reject it in the Tuning view, where the whole diff is shown."
 }

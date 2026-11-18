@@ -141,7 +141,7 @@ def _policy_denial(
         proposer = gateway.pending_proposer(args.get("key"))
         if proposer is not None and normalize_actor(proposer) == normalize_actor(auth["actor"]):
             return "self_approval"
-    if cmd == "policy_pin" and auth.get("stepup") is not True:
+    if cmd in ("policy_pin", "resolve_intent") and auth.get("stepup") is not True:
         return "stepup_required"
     return None
 
