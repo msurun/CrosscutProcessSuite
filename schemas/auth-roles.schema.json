@@ -58,6 +58,8 @@
         "job.manage",
         "gw.approve",
         "gw.approve.tuning",
+        "gw.output.start",
+        "gw.output.cancel",
         "gw.reject",
         "gw.re_enable.hold_off",
         "gw.re_enable.stopped",

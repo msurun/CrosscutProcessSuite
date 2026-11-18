@@ -35,6 +35,7 @@ from crosscut_gateway.authz import roles_or_default
 from crosscut_gateway.engine import WriteGateway
 from crosscut_gateway.interfaces import WriteProposal
 from crosscut_gateway.keyfile import default_key_path, key_acl_status, read_key
+from crosscut_gateway.out_steps import OutputRequest
 from crosscut_gateway.param_intent_store import IntentStoreUnreadableError, ParamIntentRecord
 from crosscut_gateway.param_ledger import ParamLedger
 from crosscut_gateway.policy import PolicyError, proposal_key
@@ -69,6 +70,9 @@ VALIDATION_SCHEMA: dict[str, list[tuple[str, str]]] = {
         ("t_ns", "int"),
         ("reason", "text"),
     ],
+    "start_output": [("test_id", "str"), ("target", "str"),
+                     ("amplitude", "number"), ("duration_s", "number")],
+    "cancel_output": [("target", "str")],
     "propose_params": [],  # list-valued arguments: checked by service_params
     "approve": [("key", "str")],
     "reject": [("key", "str")],
@@ -416,6 +420,8 @@ class GatewayService:
         """Return the table mapping each gateway command name to its handler."""
         return {
             "propose": self._handle_propose,
+            "start_output": self._handle_start_output,
+            "cancel_output": self._handle_cancel_output,
             "propose_params": self._handle_propose_params,
             "approve": self._handle_approve,
             "reject": self._handle_reject,
@@ -442,6 +448,23 @@ class GatewayService:
             reason=args["reason"],
         )
         return asdict(self._gateway.propose(proposal, actor_ctx=ctx))
+
+    def _handle_start_output(
+        self, args: dict[str, Any], ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Execute a signed, explicit human confirmation of one bounded test."""
+        self._handle_kill_file()
+        request = OutputRequest(
+            args["test_id"], args["target"], args["amplitude"], args["duration_s"]
+        )
+        return asdict(self._gateway.start_output(request, actor_ctx=ctx))
+
+    def _handle_cancel_output(
+        self, args: dict[str, Any], ctx: ActorContext | None
+    ) -> dict[str, Any]:
+        """Return pre-test OUT on an authenticated operator cancellation."""
+        self._gateway.cancel_output(args["target"], actor_ctx=ctx)
+        return {"reason_code": self._gateway.status()[args["target"]]}
 
     def _handle_propose_params(
         self, args: dict[str, Any], ctx: ActorContext | None

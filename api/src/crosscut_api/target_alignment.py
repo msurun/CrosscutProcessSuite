@@ -22,9 +22,11 @@ def catalogue_metadata(root: Path, tag: str) -> dict[str, Any]:
     except SiteError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     metadata = {"missing_codes": document.get("import", {}).get("missing_codes", [])}
-    tag_entry = next((entry for entry in document.get("tags", []) if entry["id"] == tag), {})
+    tag_entry: dict[str, Any] = next(
+        (entry for entry in document.get("tags", []) if entry["id"] == tag), {}
+    )
     metadata.update({key: tag_entry[key] for key in ("missing_codes",) if key in tag_entry})
-    lab_entry = next((entry for entry in document.get("labs", [])
+    lab_entry: dict[str, Any] = next((entry for entry in document.get("labs", [])
                       if entry.get("tag", entry["id"]) == tag), {})
     return {**metadata, **lab_entry}
 

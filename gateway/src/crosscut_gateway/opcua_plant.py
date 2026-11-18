@@ -316,6 +316,36 @@ class OpcUaPlant:
         self._heartbeat_counter = counter
         self._last_heartbeat_s = time.monotonic()
 
+    def _output_target(self, tag: str) -> Mapping[str, Any]:
+        """Require an explicitly mapped output target, distinct from SP and PID."""
+        target = self._target(tag)
+        if target.get("kind") != "out_step":
+            raise ValueError(f"{tag}: expected an out_step plant-map target")
+        return target
+
+    def output_tags(self) -> frozenset[str]:
+        """Return explicitly mapped out_step tags without network access."""
+        return frozenset(tag for tag, target in self._plant_map["targets"].items()
+                         if target.get("kind") == "out_step")
+
+    def read_out(self, tag: str) -> float:
+        """Read good-quality OUT from its independent read-back mapping."""
+        target = self._output_target(tag)
+        return self._call(self._read_param_async(target.get("readback_node", target["out_node"])))
+
+    def read_pv(self, tag: str) -> float:
+        """Read good-quality live PV for the output test's trip boundaries."""
+        return self._call(self._read_param_async(self._output_target(tag)["pv_node"]))
+
+    def write_out(self, tag: str, value: float) -> bool:
+        """Write only OUT, using the configured numeric type; never change mode."""
+        target = self._output_target(tag)
+        variant_type = PARAM_VARIANT_TYPES[target["data_type"]]
+        number = _param_number(value, variant_type)
+        if number is None:
+            return False
+        return self._call(self._write_param_async(target["out_node"], number, variant_type))
+
     def read_param(self, tag: str) -> float:
         """Current read-back value of the pid_param target ``tag``, as a float.
 

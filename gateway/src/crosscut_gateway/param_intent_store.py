@@ -108,6 +108,11 @@ class ParamIntentStore:
         self._path: Path | None = self._resolve_path(location)
         self._in_memory: dict[str, ParamIntentRecord] = {}
 
+    @property
+    def directory(self) -> Path | None:
+        """Directory holding the durable intent file, or None for an in-memory store."""
+        return self._path.parent if self._path is not None else None
+
     @staticmethod
     def _resolve_path(location: Path | None) -> Path | None:
         """Resolve a directory or file path into the canonical target JSON file."""

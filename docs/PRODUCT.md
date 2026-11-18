@@ -132,7 +132,7 @@ Every finding gets an outcome from the user (fixed, not a problem, deferred, mai
 5. **Check.** After a settle period the KPIs are compared before and after, per operating mode, over a window set in the template.
 6. **Rollback.** Previous parameters restored in one click, and proposed automatically if the KPIs worsen.
 
-**Valves.** Guided stroke test (OUT proposals in manual are permitted only in `confirm`, decision 2026-11-17; separate issue), stiction quantification, valve-health trend shared with the valve asset template (4.3).
+**Valves.** Guided stroke test, bounded OUT tests in MAN through the Write Gateway (ADR 017, owner decision 2026-11-17), stiction quantification, valve-health trend shared with the valve asset template (4.3).
 
 **Benefit and reports.** Benefit estimate: variance reduction → possible setpoint move toward a limit → value per year, using the value per unit of PV entered by the user (per-site configuration, decision 2026-11-17). Shift and weekly loop report: what changed, what was fixed, what still waits.
 
@@ -336,7 +336,7 @@ ADR 012 ("Writes are a product capability", `docs/adr/012-writes-are-a-product-c
 - Only the Write Gateway writes. It is a separate process. Analysis packages never import write code and never hold credentials. CI guard tests now mean "only the gateway writes", not "nothing writes".
 - Write policy is data (schema `write-policy`). Limits, maximum step, maximum rate, minimum interval, allowed loop modes, hold-off time, watchdog period, read-back tolerance. No override flag.
 - Read-back verification of every write. Watchdog the control system can monitor. Operator priority: any manual change disables writing to that target for the hold-off time. Kill switch honoured within one gateway cycle, not bypassable by configuration. Hash-chained audit of every proposal, decision and write.
-- Allowed targets: setpoints of loops in cascade or remote-setpoint mode; PID tuning parameters (`confirm` only); output tags of virtual sensors. Controller output is excluded except for the separately scoped manual step-test assistant (`confirm` only, decision 2026-11-17); the mode or setpoint-source node only for the setpoint handover of ADR 016 (release by default, take-remote only when a site enables it). Owner decision 2026-11-17 permits a step-test assistant to propose OUT writes in manual, `confirm` only; implementation is a separate issue (section 10).
+- Allowed targets: setpoints of loops in cascade or remote-setpoint mode; PID tuning parameters (`confirm` only); output tags of virtual sensors; bounded OUT tests in MAN (`confirm` only, ADR 017). OUT tests require site amplitude/duration/PV limits and verified return to pre-test OUT on PV trip, timeout, communication loss, mode change or cancellation. Crosscut never changes mode for an OUT test. The mode or setpoint-source node is written only for the setpoint handover of ADR 016 (release by default, take-remote only when a site enables it).
 - Modes per target, default `off`: `off`, `advisory`, `dry_run`, `confirm`, `supervised`. Version 1 implements all five. PID tuning parameters are written in `confirm` only; `supervised` is allowed for loop setpoints and virtual-sensor tags within the policy. Authority is configurable per site under ADR 013/014 (decision 2026-11-17, #31).
 - Authentication, roles (engineer, operator) and login are required before `confirm`. Local users only.
 - The simulator of Phase 1a replaces the "soft PLC" of earlier plans. The 12 gateway scenarios become real tests against it in Phase 2.
