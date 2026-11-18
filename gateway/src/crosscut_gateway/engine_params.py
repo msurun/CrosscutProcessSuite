@@ -21,7 +21,6 @@ from crosscut_gateway.engine_params_apply import (
     COMM_ERRORS,
     ParamCommError,
     WriteOutcome,
-    detune_order,
     live_check,
     revert_items,
     stored_value,
@@ -259,8 +258,13 @@ class ParamManager:
     # ------------------------------------------------------------------ propose
 
     def propose(self, proposal: ParamSetProposal) -> WriteDecision:
-        """Screen a parameter set and record, dry-run or queue it per the effective mode."""
+        """Screen a parameter set and record, dry-run or queue it per the effective mode.
+
+        A pending verification of an earlier set on the same target runs first, so its intent
+        is closed (or its mismatch reported) before this proposal is judged.
+        """
         key = param_set_key(proposal)
+        self._verify_pending_for(proposal)
         cached = self._replay(proposal, key)
         if cached is not None:
             return cached
@@ -452,6 +456,7 @@ class ParamManager:
         pending = self._pending.get(key)
         if pending is None:
             raise KeyError(f"unknown pending proposal key: {key}")
+        self._verify_pending_for(pending.proposal)
         early = self._approve_gate(pending)
         if early is not None:
             return early
@@ -801,57 +806,90 @@ class ParamManager:
             proposal, self._env.now_ns() + delay_ns, policies
         )
 
-    def _verify_due_sets(self) -> set[str]:
-        """Verify due sets and return targets excluded from ordinary monitoring this tick."""
-        settling = set()
+    def _verify_pending_for(self, proposal: ParamSetProposal) -> None:
+        """Verify now the pending set of any target of ``proposal``, before it is decided.
+
+        An immediate rollback after a good apply must not wait for the settle time, and the
+        still-open intent of the earlier set must not block the decision.
+        """
+        targets = {item.target for item in proposal.items}
         for key, pending in list(self._verifications.items()):
-            settling.update(item.target for item in pending.proposal.items)
+            pending_targets = {item.target for item in pending.proposal.items}
+            if targets & pending_targets:
+                self._run_verification(key, pending)
+
+    def _verify_due_sets(self) -> set[str]:
+        """Verify the due sets; return every target still settling or checked in this tick.
+
+        A settling target is left to its verification: a value that shows up one plant step
+        late must not count as an external change. A DCS change inside the window is caught
+        by the verification itself and reported, never overwritten.
+        """
+        skipped: set[str] = set()
+        for key, pending in list(self._verifications.items()):
+            skipped.update(item.target for item in pending.proposal.items)
             if self._env.now_ns() >= pending.due_ns:
-                try:
-                    self._verify_set(key, pending)
-                except Exception:  # noqa: BLE001 - keep intent open when failure audit fails
-                    self._audit_failed(pending.proposal, key)
-                del self._verifications[key]
-        return settling
+                self._run_verification(key, pending)
+        return skipped
+
+    def _run_verification(self, key: str, pending: PendingVerification) -> None:
+        """Verify one set and forget it; an audit failure stops its targets and raises alarm."""
+        del self._verifications[key]
+        try:
+            self._verify_set(key, pending)
+        except Exception:  # noqa: BLE001 - keep intent open when failure audit fails
+            self._audit_failed(pending.proposal, key)
 
     def _verify_set(self, key: str, pending: PendingVerification) -> None:
-        """Read every item; restore the whole set on mismatch or a failed read."""
+        """Read every item again; a divergence is reported, never reverted.
+
+        No plant write happens: a delayed divergence cannot be told apart from an operator's
+        change at the DCS, so the gateway reports it and leaves the correction to a person.
+        A value that could not be read keeps the intent open (fail closed).
+        """
+        mismatches, read_failed = self._delayed_reads(pending)
+        for tag, actual, expected in mismatches:
+            self._report_delayed_mismatch(tag, actual, expected)
+        if not read_failed:
+            self._close_intent_safe(key)
+
+    def _delayed_reads(
+        self, pending: PendingVerification
+    ) -> tuple[list[tuple[str, float, float]], bool]:
+        """Divergent items as (tag, actual, expected) in policy units, and whether a read failed."""
         assert self._plant is not None
-        failure = None
+        mismatches: list[tuple[str, float, float]] = []
+        read_failed = False
         for item in pending.proposal.items:
+            expected = stored_value(self._plant, item.target, item.to_value)
+            tolerance = pending.policies[item.target].readback_tolerance
             try:
                 actual = self._plant.read_param(item.target)
-                expected = stored_value(self._plant, item.target, item.to_value)
-                if not within(actual, expected, pending.policies[item.target].readback_tolerance):
-                    failure = failure or ("readback_mismatch_delayed", item.target)
-            except Exception:  # noqa: BLE001 - an unverified write must fail closed
-                failure = ("comm_loss", item.target)
-        if failure is None:
-            self._close_intent_safe(key)
-        else:
-            self._revert_delayed(key, pending, failure)
+            except COMM_ERRORS:
+                self._mark_comm_lost(item.target)
+                read_failed = True
+                continue
+            if not within(actual, expected, tolerance):
+                mismatches.append((item.target, actual, expected))
+        return mismatches, read_failed
 
-    def _revert_delayed(
-        self, key: str, pending: PendingVerification, failure: tuple[str, str]
-    ) -> None:
-        """Reuse immediate failure handling with the policies active when the set was applied."""
-        assert self._plant is not None
-        proposal = pending.proposal
-        written = detune_order(proposal.items)
-        failed = revert_items(self._plant, pending.policies, written)
-        for item in written:
-            self._last_applied.pop(item.target, None)
-        code, target = failure
-        outcome = WriteOutcome(False, code, target, tuple(item.target for item in written), failed)
-        self._failed(proposal, key, outcome)
+    def _report_delayed_mismatch(self, tag: str, actual: float, expected: float) -> None:
+        """Handle a delayed divergence like an external DCS change, plus its own audit event."""
+        if tag in self._last_applied:  # else ordinary monitoring already reported the change
+            self._report_external_change(tag, actual, expected)
+        self._emit_tag(
+            "readback_mismatch_delayed", tag, "readback_mismatch_delayed",
+            value=str(actual), expected=str(expected), review="invalid",
+            loop=self._policies[tag].loop,
+        )
 
     def tick(self) -> None:
-        """Verify settling sets, then monitor verified targets for external DCS changes."""
+        """Verify settling sets, then monitor the other applied targets for external changes."""
         if self._plant is None:
             return
-        settling = self._verify_due_sets()
+        skipped = self._verify_due_sets()
         for tag in list(self._last_applied):
-            if tag not in settling and self._states.get(tag) == "enabled":
+            if tag not in skipped and self._states.get(tag) == "enabled":
                 self._guarded_readback(self._plant, tag)
 
     def _guarded_readback(self, plant: ParamControlSystem, tag: str) -> None:
@@ -868,17 +906,27 @@ class ParamManager:
                 )
 
     def _check_readback(self, plant: ParamControlSystem, tag: str) -> None:
-        """Compare one target with its last applied value."""
+        """Compare one target with its last applied value; a change holds the target off."""
         expected = self._last_applied[tag]
         try:
             actual = plant.read_param(tag)
         except COMM_ERRORS:
-            self._last_applied.pop(tag, None)
-            self._set_state(tag, "stopped:comm")
-            self._emit_tag("comm_loss", tag, "comm_loss")
+            self._mark_comm_lost(tag)
             return
-        if within(actual, expected, self._policies[tag].readback_tolerance):
-            return
+        if not within(actual, expected, self._policies[tag].readback_tolerance):
+            self._report_external_change(tag, actual, expected)
+
+    def _mark_comm_lost(self, tag: str) -> None:
+        """Fail closed on a transport error: forget the baseline, stop the target, audit it."""
+        self._last_applied.pop(tag, None)
+        self._set_state(tag, "stopped:comm")
+        self._emit_tag("comm_loss", tag, "comm_loss")
+
+    def _report_external_change(self, tag: str, actual: float, expected: float) -> None:
+        """Hold a target off after a value outside the write path and audit it as invalid.
+
+        No write-back: the value at the DCS wins and the applied record is flagged invalid.
+        """
         self._last_applied.pop(tag, None)
         self._set_state(tag, "hold_off")
         self._emit_tag(
