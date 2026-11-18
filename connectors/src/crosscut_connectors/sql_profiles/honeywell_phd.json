@@ -1,0 +1,33 @@
+{
+  "profile": "honeywell_phd",
+  "vendor": "Honeywell Uniformance PHD RDBMS adapter / ODBC",
+  "description": "PHD tag definitions from TAG and archived samples from HISTORY, read through the PHD RDBMS adapter.",
+  "unverified": [
+    "TAG view name and TAGNAME/DESCRIPTION/UNIT columns: PHD versions differ between TAG and TAGDEF and some name the tag column TAG.",
+    "TAG.RANGE_LOW and TAG.RANGE_HIGH: engineering limits usually come from the PHD tag definition, but these column names need site confirmation.",
+    "HISTORY.TIMESTAMP and HISTORY.VALUE: the RDBMS adapter may expose TIME/VAL instead in older installations.",
+    "QUALITY ranges: PHD quality is site-configured; the shipped map treats 0 good, 1 uncertain and 2..255 bad."
+  ],
+  "quality": {
+    "good": [{"min": 0, "max": 0}],
+    "uncertain": [{"min": 1, "max": 1}],
+    "bad": [{"min": 2, "max": 255}],
+    "default": "bad"
+  },
+  "browse": {
+    "sql": "SELECT TAGNAME, DESCRIPTION, UNIT FROM TAG ORDER BY TAGNAME",
+    "columns": {"tag": 0, "description": 1, "unit": 2}
+  },
+  "metadata": {
+    "sql": "SELECT DESCRIPTION, UNIT, RANGE_LOW, RANGE_HIGH FROM TAG WHERE TAGNAME = ?",
+    "columns": {"description": 0, "unit": 1, "eng_min": 2, "eng_max": 3}
+  },
+  "history": {
+    "sql": "SELECT TIMESTAMP, VALUE, QUALITY FROM HISTORY WHERE TAGNAME = ? AND TIMESTAMP >= ? AND TIMESTAMP <= ? ORDER BY TIMESTAMP",
+    "columns": {"timestamp": 0, "value": 1, "quality": 2}
+  },
+  "latest": {
+    "sql": "SELECT TIMESTAMP, VALUE, QUALITY FROM HISTORY WHERE TAGNAME = ? ORDER BY TIMESTAMP DESC LIMIT 1",
+    "columns": {"timestamp": 0, "value": 1, "quality": 2}
+  }
+}

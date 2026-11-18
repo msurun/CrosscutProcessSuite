@@ -1,0 +1,34 @@
+{
+  "profile": "aspen_ip21",
+  "vendor": "AspenTech InfoPlus.21 (IP.21) SQLplus / ODBC",
+  "description": "IP.21 tags from IP_AnalogDef and archived samples from the HISTORY table, optionally sampled at a requested period.",
+  "unverified": [
+    "IP_AnalogDef.LO_LIMIT and IP_AnalogDef.HI_LIMIT: some IP.21 sites expose limits as LO_LIMIT/HI_LIMIT, others as RANGE_LO/RANGE_HI.",
+    "HISTORY.PERIOD: SQLplus accepts a history request period, but older versions use a REQUEST clause instead of a PERIOD comparison.",
+    "HISTORY latest query: ORDER BY TS DESC LIMIT 1 may need FIRST 1 or a site view on IP.21 SQLplus.",
+    "QUALITY ranges: IP.21 quality is site-configured; the shipped map treats 0 good, 1 uncertain and 2..255 bad."
+  ],
+  "quality": {
+    "good": [{"min": 0, "max": 0}],
+    "uncertain": [{"min": 1, "max": 1}],
+    "bad": [{"min": 2, "max": 255}],
+    "default": "bad"
+  },
+  "browse": {
+    "sql": "SELECT NAME, DESCRIPTION, ENG_UNITS FROM IP_AnalogDef ORDER BY NAME",
+    "columns": {"tag": 0, "description": 1, "unit": 2}
+  },
+  "metadata": {
+    "sql": "SELECT DESCRIPTION, ENG_UNITS, LO_LIMIT, HI_LIMIT FROM IP_AnalogDef WHERE NAME = ?",
+    "columns": {"description": 0, "unit": 1, "eng_min": 2, "eng_max": 3}
+  },
+  "history": {
+    "sql": "SELECT TS, VALUE, QUALITY FROM HISTORY WHERE NAME = ? AND TS >= ? AND TS <= ? ORDER BY TS",
+    "period_sql": "SELECT TS, VALUE, QUALITY FROM HISTORY WHERE NAME = ? AND TS >= ? AND TS <= ? AND PERIOD = ? ORDER BY TS",
+    "columns": {"timestamp": 0, "value": 1, "quality": 2}
+  },
+  "latest": {
+    "sql": "SELECT TS, VALUE, QUALITY FROM HISTORY WHERE NAME = ? ORDER BY TS DESC LIMIT 1",
+    "columns": {"timestamp": 0, "value": 1, "quality": 2}
+  }
+}

@@ -14,4 +14,4 @@ dependencies = ["crosscut-sim", "pyarrow>=15", "numpy>=1.26", "tzdata", "jsonsch
 where = ["src"]
 
 [tool.setuptools.package-data]
-crosscut_connectors = ["py.typed"]
+crosscut_connectors = ["py.typed", "sql_profiles/*.json"]
