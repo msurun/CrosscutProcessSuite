@@ -12,6 +12,7 @@ from typing import Any, NamedTuple
 
 from crosscut_sim.core import BAD, GOOD, UNCERTAIN
 
+from crosscut_connectors.csv_connector import CsvConnector
 from crosscut_connectors.csv_import import (
     _detect_decimal_separator,
     _detect_delimiter,
@@ -114,5 +115,6 @@ def _quality_of(cell: list[str]) -> list[int]:
 
 def import_csv_long(path: Path, target: ImportTarget) -> SqlImportReport:
     """Import a long-format CSV; ``target.tz`` applies to timestamps without a UTC offset."""
-    parsed = read_long_file(path)
-    return _import_rows(parsed.rows, target, parsed.units)
+    connector = CsvConnector(str(path.parent), {"file_name": path.name, "import_layout": "long"})
+    history = connector.history([], "", "")
+    return _import_rows(history["rows"], target, history["units"])

@@ -24,6 +24,9 @@ import numpy as np
 from crosscut_sim.core import BAD, GOOD
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
+from crosscut_connectors.csv_connector import CsvConnector
+from crosscut_connectors.import_target import ImportTarget
+
 # --------------------------------------------------------------------------- #
 # Public data structures
 # --------------------------------------------------------------------------- #
@@ -637,15 +640,24 @@ def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -
         If no header is present, a timestamp cannot be parsed, or two columns
         collide once their names are sanitised.
     """
-    delimiter, header, data_rows = _read_table(path)
-    ts_ns, ts_format_name, dst_repeats = _parse_timestamps(data_rows, tz)
+    connector = CsvConnector(str(path.parent), {"file_name": path.name, "import_layout": "wide"})
+    table = connector.history([], "", "")["table"]
+    return _import_csv_table(table, ImportTarget(out_dir, dataset_id, tz))
+
+
+def _import_csv_table(
+    table: tuple[str, list[str], list[list[str]]], target: ImportTarget
+) -> ImportReport:
+    """Normalise a parsed wide table with the legacy timestamp and quality rules."""
+    delimiter, header, data_rows = table
+    ts_ns, ts_format_name, dst_repeats = _parse_timestamps(data_rows, target.tz)
     # Decimal comma ("1,5") and point ("1.5") both occur; _parse_cell needs to know.
     decimal = _detect_decimal_separator(data_rows, delimiter)
     # The header is [timestamp, tag_0, tag_1, ...].
     values, qualities, bad_count = _parse_value_matrices(data_rows, len(header) - 1, decimal)
 
     ts_ns, values, qualities, dup_dropped, unsorted = _normalise_order(ts_ns, values, qualities)
-    _write_csv_dataset(out_dir, dataset_id, header[1:], (ts_ns, values, qualities))
+    _write_csv_dataset(target.out_dir, target.dataset_id, header[1:], (ts_ns, values, qualities))
     return ImportReport(
         n_rows=ts_ns.shape[0],
         n_duplicates_dropped=dup_dropped,

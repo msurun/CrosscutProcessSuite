@@ -247,8 +247,10 @@ async def _verify_session_alive(client: Client, node_id: str) -> None:
     the end of the grid as GOOD: flat, healthy-looking data. One read at the end tells the
     difference; the polling importer notices the same thing through its failed reads.
     """
+    from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
+
     try:
-        await client.get_node(node_id).read_data_value()
+        await OpcUaSessionConnector(client).read_raw(node_id)
     except ua.UaStatusCodeError:
         return  # the server answered (even with a bad status), so the session is alive
     except (OSError, TimeoutError, ua.UaError) as error:
@@ -266,11 +268,13 @@ async def _open_subscription(
     back for a whole grid step. The initial value of each node arrives only
     after subscribing, so this waits for it before the grid starts.
     """
+    from crosscut_connectors.opcua_session_connector import OpcUaSessionConnector
+
     collector = _ChangeCollector(resolved_node_ids)
     period_ms = max(1, int(plan.period_s * MS_PER_S / PUBLISHES_PER_GRID_PERIOD))
-    subscription = await client.create_subscription(period_ms, collector)
-    nodes = [client.get_node(node_id) for node_id in resolved_node_ids]
-    await subscription.subscribe_data_change(nodes)
+    subscription = await OpcUaSessionConnector(client).subscribe_nodes(
+        resolved_node_ids, (period_ms, collector)
+    )
     await _wait_for_first_events(collector)
     return collector, subscription
 

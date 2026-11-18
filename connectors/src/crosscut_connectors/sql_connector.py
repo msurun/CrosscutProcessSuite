@@ -79,7 +79,10 @@ class SqlConnector(Connector):
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [row[0] for row in cursor.fetchall()]
-        return [NodeInfo(id=t, name=t, node_type="table", has_children=True) for t in tables]
+        return [
+            NodeInfo(id=table_name, name=table_name, node_type="table", has_children=True)
+            for table_name in tables
+        ]
 
     def _browse_columns(self, table_name: str) -> list[NodeInfo]:
         """List column variable nodes for a table."""
@@ -136,12 +139,20 @@ class SqlConnector(Connector):
         """
         if self.profile is not None:
             return self._profile_history(tag_ids, start_utc, end_utc, period_s)
+        if "query" in self.options:
+            return self._query_history(tag_ids)
+        return self._table_history(tag_ids, start_utc, end_utc)
+
+    def _table_history(
+        self, tag_ids: Sequence[str], start_utc: str, end_utc: str
+    ) -> Mapping[str, Any]:
+        """Read the configured SQLite table over the requested timestamp range."""
         if not self.endpoint.startswith("sqlite:"):
             return {"tag_ids": list(tag_ids), "data": [], "query": ""}
         db_path = self.endpoint.replace("sqlite:///", "").replace("sqlite://", "")
         table = self.options.get("table", "history")
         time_col = self.options.get("timestamp_column", "timestamp")
-        cols = ", ".join(t.split(".")[-1] for t in tag_ids) if tag_ids else "*"
+        cols = ", ".join(tag_id.split(".")[-1] for tag_id in tag_ids) if tag_ids else "*"
         query = f"SELECT {time_col}, {cols} FROM {table} WHERE {time_col} >= ? AND {time_col} <= ?"
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
@@ -172,6 +183,17 @@ class SqlConnector(Connector):
         sql, params = _history_statement(self.profile, tag_id, start_utc, end_utc, period_s)
         rows = self._run(sql, params)
         return [_sample_from_row(self.profile, tag_id, row) for row in rows]
+
+    def _query_history(self, tag_ids: Sequence[str]) -> Mapping[str, Any]:
+        """Read a legacy historian SELECT without changing its row order or types."""
+        from crosscut_connectors.sql_import import _read_rows, fetch_rows
+
+        query = self.options["query"]
+        if "connection" in self.options:
+            rows = fetch_rows(self.options["connection"], query)
+        else:
+            rows = _read_rows(Path(self.endpoint), query)
+        return {"tag_ids": list(tag_ids), "data": rows, "query": query}
 
     def read_live(self, tag_ids: Sequence[str]) -> dict[str, LiveValue]:
         """Read the profile's latest archived value per tag.

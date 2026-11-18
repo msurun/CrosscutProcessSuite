@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "OPC UA test server and data collector for the Crosscut Process Suite simulators"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
-dependencies = ["asyncua>=1.1", "crosscut-sim", "pyarrow>=15"]
+dependencies = ["asyncua>=1.1", "crosscut-sim", "crosscut-connectors", "pyarrow>=15"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

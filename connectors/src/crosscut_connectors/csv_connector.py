@@ -21,6 +21,7 @@ from crosscut_connectors.base import (
     NotSupportedError,
     TagMetadata,
 )
+from crosscut_connectors.csv_history import parse_window, read_history
 
 
 class CsvConnector(Connector):
@@ -73,17 +74,21 @@ class CsvConnector(Connector):
         end_utc: str,
         period_s: float | None = None,
     ) -> Mapping[str, Any]:
-        """Read historical tabular data matching requested tags."""
-        rows: list[dict[str, Any]] = []
-        for tag in tag_ids:
-            if "/" not in tag:
-                continue
-            fname, _col = tag.split("/", 1)
-            fpath = self.folder / fname
-            if fpath.is_file() and fpath.suffix.lower() == ".csv":
-                with open(fpath, encoding="utf-8") as f:
-                    rows.extend(csv.DictReader(f))
-        return {"tag_ids": list(tag_ids), "data": rows}
+        """Read rows in [start_utc, end_utc), interpreting naive timestamps as UTC.
+
+        A period selects the last row in each start-anchored bucket, independently
+        per tag in long layout. Empty buckets are omitted; source timestamps and
+        quality cells are retained. Options include layout and timestamp_column.
+        """
+        if self.options.get("import_layout") in ("wide", "long"):
+            from crosscut_connectors.batch_history import read_csv_import
+
+            return read_csv_import(self.folder / self.options["file_name"], self.options)
+        window = parse_window(start_utc, end_utc, period_s)
+        return {
+            "tag_ids": list(tag_ids),
+            "data": read_history(self.folder, tag_ids, window, self.options),
+        }
 
     def read_live(self, tag_ids: Sequence[str]) -> dict[str, LiveValue]:
         """Live sampling is not supported by static file directories."""
@@ -95,6 +100,6 @@ def _read_header_columns(path: Path) -> list[str]:
     if path.suffix.lower() == ".parquet":
         import pyarrow.parquet as pq
         return pq.read_schema(path).names
-    with open(path, encoding="utf-8") as f:
-        reader = csv.reader(f)
+    with open(path, encoding="utf-8") as source:
+        reader = csv.reader(source)
         return next(reader, [])
