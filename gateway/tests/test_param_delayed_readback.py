@@ -1,6 +1,8 @@
 """Verify settling parameter writes on the engine tick without a background worker.
 
-Read-count faults distinguish immediate acceptance from delayed plant divergence.
+Read-count faults distinguish immediate acceptance from delayed plant divergence. A delayed
+divergence is never written back: it is ambiguous with an operator change, so the gateway
+stops the target and reports it (issue #54, ADR 014 addendum).
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ CHANGED_GAIN = 3.0  # Gain units, the value whose read-back can diverge.
 DELAYED_READ_NUMBER = 2  # Reads since write; the first read confirms the immediate write.
 LONG_SETTLE_S = 5.0  # Seconds, a per-parameter override above the default settle time.
 GAIN_OFFSET = 0.5  # Gain units, larger than the gain read-back tolerance.
+DCS_GAIN = 4.0  # Gain units, a value an engineer sets at the DCS during the settle window.
 
 
 class DelayedParamPlant(ParamPlant):
@@ -48,12 +51,12 @@ class DelayedParamPlant(ParamPlant):
         self.fail_delayed_read = False
 
     def write_param(self, tag: str, value: float) -> bool:
-        """Reset the read counter so the revert has its own immediate confirmation."""
+        """Reset the read counter so the delayed pass has its own read count."""
         self.reads_since_write[tag] = 0
         return super().write_param(tag, value)
 
     def read_param(self, tag: str) -> float:
-        """Expose a delayed fault for the proposed gain and keep revert reads accurate."""
+        """Expose a delayed fault for the proposed gain and keep other reads accurate."""
         self.read_targets.append(tag)
         count = self.reads_since_write.get(tag, 0) + 1
         self.reads_since_write[tag] = count
@@ -86,8 +89,8 @@ def apply_gain(gateway: engine.WriteGateway) -> str:
     return key
 
 
-def test_delayed_divergence_reverts_the_whole_set_and_audits_the_reason() -> None:
-    """Delayed gain mismatch restores both gain and the earlier detuning Ti write."""
+def test_a_delayed_divergence_stops_the_target_and_writes_nothing() -> None:
+    """A divergent value after settling is reported like an external change, never reverted."""
     plant = DelayedParamPlant(GAIN_OFFSET)
     gateway = make_gateway(plant)
     key = queued(gateway, it(KP, CHANGED_GAIN), it(TI, 150.0))
@@ -95,15 +98,77 @@ def test_delayed_divergence_reverts_the_whole_set_and_audits_the_reason() -> Non
 
     gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
 
-    assert plant.param_writes == [(TI, 150.0), (KP, CHANGED_GAIN), (KP, 2.0), (TI, 100.0)]
-    assert plant.params[KP] == 2.0 and plant.params[TI] == 100.0
-    assert gateway.status()[KP] == "stopped:readback"
-    assert events(gateway, "partial_revert")[0]["reason_code"] == "readback_mismatch_delayed"
-    assert events(gateway, "partial_revert")[0]["written"] == f"{TI},{KP}"
+    assert plant.param_writes == [(TI, 150.0), (KP, CHANGED_GAIN)]  # no revert write
+    assert plant.params[KP] == CHANGED_GAIN  # the plant keeps the value the gateway wrote
+    assert gateway.status()[KP] == "hold_off"
+    assert events(gateway, "partial_revert") == []
+    delayed = events(gateway, "readback_mismatch_delayed")[0]
+    assert delayed["value"] == str(CHANGED_GAIN + GAIN_OFFSET)
+    assert delayed["expected"] == str(CHANGED_GAIN)
+    assert delayed["review"] == "invalid" and delayed["loop"] == "L1"
     assert not gateway.has_open_intent("L1")
-    proposal = pset(it(KP, CHANGED_GAIN), pid="next")
-    refusal = gateway.propose_params(proposal, actor_ctx=ALICE)
-    assert refusal.reason_code == "target_stopped_readback"
+
+
+def test_a_delayed_divergence_is_handled_like_an_external_dcs_change() -> None:
+    """The applied record is flagged through the same audit event as ordinary monitoring."""
+    plant = DelayedParamPlant(GAIN_OFFSET)
+    gateway = make_gateway(plant)
+    apply_gain(gateway)
+
+    gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
+
+    changed = events(gateway, "param_changed_externally")[0]
+    assert changed["review"] == "invalid" and changed["loop"] == "L1"
+    assert gateway.status()[KP] == "hold_off"
+    proposal = pset(it(KP, 2.5, CHANGED_GAIN), pid="next", t_ns=NOW + 61 * S,
+                    expires_ns=NOW + 8 * 3600 * S)
+    assert gateway.propose_params(proposal, actor_ctx=ALICE).reason_code == "target_hold_off"
+
+
+def test_a_dcs_change_inside_the_settle_window_is_seen_and_kept() -> None:
+    """Ordinary monitoring keeps running during settling, so an operator change is not undone."""
+    plant = DelayedParamPlant()
+    gateway = make_gateway(plant)
+    apply_gain(gateway)
+    plant.params[KP] = DCS_GAIN
+
+    gateway.tick(NOW + S)
+
+    assert gateway.status()[KP] == "hold_off"
+    assert plant.params[KP] == DCS_GAIN and plant.param_writes == [(KP, CHANGED_GAIN)]
+    assert events(gateway, "param_changed_externally")[0]["value"] == str(DCS_GAIN)
+
+
+def test_a_dcs_change_before_verification_closes_the_intent_after_the_audit() -> None:
+    """The later verification only repeats the audit and closes the intent: still no write."""
+    plant = DelayedParamPlant()
+    gateway = make_gateway(plant)
+    apply_gain(gateway)
+    plant.params[KP] = DCS_GAIN
+    gateway.tick(NOW + S)
+
+    gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
+
+    assert len(events(gateway, "param_changed_externally")) == 1
+    assert len(events(gateway, "readback_mismatch_delayed")) == 1
+    assert plant.params[KP] == DCS_GAIN and plant.param_writes == [(KP, CHANGED_GAIN)]
+    assert not gateway.has_open_intent("L1")
+
+
+def test_a_rollback_right_after_an_apply_verifies_the_pending_set_first() -> None:
+    """A new proposal verifies the earlier set synchronously, so its intent no longer blocks."""
+    plant = DelayedParamPlant()
+    gateway = make_gateway(plant)
+    apply_gain(gateway)
+    assert gateway.has_open_intent("L1")
+
+    rollback = pset(it(KP, 2.0, CHANGED_GAIN), pid="back", rollback_of="p1", t_ns=NOW + S,
+                    expires_ns=NOW + 8 * 3600 * S)
+    decision = gateway.propose_params(rollback, actor_ctx=ALICE)
+
+    assert decision.reason_code == "queued"
+    assert not gateway.has_open_intent("L1")
+    assert events(gateway, "readback_mismatch_delayed") == []
 
 
 def test_a_stable_value_closes_the_intent_only_after_the_configured_settle_time() -> None:
@@ -116,11 +181,11 @@ def test_a_stable_value_closes_the_intent_only_after_the_configured_settle_time(
 
     gateway.tick(NOW + int(LONG_SETTLE_S * S) - 1)
     assert gateway.has_open_intent("L1")
-    assert plant.read_targets == [KP, KP]
+    assert plant.read_targets == [KP, KP, KP]  # monitoring reads the target while it settles
     gateway.tick(NOW + int(LONG_SETTLE_S * S))
 
     assert not gateway.has_open_intent("L1")
-    assert plant.read_targets == [KP, KP, KP]
+    assert plant.read_targets == [KP, KP, KP, KP]
     assert events(gateway, "partial_revert") == []
 
 
@@ -151,15 +216,14 @@ def test_the_set_waits_for_its_longest_settle_time_and_reads_every_item() -> Non
     plant.read_targets.clear()
 
     gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
-    assert plant.read_targets == []
     assert gateway.has_open_intent("L1")
     gateway.tick(NOW + int(LONG_SETTLE_S * S))
 
-    assert plant.read_targets == [KP, TI]
+    assert plant.read_targets == [KP, TI, KP, TI]  # monitoring, then the delayed pass
     assert not gateway.has_open_intent("L1")
 
 
-def test_a_delayed_offset_inside_tolerance_does_not_revert() -> None:
+def test_a_delayed_offset_inside_tolerance_does_not_stop_the_target() -> None:
     """The delayed pass uses the same engineering-unit tolerance as immediate read-back."""
     plant = DelayedParamPlant(PARAMS[KP].readback_tolerance / 2)
     gateway = make_gateway(plant)
@@ -170,11 +234,11 @@ def test_a_delayed_offset_inside_tolerance_does_not_revert() -> None:
     assert not gateway.has_open_intent("L1")
     assert gateway.status()[KP] == "enabled"
     assert plant.param_writes == [(KP, CHANGED_GAIN)]
-    assert events(gateway, "partial_revert") == []
+    assert events(gateway, "readback_mismatch_delayed") == []
 
 
-def test_a_failed_delayed_read_reverts_and_stops_the_target() -> None:
-    """A delayed transport failure fails closed through the existing revert path."""
+def test_a_failed_delayed_read_stops_the_target_and_keeps_the_intent_open() -> None:
+    """A delayed transport failure fails closed without a write and needs reconciliation."""
     plant = DelayedParamPlant()
     plant.fail_delayed_read = True
     gateway = make_gateway(plant)
@@ -182,25 +246,11 @@ def test_a_failed_delayed_read_reverts_and_stops_the_target() -> None:
 
     gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
 
-    assert plant.params[KP] == 2.0
+    assert plant.params[KP] == CHANGED_GAIN
     assert gateway.status()[KP] == "stopped:comm"
-    assert events(gateway, "partial_revert")[0]["reason_code"] == "comm_loss"
-    assert not gateway.has_open_intent("L1")
-
-
-def test_a_failed_delayed_revert_keeps_the_intent_open_and_raises_an_alarm() -> None:
-    """Unrestored gain remains blocked for reconciliation instead of closing its intent."""
-    plant = DelayedParamPlant(GAIN_OFFSET)
-    gateway = make_gateway(plant)
-    apply_gain(gateway)
-    plant.refuse_values.add((KP, 2.0))
-
-    gateway.tick(NOW + int(DEFAULT_VERIFY_AFTER_S * S))
-
+    assert events(gateway, "comm_loss")[0]["tag"] == KP
+    assert plant.param_writes == [(KP, CHANGED_GAIN)]
     assert gateway.has_open_intent("L1")
-    assert gateway.status()[KP] == "stopped:comm"
-    assert events(gateway, "partial_revert")[0]["revert_failed"] == KP
-    assert events(gateway, "alarm_check_dcs")[0]["reason_code"] == "revert_failed"
 
 
 def test_an_omitted_settle_time_uses_the_module_default() -> None:
