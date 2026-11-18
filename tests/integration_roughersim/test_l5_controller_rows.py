@@ -13,6 +13,7 @@ import pytest
 from controller_rows import (
     CV_A,
     CV_B,
+    LATE_FAULT_HOOK,
     MOVE_MAX,
     ctl_rig,
     transmitter_fault_hook,
@@ -22,6 +23,7 @@ from golden import checkout_problem, load_pin, roughersim_dir
 
 MOVE_TOL = 1e-9
 CYCLES_ON = 6
+MAX_CYCLES_TO_SHED = 400  # one plant step per cycle; the late fault starts at 120 s
 
 
 @pytest.fixture(scope="module")
@@ -58,12 +60,14 @@ def c02_second_cv(tmp: Path) -> None:
 
 
 def c02_only_cv(tmp: Path) -> None:
-    """With only that CV the controller sheds with no_good_cv."""
-    with ctl_rig(tmp, hook=transmitter_fault_hook(CV_A)) as c:
+    """A controller that is on sheds with no_good_cv when its only CV fails (fault from 120 s)."""
+    with ctl_rig(tmp, hook=LATE_FAULT_HOOK) as c:
         c.command("switch_on")
-        for _ in range(CYCLES_ON):
-            record = c.cycle()
-        assert (record["state"], record["reason"]) == ("shed", "no_good_cv")
+        records = [c.cycle()]
+        assert records[0]["state"] == "on", records[0]
+        while records[-1]["state"] == "on" and len(records) < MAX_CYCLES_TO_SHED:
+            records.append(c.cycle())
+        assert (records[-1]["state"], records[-1]["reason"]) == ("shed", "no_good_cv")
 
 
 def c02_only_cv_refused(tmp: Path) -> None:
@@ -148,11 +152,6 @@ def test_c02_failed_only_cv_refuses_switch_on(tmp_path: Path, checkout: None) ->
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="state.py: shed only follows on; the fault holds from t=0, so the host stays standby",
-)
 def test_c02_failed_only_cv_sheds(tmp_path: Path, checkout: None) -> None:
     """C02b: with only the failed CV the controller sheds (no_good_cv)."""
     c02_only_cv(tmp_path)

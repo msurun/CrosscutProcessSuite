@@ -142,8 +142,8 @@ MATRIX: tuple[MatrixRow, ...] = (
             "a switched-on fuzzy controller's proposals reach the gateway and are written "
             "within move_max; "
             "a failed transmitter drops its CV (shed with no_good_cv when none is left, "
-            "pv_fault hook of RougherSim 0.13.0; with only that CV a fault from t=0 refuses "
-            "switch_on, strict xfail for shed); "
+            "pv_fault hooks of RougherSim 0.13.1; with only that CV a fault from t=0 refuses "
+            "switch_on); "
             "base loop to manual sheds it within one cycle; "
             "restart restores standby, never on; "
             "operator switch_off stops proposals at the next cycle"
@@ -208,7 +208,7 @@ def _gateway_executor(scenario_ref: str) -> Callable[[], None]:
 
 
 def _controller_executor() -> None:
-    """Executor of L5-P25: rows C01, C03, C04 and C05 (C02b shed is a strict xfail in pytest)."""
+    """Executor of L5-P25: rows C01, C03, C04 and C05 (C02 runs in pytest with the pv_fault hooks)."""
     import tempfile
     from pathlib import Path
 

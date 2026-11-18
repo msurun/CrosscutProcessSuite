@@ -50,7 +50,7 @@ gateway ticks past the settle time and checks that no plant write follows, that
 
 The pv_fault hooks `gw.pv_fault_dic202.v1` / `gw.pv_fault_lit201.v1` fail the PV node from t=0. The
 CV_B address was wrong (`LIT201/Pv`); the node is `LIC201/Pv`. C02a (a second good CV keeps the
-controller `on`) passes. C02b stays a strict xfail on the test side only: the host's state machine
-(`state.py`) sheds only from `on`, and with the only CV bad from t=0 `switch_on` is refused
-(`standby`, reason `no_good_cv`, no proposals); that refusal is covered by a passing test.
-A mid-run fault hook would be needed to observe `shed`.
+controller `on`) passes. The host's state machine (`state.py`) sheds only from `on`: with the only
+CV bad from t=0 `switch_on` is refused (`standby`, reason `no_good_cv`, no proposals; own test).
+C02b uses `gw.pv_fault_dic202_late.v1` (RougherSim 0.13.1, fault from 120 s): the controller is
+`on`, then sheds with `no_good_cv`. All C rows pass; no xfail left.

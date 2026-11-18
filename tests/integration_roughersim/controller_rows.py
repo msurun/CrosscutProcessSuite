@@ -44,6 +44,8 @@ ADDRESSES = {
 
 
 PV_FAULT_HOOKS = {CV_A: "gw.pv_fault_dic202.v1", CV_B: "gw.pv_fault_lit201.v1"}
+LATE_FAULT_HOOK = "gw.pv_fault_dic202_late.v1"  # DIC202 PV Bad from 120 s sim time (rs 0.13.1)
+LATE_FAULT_START_S = 120.0
 
 
 def transmitter_fault_hook(tag: str) -> str:
