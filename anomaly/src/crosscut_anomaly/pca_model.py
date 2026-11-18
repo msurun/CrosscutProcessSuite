@@ -164,13 +164,18 @@ def fit_pca(
         raise PcaModelError("x must be samples by tags")
     valid = _clean_rows(augment_lags(raw, dynamic_lags), len(tags), allow_constants)
     mean, scale = valid.mean(axis=0), valid.std(axis=0, ddof=1)
-    # Constant mode/setpoint columns contribute zero training variance. A unit scale
-    # retains their raw-unit deviations without division by zero (n rows by p tags).
-    scale = np.where(scale > 0, scale, 1.0)
+    constant_columns = np.ptp(valid, axis=0) == 0
+    # For z (n samples by p columns), constant training columns carry no evidence.
+    # A unit denominator avoids division by zero; scoring also zeros these columns.
+    scale = np.where(constant_columns, 1.0, scale)
     z = (valid - mean) / scale
+    z[:, constant_columns] = 0.0
     if not np.any(z):
         raise PcaModelError("training needs at least one moving tag")
-    values, vectors = _eigen_sorted(np.atleast_2d(np.cov(z, rowvar=False)))
+    # Preserve corrcoef semantics for ordinary PCA. With constants allowed, the
+    # covariance of dimensionless z equals correlation on non-constant columns.
+    correlation = np.cov(z, rowvar=False) if allow_constants else np.corrcoef(z, rowvar=False)
+    values, vectors = _eigen_sorted(np.atleast_2d(correlation))
     k = _choose_k(values, variance_fraction)
     n = len(valid)
     spe_lim, method = _choose_spe_limit(z, vectors[:, :k], values, alpha)
@@ -180,6 +185,7 @@ def fit_pca(
         t2_limit=t2_limit(n, k, alpha), spe_limit=spe_lim,
         base_tags=base, dynamic_lags=dynamic_lags, spe_limit_method=method,
         stuck_runs=longest_runs(raw) if stuck_samples > 0 else (),
+        constant_columns=tuple(bool(value) for value in constant_columns),
     )
 
 
@@ -212,6 +218,7 @@ class PcaModel:
     spe_limit_method: str = "jackson_mudholkar"
     stuck_runs: tuple[int, ...] = ()
     stuck_profiles: tuple[dict[str, Any], ...] = ()
+    constant_columns: tuple[bool, ...] = ()
 
     @property
     def monitored_tags(self) -> tuple[str, ...]:
@@ -223,6 +230,8 @@ class PcaModel:
         rows = np.atleast_2d(np.asarray(x, dtype=float))
         bad = ~np.isfinite(rows).all(axis=1)
         z: np.ndarray = (np.where(bad[:, None], np.nan, rows) - self.mean) / self.scale
+        if self.constant_columns:
+            z[:, self.constant_columns] = np.where(bad[:, None], np.nan, 0.0)
         return z
 
     def scores(self, x: np.ndarray) -> np.ndarray:
@@ -287,6 +296,8 @@ class PcaModel:
         if self.dynamic_lags:
             out["base_tags"] = list(self.base_tags)
             out["dynamic_lags"] = self.dynamic_lags
+        if any(self.constant_columns):
+            out["constant_columns"] = list(self.constant_columns)
         if self.stuck_profiles:
             out["stuck_profiles"] = list(self.stuck_profiles)
         if self.stuck_runs:
@@ -311,6 +322,7 @@ class PcaModel:
             dynamic_lags=int(d.get("dynamic_lags", 0)),
             spe_limit_method=str(d.get("spe_limit_method", "jackson_mudholkar")),
             stuck_profiles=tuple(d.get("stuck_profiles", ())),
+            constant_columns=tuple(d.get("constant_columns", ())),
             stuck_runs=tuple(int(v) for v in d.get("stuck_runs", ())),
         )
 
@@ -337,7 +349,8 @@ def training_profiles(rows: np.ndarray, hold_samples: int) -> tuple[dict[str, An
         resolution = float(np.quantile(positive, 0.1)) if len(positive) else 0.0
         cuts = np.r_[0, np.flatnonzero(column[1:] != column[:-1]) + 1, len(column)]
         levels = column[cuts[:-1]][np.diff(cuts) >= hold_samples]
-        profiles.append({"min": float(finite.min()), "max": float(finite.max()),
+        profiles.append({"min": float(finite.min()) if len(finite) else float("nan"),
+                         "max": float(finite.max()) if len(finite) else float("nan"),
                          "resolution": resolution, "levels": levels[np.isfinite(levels)].tolist(),
                          "setpoint_like": bool(np.mean(differences == 0) > 0.9)})
     return tuple(profiles)
@@ -353,7 +366,12 @@ class RegimeModelSet:
     def to_dict(self) -> dict[str, Any]:
         """Return JSON-ready configuration and models."""
         from dataclasses import asdict
-        return {"kind": "regime_pca", "config": asdict(self.config),
+        config = asdict(self.config)
+        if config["regimes"] is not None:
+            config["regimes"]["quantum"] = dict(self.config.regimes.quantum)
+        # JSON conversion changes immutable tuple fields into schema-native arrays.
+        config = json.loads(json.dumps(config))
+        return {"kind": "regime_pca", "config": config,
                 "models": {key: model.to_dict() for key, model in self.models.items()}}
 
     @classmethod
@@ -362,10 +380,7 @@ class RegimeModelSet:
         from crosscut_anomaly.config import load_config
         if document.get("kind") != "regime_pca":
             raise PcaModelError("expected a regime_pca model set")
-        config = dict(document["config"])
-        if config["regimes"] is not None:
-            config["regimes"]["quantum"] = dict(config["regimes"]["quantum"])
-        return cls(load_config(config), {key: PcaModel.from_dict(value)
+        return cls(load_config(document["config"]), {key: PcaModel.from_dict(value)
                                         for key, value in document["models"].items()})
 
     def sha256(self) -> str:
@@ -376,7 +391,10 @@ class RegimeModelSet:
 
 def regime_keys(x: np.ndarray, config: AnomalyConfig, mode_ids: Sequence[Any] | None = None
                 ) -> list[str | None]:
-    """Build one key per row; non-finite grouping values have no known regime."""
+    """Build row keys using np.rint rounding (half to even) for quantum steps.
+
+    Non-finite grouping values have no known regime.
+    """
     if mode_ids is not None:
         if len(mode_ids) != len(x):
             raise PcaModelError("mode_ids must contain one id per row")
@@ -394,6 +412,15 @@ def regime_keys(x: np.ndarray, config: AnomalyConfig, mode_ids: Sequence[Any] | 
     return [json.dumps(row.tolist()) if np.isfinite(row).all() else None for row in values]
 
 
+def _mask_grouping_columns(training: np.ndarray, config: AnomalyConfig) -> np.ndarray:
+    """Remove grouping-tag variance while preserving missing rows and lag boundaries."""
+    grouping = [config.tags.index(tag) for tag in config.regimes.by]
+    # Quantised setpoints define the operating point, not monitoring evidence.
+    # Zero their finite entries (samples by grouping tags), leaving NaNs intact.
+    training[:, grouping] = np.where(np.isfinite(training[:, grouping]), 0.0, np.nan)
+    return training
+
+
 def fit_regimes(x: np.ndarray, config: AnomalyConfig,
                 mode_ids: Sequence[Any] | None = None) -> RegimeModelSet:
     """Fit sufficiently populated regimes; lag history never crosses a regime boundary."""
@@ -404,7 +431,13 @@ def fit_regimes(x: np.ndarray, config: AnomalyConfig,
     for key in sorted(set(keys) - {None}):
         selected = np.array([value == key for value in keys])
         training = np.where(selected[:, None], rows, np.nan)
+        if mode_ids is None:
+            training = _mask_grouping_columns(training, config)
         valid = augment_lags(training, config.dynamic_lags)
-        if np.isfinite(valid).all(axis=1).sum() >= max(minimum, 50, 10 * valid.shape[1]):
+        # min_rows counts finite raw observations; PCA separately needs enough
+        # complete lag windows (n rows by p * (lags + 1) columns) to fit safely.
+        raw_count = np.count_nonzero(selected & np.isfinite(rows).all(axis=1))
+        complete_count = np.count_nonzero(np.isfinite(valid).all(axis=1))
+        if raw_count >= minimum and complete_count >= max(50, 10 * valid.shape[1]):
             models[key] = fit_from_config(training, config)
     return RegimeModelSet(config, models)
