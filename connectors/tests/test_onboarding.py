@@ -117,3 +117,62 @@ def test_custom_site_readiness_thresholds() -> None:
     assert cfg.min_duration_h == 12.0
     assert cfg.warn_duration_h == 48.0
     assert cfg.max_sample_period_s == 30.0
+
+
+def test_sensor_faults_are_serialized_per_tag() -> None:
+    """The onboarding report exposes event windows without changing verdict rules."""
+    times = np.arange(0.0, 86400.0, 60.0)
+    generator = np.random.default_rng(53)
+    values = 50.0 + generator.normal(0, 0.1, len(times))
+    values[300:391] = 50.0
+    result = evaluate_dataset_readiness('faults', times, {'level': values}, [])
+    serialized = result.to_dict()['sensor_faults']['level']
+    assert serialized[0]['tag'] == 'level'
+    assert serialized[0]['kind'] == 'freeze'
+    assert serialized[0]['start_s'] == 18000.0
+    assert serialized[0]['end_s'] == 23400.0
+
+
+def test_sensor_fault_analysis_preserves_invalid_time_verdicts() -> None:
+    """Invalid timestamps still produce the existing readiness report."""
+    times, columns = _clean_dataset()
+    times[1] = times[0]
+    result = evaluate_dataset_readiness('invalid-time', times, columns, [_make_loop()], _site_doc())
+    assert result.modules['loops'].status == VERDICT_NOT_READY
+    assert result.sensor_faults['FIC101.PV'] == []
+
+
+def test_controller_outputs_and_setpoints_are_skipped() -> None:
+    """Controller commands cannot be diagnosed as measured sensor faults."""
+    times, columns = _clean_dataset()
+    result = evaluate_dataset_readiness("roles", times, columns, [_make_loop()], _site_doc())
+    assert result.sensor_faults["FIC101.OUT"] == []
+    assert result.sensor_faults["FIC101.SP"] == []
+    assert result.to_dict()["sensor_faults_skipped"]["not_a_sensor"] >= 2
+
+
+def test_site_measurements_are_analysed_and_unknown_tags_are_skipped() -> None:
+    """Site roles restrict detection once role metadata is available."""
+    times = np.arange(0.0, 86400.0, 60.0)
+    values = 50 + np.random.default_rng(53).normal(0, 0.1, len(times))
+    values[300:391] = 50
+    site = {"signals": [{"tag": "measured", "role": "dv"}]}
+    result = evaluate_dataset_readiness(
+        "roles", times, {"measured": values, "unknown": values}, [], site)
+    assert result.sensor_faults["measured"][0].kind == "freeze"
+    assert result.sensor_faults["unknown"] == []
+    assert result.sensor_faults_skipped == {"not_a_sensor": 1}
+
+
+def test_pv_freeze_attributes_overlapping_loop_findings() -> None:
+    """A frozen measurement is the cause of contemporaneous sibling symptoms."""
+    from crosscut_connectors.onboarding import attribute_consequences
+    from crosscut_loops.sensor_faults import SensorFaultFinding
+
+    cause = SensorFaultFinding("pv", "freeze", 100, 300, 1, {})
+    symptom = SensorFaultFinding("dv", "drift", 200, 400, 1, {})
+    result = attribute_consequences(
+        {"pv": [cause], "dv": [symptom]},
+        {"pv": ("pv", "loop"), "dv": ("dv", "loop")})
+    assert result["dv"] == []
+    assert result["pv"][0].evidence["consequences"] == ["dv"]
