@@ -111,6 +111,7 @@ MATRIX: tuple[MatrixRow, ...] = (
             "after M6: catalogue built in the GUI, live loop KPI within tolerance of the "
             "ground-truth KPI, no file edited by hand (e2e)"
         ),
+        status="ready",
     ),
     MatrixRow(
         row_id="L5-P1-dq",
@@ -131,6 +132,7 @@ MATRIX: tuple[MatrixRow, ...] = (
             "e2e proposal -> confirm -> write -> read-back -> audit entry; "
             "kill switch stops writes within one cycle"
         ),
+        status="ready",
     ),
     *_gateway_rows(),
     MatrixRow(
@@ -159,6 +161,7 @@ MATRIX: tuple[MatrixRow, ...] = (
             "weak loop detected -> step test -> tuning -> write after confirmation -> "
             "KPI improves vs ground truth -> rollback restores the old parameters"
         ),
+        status="ready",
     ),
     MatrixRow(
         row_id="L5-P4",
@@ -219,7 +222,45 @@ def _controller_executor() -> None:
             row(Path(tmp))
 
 
+def _p1_executor() -> None:
+    """Executor of L5-P1: catalogue from a nominal recording, live KPI row for every loop."""
+    from p1_live import execute
+
+    execute()
+
+
+def _p3_executor() -> None:
+    """Executor of L5-P3: run the P3 tuning-chain tests of test_l5_p3.py in a pytest subprocess."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).parent
+    command = [sys.executable, "-m", "pytest", str(here / "test_l5_p3.py"), "-q", "-o", "addopts="]
+    done = subprocess.run(command, cwd=here, capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-500:]
+
+
+def _p2_executor() -> None:
+    """Executor of L5-P2-e2e: gateway scenario tests, then every gateway row on RougherSim."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    command = [sys.executable, "-m", "pytest", str(root / "gateway" / "tests" /
+                                                   "test_gateway_scenarios.py"),
+               "-q", "-o", "addopts="]
+    done = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-500:]
+    for ref, _ in GATEWAY_CASES:
+        _gateway_executor(ref)()
+
+
 EXECUTORS["L5-P25"] = _controller_executor
+EXECUTORS["L5-P2-e2e"] = _p2_executor
+EXECUTORS["L5-P1"] = _p1_executor
+EXECUTORS["L5-P3"] = _p3_executor
 EXECUTORS.update(
     {f"L5-G{n:02d}": _gateway_executor(ref) for n, (ref, _) in enumerate(GATEWAY_CASES, 1)}
 )
