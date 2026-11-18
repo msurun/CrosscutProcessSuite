@@ -14,7 +14,7 @@ Crosscut to serwer on-prem z konsolą w przeglądarce, w której inżynier proce
 | Operator | Pracuje w konsoli, akceptuje lub odrzuca proponowane zapisy w trybie `confirm`. |
 | Inżynier automatyki | Odpowiada za politykę zapisu, konfigurację gateway i ustawienia bezpieczeństwa. Nadzoruje wszystko, co dotyka regulatora. |
 
-Zasady, które się nie zmieniają: dane z zakładu służą do walidacji cech i nigdy ich nie definiują. Żadna nazwa tagu, jednostka, kod braku danych, okno ani próg jednego zakładu nie może być stałą w `*/src`. Każda funkcja działa na dowolnym tagu, wyniku laboratoryjnym, analizatorze i pętli, które skonfiguruje użytkownik. Rzeczywiste dane z zakładu pozostają poza repozytorium.
+Decyzja właściciela 2026-11-17: Crosscut jest frameworkiem, a nie konfiguracją jednego zakładu. Dane z zakładu właściciela nie są używane do rozwoju ani walidacji. Walidacja wykorzystuje publiczne zbiory danych. Nastawy, metadane próbek, konwencje dostawców i wartości ekonomiczne są konfiguracją zakładu wprowadzaną przez użytkownika. Przed użyciem sprawdź licencję i dodaj wiersz do `docs/PROVENANCE.md`. Pobieraj dane do katalogu roboczego poza repozytorium; nigdy ich nie commituj ani nie rozpowszechniaj. Zbiory CC BY-SA i bez licencji są używane wyłącznie lokalnie; żadne dane pochodne nie są publikowane. Żadna nazwa tagu, jednostka, kod braku danych, okno ani próg jednego zakładu nie może być stałą w `*/src`. Każda funkcja działa na dowolnym tagu, wyniku laboratoryjnym, analizatorze i pętli, które skonfiguruje użytkownik. Decyzja właściciela 2026-11-17: walidacja na danych publicznych; dane zakładu właściciela są wykluczone z rozwoju i walidacji.
 
 ## 2. Decyzje właściciela z 2026-10-27
 
@@ -134,13 +134,13 @@ Każde ustalenie dostaje od użytkownika wynik (naprawione, to nie problem, odł
 5. **Kontrola.** Po okresie ustalania KPI są porównywane przed i po, na tryb pracy, w oknie ustalonym w szablonie.
 6. **Rollback.** Poprzednie parametry przywracane jednym kliknięciem i proponowane automatycznie, jeśli KPI się pogorszą.
 
-**Zawory.** Prowadzony test skoku zaworu (zapis OUT w manualu to otwarta decyzja właściciela nr 2), kwantyfikacja stiction, trend zdrowia zaworu wspólny z szablonem urządzenia „zawór” (4.3).
+**Zawory.** Prowadzony test skoku zaworu (propozycje OUT w manualu są dozwolone tylko w `confirm`, decyzja 2026-11-17; osobne zgłoszenie), kwantyfikacja stiction, trend zdrowia zaworu wspólny z szablonem urządzenia „zawór” (4.3).
 
-**Korzyść i raporty.** Szacowanie korzyści: redukcja wariancji → możliwe przesunięcie nastawy w stronę limitu → wartość roczna, z wartością na jednostkę PV wpisaną przez użytkownika (warstwa ekonomiczna to otwarta decyzja właściciela nr 8). Raport zmianowy i tygodniowy pętli: co się zmieniło, co naprawiono, co nadal czeka.
+**Korzyść i raporty.** Szacowanie korzyści: redukcja wariancji → możliwe przesunięcie nastawy w stronę limitu → wartość roczna, z wartością na jednostkę PV wpisaną przez użytkownika (warstwa ekonomiczna jest konfiguracją zakładu, decyzja 2026-11-17, #35). Raport zmianowy i tygodniowy pętli: co się zmieniło, co naprawiono, co nadal czeka.
 
 **Dostarcza dziś.** Lista robocza z ustaleniami (manual, nasycenie, flatline, oscylacja); test oscylacji ACF i klastry oscylacji; KPI zdrowia zaworów, podejrzenie stiction i prowadzony test skoku; identyfikacja w pętli zamkniętej i ze skoków (FOPDT, integrujące eksperymentalnie) z bramką jakości; raport strojenia (SIMC/AMIGO, planowanie kaskady); szacowanie korzyści; widok Steps. KPI pętli działają też online jako zadanie runtime. Zapis parametrów PID w `confirm` przez gateway, przegląd KPI przed/po i rollback istnieją przeciwko symulatorom (ADR 014). Brak szablonów pętli, KPI na tryb pracy, kolejności przyczyn na liście roboczej, wyników ustaleń; formularze PID dostawców to kod, nie dane; brak sygnału gotowości pętli dla kontrolerów.
 
-**Walidacja.** Wiersze L5 względem RougherSim: źle nastrojona pętla zostaje wykryta i poprawiona; zawór ze stiction jest zdiagnozowany jako problem zaworu, a nie strojenia; pętla pobudzana zewnętrzną oscylacją nie jest przestrajana; poziom uśredniający nie jest strojony ciasno; rollback dokładnie przywraca poprzednie parametry. Dowody z zakładu: przegląd listy roboczej „na ślepo” i jeden rzeczywisty test skoku zaworu (zadania właściciela), potem pilotaż Fazy 3 w `confirm`.
+**Walidacja.** Wiersze L5 względem RougherSim: źle nastrojona pętla zostaje wykryta i poprawiona; zawór ze stiction jest zdiagnozowany jako problem zaworu, a nie strojenia; pętla pobudzana zewnętrzną oscylacją nie jest przestrajana; poziom uśredniający nie jest strojony ciasno; rollback dokładnie przywraca poprzednie parametry. Decyzja właściciela 2026-11-17: benchmarki na danych publicznych zastępują przegląd listy roboczej na ślepo i rzeczywisty test skoku zaworu (osobne zgłoszenia).
 
 **Luka do produktu.**
 
@@ -181,7 +181,7 @@ Każde ustalenie dostaje od użytkownika wynik (naprawione, to nie problem, odł
 
 Wartości domyślne w presecie pochodzą ze źródeł publicznych z wierszem w `docs/PROVENANCE.md`, nigdy z zakładu. Dostosowany preset zapisuje się jako wersjonowaną konfigurację projektu; dostarczony preset pozostaje bez zmian. Opcja „Custom” (oparta na danych, bez presetu) jest zawsze dostępna.
 
-**Katalog presetów.** Proponowany zestaw pierwszego wydania oznaczono **v1**; reszta to plan rozwoju. Ostateczny zestaw v1 to decyzja właściciela (sekcja 10).
+**Katalog presetów.** Decyzja właściciela 2026-11-17: zestaw pierwszego wydania oznaczono **v1**; tryb `backup` wchodzi do v1. Reszta to plan rozwoju.
 
 | Preset | Estymuje | Typowe wejścia | Struktura | v1 |
 |---|---|---|---|---|
@@ -247,7 +247,7 @@ Analiza widmowa drgań, analiza oleju i termowizja są poza zakresem: ich wyniki
 **Reguły projektowe** (z publicznej praktyki monitorowania procesów, zarządzania alarmami i utrzymania ruchu według stanu; każde źródło dostaje wiersz w `docs/PROVENANCE.md` przed implementacją):
 
 1. **Najpierw kontekst pracy.** Model zna tryb pracy. Użytkownik definiuje tryby jako warunki na tagach z katalogu (postój, rozruch, praca normalna, wysoka wydajność, zmiana rudy, mycie); silnik może proponować tryby przez klasteryzację historii, a użytkownik je akceptuje. Każdy detektor ma limity na tryb. W stanach nieprocesowych (urządzenie zatrzymane, rozruch, odstawienie) detektory są wyciszone, a nie alarmują. Jeden model dla zakładu wielotrybowego to najczęstsza przyczyna fałszywych alarmów.
-2. **Dane normalne wybiera człowiek i są one zapisane.** Okno uczące wybiera się w GUI, znane zdarzenia są wykluczane, a wykluczenia zapisuje się razem z modelem. Minimalna ilość spokojnych danych na tryb jest parametrem schematu (wartość dla zakładu pozostaje zadaniem właściciela: ≥ 2 tygodnie plus oznaczone zdarzenia).
+2. **Dane normalnej pracy wybiera i zapisuje człowiek.** Okno treningowe wybiera się w GUI; znane zdarzenia są wykluczane, a wykluczenia zapisywane z modelem. Minimalny spokojny okres dla trybu jest parametrem schematu konfigurowanym przez użytkownika zakładu (decyzja 2026-11-17); walidacja wykorzystuje dane publiczne.
 3. **Wartość oczekiwana i residuum dla urządzeń.** Wskaźnik zdrowia urządzenia to różnica między tym, co urządzenie robi, a tym, co powinno robić w tych samych warunkach: temperatura łożyska względem obciążenia, obrotów i temperatury otoczenia; moc i wysokość podnoszenia pompy względem przepływu, obrotów i gęstości (szablon charakterystyki pompy z 4.2); moc napędu względem obciążenia taśmy; skok zaworu względem sygnału sterującego (kontrole zaworów z 4.1). Residuum usuwa wpływ punktu pracy, więc stały górny limit nie przeoczy awarii przy niskim obciążeniu.
 4. **Adaptacja jest bramkowana i widoczna.** Limity i modele mogą podążać za powolną normalną zmianą, ale aktualizacje odbywają się wyłącznie w ustalonej, zdrowej pracy i nigdy nie wchłaniają otwartego zdarzenia. Aktualizacja jest proponowana, wersjonowana i akceptowana przez inżyniera, nigdy cicha.
 5. **Niewiele, ale znaczących powiadomień.** Zdarzenia Crosscut to powiadomienia doradcze w konsoli, a nie alarmy DCS, ale stosują praktykę zarządzania alarmami (ANSI/ISA-18.2, EEMUA 191): opóźnienie załączenia i wyłączenia (trwałość), histereza, priorytet z konsekwencji i czasu na reakcję, odkładanie (shelving) z powodem i terminem wygaśnięcia, wyciszanie zależne od stanu pracy oraz grupowanie skorelowanych wykryć w jedno zdarzenie z jednym kandydatem na przyczynę. Budżet powiadomień na rolę użytkownika jest konfigurowany i śledzony; jego przekroczenie samo jest pokazywane jako problem zdrowia monitoringu.
@@ -276,7 +276,7 @@ Analiza widmowa drgań, analiza oleju i termowizja są poza zakresem: ich wyniki
 
 **Dostarcza dziś.** PCA z T2 i SPE, kolumny z opóźnieniami, reguła zablokowanego czujnika, ostrzeżenie o możliwej rampie. Runda 3 exp29 spełniła swoje kryteria. Brak trybów pracy, szablonów urządzeń, modeli wartości oczekiwanej, zarządzania powiadomieniami, wyników zdarzeń i prognozy.
 
-**Walidacja.** RougherSim wstrzykuje degradacje z wartością odniesienia (zużycie pompy, rosnąca temperatura łożyska, opory przenośnika, stiction zaworu, dryf i zamrożenie przetwornika) oraz zmiany trybu pracy, które **nie** mogą wywołać zdarzeń. Każdy szablon v1 dostaje wiersz L5: wykrycie, czas wyprzedzenia i fałszywe zdarzenia na tryb według zamrożonego protokołu. Wstrzykiwanie degradacji, tam gdzie jeszcze nie istnieje, jest pozycją kamienia milowego RougherSim. Rzeczywiste dowody wymagają danych właściciela: spokojnych okresów na tryb i oznaczonych zdarzeń, najlepiej z historią utrzymania ruchu.
+**Walidacja.** RougherSim wstrzykuje degradacje z wartością odniesienia (zużycie pompy, rosnąca temperatura łożyska, opory przenośnika, stiction zaworu, dryf i zamrożenie przetwornika) oraz zmiany trybu pracy, które **nie** mogą wywołać zdarzeń. Każdy szablon v1 dostaje wiersz L5: wykrycie, czas wyprzedzenia i fałszywe zdarzenia na tryb według zamrożonego protokołu. Wstrzykiwanie degradacji, tam gdzie jeszcze nie istnieje, jest pozycją kamienia milowego RougherSim. Decyzja właściciela 2026-11-17: walidacja na danych publicznych; szablony urządzeń odroczono do Fazy 4b.
 
 **Luka do produktu.**
 
@@ -327,7 +327,7 @@ Szczegóły UX i otwarte pytania są w `docs/design/fuzzy-studio.md`.
 
 **Dostarcza dziś.** Nic. Jedynym „ML” w repozytorium są PLS i PCA.
 
-**Luka do produktu.** Rzeczywiste dane z historian, sprawdzalna analiza zmiennych zakłócających (confounding), cel ekonomiczny i ograniczenia (decyzja właściciela, niepodjęta). Plan pracy do zaproponowania przez asystenta i zatwierdzenia przez właściciela.
+**Luka do produktu.** Publiczne dane z historian, sprawdzalna analiza zmiennych zakłócających (confounding), wartość ekonomiczna na jednostkę PV i ograniczenia konfigurowane przez użytkownika (decyzja 2026-11-17, #35). Plan pracy do zaproponowania przez asystenta i zatwierdzenia przez właściciela.
 
 **Faza.** 8.
 
@@ -338,8 +338,8 @@ ADR 012 („Writes are a product capability”, `docs/adr/012-writes-are-a-produ
 - Zapisuje wyłącznie Write Gateway. Jest to osobny proces. Pakiety analityczne nigdy nie importują kodu zapisu i nigdy nie przechowują poświadczeń. Testy strażnicze w CI oznaczają teraz „tylko gateway zapisuje”, a nie „nic nie zapisuje”.
 - Polityka zapisu to dane (schemat `write-policy`). Limity, maksymalny krok, maksymalne tempo, minimalny odstęp, dozwolone tryby pętli, czas hold-off, okres watchdoga, tolerancja odczytu zwrotnego. Bez flagi wymuszenia.
 - Weryfikacja odczytem zwrotnym każdego zapisu. Watchdog, który system sterowania może monitorować. Priorytet operatora: dowolna zmiana ręczna wyłącza zapis do tego celu na czas hold-off. Kill switch respektowany w jednym cyklu gateway, nie do obejścia przez konfigurację. Audyt z łańcuchem haszy każdej propozycji, decyzji i zapisu.
-- Dozwolone cele: nastawy pętli w trybie kaskady lub zdalnej nastawy; parametry strojenia PID (tylko `confirm`); tagi wyjściowe wirtualnych sensorów. Nigdy wyjście regulatora; węzeł trybu lub źródła nastawy tylko przy przekazaniu nastawy według ADR 016 (domyślnie tylko oddanie, przejęcie zdalnej nastawy tylko gdy zakład je włączy). Asystent testu skoku zapisujący OUT w trybie manual to otwarta decyzja właściciela (sekcja 10).
-- Tryby na cel, domyślnie `off`: `off`, `advisory`, `dry_run`, `confirm`, `supervised`. Wersja 1 implementuje wszystkie pięć. Parametry strojenia PID są zapisywane tylko w `confirm`; `supervised` jest dozwolony dla nastaw pętli i tagów wirtualnych sensorów w granicach polityki. Kto może włączyć `supervised`, to decyzja właściciela (sekcja 10).
+- Dozwolone cele: nastawy pętli w trybie kaskady lub zdalnej nastawy; parametry strojenia PID (tylko `confirm`); tagi wyjściowe wirtualnych sensorów. Wyjście regulatora jest wykluczone poza asystentem testu skoku w osobnym zgłoszeniu (manual, tylko `confirm`, decyzja 2026-11-17); węzeł trybu lub źródła nastawy tylko przy przekazaniu nastawy według ADR 016 (domyślnie tylko oddanie, przejęcie zdalnej nastawy tylko gdy zakład je włączy). Decyzja właściciela 2026-11-17 pozwala asystentowi proponować zapisy OUT w manualu, tylko w `confirm`; implementacja w osobnym zgłoszeniu (sekcja 10).
+- Tryby na cel, domyślnie `off`: `off`, `advisory`, `dry_run`, `confirm`, `supervised`. Wersja 1 implementuje wszystkie pięć. Parametry strojenia PID są zapisywane tylko w `confirm`; `supervised` jest dozwolony dla nastaw pętli i tagów wirtualnych sensorów w granicach polityki. Uprawnienia są konfigurowane dla zakładu zgodnie z ADR 013/014 (decyzja 2026-11-17, #31).
 - Uwierzytelnianie, role (inżynier, operator) i logowanie są wymagane przed `confirm`. Tylko użytkownicy lokalni.
 - Symulator z Fazy 1a zastępuje „soft PLC” z wcześniejszych planów. 12 scenariuszy gateway staje się rzeczywistymi testami przeciwko niemu w Fazie 2.
 
@@ -347,12 +347,12 @@ ADR 012 („Writes are a product capability”, `docs/adr/012-writes-are-a-produ
 
 Osobny projekt, który Crosscut widzi wyłącznie jako czarną skrzynkę przez OPC UA i eksport z historian. Wartość odniesienia (ground truth) jest udostępniana osobnym kanałem. Stanowi bazę dla przyszłego uproszczonego narzędzia do modelowania schematów technologicznych dla metalurgów.
 
-Repozytorium to RougherSim (github.com/msurun/RougherSim, prywatne, licencja jeszcze nieustalona); jego plan znajduje się w `docs/IMPLEMENTATION_PLAN.md` w tamtym repozytorium, kamienie milowe M0–M7.
+Repozytorium to RougherSim (github.com/msurun/RougherSim, prywatne, bez licencji, decyzja 2026-11-17 podtrzymująca decyzję 2026-10-27); jego plan znajduje się w `docs/IMPLEMENTATION_PLAN.md` w tamtym repozytorium, kamienie milowe M0–M7.
 
 - **Model procesu jako dane.** Plik JSON schematu technologicznego plus biblioteka jednostek: podajnik i przenośnik z opóźnieniem transportu, młyn kulowy, zbiornik z pompą, hydrocyklon, bateria flotacji 3–4 ogniw z poziomem i powietrzem (model kinetyczny), prosty cleaner, zagęszczacz koncentratu. Zawory z martwą strefą i tarcie statyczne (stiction). Przetworniki z szumem, kwantyzacją i kompresją historian. Osobny bilans masy dla ciał stałych, wody i minerałów. Realistyczne sprzężenia: poziomy integrujące, interakcja między ogniwami, twardość rudy i zakłócenia zasilania. Około 20–30 pętli PID, w tym kaskady. Punktem wyjścia jest istniejący model mielenia w `sim/`.
 - **Profil dostawcy jako wymienna warstwa.** Najpierw ABB 800xA / AC 800M: przestrzeń adresowa OPC UA i nazewnictwo w stylu 800xA; semantyka bloku PID (Man/Auto/Cascade/Remote SP, tracking, bumpless, nazwy i jednostki Gain/Ti/Td); alarmy i zdarzenia; format eksportu z historian. Nie imitujemy Operator Workplace ani Aspect Objects. Drugi profil: Siemens (PCS 7 / S7 PID).
 - **Tryby pracy.** Czas rzeczywisty i przyspieszony. Skryptowe akcje operatora. Wstrzykiwanie awarii. Nagrywanie scenariuszy.
-- **Ograniczenie do jawnego stwierdzenia.** Imitacja dowodzi naszego rozumienia 800xA, a nie zgodności z rzeczywistym 800xA. Kontrole na rzeczywistym stosie: Siemens PLCSIM Advanced (wersja próbna; tani test profilu Siemens); ABB SoftController tylko z legalną licencją ABB, w legalnym środowisku, wykonane przez właściciela. Żadnych nieoficjalnych pobrań.
+- **Ograniczenie do jawnego stwierdzenia.** Imitacja dowodzi naszego rozumienia 800xA, a nie zgodności z rzeczywistym 800xA. Decyzja 2026-11-17: profil ABB pozostaje ASSUMPTION; konwencje są sprawdzane w publicznej dokumentacji ABB. Na razie bez ABB SoftController. Siemens PLCSIM Advanced odroczono do pojawienia się użytkownika Siemens.
 
 Symulator DCS zastępuje „soft PLC” dla scenariuszy gateway w Fazie 2 oraz dla cyklu strojenia w Fazie 3.
 
@@ -369,20 +369,20 @@ Każda faza ma krótki szczegółowy plan przed rozpoczęciem oraz własne bramk
 | **Faza 1a** — Symulator DCS | Patrz sekcja 6 | Symulator działa jako serwer OPC UA w profilu ABB. Crosscut z Fazy 1 łączy się, buduje katalog, liczy KPI na żywo. Bilans masy się domyka (test). Odpowiedzi skokowe pętli zgadzają się z wartością odniesienia |
 | **Faza 2** — Write Gateway v1 | Implementacja zgodnie z ADR 012: `off`, `advisory`, `dry_run`, `confirm`, potem `supervised`. Pierwszy protokół zapisu: OPC UA. Schemat polityki zapisu i edytor w GUI. Kolejka propozycji w konsoli. Role i logowanie | Wszystkie 12 scenariuszy gateway przechodzą przeciwko symulatorowi DCS z Fazy 1a. e2e pokazuje propozycję → potwierdzenie → zapis → odczyt zwrotny → wpis w audycie; kill switch zatrzymuje w jednym cyklu. Gateway, polityka i uprawnienia przechodzą przegląd |
 | **Faza 2.5** — Rdzeń APC (decyzja właściciela 2026-11-10, przed Fazą 3) | Sekcja 3.2 i ADR 015: jeden model zmiennych w katalogu, status zmiennych na żywo, gotowość pętli, host kontrolera w runtime, supervisor fuzzy jako pierwszy kontroler, konsola operatora | Supervisor fuzzy działa jako kontroler w runtime przeciwko RougherSim w pętli zamkniętej: zła CV zostaje odrzucona, utrata MV lub komunikacji przełącza na sterowanie bazowe, restart przywraca stan kontrolera, operator włącza i wyłącza kontroler oraz zmienne w konsoli |
-| **Faza 3** — Moduł 1 jako kompletny produkt (pierwsze wydanie) | Monitoring online wszystkich pętli z katalogu. Ścieżka strojenia od detekcji do zapisu po potwierdzeniu, kontrola KPI, rollback jednym kliknięciem. Opcjonalny asystent testu skoku | Pełny cykl na symulatorze DCS: słaba pętla wykryta → test → strojenie → zapis po potwierdzeniu → poprawa KPI → rollback działa. Następnie pilotaż w zakładzie właściciela w trybie `confirm` |
-| **Faza 4a** — Uniwersalny silnik wirtualnych sensorów z presetami | Patrz sekcja 4.2 | Konfiguracja lab-plus-analizator zbudowana w całości w GUI odtwarza liczby z exp31. exp30 (syntetyczny) nadal spełnia swoje kryteria. Test ślepy na następnej dostawie danych. Każdy preset v1, skonfigurowany wyłącznie w GUI, przechodzi swój wiersz L5 względem RougherSim, w tym scenariusz awarii przyrządu (kryteria przełączenia i dokładności zamrożone w protokole przed uruchomieniem) |
+| **Faza 3** — Moduł 1 jako kompletny produkt (pierwsze wydanie) | Monitoring online wszystkich pętli z katalogu. Ścieżka strojenia od detekcji do zapisu po potwierdzeniu, kontrola KPI, rollback jednym kliknięciem. Opcjonalny asystent testu skoku | Pełny cykl na symulatorze DCS: słaba pętla wykryta → test → strojenie → zapis po potwierdzeniu → poprawa KPI → rollback działa. Benchmarki na danych publicznych (decyzja 2026-11-17); kontrole wdrożenia są osobne |
+| **Faza 4a** — Uniwersalny silnik wirtualnych sensorów z presetami | Patrz sekcja 4.2 | Konfiguracja lab-plus-analizator zbudowana w całości w GUI jest walidowana na danych publicznych (decyzja 2026-11-17). exp30 (syntetyczny) nadal spełnia swoje kryteria. Każdy preset v1, skonfigurowany wyłącznie w GUI, przechodzi swój wiersz L5 względem RougherSim, w tym scenariusz awarii przyrządu (kryteria przełączenia i dokładności zamrożone w protokole przed uruchomieniem) |
 | **Faza 4b** — Szablony urządzeń i predykcyjne utrzymanie ruchu | Patrz sekcja 4.3 (szablony urządzeń, modele wartości oczekiwanej, indeks zdrowia, czas do limitu). Korzysta z maszynerii presetów z Fazy 4a i zarządzania zdarzeniami z Fazy 3 | Każdy szablon urządzenia v1 wykrywa wstrzykniętą w RougherSim degradację z czasem wyprzedzenia i częstością fałszywych zdarzeń ustalonymi w zamrożonym protokole i nie zgłasza zdarzeń przy zmianach trybu pracy. Widok urządzeń w GUI uszeregowany według krytyczności |
 | **Faza 5** — Konektory | PI (PI Web API, opcjonalnie AF SDK); profile SQL/ODBC (IP.21, PHD, AVEVA/Wonderware Historian, WinCC); OPC DA/HDA przez wrapper lub proxy UA; Excel i Parquet | Każdy konektor pokrywa historię, odczyt bieżący i metadane. Każdy ma test na nagranym fixture. Testy na rzeczywistych źródłach pozostają zadaniami właściciela. Zapisy pozostają wyłącznie przez gateway |
 | **Faza 6** — Fuzzy w pętli zamkniętej | Kanwa strategii (sekcja 4.4). Porada supervisor staje się propozycją zapisu nastawy przez gateway: najpierw `confirm`, potem `supervised` | Propozycje zapisu przechodzą przez gateway; praca w `confirm`, następnie `supervised` przetestowana przeciwko symulatorowi DCS |
 | **Faza 7** — MPC | Identyfikacja z testów skoku i edytowalna macierz modelu w GUI. Liniowy MPC z ograniczeniami (QP) sprawdzony na `sim/`. Runtime w C++ zgodnie z ADR 001 | MPC zapisuje nastawy przez gateway w trybie `supervised` przeciwko symulatorowi DCS |
-| **Faza 8** — ML i optymalizacja | Rekomendacja zakresu pracy i warstwa ekonomiczna (RTO) ponad MPC i fuzzy | Plan zatwierdzony przez właściciela. Cel ekonomiczny i ograniczenia dostarczone przez właściciela |
+| **Faza 8** — ML i optymalizacja | Rekomendacja zakresu pracy i warstwa ekonomiczna (RTO) ponad MPC i fuzzy | Plan zatwierdzony przez właściciela. Wartość ekonomiczna na jednostkę PV i ograniczenia wprowadzane przez użytkownika zakładu; brak blokady decyzyjnej (2026-11-17, #35) |
 
 ## 8. Dyscyplina dowodowa i granice twierdzeń
 
 - Zamrożone protokoły: eksperyment zamraża i commituje protokół przed jakimkolwiek uruchomieniem. Ziarna testowe uruchamia się raz. Porażki trafiają do wyników jawnie; progów się nie przesuwa.
 - Eksperymenty służą funkcjom produktu z tego dokumentu. Nie są osobną linią pracy.
 - Sukces w symulatorze nie jest twierdzeniem o zakładzie. Wnioski mówią „w naszym symulatorze, z naszym modelem operatora”.
-- Rzeczywiste dane z zakładu pozostają poza repozytorium.
+- Decyzja właściciela 2026-11-17: walidacja na danych publicznych; dane zakładu właściciela są wykluczone z rozwoju i walidacji.
 
 Patrz `docs/TESTING_STRATEGY.md` (drabinka L0–L7), `docs/ASSUMPTIONS.md` (niesprawdzone założenia i plany ich wycofania), `experiments/README.md` (indeks i status eksperymentów).
 
@@ -391,26 +391,26 @@ Patrz `docs/TESTING_STRATEGY.md` (drabinka L0–L7), `docs/ASSUMPTIONS.md` (nies
 Egzekwowana przy każdym zadaniu i zapisana do repozytoryjnego `CLAUDE.md` w Fazie 0:
 
 1. Każde zadanie wskazuje moduł i fazę w tym dokumencie.
-2. Praca na danych zakładu daje generyczną funkcję silnika plus przykładową konfigurację albo nic.
+2. Decyzja właściciela 2026-11-17: praca na danych publicznych daje generyczne funkcje silnika; fakty zakładowe pozostają konfiguracją użytkownika.
 3. Nowy element najwyższego poziomu (pakiet, linia eksperymentów, narzędzie) wymaga zatwierdzenia przez właściciela.
 
-## 10. Otwarte decyzje właściciela
+## 10. Decyzje właściciela — 2026-11-17
 
-| # | Decyzja | Co blokuje |
+| # | Decyzja | Dalsze działania |
 |---|---|---|
-| 1 | Pierwszy DCS pilotażowy (ABB lub Siemens) dla zapisów parametrów PID i konwencji CAS | Pilotaż w Fazie 3 |
-| 2 | Czy asystent testu skoku może proponować zapisy OUT w trybie manual (`confirm`) | Kryteria wyjścia Fazy 3 |
-| 3 | Licencja osobnego projektu symulatora DCS RougherSim (nazwa ustalona); czy Siemens PLCSIM Advanced (wersja próbna) jest drugą kontrolą | Faza 1a |
-| 4 | Czy istnieje legalny dostęp do ABB SoftController (Compact Control Builder) do sprawdzenia profilu ABB na rzeczywistym stosie | Weryfikacja ABB w Fazie 1a |
-| 5 | Przegląd licencji ADR 008 (AGPL-3.0-only) | Warunki wydania |
-| 6 | Przegląd listy roboczej „na ślepo” (≈20 pętli) | Dowody dla modułu 1 |
-| 7 | Jeden rzeczywisty test skoku zaworu | Dowody dla modułu 1 |
-| 8 | Cel optymalizacji (wartość ekonomiczna na jednostkę PV, ograniczenia pracy) | Faza 8 |
-| 9 | Model uprawnień zapisu: kto może włączyć `confirm`/`supervised`, kto może zmienić politykę, co operator może zawsze zrobić | `supervised` w Fazie 2 |
-| 10 | Zestaw presetów wirtualnych sensorów v1 (sekcja 4.2) i czy tryb `backup` wchodzi do v1; które przyrządy w zakładzie (waga taśmowa, pompa, zawór) mogą dostarczyć dane walidacyjne | Zakres Fazy 4a |
-| 11 | Lista urządzeń krytycznych i szablony urządzeń v1 (sekcja 4.3); czy można udostępnić historię utrzymania ruchu (zlecenia pracy, rejestry awarii) jako oznaczone zdarzenia | Dowody dla Fazy 4b |
+| 1 | **2026-11-17:** Dostęp do walidacji ABB/Siemens to dane wdrożenia (mapa zakładu, polityka), a nie decyzja produktowa. | Patrz decyzja |
+| 2 | **2026-11-17:** Asystent testu skoku MOŻE proponować zapisy OUT w manualu, wyłącznie w trybie `confirm` (osobne zgłoszenie). | Patrz decyzja |
+| 3 | **2026-11-17:** RougherSim pozostaje prywatny, bez licencji, zgodnie z decyzją z 2026-10-27. Sprawdzenie w Siemens PLCSIM Advanced odroczono do pojawienia się użytkownika Siemens. | Patrz decyzja |
+| 4 | **2026-11-17:** Na razie bez ABB SoftController. Profil ABB pozostaje oznaczony ASSUMPTION; konwencje są sprawdzane w publicznej dokumentacji ABB. | Patrz decyzja |
+| 5 | **2026-11-17:** Zaakceptowano ADR 008 (AGPL-3.0-only, z CLA) i ADR 009 (#29). | Patrz decyzja |
+| 6 | **2026-11-17:** Przegląd listy roboczej na ślepo zastępują benchmarki na danych publicznych (osobne zgłoszenie). | Patrz decyzja |
+| 7 | **2026-11-17:** Rzeczywisty test skoku zaworu zastępują benchmarki na danych publicznych (osobne zgłoszenie). | Patrz decyzja |
+| 8 | **2026-11-17:** Cel optymalizacji jest konfiguracją zakładu: użytkownik podaje wartość ekonomiczną na jednostkę PV i ograniczenia, tak jak w punkcie 9. Fazy 8 nie blokuje już decyzja (#35). | Patrz decyzja |
+| 9 | **2026-11-17:** Uprawnienia zapisu są konfigurowane dla zakładu zgodnie z ADR 013/014 i `docs/ADMIN_GUIDE.md`; nie oczekują na decyzję właściciela (#31). | Patrz decyzja |
+| 10 | **2026-11-17:** Wirtualne sensory v1 obejmują presety oznaczone v1 w sekcji 4.2; tryb `backup` WCHODZI do v1 (osobne zgłoszenie). Walidacja przyrządów wykorzystuje dane publiczne. | Patrz decyzja |
+| 11 | **2026-11-17:** Odroczono do Fazy 4b: szablony urządzeń v1 są oznaczone w sekcji 4.3; walidacja na danych publicznych. | Patrz decyzja |
 
-Nadal istotne z PROJECT_DESIGN §8: rzeczywisty test skoku poziomu (pętla integrująca), rzeczywiste dane anomalii (≥ 2 tygodnie spokoju plus oznaczone zdarzenia), rzeczywiste dane wirtualnego sensora (znaczniki czasu labu, opóźnienie, tagi), znaczenie znacznika czasu labu i kodu braku danych, opóźnienie analizatora, kontrola w UaExpert i jeden eksport TI/TD bloku `PidCC` z ABB, precyzja ostrzeżenia o rampie na rzeczywistych lukach w archiwum, następna dostawa danych zachowana nietknięta do ślepego testu exp31.
+Decyzja właściciela 2026-11-17: Crosscut jest frameworkiem, a nie konfiguracją jednego zakładu. Dane z zakładu właściciela nie są używane do rozwoju ani walidacji. Walidacja wykorzystuje publiczne zbiory danych. Nastawy, metadane próbek, konwencje dostawców i wartości ekonomiczne są konfiguracją zakładu wprowadzaną przez użytkownika. Przed użyciem sprawdź licencję i dodaj wiersz do `docs/PROVENANCE.md`. Pobieraj dane do katalogu roboczego poza repozytorium; nigdy ich nie commituj ani nie rozpowszechniaj. Zbiory CC BY-SA i bez licencji są używane wyłącznie lokalnie; żadne dane pochodne nie są publikowane.
 
 ## 11. Mapa dokumentów
 
@@ -426,10 +426,10 @@ Nadal istotne z PROJECT_DESIGN §8: rzeczywisty test skoku poziomu (pętla integ
 | `docs/PROVENANCE.md` | Źródła publiczne i zbiory danych firm trzecich |
 | `docs/OWNER_TASKS.md` | Co może zrobić tylko właściciel; co przynieść z powrotem |
 | `docs/adr/001` | Runtime w C++, narzędzia offline w Pythonie (zaakceptowany) |
-| `docs/adr/008` | Licencja AGPL-3.0-only |
-| `docs/adr/009` | Konfiguracja jest danymi (proponowany) |
-| `docs/adr/010` | Supervisor doradczy, bez zapisów (proponowany; stanowisko o zapisach zastąpione przez ADR 012) |
-| `docs/adr/011` | Projekt ścieżki zapisu; reguły bezpieczeństwa nadal w mocy |
+| `docs/adr/008` | AGPL-3.0-only z CLA (zaakceptowany 2026-11-17, #29) |
+| `docs/adr/009` | Konfiguracja jest danymi (zaakceptowany 2026-11-17, #29) |
+| `docs/adr/010` | Supervisor doradczy (zaakceptowany 2026-11-17; częściowo zastąpiony przez ADR 012 i ADR 015) |
+| `docs/adr/011` | Projekt ścieżki zapisu; pytania właściciela zamknięte przez domyślne ustawienia ADR 013/014 (2026-11-17, #31); reguły bezpieczeństwa nadal w mocy |
 | `docs/adr/012` | Zapisy są cechą produktu |
 | `docs/adr/013` | Role i uprawnienia |
 | `docs/adr/014` | Ścieżka zapisu strojenia |

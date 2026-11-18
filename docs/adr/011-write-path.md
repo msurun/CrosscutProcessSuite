@@ -1,7 +1,7 @@
 # ADR 011: Write path to a control system (design only, simulator-only skeleton)
 
-Status: **superseded in part** (written 2026-10-23 as proposed). The write path is implemented through ADR 012 (writes are a product
-capability), ADR 013 (roles and authority) and ADR 014 (tuning write path); the safety rules of this ADR remain in force.
+Status: **superseded in part**; owner open points closed 2026-11-17 by configurable defaults in ADR 013/014 (#31).
+The write path is implemented through ADR 012 (writes are a product capability), ADR 013 (roles and authority) and ADR 014 (tuning write path); the safety rules of this ADR remain in force.
 Superseded in part by [ADR 012](012-writes-are-a-product-capability.md) (2026-10-27): writing is a product capability through the Write Gateway; the safety design here still applies.
 Builds on ADR 001 (language split), ADR 009 (configuration is data, extension by process boundary) and ADR 010 (advisory supervisor).
 
@@ -43,13 +43,17 @@ kill switch; dry run sends nothing.
 
 Writes of controller output or mode, direct valve or drive control, safety-instrumented functions, authentication and user management (until the owner decides the authority model), cloud operation, any write to a real system from this repository.
 
-## Open points for the owner
+## Former owner open points - closed 2026-11-17 (#31)
 
-1. Authority model: who may enable `confirm` and `supervised`, who may change the policy, what the operator can always do, how responsibility is recorded.
-2. Vendor conventions on the sites in question (cascade, remote setpoint, tracking, bumpless transfer) and who on the plant side supervises the first tests.
-3. Watchdog periods and hold-off times the operators accept.
-4. Regulatory or company approval needed before any write test (management of change, functional safety review).
-5. Whether the first customer wants closed-loop use at all, or advisory and `confirm` only.
+Owner decision 2026-11-17: ADR 013/014 supply configurable defaults; these are no longer product blockers.
+
+1. Authority, roles and operator priority: ADR 013 role table and configurable defaults.
+2. Vendor conventions and first-test supervision: per-site plant map and write policy, entered by the user.
+3. Watchdog and hold-off periods: per-site write policy with safe defaults.
+4. Regulatory or company approval: site deployment responsibility before live writes.
+5. Advisory, `confirm` or `supervised` use: site configuration within gateway policy and authority limits.
+
+Historical implementation statements above describe the original proposal; ADR 012-014 govern the current write path.
 
 ## Consequences
 

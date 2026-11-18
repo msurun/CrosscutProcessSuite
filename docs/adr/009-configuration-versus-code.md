@@ -1,6 +1,6 @@
 # ADR 009: Configuration is data, code is not (AGPL boundary)
 
-Status: **proposed** (2026-10-19), awaiting the owner's decision and a lawyer's review of the clause below.
+Status: **accepted** (owner decision 2026-11-17, #29). Legal-review and licence-notice follow-ups below remain separate from owner acceptance.
 Builds on ADR 008 (AGPL-3.0-only).
 
 ## Context
