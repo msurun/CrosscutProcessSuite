@@ -114,6 +114,17 @@ class LivenessMonitor:
         controllers = {s: row for (kind, s), row in rows.items() if kind == KIND_CONTROLLER}
         return {"runtime": runtime[0] if runtime else None, "controllers": controllers}
 
+    def forget(self, kind: str, sender: str) -> None:
+        """Drop a sender (its beat was refused): it no longer counts as alive."""
+        self._entries.pop((kind, sender), None)
+
+    def is_fresh(self, sender: str, now_ns: int) -> bool:
+        """True when the controller has a valid beat inside its window and the runtime is alive."""
+        entry = self._entries.get((KIND_CONTROLLER, sender))
+        if entry is None or self._expired(entry, now_ns):
+            return False
+        return not self._runtime_expired(now_ns)
+
     def controller_ids(self) -> list[str]:
         """Controllers that have beaten at least once."""
         return [sender for kind, sender in self._entries if kind == KIND_CONTROLLER]

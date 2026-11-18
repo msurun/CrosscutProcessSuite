@@ -142,3 +142,16 @@ def test_every_field_is_required_when_enabled(missing: str) -> None:
 def test_bad_backup_values_are_refused_naming_the_field(bad: dict[str, object]) -> None:
     with pytest.raises(SoftSensorConfigError, match="backup"):
         load_config(_doc(**bad))
+
+
+def test_nan_flag_is_unknown_not_good_but_zero_flag_is_ok() -> None:
+    """Issue #126: a configured flag with no value must not pass the measurement as GOOD."""
+    t, m, v = _series()
+    flag = np.zeros(len(t))
+    flag[10] = np.nan
+    res = run_backup(t, m, flag, v, CFG)
+    assert res.reason[10] == "analyser_flag_unknown" and res.substituted[10]
+    assert res.quality[10] == SUBSTITUTED
+    assert res.reason[5] == "" and res.quality[5] == GOOD  # flag 0 stays OK
+    only_unknown = run_backup(t, m, flag, np.full(len(t), np.nan), CFG)
+    assert only_unknown.quality[10] == UNAVAILABLE

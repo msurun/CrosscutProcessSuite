@@ -293,3 +293,22 @@ def test_backup_substitutes_out_of_range_rows_and_logs_the_switches(
     assert len(series["output"]) == len(series["substituted"]) == len(series["quality"])
     assert set(series["quality"]) <= {0, 1, 2} and 1 in series["quality"]
     assert result["latest"]["quality"] in (0, 1, 2)
+
+
+def test_backup_never_substitutes_an_estimate_the_model_marks_invalid() -> None:
+    """Issue #116: validity != ok in the run means quality unavailable, not substituted."""
+    from crosscut_api.softsensor_routes import _usable_virtual
+    from crosscut_softsensor.backup import UNAVAILABLE, run_backup
+    from crosscut_softsensor.config import BackupConfig
+    from crosscut_softsensor.runner import SoftSensorRun
+
+    n = 6
+    t = np.arange(n) * 60.0
+    run = SoftSensorRun(t, np.full(n, 50.0), ["ok", "ok", "out_of_range", "out_of_range",
+                                              "ok", "extrapolation"],
+                        np.full(n, np.nan), np.zeros(n), np.zeros(n, dtype=bool), 0)
+    measured = np.array([10.0, 10.5, 1e9, 1e9, 11.0, 1e9])  # rows 2, 3, 5 invalid (range)
+    cfg = BackupConfig("an", frozen_s=1e9, range_lo=0.0, range_hi=100.0, return_hold_s=0.0)
+    out = run_backup(t, measured, None, _usable_virtual(run), cfg)
+    assert list(out.quality[[2, 3, 5]]) == [UNAVAILABLE] * 3
+    assert not np.isfinite(out.output[2])

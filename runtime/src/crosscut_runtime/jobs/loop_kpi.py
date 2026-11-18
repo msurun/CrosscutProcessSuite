@@ -8,6 +8,7 @@ of the offline record of the same series are exactly equal (the property the tes
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -21,6 +22,8 @@ from crosscut_loops.overview import (
     OUT_LOW,
     ULTIMATE_PERIOD_S,
 )
+
+GOOD_QUALITY = 0  # connector quality code: 0 good, 1 uncertain, 2 bad; only GOOD is analysed
 
 # The four channels of one loop, in the order the site loop document names its tags.
 CHANNELS = ("pv", "sp", "out", "mode")
@@ -66,6 +69,39 @@ class RollingWindow:
         """Number of kept samples across all tags."""
         self._trim()
         return sum(len(rows) for rows in self._samples.values())
+
+
+def _nearest(rows: list[tuple[float, float]], ts: float, tol_s: float) -> float | None:
+    """Value of the row (sorted by ts) nearest to ``ts`` within ``tol_s``, else None."""
+    stamps = [stamp for stamp, _ in rows]
+    i = bisect_left(stamps, ts)
+    near = [j for j in (i - 1, i) if 0 <= j < len(rows) and abs(stamps[j] - ts) <= tol_s]
+    if not near:
+        return None
+    return rows[min(near, key=lambda j: abs(stamps[j] - ts))][1]
+
+
+def align_channels(
+    rows: dict[str, list[tuple[float, float]]], tol_s: float
+) -> tuple[list[float], dict[str, list[float]]]:
+    """Pair PV, SP, OUT and MODE by timestamp, never by position.
+
+    Every PV sample is an anchor; each other channel contributes its nearest sample within
+    ``tol_s`` (half a sample period). An anchor with a missing channel is dropped, so a dropped
+    (BAD) sample of one tag removes that instant instead of shifting the other series.
+    Returns the common timestamps (PV stamps) and the aligned value lists per channel.
+    """
+    stamps: list[float] = []
+    values: dict[str, list[float]] = {channel: [] for channel in CHANNELS}
+    for ts, pv in rows["pv"]:
+        others = {c: _nearest(rows[c], ts, tol_s) for c in CHANNELS if c != "pv"}
+        if any(v is None for v in others.values()):
+            continue
+        stamps.append(ts)
+        values["pv"].append(pv)
+        for channel, value in others.items():
+            values[channel].append(float(value))  # type: ignore[arg-type]
+    return stamps, values
 
 
 def settings_for_loop(loop_doc: dict[str, Any]) -> monitor.LoopSettings:
@@ -178,8 +214,8 @@ class LoopKpiJob:
         values = self.connector.read_live(list(tags.values()))
         for _channel, tag in tags.items():
             live = values.get(tag)
-            if live is None or live.value is None:
-                continue
+            if live is None or live.value is None or live.quality != GOOD_QUALITY:
+                continue  # missing, or not GOOD (uncertain/bad): never analysed or stored
             # The connector stamps samples in UTC ISO text; the window works in epoch seconds.
             ts = datetime.fromisoformat(live.timestamp_utc).timestamp()
             self.window.add(tag, ts, live.value)
@@ -189,19 +225,17 @@ class LoopKpiJob:
     def _loop_kpi(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> dict[str, Any] | None:
         """The KPI of one loop from the window, or None while below the sample threshold."""
         rows = {channel: self.window.rows(tags[channel]) for channel in CHANNELS}
-        # Alignment assumption: all four tags are sampled on the same read_live tick, so the
-        # per-tag skew is within one period; the last n rows of each channel are then the same n
-        # instants, and t_s comes from the PV channel (every kept row sits inside the window).
-        n = min(len(rows[channel]) for channel in CHANNELS)
-        if n < monitor.MIN_KPI_SAMPLES:
+        # Align by timestamp (nearest within half a sample period), not by position.
+        tol_s = float(self.job_doc.get("period_s", 1.0)) / 2.0
+        stamps, values = align_channels(rows, tol_s)
+        if len(stamps) < monitor.MIN_KPI_SAMPLES:
             return None
-        tail = {channel: rows[channel][-n:] for channel in CHANNELS}
         return kpi_from_series(
-            [stamp for stamp, _ in tail["pv"]],
-            [value for _, value in tail["pv"]],
-            [value for _, value in tail["sp"]],
-            [value for _, value in tail["out"]],
-            [value for _, value in tail["mode"]],
+            stamps,
+            values["pv"],
+            values["sp"],
+            values["out"],
+            values["mode"],
             settings=settings_for_loop(loop_doc),
         )
 

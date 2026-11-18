@@ -169,42 +169,9 @@ interface RuleRowProps {
 
 /** One rule rendered as a sentence, with weight, enabled flag and firing gauge. */
 function RuleRow({ rule, document, firing, onChangeRule, onDelete, t }: RuleRowProps) {
-  const operator = rule.operator ?? "and";
-  const changeClause = (index: number, next: FuzzyClause) =>
-    onChangeRule({ ...rule, if: rule.if.map((clause, position) => (position === index ? next : clause)) });
-  const removeClause = (index: number) => onChangeRule({ ...rule, if: rule.if.filter((_, position) => position !== index) });
-  const addClause = () => onChangeRule({ ...rule, if: [...rule.if, defaultCondition(document)] });
   return (
     <li className={(rule.enabled ?? true) ? "rule-row" : "rule-row rule-disabled"}>
-      <div className="rule-sentence">
-        <span className="rule-word">{t("fuzzy.rule.if")}</span>
-        {rule.if.map((clause, index) => (
-          <span className="rule-condition" key={index}>
-            <ConditionRow
-              clause={clause}
-              index={index}
-              isRemovable={rule.if.length > 1}
-              document={document}
-              onChangeClause={changeClause}
-              onRemove={removeClause}
-              t={t}
-            />
-            {index < rule.if.length - 1 && (
-              <OperatorSelect operator={operator} onChange={(next) => onChangeRule({ ...rule, operator: next })} t={t} />
-            )}
-          </span>
-        ))}
-        <button type="button" className="link-button" onClick={addClause}>
-          {t("fuzzy.rule.addCondition")}
-        </button>
-        <span className="rule-word">{t("fuzzy.rule.then")}</span>
-        <ConclusionSelects
-          clause={rule.then}
-          document={document}
-          onChangeClause={(next) => onChangeRule({ ...rule, then: next })}
-          t={t}
-        />
-      </div>
+      <RuleSentence rule={rule} document={document} onChangeRule={onChangeRule} t={t} />
       <div className="rule-meta">
         <RuleSettings rule={rule} firing={firing} onChangeRule={onChangeRule} t={t} />
         <button type="button" className="link-button" onClick={onDelete}>
@@ -212,6 +179,75 @@ function RuleRow({ rule, document, firing, onChangeRule, onDelete, t }: RuleRowP
         </button>
       </div>
     </li>
+  );
+}
+
+/** The if/then sentence of one rule with its condition and conclusion selects. */
+function RuleSentence({
+  rule,
+  document,
+  onChangeRule,
+  t,
+}: {
+  rule: FuzzyRule;
+  document: FuzzyDocument;
+  onChangeRule: (next: FuzzyRule) => void;
+  t: Translate;
+}) {
+  const addClause = () => onChangeRule({ ...rule, if: [...rule.if, defaultCondition(document)] });
+  return (
+    <div className="rule-sentence">
+      <span className="rule-word">{t("fuzzy.rule.if")}</span>
+      <RuleConditions rule={rule} document={document} onChangeRule={onChangeRule} t={t} />
+      <button type="button" className="link-button" onClick={addClause}>
+        {t("fuzzy.rule.addCondition")}
+      </button>
+      <span className="rule-word">{t("fuzzy.rule.then")}</span>
+      <ConclusionSelects
+        clause={rule.then}
+        document={document}
+        onChangeClause={(next) => onChangeRule({ ...rule, then: next })}
+        t={t}
+      />
+    </div>
+  );
+}
+
+/** The editable condition clauses of one rule, joined by the operator select. */
+function RuleConditions({
+  rule,
+  document,
+  onChangeRule,
+  t,
+}: {
+  rule: FuzzyRule;
+  document: FuzzyDocument;
+  onChangeRule: (next: FuzzyRule) => void;
+  t: Translate;
+}) {
+  const operator = rule.operator ?? "and";
+  const changeClause = (index: number, next: FuzzyClause) =>
+    onChangeRule({ ...rule, if: rule.if.map((clause, position) => (position === index ? next : clause)) });
+  const removeClause = (index: number) => onChangeRule({ ...rule, if: rule.if.filter((_, position) => position !== index) });
+  return (
+    <>
+      {rule.if.map((clause, index) => (
+        <span className="rule-condition" key={index}>
+          <ConditionRow
+            clause={clause}
+            index={index}
+            isRemovable={rule.if.length > 1}
+            document={document}
+            onChangeClause={changeClause}
+            onRemove={removeClause}
+            t={t}
+          />
+          {index < rule.if.length - 1 && (
+            <OperatorSelect operator={operator} onChange={(next) => onChangeRule({ ...rule, operator: next })} t={t} />
+          )}
+        </span>
+      ))}
+    </>
   );
 }
 

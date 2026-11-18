@@ -15,6 +15,7 @@ from crosscut_loops import monitor
 from crosscut_runtime.jobs.loop_kpi import (
     LoopKpiJob,
     RollingWindow,
+    align_channels,
     kpi_from_series,
     settings_for_loop,
 )
@@ -236,3 +237,68 @@ def test_job_keeps_earlier_loops_as_none_below_threshold() -> None:
     assert set(result["kpi"]) == {"FIC-101", "FIC-202"}
     assert result["kpi"]["FIC-202"] is None
     assert result["kpi"]["FIC-101"] is not None
+
+
+# --- Issue #119: BAD samples are dropped, channels are paired by timestamp -------------------
+
+
+class _ScriptedConnector:
+    """One scripted read_live reply per call: tag -> (value, quality, epoch seconds)."""
+
+    def __init__(self, ticks: list[dict[str, tuple[float, int, float]]]) -> None:
+        self._ticks = ticks
+        self._i = 0
+
+    def read_live(self, tag_ids: list[str]) -> dict[str, LiveValue]:
+        tick = self._ticks[self._i]
+        self._i += 1
+        return {
+            tag: LiveValue(v, q, datetime.fromtimestamp(ts, tz=UTC).isoformat())
+            for tag, (v, q, ts) in tick.items()
+            if tag in tag_ids
+        }
+
+
+def _tick(t: float, pv_q: int = 0, skip: str | None = None) -> dict[str, tuple[float, int, float]]:
+    tick = {
+        LOOP_DOC["pv"]: (t, pv_q, t),
+        LOOP_DOC["sp"]: (100.0 + t, 0, t),
+        LOOP_DOC["out"]: (200.0 + t, 0, t),
+        LOOP_DOC["mode"]: (1.0, 0, t),
+    }
+    if skip:
+        del tick[LOOP_DOC[skip]]
+    return tick
+
+
+def test_pull_drops_non_good_samples() -> None:
+    ticks = [_tick(0.0), _tick(1.0, pv_q=2), _tick(2.0, pv_q=1)]
+    job = LoopKpiJob(JOB_DOC, {LOOP_DOC["id"]: LOOP_DOC}, _ScriptedConnector(ticks))
+    for _ in ticks:
+        job.run()
+    assert [v for _, v in job.window.rows(LOOP_DOC["pv"])] == [0.0]
+
+
+def test_channels_are_paired_by_timestamp_not_position() -> None:
+    # SP is missing at t=1: positional tails would pair PV(2) with SP(1); timestamps must not.
+    rows = {
+        "pv": [(float(t), float(t)) for t in range(4)],
+        "sp": [(0.0, 100.0), (2.0, 102.0), (3.0, 103.0)],
+        "out": [(float(t), 200.0 + t) for t in range(4)],
+        "mode": [(float(t), 1.0) for t in range(4)],
+    }
+    stamps, values = align_channels(rows, 0.5)
+    assert stamps == [0.0, 2.0, 3.0]
+    assert values["pv"] == [0.0, 2.0, 3.0] and values["sp"] == [100.0, 102.0, 103.0]
+    assert values["out"] == [200.0, 202.0, 203.0]
+
+
+def test_alignment_tolerates_skew_within_half_a_period() -> None:
+    rows = {c: [(0.0, 1.0), (1.0, 2.0)] for c in CHANNELS_FOR_TEST}
+    rows["sp"] = [(0.3, 1.0), (1.4, 2.0)]  # 0.3 s ok, 0.4 s ok; period 1 s -> tol 0.5 s
+    assert len(align_channels(rows, 0.5)[0]) == 2
+    rows["sp"] = [(0.6, 1.0), (1.4, 2.0)]
+    assert align_channels(rows, 0.5)[0] == [1.0]
+
+
+CHANNELS_FOR_TEST = ("pv", "sp", "out", "mode")

@@ -3,15 +3,18 @@
  * Receives a fully resolved Field (label and help are already translated strings)
  * and reports every editor change as text through onTextChange.
  */
-import type { Field } from "./schemaFormModel";
+import { JsonBufferEditor } from "./JsonBufferEditor";
+import { NestedEditor } from "./NestedEditor";
+import type { Field, Translate } from "./schemaFormModel";
 
 export interface SchemaFieldProps {
   field: Field;
   onTextChange: (text: string) => void;
+  t: Translate;
 }
 
 /** Renders one labelled editor chosen from the field kind. */
-export function SchemaField({ field, onTextChange }: SchemaFieldProps) {
+export function SchemaField({ field, onTextChange, t }: SchemaFieldProps) {
   const inputId = `schema-field-${field.name}`;
   const labelText = field.required ? `${field.label} *` : field.label;
 
@@ -79,14 +82,17 @@ export function SchemaField({ field, onTextChange }: SchemaFieldProps) {
         />
       )}
 
+      {field.kind === "structured" && field.nested && (
+        <NestedEditor schema={field.nested.schema} root={field.nested.root} value={field.nested.value}
+          path={field.name} label={field.label} t={t}
+          onChange={(value) => onTextChange(JSON.stringify(value))} />
+      )}
+
       {field.kind === "json" && (
-        <textarea
-          className="field-input"
-          id={inputId}
-          rows={8}
-          value={field.text}
-          onChange={(event) => onTextChange(event.target.value)}
-        />
+        <>
+          <p className="field-help">{t("configEditor.advancedJson")}</p>
+          <JsonBufferEditor id={inputId} text={field.text} t={t} onValid={onTextChange} />
+        </>
       )}
     </div>
   );

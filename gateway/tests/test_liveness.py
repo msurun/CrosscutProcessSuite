@@ -27,6 +27,7 @@ def make() -> tuple[WriteGateway, SimPlant]:
     plant = SimPlant()
     gateway = WriteGateway(plant, {TAG: POLICY}, "supervised")  # type: ignore[arg-type]
     gateway.tick(0)
+    gateway.record_beat(beat(), 0)
     gateway.propose(WriteProposal(TAG, 55.0, "controller:c1", 0, "test"))
     return gateway, plant
 
@@ -83,7 +84,8 @@ def test_controller_not_on_and_holding_nothing_triggers_nothing() -> None:
     gateway, plant = make()
     gateway.record_beat(beat("standby", "c2"), 0)
     tick(gateway, plant, 30)
-    assert [r["reason_code"] for r in events(gateway, "runtime_lost")] == []
+    lost = [r["reason_code"] for r in events(gateway, "runtime_lost")]
+    assert lost == ["controller:c1"]  # only the holder; the idle c2 raises nothing
     assert gateway.liveness_view()["controllers"]["c2"]["lost"] is False
 
 
@@ -105,6 +107,66 @@ def test_lost_runtime_releases_every_controller() -> None:
     assert plant.remote is False
     reasons = {r["reason_code"] for r in events(gateway, "runtime_lost")}
     assert reasons == {"runtime", "controller:c1"}
+
+
+def proposal(proposer: str, t_s: float = 1.0) -> WriteProposal:
+    """A proposal for TAG at time ``t_s``."""
+    return WriteProposal(TAG, 56.0, proposer, int(t_s * S), "test")
+
+
+def test_controller_without_beat_is_refused() -> None:
+    """No beat, no writes: a controller that never beat gets liveness_missing."""
+    gateway, _plant = make()
+    decision = gateway.propose(proposal("controller:never"))
+    assert (decision.accepted, decision.reason_code) == (False, "liveness_missing")
+
+
+def test_refused_beat_blocks_the_controllers_writes() -> None:
+    """A refused beat (watchdog too short) also drops the earlier valid beat."""
+    gateway, _plant = make()
+    with pytest.raises(LivenessError):
+        gateway.record_beat(beat(cycle_s=3.0), 0)
+    assert gateway.propose(proposal("controller:c1")).reason_code == "liveness_missing"
+
+
+def test_stale_beat_blocks_writes_and_fresh_beat_allows_them() -> None:
+    """Writes stop once the beat is older than the window and resume with a new beat."""
+    gateway, plant = make()
+    gateway._last_write_t_ns[TAG] = 100 * S  # noqa: SLF001 - keep the write watchdog quiet
+    tick(gateway, plant, 7)
+    assert gateway.propose(proposal("controller:c1", 7)).reason_code == "liveness_missing"
+    gateway.record_beat(beat(), 8 * S)
+    tick(gateway, plant, 8)
+    gateway._last_write_t_ns[TAG] = 0  # noqa: SLF001
+    assert gateway.propose(proposal("controller:c1", 8)).accepted is True
+
+
+def test_other_proposers_need_no_beat() -> None:
+    """Supervisors and operators are not controllers: no beat is asked of them."""
+    gateway, _plant = make()
+    assert gateway.propose(proposal("supervisor:s1")).reason_code != "liveness_missing"
+
+
+def test_failed_release_is_retried_until_it_works_and_audited_once() -> None:
+    """A release that fails stays pending: one audit line, retried on every tick."""
+    gateway, plant = make()
+    gateway._last_write_t_ns[TAG] = 100 * S  # noqa: SLF001
+    attempts = []
+
+    def flaky(tag: str) -> None:
+        attempts.append(tag)
+        if len(attempts) < 4:
+            raise ConnectionError("down")
+        plant.remote = False
+
+    plant.release = flaky  # type: ignore[method-assign]
+    for second in (7, 8, 9, 10, 11):
+        tick(gateway, plant, second)
+    assert len(attempts) == 4  # three failures, then success; nothing after
+    failed = [r for r in events(gateway, "release") if r["reason_code"] == "release_failed"]
+    assert len(failed) == 1
+    assert plant.remote is False
+    assert len(events(gateway, "runtime_lost")) == 1
 
 
 def test_runtime_alone_with_nothing_active_is_quiet() -> None:

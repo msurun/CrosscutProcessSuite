@@ -305,7 +305,7 @@ class WriteGateway:
             decision = WriteDecision(accepted=False, reason_code="bad_time")
             self._audit_decision(tag, proposal, decision)
             return decision
-        refusal = self._refusal_reason(tag)
+        refusal = self._refusal_reason(tag) or self._liveness_refusal(proposal)
         if refusal is None:
             return None
         return self._record(proposal, WriteDecision(accepted=False, reason_code=refusal), key)
@@ -671,12 +671,22 @@ class WriteGateway:
         self._hold_until_ns: dict[str, int] = {}
         self._holding: dict[str, bool] = {tag: False for tag in policies}
         self._holder: dict[str, str] = {}
+        self._lost_pending: set[str] = set()
+        self._release_failed: set[str] = set()
         self._liveness = LivenessMonitor()
 
     def _validate_tag(self, tag: str) -> None:
         """Raise KeyError when a tag has no policy."""
         if tag not in self._policies:
             raise KeyError(f"unknown tag: {tag}")
+
+    def _liveness_refusal(self, proposal: WriteProposal) -> str | None:
+        """``liveness_missing`` for a ``controller:<id>`` proposer without a fresh valid beat."""
+        prefix = "controller:"
+        if not proposal.proposer.startswith(prefix):
+            return None
+        sender = proposal.proposer[len(prefix) :]
+        return None if self._liveness.is_fresh(sender, self._now_ns) else "liveness_missing"
 
     def _refusal_reason(self, tag: str) -> str | None:
         """Return the first applicable refusal reason, or None when the write may proceed."""
@@ -784,6 +794,7 @@ class WriteGateway:
         """
         problems = watchdog_problems(beat, self._policies)
         if problems:
+            self._liveness.forget(beat.kind, beat.sender)
             self._log("liveness_refused", "", f"{beat.sender}: {problems[0]}")
             raise LivenessError(f"liveness: {problems[0]}")
         self._liveness.record(beat, now_ns)
@@ -797,15 +808,33 @@ class WriteGateway:
         return bool(holders_of(self._holding, self._holder, controller_id))
 
     def _check_liveness(self) -> None:
-        """Release what a lost controller (or a lost runtime) holds; audit ``runtime_lost``."""
+        """Release what a lost controller (or runtime) holds; retry failed releases each tick."""
         for kind, sender in self._liveness.newly_lost(self._now_ns, self._controller_holds):
             if kind != KIND_CONTROLLER:
                 self._log("runtime_lost", "", "runtime")
                 continue
             self._log("runtime_lost", "", f"controller:{sender}")
-            for tag in holders_of(self._holding, self._holder, sender):
-                if self._release_target(tag, "runtime_lost"):
-                    self._holding[tag] = False
+            self._lost_pending.add(sender)
+        for sender in sorted(self._lost_pending):
+            self._release_lost(sender)
+
+    def _release_lost(self, sender: str) -> None:
+        """Release the targets of a lost controller; keep it pending while one release fails."""
+        tags = holders_of(self._holding, self._holder, sender)
+        if not tags or self._liveness.is_fresh(sender, self._now_ns):
+            self._lost_pending.discard(sender)
+            return
+        for tag in tags:
+            try:
+                self._plant.release(tag)
+            except Exception:  # noqa: BLE001 - a failed release is audited once, then retried
+                if tag not in self._release_failed:
+                    self._release_failed.add(tag)
+                    self._log("release", tag, "release_failed")
+                continue
+            self._release_failed.discard(tag)
+            self._holding[tag] = False
+            self._log("release", tag, "runtime_lost")
 
     def _send_heartbeat_safely(self) -> None:
         """Send a heartbeat; any communication error stops all holding targets."""

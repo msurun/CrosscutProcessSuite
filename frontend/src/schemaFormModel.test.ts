@@ -382,12 +382,12 @@ describe("site schema controllers section", () => {
   const raw = readFileSync(resolve(__dirname, "../../schemas/site.schema.json"), "utf-8");
   const siteSchema = JSON.parse(raw) as SchemaObject;
 
-  it("renders controllers as an editable json array field", () => {
+  it("renders controllers as generated structured controls", () => {
     const doc: JsonDocument = { controllers: [{ id: "C1", type: "fuzzy", variables: [] }] };
     const fields = describeFields(siteSchema, doc, "site", (k) => k);
     const field = fields.find((item) => item.name === "controllers");
     expect(field).toBeDefined();
-    expect(field?.kind).toBe("json");
+    expect(field?.kind).toBe("structured");
     expect(field?.text).toContain('"fuzzy"');
   });
 });

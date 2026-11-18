@@ -1085,3 +1085,13 @@ Engine gaps from the public data are collected in issue #102. Owner items: scipy
 - Runtime: `make_liveness_sender` (gateway_adapter), controller beat per cycle (`ControllerJob`), process beat every 10 s (`controllers/runtime_beat.py`); injected gateway ports (tests) send nothing.
 - Site schema: `controllers[].liveness_cycles` (integer >= 2, default 3). API: `gateway_liveness` and `liveness_cycles` in the controller list/detail. Frontend: `GatewayLivenessCell` with alarm text (en/pl/es).
 - Tests: `gateway/tests/test_liveness.py`, `runtime/tests/test_liveness_beat.py`, controller routes, ControllersPage unit tests.
+
+## 2026-11-18 - review fixes B (#116, #119, #121, #126)
+
+- #116 soft-sensor backup substitutes only rows the model marks `ok`; an invalid estimate gives quality "unavailable" (NaN output), never "substituted".
+- #126 a configured analyser flag with NaN/missing value is `analyser_flag_unknown` (invalid, backup); flag 0 stays OK.
+- #119 loop KPI `_pull` drops non-GOOD samples; PV/SP/OUT/MODE are paired by timestamp (PV stamps anchor, nearest other sample within half `period_s`, anchors with a missing channel are dropped) instead of by position.
+- #121 history store persists the connector quality code per sample (new nullable `quality` column, migrated on open); NULL/missing reads as UNCERTAIN (1), never GOOD. The anomaly scan reads quality from the store, so a restart keeps BAD as BAD. No source/provenance field exists on `LiveValue`, so none is stored.
+## 2026-11-18 - config editor: JSON buffer and nested forms (#127)
+
+The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete text stays, the parse error is shown, only valid JSON is committed. Objects and arrays of objects are generated from the JSON schema (NestedEditor, schemaNested.ts: fieldset per object, add/remove rows per array); schemas with oneOf/anyOf/allOf/patternProperties or dynamic keys keep the raw JSON editor as an "advanced" fallback. New strings configEditor.addRow/removeRow/invalidJson/advancedJson in en/pl/es.

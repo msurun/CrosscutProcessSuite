@@ -23,7 +23,7 @@ export function ConfigEditorPage(props: ConfigEditorPageProps) {
     <section aria-label={t("configEditor.title")} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <h2>{t("configEditor.title")}</h2>
       {!editor.loaded.wasStored && <p className="hint">{t("configEditor.notStored")}</p>}
-      <SchemaForm fields={editor.fields} onFieldChange={editor.change} />
+      <SchemaForm fields={editor.fields} onFieldChange={editor.change} t={t} />
       {editor.problemLines.length > 0 && <div role="alert"><ul className="status status-error">
         {editor.problemLines.map((line, index) => <li key={index}>{line}</li>)}
       </ul></div>}

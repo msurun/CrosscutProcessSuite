@@ -91,8 +91,10 @@ async function runCall(dispatch: (action: ValveAction) => void, call: () => Prom
   }
 }
 
-/** The valve stroke test wizard for one loop. */
-export function ValveTestPage({ datasetId, loop, t, onBack }: ValveTestPageProps) {
+type ValveState = ReturnType<typeof initialState>;
+
+/** State and actions of the wizard: reducer, settings validation and the API calls. */
+function useValveTest() {
   const [state, dispatch] = useReducer(valveReducer, undefined, initialState);
   const [invalidField, setInvalidField] = useState<keyof Settings | null>(null);
   // The request the plan was made from; the analysis calls send it again.
@@ -117,10 +119,139 @@ export function ValveTestPage({ datasetId, loop, t, onBack }: ValveTestPageProps
     void runCall(dispatch, async () => ({ type: "analysed", analysis: await call(plan) }));
   };
 
+  return { state, dispatch, invalidField, setInvalidField, submitSettings, analyse };
+}
+
+type ValveTest = ReturnType<typeof useValveTest>;
+
+/** Props shared by the phase views. */
+interface PhaseProps {
+  valve: ValveTest;
+  datasetId: string;
+  loop: LoopSummary;
+  t: Translate;
+  message: string | null;
+}
+
+/** The settings form with the error of a failed plan request. */
+function SetupPhase({ valve, t, message }: PhaseProps) {
+  const { state, dispatch, invalidField, setInvalidField } = valve;
   const serverField = state.error?.field ? (FIELD_OF_SERVER_KEY[state.error.field] ?? null) : null;
-  const message = state.error ? errorText(t, state.error) : null;
-  const states = stepStates(state.phase);
+  return (
+    <>
+      <ValveSettingsForm
+        settings={state.settings}
+        invalidField={invalidField ?? serverField}
+        busy={state.busy}
+        onChange={(key, value) => {
+          setInvalidField(null);
+          dispatch({ type: "editSetting", key, value });
+        }}
+        onSubmit={valve.submitSettings}
+        t={t}
+      />
+      {message !== null && (
+        <p role="alert" className="status status-error">
+          {message}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The record step: window or CSV analysis. */
+function RecordPhase({ valve, datasetId, loop, t, message }: PhaseProps) {
+  const { state, dispatch, analyse } = valve;
+  return (
+    <ValveRecordStep
+      datasetId={datasetId}
+      loop={loop}
+      busy={state.busy}
+      errorText={message}
+      onAnalyseWindow={(window) => analyse((plan) => analyseValveWindow(datasetId, loop.name, plan, window))}
+      onAnalyseCsv={(csv) => analyse((plan) => analyseValveCsv(plan, csv))}
+      onBack={() => dispatch({ type: "backTo", phase: "plan" })}
+      t={t}
+    />
+  );
+}
+
+/** The step that belongs to the current phase. */
+function PhaseBody(props: PhaseProps) {
+  const { state, dispatch } = props.valve;
+  const { loop, t } = props;
+  if (state.phase === "setup") return <SetupPhase {...props} />;
+  if (state.phase === "record") return <RecordPhase {...props} />;
+  return <PhaseBodyRest state={state} dispatch={dispatch} loop={loop} t={t} />;
+}
+
+/** Props of the phases that need only the state and dispatch. */
+interface RestProps {
+  state: ValveState;
+  dispatch: (action: ValveAction) => void;
+  loop: LoopSummary;
+  t: Translate;
+}
+
+/** The checklist, plan and result steps. */
+function PhaseBodyRest({ state, dispatch, loop, t }: RestProps) {
+  if (state.phase === "checklist") {
+    return (
+      <ValveChecklist
+        checks={state.checks}
+        onToggle={(index) => dispatch({ type: "toggleCheck", index })}
+        onContinue={() => dispatch({ type: "acceptChecklist" })}
+        onBack={() => dispatch({ type: "backTo", phase: "setup" })}
+        t={t}
+      />
+    );
+  }
+  if (state.phase === "plan" && state.plan !== null) {
+    return (
+      <ValvePlanView
+        plan={state.plan}
+        onRecord={() => dispatch({ type: "showRecord" })}
+        onBack={() => dispatch({ type: "backTo", phase: "checklist" })}
+        t={t}
+      />
+    );
+  }
+  if (state.phase === "result" && state.analysis !== null) {
+    return (
+      <ValveResultView
+        analysis={state.analysis}
+        loop={loop}
+        onAgain={() => dispatch({ type: "backTo", phase: "record" })}
+        onNewPlan={() => dispatch({ type: "backTo", phase: "setup" })}
+        t={t}
+      />
+    );
+  }
+  return null;
+}
+
+/** The wizard's stepper for the current phase. */
+function ValveStepper({ phase, t }: { phase: Phase; t: Translate }) {
+  const states = stepStates(phase);
   const steps: StepInfo[] = STEPS.map((step, index) => ({ id: step.id, label: t(step.labelKey), state: states[index] }));
+  return (
+    <Stepper
+      steps={steps}
+      ariaLabel={t("valve.stepper")}
+      stateLabels={{
+        todo: t("tuning.stepState.todo"),
+        active: t("tuning.stepState.active"),
+        done: t("tuning.stepState.done"),
+        blocked: t("tuning.stepState.blocked"),
+      }}
+    />
+  );
+}
+
+/** The valve stroke test wizard for one loop. */
+export function ValveTestPage({ datasetId, loop, t, onBack }: ValveTestPageProps) {
+  const valve = useValveTest();
+  const message = valve.state.error ? errorText(t, valve.state.error) : null;
 
   return (
     <section className="valve-test">
@@ -131,74 +262,8 @@ export function ValveTestPage({ datasetId, loop, t, onBack }: ValveTestPageProps
       <p className="banner" role="note">
         {t("valve.banner")}
       </p>
-      <Stepper
-        steps={steps}
-        ariaLabel={t("valve.stepper")}
-        stateLabels={{
-          todo: t("tuning.stepState.todo"),
-          active: t("tuning.stepState.active"),
-          done: t("tuning.stepState.done"),
-          blocked: t("tuning.stepState.blocked"),
-        }}
-      />
-      {state.phase === "setup" && (
-        <>
-          <ValveSettingsForm
-            settings={state.settings}
-            invalidField={invalidField ?? serverField}
-            busy={state.busy}
-            onChange={(key, value) => {
-              setInvalidField(null);
-              dispatch({ type: "editSetting", key, value });
-            }}
-            onSubmit={submitSettings}
-            t={t}
-          />
-          {message !== null && (
-            <p role="alert" className="status status-error">
-              {message}
-            </p>
-          )}
-        </>
-      )}
-      {state.phase === "checklist" && (
-        <ValveChecklist
-          checks={state.checks}
-          onToggle={(index) => dispatch({ type: "toggleCheck", index })}
-          onContinue={() => dispatch({ type: "acceptChecklist" })}
-          onBack={() => dispatch({ type: "backTo", phase: "setup" })}
-          t={t}
-        />
-      )}
-      {state.phase === "plan" && state.plan !== null && (
-        <ValvePlanView
-          plan={state.plan}
-          onRecord={() => dispatch({ type: "showRecord" })}
-          onBack={() => dispatch({ type: "backTo", phase: "checklist" })}
-          t={t}
-        />
-      )}
-      {state.phase === "record" && (
-        <ValveRecordStep
-          datasetId={datasetId}
-          loop={loop}
-          busy={state.busy}
-          errorText={message}
-          onAnalyseWindow={(window) => analyse((plan) => analyseValveWindow(datasetId, loop.name, plan, window))}
-          onAnalyseCsv={(csv) => analyse((plan) => analyseValveCsv(plan, csv))}
-          onBack={() => dispatch({ type: "backTo", phase: "plan" })}
-          t={t}
-        />
-      )}
-      {state.phase === "result" && state.analysis !== null && (
-        <ValveResultView
-          analysis={state.analysis}
-          loop={loop}
-          onAgain={() => dispatch({ type: "backTo", phase: "record" })}
-          onNewPlan={() => dispatch({ type: "backTo", phase: "setup" })}
-          t={t}
-        />
-      )}
+      <ValveStepper phase={valve.state.phase} t={t} />
+      <PhaseBody valve={valve} datasetId={datasetId} loop={loop} t={t} message={message} />
     </section>
   );
 }
