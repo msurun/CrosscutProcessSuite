@@ -70,9 +70,14 @@ async function openDetail(page: Page) {
 test("the Controllers tab opens the view and shows the variables", async ({ page }) => {
   await mockApi(page);
   await page.goto("/#/d/mill_circuit_observational_seed42/trends");
-  await page.locator("nav.view-tabs button").filter({ hasText: /Regulatory/ }).click();
+  const tab = page.locator("nav.view-tabs button").filter({ hasText: /Regulatory/ });
+  // The tab bar can re-render while the dataset loads and swallow the first click: retry it.
+  await expect(async () => {
+    await tab.click();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByTestId("controllers-page")).toBeVisible();
   await expect(page).toHaveURL(/#\/controllers$/);
-  await expect(page.getByTestId("controllers-page")).toBeVisible({ timeout: 30_000 });
   await openDetail(page);
   await expect(page.getByTestId("controller-var-cv1")).toContainText("4.5");
   await expect(page.getByTestId("controller-var-mv1")).toContainText("0 .. 100");
