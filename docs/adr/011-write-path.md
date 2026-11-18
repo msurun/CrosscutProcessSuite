@@ -1,7 +1,7 @@
 # ADR 011: Write path to a control system (design only, simulator-only skeleton)
 
-Status: **proposed** (2026-10-23), written by the assistant for the owner's review. Nothing in this repository can write to a plant,
-and nothing may until this ADR is accepted, its open points are decided and its test suite passes.
+Status: **superseded in part** (written 2026-10-23 as proposed). The write path is implemented through ADR 012 (writes are a product
+capability), ADR 013 (roles and authority) and ADR 014 (tuning write path); the safety rules of this ADR remain in force.
 Superseded in part by [ADR 012](012-writes-are-a-product-capability.md) (2026-10-27): writing is a product capability through the Write Gateway; the safety design here still applies.
 Builds on ADR 001 (language split), ADR 009 (configuration is data, extension by process boundary) and ADR 010 (advisory supervisor).
 
