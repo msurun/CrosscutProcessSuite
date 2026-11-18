@@ -86,6 +86,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/supervisors/{sid}/log/{advice_id}/ack"): "analysis.run",
     ("POST", "/datasets/{dataset_id}/anomaly/{aid}/scan"): "analysis.run",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/run"): "analysis.run",
+    ("POST", "/datasets/{dataset_id}/softsensor/{sid}/alignment-scan"): "analysis.run",
     ("POST", "/intake/preview"): "analysis.run",
     ("POST", "/intake/check"): "analysis.run",
     ("POST", "/catalogue/suggest"): "analysis.run",
