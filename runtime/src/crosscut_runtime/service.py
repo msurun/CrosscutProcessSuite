@@ -7,21 +7,25 @@ the state store with results and service status.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 import time
 from collections.abc import Callable
-from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
+from crosscut_fuzzy.library import load_document
+from crosscut_fuzzy.model import FuzzyModelError
 
 from crosscut_runtime.addressing import AddressedConnector
 from crosscut_runtime.controllers.gateway_adapter import make_liveness_sender
 from crosscut_runtime.controllers.runtime_beat import RuntimeBeat
 from crosscut_runtime.controllers.wiring import (
+    FUZZY_FOLDER,
     ControllerJob,
     build_controller_job,
     default_gateway_ports,
@@ -46,8 +50,31 @@ def _failing_run(message: str) -> Callable[[], Any]:
     return run
 
 
-def _controller_cache_key(job: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
-    """Copy binding documents so even in-place site edits invalidate the host."""
+def _controller_tag_ids(controller: dict[str, Any], loops: list[dict[str, Any]]) -> set[str]:
+    """Ids of the tags a controller reads or writes: its CV/DV/ICV tags and its MV loop tags."""
+    tags = {
+        variable["binding"]["tag"] for variable in controller.get("variables", [])
+        if variable["role"] != "MV" and "tag" in variable["binding"]
+    }
+    for loop in loops:
+        tags.update(str(loop[key]) for key in ("pv", "sp", "out") if loop.get(key))
+    return tags
+
+
+def _rule_base_content(root: Path, rule_base: str | None) -> Any:
+    """The rule base document, or the error text when it cannot be read (it then keys the cache)."""
+    try:
+        return load_document(str(rule_base), root / FUZZY_FOLDER)
+    except (FuzzyModelError, FileNotFoundError, ValueError) as error:
+        return f"unreadable: {error}"
+
+
+def _controller_cache_key(job: dict[str, Any], site: dict[str, Any], root: Path) -> str:
+    """Stable hash of everything a controller host is built from.
+
+    Covers the job, the controller entry, its MV loops, the job's source (endpoint), the tag
+    addresses it uses and the CONTENT of its rule base, so any change of them rebuilds the host.
+    """
     # site.get("controllers") and each entry come from untyped JSON, so name the shapes.
     controller: dict[str, Any] = next(
         (entry for entry in site.get("controllers", []) if entry["id"] == job["controller"]),
@@ -58,7 +85,17 @@ def _controller_cache_key(job: dict[str, Any], site: dict[str, Any]) -> dict[str
         if variable["role"] == "MV"
     }
     loops = [loop for loop in site.get("loops", []) if loop["id"] in loop_ids]
-    return deepcopy({"job": job, "controller": controller, "loops": loops})
+    tags = _controller_tag_ids(controller, loops)
+    addresses = {
+        tag["id"]: tag.get("address") for tag in site.get("tags", []) if tag["id"] in tags
+    }
+    source = next((s for s in site.get("sources", []) if s["id"] == job.get("source")), {})
+    effective = {
+        "job": job, "controller": controller, "loops": loops, "source": source,
+        "addresses": addresses, "rule_base": _rule_base_content(root, controller.get("rule_base")),
+    }
+    text = json.dumps(effective, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class RuntimeService:
@@ -84,7 +121,7 @@ class RuntimeService:
             else liveness_factory
         )
         self._runtime_beat = RuntimeBeat(root, clock, self._liveness_factory)
-        self._controller_jobs: dict[str, tuple[dict[str, Any], ControllerJob]] = {}
+        self._controller_jobs: dict[str, tuple[str, ControllerJob]] = {}
         self._job_docs: dict[str, dict[str, Any]] = {}
         self._addresses: dict[str, dict[str, str]] = {}
         self._connectors: dict[str, Any] = {}
@@ -163,7 +200,7 @@ class RuntimeService:
     def _controller_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
         """The run function of a controller job; a job that cannot be built fails each pass."""
         try:
-            key = _controller_cache_key(job, site)
+            key = _controller_cache_key(job, site, self._store.root)
             cached = self._controller_jobs.get(job["id"])
             if cached is None or cached[0] != key:
                 deps = (self._connector_factory, self._gateway_ports, self._liveness_factory)

@@ -171,3 +171,41 @@ def test_proposal_args_carry_source_and_reason() -> None:
     args = proposal_args(Move("mv1", "t.sp", 52.0, "x" * 500), "c1", 7)
     assert args["proposer"] == "controller:c1" and args["t_ns"] == 7
     assert len(args["reason"]) == 300 and args["target_tag"] == "t.sp"
+
+
+def _rewrite(root: Path, name: str, document: dict[str, Any]) -> None:
+    """Replace a JSON document of the data root in place."""
+    (root / name).write_text(json.dumps(document), encoding="utf-8")
+
+
+def _built(service: RuntimeService) -> Any:
+    """The cached controller job object of j1."""
+    return service._controller_jobs["j1"][1]
+
+
+def test_host_is_kept_while_nothing_changes(tmp_path: Path) -> None:
+    service = _service(tmp_path, [])
+    service.run_once()
+    first = _built(service)
+    service.run_once()
+    assert _built(service) is first
+
+
+@pytest.mark.parametrize("change", ["endpoint", "address", "rule_base"])
+def test_host_is_rebuilt_when_a_dependency_changes(tmp_path: Path, change: str) -> None:
+    service = _service(tmp_path, [])
+    service.run_once()
+    first = _built(service)
+    site = json.loads(json.dumps(SITE))
+    if change == "endpoint":
+        site["sources"][0]["endpoint"] = "opc.tcp://other:4840"
+        _rewrite(tmp_path, "_site/site.json", site)
+    elif change == "address":
+        site["tags"][0]["address"] = "ns=2;s=cv1"
+        _rewrite(tmp_path, "_site/site.json", site)
+    else:
+        rules = json.loads(json.dumps(RULE_BASE))
+        rules["inputs"][0]["terms"][0]["params"] = [0, 0, 3, 4]  # same file name, new content
+        _rewrite(tmp_path, "_fuzzy/rb.json", rules)
+    service.run_once()
+    assert _built(service) is not first
