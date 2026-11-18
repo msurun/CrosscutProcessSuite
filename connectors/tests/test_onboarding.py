@@ -117,3 +117,26 @@ def test_custom_site_readiness_thresholds() -> None:
     assert cfg.min_duration_h == 12.0
     assert cfg.warn_duration_h == 48.0
     assert cfg.max_sample_period_s == 30.0
+
+
+def test_sensor_faults_are_serialized_per_tag() -> None:
+    """The onboarding report exposes event windows without changing verdict rules."""
+    times = np.arange(0.0, 86400.0, 60.0)
+    generator = np.random.default_rng(53)
+    values = 50.0 + generator.normal(0, 0.1, len(times))
+    values[300:391] = 50.0
+    result = evaluate_dataset_readiness('faults', times, {'level': values}, [])
+    serialized = result.to_dict()['sensor_faults']['level']
+    assert serialized[0]['tag'] == 'level'
+    assert serialized[0]['kind'] == 'freeze'
+    assert serialized[0]['start_s'] == 18000.0
+    assert serialized[0]['end_s'] == 23400.0
+
+
+def test_sensor_fault_analysis_preserves_invalid_time_verdicts() -> None:
+    """Invalid timestamps still produce the existing readiness report."""
+    times, columns = _clean_dataset()
+    times[1] = times[0]
+    result = evaluate_dataset_readiness('invalid-time', times, columns, [_make_loop()], _site_doc())
+    assert result.modules['loops'].status == VERDICT_NOT_READY
+    assert result.sensor_faults['FIC101.PV'] == []

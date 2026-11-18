@@ -19,6 +19,7 @@ from crosscut_loops.readiness import (
     ReadinessConfig,
     check_readiness,
 )
+from crosscut_loops.sensor_faults import SensorFaultFinding, detect_sensor_faults
 
 VERDICT_OK = "ok"
 VERDICT_WARNING = "warning"
@@ -45,6 +46,7 @@ class DatasetReadiness:
     dataset_id: str
     verdict: str  # "ok" | "warning" | "not_ready"
     modules: dict[str, ModuleVerdict]
+    sensor_faults: dict[str, list[SensorFaultFinding]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert readiness summary to JSON-serializable dictionary."""
@@ -52,6 +54,8 @@ class DatasetReadiness:
             "dataset_id": self.dataset_id,
             "verdict": self.verdict,
             "modules": {k: v.to_dict() for k, v in self.modules.items()},
+            "sensor_faults": {tag: [event.to_dict() for event in events]
+                              for tag, events in self.sensor_faults.items()},
         }
 
 
@@ -93,7 +97,8 @@ def evaluate_dataset_readiness(
         "softsensor": softsensor_verdict,
     }
     overall = _aggregate_verdicts(modules.values())
-    return DatasetReadiness(dataset_id=dataset_id, verdict=overall, modules=modules)
+    return DatasetReadiness(dataset_id=dataset_id, verdict=overall, modules=modules,
+                            sensor_faults=evaluate_sensor_faults(t_s, columns))
 
 
 def _aggregate_verdicts(verdicts: Sequence[ModuleVerdict]) -> str:
@@ -256,3 +261,13 @@ def _inspect_series_quality(
             has_warn = True
             reasons.append(f"Tag '{tag}' has {missing:.1%} missing samples.")
     return has_fail, has_warn
+
+
+def evaluate_sensor_faults(
+    t_s: np.ndarray, columns: Mapping[str, np.ndarray],
+) -> dict[str, list[SensorFaultFinding]]:
+    """Add per-tag events when timestamps permit analysis; preserve invalid-time verdicts."""
+    times = np.asarray(t_s, dtype=float)
+    if times.ndim != 1 or not np.all(np.isfinite(times)) or np.any(np.diff(times) <= 0):
+        return {tag: [] for tag in columns}
+    return {tag: detect_sensor_faults(times, values, tag) for tag, values in columns.items()}
