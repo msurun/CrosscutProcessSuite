@@ -13,7 +13,7 @@ import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from crosscut_connectors.site import SiteError, load_site
 from crosscut_runtime.store import JobStoreError, RuntimeStore, read_variable_status
@@ -32,7 +32,8 @@ _JOB_FIELDS = frozenset(
 
 def _job_schema() -> dict[str, Any]:
     """The parsed job schema; one job is validated as ``{"schema_version": 1, "jobs": [job]}``."""
-    return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    # json.loads returns Any, and the job schema file is a JSON object.
+    return cast(dict[str, Any], json.loads(_SCHEMA_PATH.read_text(encoding="utf-8")))
 
 
 def _where(path: Any) -> str:
@@ -274,7 +275,9 @@ class _RuntimeEndpoints:
 
     def _find_job(self, document: dict[str, Any], job_id: str) -> dict[str, Any]:
         """The stored job with that id, or HTTP 404."""
-        for job in document.get("jobs", []):
+        # jobs.json stores jobs as a list of objects.
+        jobs: list[dict[str, Any]] = document.get("jobs", [])
+        for job in jobs:
             if job.get("id") == job_id:
                 return job
         raise HTTPException(status_code=404, detail=f"no job {job_id!r}")

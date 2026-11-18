@@ -45,7 +45,8 @@ def _failing_run(message: str) -> Callable[[], Any]:
 
 def _controller_cache_key(job: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
     """Copy binding documents so even in-place site edits invalidate the host."""
-    controller = next(
+    # site.get("controllers") and each entry come from untyped JSON, so name the shapes.
+    controller: dict[str, Any] = next(
         (entry for entry in site.get("controllers", []) if entry["id"] == job["controller"]),
         {},
     )

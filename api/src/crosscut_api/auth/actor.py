@@ -99,7 +99,8 @@ def actor_of(request: Request) -> ActorContext:
     Raises:
         HTTPException: 401 when auth is enabled and no actor was stamped on the request.
     """
-    stamped = getattr(request.state, "actor", None)
+    # Request.state is untyped, so the annotation states what the auth middleware stamps.
+    stamped: ActorContext | None = getattr(request.state, "actor", None)
     if stamped:
         return stamped
     if getattr(request.app.state, "auth_enabled", False):

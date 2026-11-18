@@ -215,7 +215,9 @@ class LoopKpiJob:
         # Pass 1: every loop pulls its own fresh samples, so all tags share one read_live tick.
         for loop_id in self.job_doc["loops"]:
             loop_doc = self.loop_docs.get(loop_id)
-            tags = self._tag_ids(loop_doc) if loop_doc is not None else None
+            if loop_doc is None:
+                continue
+            tags = self._tag_ids(loop_doc)
             if tags is not None:
                 self._pull(loop_doc, tags)
         # Pass 2: analyse every loop from the window after all tags were pulled.
