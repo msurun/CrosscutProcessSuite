@@ -41,16 +41,16 @@ and kept, not overwritten. A new proposal (apply or rollback) for a target with 
 runs that verification synchronously first, so an immediate rollback after a good apply is
 accepted instead of refused with `reconcile_required`.
 
-TF3 retains its strict xfail because its current assertions do not match this asynchronous
-behavior. `reject_mismatched_gain` asserts a synchronous refusal from approval with
-`revert_failed` and an immediate `readback_mismatch` audit, before advancing the gateway tick.
-A successful immediate read-back now returns `applied`; delayed verification requires a
-subsequent tick and reports `readback_mismatch_delayed` without restoring anything. The row
-also requires restoration of the original pre-hook plant baseline after hook expiry, whereas
-the proposal reads its `from` values during the active offset: reverting those recorded values
-can preserve a biased baseline. That is a second reason not to revert automatically: only a
-person can decide whether the value at the DCS is the operator's intent. Keep that
-original-plant assertion until the hook and baseline semantics are resolved. The gateway unit
-tests cover delayed divergence (held-off target, invalid record, no write), a proposal during a
-pending verification, and an open intent after a crash before verification; they do not
-establish that TF3's plant-baseline assertion passes.
+TF3 now asserts this behaviour (xfail removed): the apply is accepted, the test advances the
+gateway ticks past the settle time and checks that no plant write follows, that
+`param_changed_externally` and `readback_mismatch_delayed` are audited for Gain, that there is no
+`partial_revert`, and that Gain is in hold_off. The old plant-baseline restoration assertion is dropped.
+
+## C02: failed transmitter (RougherSim 0.13.0, hook API 1.2.0)
+
+The pv_fault hooks `gw.pv_fault_dic202.v1` / `gw.pv_fault_lit201.v1` fail the PV node from t=0. The
+CV_B address was wrong (`LIT201/Pv`); the node is `LIC201/Pv`. C02a (a second good CV keeps the
+controller `on`) passes. C02b stays a strict xfail on the test side only: the host's state machine
+(`state.py`) sheds only from `on`, and with the only CV bad from t=0 `switch_on` is refused
+(`standby`, reason `no_good_cv`, no proposals); that refusal is covered by a passing test.
+A mid-run fault hook would be needed to observe `shed`.
