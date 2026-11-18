@@ -18,9 +18,10 @@ import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Protocol
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat
 
 from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.deps import STEP_UP_REQUIRED_DETAIL
@@ -46,6 +47,15 @@ def policy_digest(document: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+class OutputConfirmation(BaseModel):
+    """Explicit step bounds from the human; gateway policy remains authoritative."""
+
+    model_config = ConfigDict(extra="forbid")
+    target: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")
+    amplitude: StrictFloat = Field(allow_inf_nan=False)
+    duration_s: StrictFloat = Field(gt=0, allow_inf_nan=False)
+
+
 class ModeUpdate(BaseModel):
     """Payload for updating the operating mode of the gateway."""
 
@@ -60,6 +70,14 @@ class PolicyPin(BaseModel):
 
 class GatewayClient(Protocol):
     """Operations the HTTP layer needs from a running Write Gateway process."""
+
+    def start_output(
+        self, args: dict[str, Any], actor: ActorContext | None = None
+    ) -> dict[str, Any]:
+        """Confirm a bounded test through the gateway process."""
+
+    def cancel_output(self, target: str, actor: ActorContext | None = None) -> dict[str, Any]:
+        """Abort a test and return its saved baseline."""
 
     def mode(self) -> str:
         """Return the active operating mode."""
@@ -220,6 +238,19 @@ class _GatewayEndpoints:
     def _gw(self) -> GatewayClient:
         return _resolve_gateway(self._provider)
 
+    def start_output(self, body: OutputConfirmation, actor: ActorDep) -> dict[str, Any]:
+        """POST /gateway/output-tests: explicit human confirmation, no API plant writes."""
+        actor.require("gw.approve.tuning")
+        arguments = {**body.model_dump(), "test_id": uuid4().hex}
+        with _gateway_errors(value_error_status=409):
+            return self._gw().start_output(arguments, actor)
+
+    def cancel_output(self, target: str, actor: ActorDep) -> dict[str, Any]:
+        """POST /gateway/output-tests/{target}/cancel: operator abort."""
+        actor.require("gw.reject")
+        with _gateway_errors(value_error_status=409):
+            return self._gw().cancel_output(target, actor)
+
     def get_status(self, actor: ActorDep) -> dict[str, Any]:
         """GET /gateway/status: Current mode, per-target states, and pending count."""
         gw = self._gw()
@@ -379,6 +410,8 @@ def build_gateway_router(provider: Callable[[], GatewayClient | None]) -> APIRou
     """Construct and return the FastAPI router for Write Gateway management."""
     endpoints = _GatewayEndpoints(provider)
     router = APIRouter(prefix="/gateway")
+    router.add_api_route("/output-tests", endpoints.start_output, methods=["POST"])
+    router.add_api_route("/output-tests/{target}/cancel", endpoints.cancel_output, methods=["POST"])
     router.add_api_route("/status", endpoints.get_status, methods=["GET"])
     router.add_api_route("/pending", endpoints.get_pending, methods=["GET"])
     router.add_api_route("/pending/{key}/approve", endpoints.post_approve, methods=["POST"])

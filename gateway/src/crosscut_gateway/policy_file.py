@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
 from crosscut_gateway.interfaces import ParamPolicy, WritePolicy
-from crosscut_gateway.policy import PolicyError, policies_from_dict
+from crosscut_gateway.policy import PolicyError, outputs_from_dict, policies_from_dict
 
 
 def canonical_bytes(data: dict[str, Any]) -> bytes:
@@ -128,6 +128,7 @@ class LoadedPolicy:
     mode: str
     digest: str
     allow_take_remote: bool = False
+    outputs: dict[str, Any] = field(default_factory=dict)
 
 
 def load_policy_documents(path: Path, expected_digest: str | None = None) -> LoadedPolicy:
@@ -142,7 +143,8 @@ def load_policy_documents(path: Path, expected_digest: str | None = None) -> Loa
     _verify_digest(digest, expected_digest)
     targets, params = policies_from_dict(data)
     return LoadedPolicy(
-        targets, params, str(data["mode"]), digest, data.get("allow_take_remote", False) is True
+        targets, params, str(data["mode"]), digest, data.get("allow_take_remote", False) is True,
+        outputs_from_dict(data)
     )
 
 
@@ -173,4 +175,5 @@ def validate_document(data: dict[str, Any]) -> dict[str, WritePolicy]:
     Raises PolicyError on any schema violation or invalid target definition.
     """
     _validate_schema(data)
+    outputs_from_dict(data)
     return policies_from_dict(data)[0]

@@ -1758,5 +1758,13 @@
   "soft.ref.helps": "helps",
   "soft.ref.hurts": "hurts",
   "soft.ref.unknown": "too few lab results",
-  "soft.ref.biasHint": "The check compares the reference with the lab values at the lab times, with and without an EWMA of the earlier lab-minus-reference differences. It is meaningful when the reference measures the same quantity as the lab value; if it hurts, leave the correction out."
+  "soft.ref.biasHint": "The check compares the reference with the lab values at the lab times, with and without an EWMA of the earlier lab-minus-reference differences. It is meaningful when the reference measures the same quantity as the lab value; if it hurts, leave the correction out.",
+  "outTest.title": "Manual OUT test",
+  "outTest.target": "Gateway OUT target",
+  "outTest.amplitude": "Signed amplitude (OUT engineering units)",
+  "outTest.duration": "Duration (seconds)",
+  "outTest.confirm": "Confirm and start OUT test",
+  "outTest.cancel": "Cancel / restore pre-test OUT",
+  "outTest.notice": "The operator must put the loop in MAN at the DCS. Confirm mode and site bounds are required. The gateway restores pre-test OUT on PV limit, timeout, communication loss, mode change or cancel. If restoration cannot be verified, check the DCS; reconciliation is required.",
+  "outTest.result": "Gateway result: {reason}"
 }

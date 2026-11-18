@@ -1769,5 +1769,13 @@
   "soft.ref.helps": "pomaga",
   "soft.ref.hurts": "szkodzi",
   "soft.ref.unknown": "za mało wyników laboratoryjnych",
-  "soft.ref.biasHint": "Sprawdzenie porównuje wskazanie referencyjne z wynikami laboratoryjnymi w chwilach ich pobrania, z korektą i bez niej (EWMA wcześniejszych różnic laboratorium minus wskazanie). Ma sens, gdy wskazanie mierzy tę samą wielkość co laboratorium; jeśli korekta szkodzi, pomiń ją."
+  "soft.ref.biasHint": "Sprawdzenie porównuje wskazanie referencyjne z wynikami laboratoryjnymi w chwilach ich pobrania, z korektą i bez niej (EWMA wcześniejszych różnic laboratorium minus wskazanie). Ma sens, gdy wskazanie mierzy tę samą wielkość co laboratorium; jeśli korekta szkodzi, pomiń ją.",
+  "outTest.title": "Test OUT w trybie ręcznym",
+  "outTest.target": "Cel OUT bramy zapisu",
+  "outTest.amplitude": "Amplituda ze znakiem (jednostki inżynierskie OUT)",
+  "outTest.duration": "Czas trwania (sekundy)",
+  "outTest.confirm": "Potwierdź i uruchom test OUT",
+  "outTest.cancel": "Anuluj / przywróć OUT sprzed testu",
+  "outTest.notice": "Operator musi przełączyć pętlę na MAN w DCS. Wymagany jest tryb confirm i limity zakładowe. Brama przywraca OUT sprzed testu po przekroczeniu limitu PV, upływie czasu, utracie łączności, zmianie trybu lub anulowaniu. Jeśli nie można potwierdzić przywrócenia, sprawdź DCS; wymagane jest uzgodnienie stanu.",
+  "outTest.result": "Wynik bramy: {reason}"
 }

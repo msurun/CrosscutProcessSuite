@@ -66,6 +66,9 @@
         },
         {
           "$ref": "#/$defs/pid_param_target"
+        },
+        {
+          "$ref": "#/$defs/out_step_target"
         }
       ],
       "description": "A setpoint target (has setpoint_node) or a PID parameter target (has param_node)."
@@ -210,6 +213,63 @@
           "description": "Mapping from loop mode name to the raw integer value of mode_node."
         }
       }
+    },
+    "out_step_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "out_node",
+        "pv_node",
+        "mode_node",
+        "mode_values",
+        "data_type"
+      ],
+      "properties": {
+        "readback_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OUT read-back NodeId. When absent, read out_node; units match OUT."
+        },
+        "data_type": {
+          "enum": [
+            "Float",
+            "Double"
+          ],
+          "description": "Configured OPC UA numeric variant for OUT writes; type mismatch is refused."
+        },
+        "mode_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OPC UA NodeId text of the loop mode node. Raw value is reverse-mapped through mode_values."
+        },
+        "mode_values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "minProperties": 1,
+          "description": "Mapping from loop mode name to the raw integer value of mode_node.",
+          "required": [
+            "MAN"
+          ]
+        },
+        "kind": {
+          "const": "out_step",
+          "description": "Controller output test; no mode writes."
+        },
+        "out_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Writable OUT node, output engineering units."
+        },
+        "pv_node": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Live PV safety monitoring node, PV engineering units."
+        }
+      },
+      "description": "MAN step target; mode mapping must identify MAN explicitly."
     }
   }
 }

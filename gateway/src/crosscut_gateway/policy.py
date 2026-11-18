@@ -112,7 +112,8 @@ def _reject_unknown_fields(tag: str, raw: dict[Any, Any]) -> None:
 
 KIND_SETPOINT = "setpoint"
 KIND_PID_PARAM = "pid_param"
-_KINDS = (KIND_SETPOINT, KIND_PID_PARAM)
+KIND_OUT_STEP = "out_step"
+_KINDS = (KIND_SETPOINT, KIND_PID_PARAM, KIND_OUT_STEP)
 
 
 def _kind_of(tag: str, raw: Any) -> str:
@@ -557,3 +558,33 @@ def check_param_items(
             if code not in codes:
                 codes.append(code)
     return codes
+
+
+def _parse_output_policy(tag: str, raw: dict[str, Any]) -> Any:
+    """Construct one output policy after enforcing its exact required shape."""
+    from crosscut_gateway.out_steps import OutputPolicy
+
+    fields = {"kind", "loop", "limits", "pv_limits", "max_amplitude",
+              "max_duration_s", "readback_tolerance"}
+    if set(raw) != fields:
+        raise PolicyError(f"OUT target {tag}: supply exactly {sorted(fields)}")
+    limits = _parse_limits(tag, raw["limits"])
+    return OutputPolicy(
+        _parse_identifier(tag, "loop", raw["loop"]), limits,
+        _parse_limits(tag, raw["pv_limits"]),
+        _parse_positive_float(tag, "max_amplitude", raw["max_amplitude"]),
+        _parse_positive_float(tag, "max_duration_s", raw["max_duration_s"]),
+        _parse_param_tolerance(tag, raw["readback_tolerance"], limits),
+    )
+
+
+def outputs_from_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Parse OUT policies with explicit site bounds; no permissive implied defaults."""
+    if not isinstance(data, dict):
+        raise PolicyError("Output policy data must be a dictionary")
+    parsed = {}
+    for tag, raw in _select_targets(data).items():
+        if _kind_of(str(tag), raw) == KIND_OUT_STEP:
+            _check_tag(str(tag))
+            parsed[tag] = _parse_output_policy(tag, raw)
+    return parsed

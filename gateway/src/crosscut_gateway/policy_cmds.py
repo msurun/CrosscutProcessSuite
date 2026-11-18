@@ -191,6 +191,7 @@ class PolicyCommands:
                 digest=loaded.digest,
                 actor_ctx=ctx,
                 params=loaded.params,
+                outputs=loaded.outputs,
             )
         except ValueError as err:
             raise PolicyCommandError(str(err)) from err

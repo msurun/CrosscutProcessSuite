@@ -1769,5 +1769,13 @@
   "soft.ref.helps": "ayuda",
   "soft.ref.hurts": "perjudica",
   "soft.ref.unknown": "muy pocos resultados de laboratorio",
-  "soft.ref.biasHint": "La comprobación compara la referencia con los valores de laboratorio en los instantes de muestreo, con y sin un EWMA de las diferencias anteriores laboratorio menos referencia. Tiene sentido si la referencia mide la misma magnitud que el laboratorio; si perjudica, omita la corrección."
+  "soft.ref.biasHint": "La comprobación compara la referencia con los valores de laboratorio en los instantes de muestreo, con y sin un EWMA de las diferencias anteriores laboratorio menos referencia. Tiene sentido si la referencia mide la misma magnitud que el laboratorio; si perjudica, omita la corrección.",
+  "outTest.title": "Prueba de OUT en manual",
+  "outTest.target": "Destino OUT de la pasarela",
+  "outTest.amplitude": "Amplitud con signo (unidades de ingeniería de OUT)",
+  "outTest.duration": "Duración (segundos)",
+  "outTest.confirm": "Confirmar e iniciar prueba de OUT",
+  "outTest.cancel": "Cancelar / restaurar OUT anterior",
+  "outTest.notice": "El operador debe poner el lazo en MAN desde el DCS. Se requieren modo confirm y límites de planta. La pasarela restaura el OUT anterior por límite de PV, tiempo agotado, pérdida de comunicación, cambio de modo o cancelación. Si no se puede verificar la restauración, revise el DCS; se requiere reconciliación.",
+  "outTest.result": "Resultado de la pasarela: {reason}"
 }

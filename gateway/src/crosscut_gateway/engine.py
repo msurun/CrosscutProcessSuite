@@ -35,6 +35,12 @@ from crosscut_gateway.interfaces import (
     WritePolicy,
     WriteProposal,
 )
+from crosscut_gateway.out_steps import (
+    OutputPolicy,
+    OutputRequest,
+    OutputSteps,
+    check_output_wiring,
+)
 from crosscut_gateway.param_intent_store import ParamIntentRecord, ParamIntentStore
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
 
@@ -68,6 +74,7 @@ class WriteGateway:
         params: ParamConfig | None = None,
         intent_store: ParamIntentStore | Path | None = None,
         gateway_dir: Path | None = None,
+        outputs: dict[str, OutputPolicy] | None = None,
     ) -> None:
         """Create the gateway.
 
@@ -80,6 +87,7 @@ class WriteGateway:
                 ``plant`` when that implements ``ParamControlSystem``.
             intent_store: Optional intent store or path for durable write intents.
             gateway_dir: Optional root gateway directory holding state and intent records.
+            outputs: Site bounds for distinct manual-output test targets (ADR 017).
 
         Raises:
             ValueError: When mode is not one of the defined Mode values, a parameter target
@@ -108,6 +116,10 @@ class WriteGateway:
         self._init_targets(policies)
         self._params = ParamManager(self._param_env(), params)
         self._replay_param_audits()
+        output_store = _output_intent_store(gateway_dir, store)
+        self._outputs = OutputSteps(self._param_env(), plant, output_store)
+        check_output_wiring(plant, outputs or {}, set(policies) | set(params.policies))
+        self._outputs.configure(outputs or {})
 
         # Proposal idempotency and confirm-mode queue.
         self._seen_proposals: dict[str, WriteDecision] = {}
@@ -136,9 +148,23 @@ class WriteGateway:
         """Return the state of a target, or None for a non-str or unknown tag."""
         if not isinstance(tag, str):
             return None
+        if tag in self._outputs.states:
+            return self._outputs.states[tag]
         if self._params.has_target(tag):
             return self._params.states()[tag]
         return self._states.get(tag)
+
+    def start_output(
+        self, request: OutputRequest, *, actor_ctx: ActorContext | None = None
+    ) -> WriteDecision:
+        """Apply a human-confirmed OUT test through the gateway only."""
+        with self._acting(actor_ctx):
+            return self._outputs.start(request)
+
+    def cancel_output(self, target: str, *, actor_ctx: ActorContext | None = None) -> None:
+        """Cancel an active test and verify restoration of its pre-test OUT."""
+        with self._acting(actor_ctx):
+            self._outputs.abort(target, "operator_cancel")
 
     def pending_proposer(self, key: object) -> str | None:
         """Return the actor that queued a pending proposal, or None when unknown."""
@@ -362,6 +388,7 @@ class WriteGateway:
         self._now_ns = max(self._now_ns, now_ns)
         self._clock_started = True
 
+        self._outputs.tick()
         if self._killed:
             self._release_all_killed()
             return
@@ -413,7 +440,7 @@ class WriteGateway:
 
     def status(self) -> dict[str, str]:
         """Return the current per-target state for all policy tags."""
-        return {**self._states, **self._params.states()}
+        return {**self._states, **self._params.states(), **self._outputs.states}
 
     def mv_availability(self, targets: list[str]) -> dict[str, dict[str, Any]]:
         """Return ``{target: {available, reasons}}`` for the asked targets; read-only.
@@ -465,7 +492,9 @@ class WriteGateway:
 
     def alarms(self) -> dict[str, str]:
         """Return the open DCS alarms of parameter targets (tag -> ``check_dcs``)."""
-        return self._params.alarms()
+        output_alarms = {tag: "check_dcs" for tag, state in self._outputs.states.items()
+                         if state == "reconcile_required"}
+        return {**self._params.alarms(), **output_alarms}
 
     def audit_records(self) -> list[dict[str, str]]:
         """Return all audit records in append order."""
@@ -981,6 +1010,7 @@ class WriteGateway:
         digest: str = "",
         actor_ctx: ActorContext | None = None,
         params: dict[str, ParamPolicy] | None = None,
+        outputs: dict[str, OutputPolicy] | None = None,
     ) -> None:
         """Replace setpoint and parameter policies and the mode cap; only in off or advisory.
 
@@ -996,11 +1026,15 @@ class WriteGateway:
         with self._acting(actor_ctx):
             if self._mode not in ("off", "advisory"):
                 raise ValueError("policy reload needs mode off or advisory")
+            self._outputs.check_reload()
             new_params = self._params.policies() if params is None else params
             check_param_wiring(self._plant, policies, new_params)
+            next_outputs = self._outputs.policies if outputs is None else outputs
+            check_output_wiring(self._plant, next_outputs, set(policies) | set(new_params))
             self._drop_removed_tags(set(self._policies) - set(policies))
             self._add_new_tags(set(policies) - set(self._policies))
             self._params.swap_policies(new_params)
+            self._outputs.configure(self._outputs.policies if outputs is None else outputs)
             self._policies = dict(policies)
             self._mode_cap = cap
             if _MODE_ORDER[self._mode] > _MODE_ORDER[cap]:
@@ -1041,6 +1075,16 @@ def _resolve_intent_store(
         if isinstance(audit_path, Path):
             return ParamIntentStore(audit_path.parent)
     return ParamIntentStore()
+
+
+def _output_intent_store(
+    directory: Path | None, parameter_store: ParamIntentStore
+) -> ParamIntentStore:
+    """Place OUT intents beside the existing durable parameter-intent store."""
+    parameter_path = getattr(parameter_store, "_path", None)
+    if directory is None and isinstance(parameter_path, Path):
+        directory = parameter_path.parent
+    return ParamIntentStore(directory / "out-intents.json" if directory is not None else None)
 
 
 def _complete_params(
@@ -1115,6 +1159,7 @@ def start_from_policy_file(
         params=config,
         intent_store=store,
         gateway_dir=gateway_dir,
+        outputs=loaded.outputs,
     )
     gateway._mode_cap = cast(Mode, loaded.mode)  # the cap is the policy mode, not the start mode
     if loaded.allow_take_remote:

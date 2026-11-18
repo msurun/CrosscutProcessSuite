@@ -1,6 +1,7 @@
 // Steps view: analyze the steps of one loop of a dataset, show a table of fits with their
 // uncertainties and verdicts, and a chart of the selected step's samples.
-// Calls the backend one loop at a time (see docs/design/step-analyzer.md); nothing reaches a plant.
+// Historical analysis is read-only; live OUT tests use the separate gateway confirmation slice.
+import { OutputTest } from "./OutputTest";
 import { useEffect, useRef, useState } from "react";
 import { fetchTags } from "../api";
 import type { Translate } from "../findings";
@@ -210,6 +211,7 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
     <section>
       <header className="toolbar"><h2>{t("steps.title")}</h2></header>
       <p className="notice banner-warning" role="note">{t("steps.note")}</p>
+      <OutputTest t={t} />
       <StepsForm target={target} model={model} logbookText={logbookText}
         offsetHours={offsetHours} busy={busy} canRun={canRun} onRun={runAnalysis}
         onModel={setModel} onLogbook={setLogbookText} onOffset={setOffsetHours} t={t} />

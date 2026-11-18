@@ -67,6 +67,8 @@ _MAX_ANCHOR_LEVELS = 10
 _COMMAND_PERMISSIONS: dict[str, str] = {
     "propose": "gw.propose",
     "propose_params": "gw.propose",
+    "start_output": "gw.approve.tuning",
+    "cancel_output": "gw.reject",
     "approve": "gw.approve",
     "reject": "gw.reject",
     "mv_availability": "gw.view",
@@ -310,7 +312,7 @@ def _authorize_simple(
     if cmd == "re_enable":
         permission = _re_enable_permission(request.target_state)
         return _check_permission(granted, permission)
-    if cmd == "propose_params" and _is_service(request):
+    if cmd in ("propose_params", "start_output") and _is_service(request):
         return False, "service_cannot_propose_tuning"
     if cmd == "approve" and request.pending_kind == PENDING_KIND_PARAMS:
         return _check_permission(granted, TUNING_APPROVE_PERMISSION)

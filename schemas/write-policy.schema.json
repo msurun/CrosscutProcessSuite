@@ -56,6 +56,9 @@
         },
         {
           "$ref": "#/$defs/pid_param_target"
+        },
+        {
+          "$ref": "#/$defs/out_step_target"
         }
       ],
       "description": "Per-target policy, discriminated by kind. A missing kind means setpoint."
@@ -262,6 +265,63 @@
           }
         }
       ]
+    },
+    "out_step_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "loop",
+        "limits",
+        "pv_limits",
+        "max_amplitude",
+        "max_duration_s",
+        "readback_tolerance"
+      ],
+      "properties": {
+        "kind": {
+          "const": "out_step",
+          "description": "Bounded OUT test in MAN, explicit confirm only (ADR 017)."
+        },
+        "loop": {
+          "$ref": "#/$defs/identifier",
+          "description": "Loop identity used to exclude concurrent tests."
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "OUT engineering limits [low, high]; site must configure."
+        },
+        "pv_limits": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "PV abort limits [low, high] in PV units; trip at either boundary."
+        },
+        "max_amplitude": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum absolute step in OUT units. Start conservatively at 1 output unit; site approval required."
+        },
+        "max_duration_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum test duration in seconds. Conservative initial setting: 10 seconds; site approval required."
+        },
+        "readback_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "OUT read-back tolerance in engineering units, at most 10% of OUT span."
+        }
+      },
+      "description": "All safety bounds are explicit site configuration; no inherited setpoint clamps."
     }
   }
 }

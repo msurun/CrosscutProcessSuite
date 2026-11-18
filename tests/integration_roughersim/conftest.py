@@ -17,3 +17,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="rewrite the goldens in tests/integration_roughersim/pin.json",
     )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the opt-in live simulator acceptance marker in this test subtree."""
+    config.addinivalue_line("markers", "roughersim: requires the pinned live RougherSim checkout")
