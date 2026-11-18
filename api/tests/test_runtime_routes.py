@@ -228,3 +228,30 @@ def test_variables_returns_written_statuses(tmp_path: Path) -> None:
     body = client.get("/runtime/variables").json()
 
     assert body["controllers"]["c1"][0]["reasons"] == ["stale"]
+
+
+def test_controller_job_for_a_missing_controller_is_refused(client: TestClient) -> None:
+    """#125: a job that names a controller absent from the catalogue gets 422."""
+    job = {"id": "c1", "kind": "controller", "source": "s1", "controller": "nope",
+           "period_s": 30, "enabled": False}
+
+    response = client.post("/runtime/jobs", json=job)
+
+    assert response.status_code == 422
+    assert "unknown controller" in str(response.json()["detail"])
+
+
+def test_anomaly_id_can_be_updated(tmp_path: Path) -> None:
+    """#125: the schema has anomaly_id, so a PATCH of it must not 422."""
+    save_site(tmp_path, {**SITE_DOCUMENT, "tags": [*SITE_DOCUMENT["tags"], {"id": "t.x"}]})
+    app = FastAPI()
+    app.include_router(build_runtime_router(tmp_path))
+    client = TestClient(app)
+    job = {"id": "a1", "kind": "anomaly_scan", "source": "s1", "tags": ["t.x"],
+           "period_s": 5, "window_s": 300, "enabled": False}
+    assert client.post("/runtime/jobs", json=job).status_code == 200
+
+    response = client.patch("/runtime/jobs/a1", json={"anomaly_id": "model_a"})
+
+    assert response.status_code == 200
+    assert RuntimeStore(tmp_path).load_jobs()["jobs"][0]["anomaly_id"] == "model_a"

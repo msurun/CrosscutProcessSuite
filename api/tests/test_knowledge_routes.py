@@ -78,6 +78,7 @@ def test_get_returns_the_document_with_a_knowledge_block(
         "loop",
         "knowledge",
         "saved",
+        "source",
         "ranges",
         "pv_eng_default",
         "out_eng_default",
