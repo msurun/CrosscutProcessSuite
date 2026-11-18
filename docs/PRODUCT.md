@@ -12,7 +12,7 @@ Crosscut is an on-prem server with a browser console in which a process engineer
 | Operator | Works the console, accepts or rejects proposed writes in `confirm` mode. |
 | Controls engineer | Owns the write policy, the gateway configuration and the safety settings. Supervises anything that touches a controller. |
 
-Principles that do not change: plant data validates features and never defines them. No tag name, unit, missing-value code, window or threshold of one plant may be a constant in `*/src`. Every feature works on any tag, lab, analyser and loop the user configures. Real plant data stays outside the repository.
+Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. Plant data from the owner's site is not used for development or validation. Validation uses public datasets; site facts (tunings, sample metadata, vendor conventions, economic values) are per-site configuration entered by the user. Check the licence before use and add a row to `docs/PROVENANCE.md`; download to a scratch folder outside the repository; never commit or redistribute data. CC BY-SA and unlicensed datasets are used locally only; no derived data is published.
 
 ## 2. Owner decisions of 2026-10-27
 
@@ -132,13 +132,13 @@ Every finding gets an outcome from the user (fixed, not a problem, deferred, mai
 5. **Check.** After a settle period the KPIs are compared before and after, per operating mode, over a window set in the template.
 6. **Rollback.** Previous parameters restored in one click, and proposed automatically if the KPIs worsen.
 
-**Valves.** Guided stroke test (a write of OUT in manual is open owner decision 2), stiction quantification, valve-health trend shared with the valve asset template (4.3).
+**Valves.** Guided stroke test (OUT proposals in manual are permitted only in `confirm`, decision 2026-11-17; separate issue), stiction quantification, valve-health trend shared with the valve asset template (4.3).
 
-**Benefit and reports.** Benefit estimate: variance reduction → possible setpoint move toward a limit → value per year, using the value per unit of PV entered by the user (open owner decision 8 for the economic layer). Shift and weekly loop report: what changed, what was fixed, what still waits.
+**Benefit and reports.** Benefit estimate: variance reduction → possible setpoint move toward a limit → value per year, using the value per unit of PV entered by the user (per-site configuration, decision 2026-11-17). Shift and weekly loop report: what changed, what was fixed, what still waits.
 
 **Ships today.** Worklist with findings (manual, saturated, flatline, oscillating); ACF oscillation test and oscillation clusters; valve health KPIs, stiction suspicion and guided stroke test; closed-loop and step identification (FOPDT, integrating experimental) with a quality gate; tuning report (SIMC/AMIGO, cascade planning); benefit estimate; Steps view. Loop KPIs also run online as a runtime job. PID parameter write in `confirm` through the gateway, before/after KPI review and rollback exist against simulators (ADR 014). No loop templates, no per-mode KPIs, no cause ordering in the worklist, no outcomes; vendor PID forms are code, not data; no loop readiness signal for controllers.
 
-**Validation.** RougherSim L5 rows: a badly tuned loop is detected and improved; a sticky valve is diagnosed as a valve, not a tuning problem; a loop driven by an external oscillation is not retuned; an averaging level is not tuned tight; rollback restores the previous parameters exactly. Plant evidence: blind worklist review and one real valve stroke test (owner tasks), then the Phase 3 pilot in `confirm`.
+**Validation.** RougherSim L5 rows: a badly tuned loop is detected and improved; a sticky valve is diagnosed as a valve, not a tuning problem; a loop driven by an external oscillation is not retuned; an averaging level is not tuned tight; rollback restores the previous parameters exactly. Owner decision 2026-11-17: public-data benchmarks replace blind worklist review and a real valve stroke test (separate issues).
 
 **Gap to product.**
 
@@ -179,7 +179,7 @@ Every finding gets an outcome from the user (fixed, not a problem, deferred, mai
 
 Default values in a preset come from public sources with a row in `docs/PROVENANCE.md`, never from a plant. A customised preset is saved as a versioned project configuration; the shipped preset stays unchanged. "Custom" (data-driven, no preset) is always available.
 
-**Preset catalogue.** Proposed first-release set marked **v1**; the rest is the roadmap. The final v1 set is an owner decision (section 10).
+**Preset catalogue.** Owner decision 2026-11-17: presets marked **v1** are the first-release set; `backup` is in v1. The rest is the roadmap.
 
 | Preset | Estimates | Typical inputs | Structure | v1 |
 |---|---|---|---|---|
@@ -245,7 +245,7 @@ Spectral vibration analysis, oil analysis and thermography are out of scope: the
 **Design rules** (from public practice in process monitoring, alarm management and condition-based maintenance; each source gets a row in `docs/PROVENANCE.md` before implementation):
 
 1. **Operating context first.** A model knows the operating mode. The user defines modes as conditions on catalogue tags (stopped, start-up, normal, high throughput, ore change, cleaning); the engine may propose modes by clustering history, and the user accepts them. Every detector has limits per mode. In non-process states (equipment stopped, start-up, shutdown) detectors are suppressed, not alarming. A single model for a multi-mode plant is the most common cause of false alarms.
-2. **Normal data is chosen by a person and recorded.** The training window is picked in the GUI, known events are excluded and the exclusions are stored with the model. Minimum quiet data per mode is a schema parameter (the plant default stays an owner task: ≥ 2 weeks plus labelled events).
+2. **Normal data is chosen by a person and recorded.** The training window is picked in the GUI, known events are excluded and the exclusions are stored with the model. Minimum quiet data per mode is a schema parameter (configured by the site user, decision 2026-11-17; example: ≥ 2 weeks plus labelled events).
 3. **Expected value and residual for equipment.** An equipment health indicator is the difference between what the asset does and what it should do under the same conditions: bearing temperature against load, speed and ambient; pump power and head against flow, speed and density (the pump-curve template of 4.2); drive power against belt load; valve travel against command (4.1 valve checks). The residual removes the effect of operating point, so a static high limit does not miss a fault at low load.
 4. **Adaptation is gated and visible.** Limits and models may follow slow normal change, but updates happen only in steady, healthy operation and never absorb an open event. An update is proposed, versioned and accepted by the engineer, never silent.
 5. **Few, meaningful notifications.** Crosscut events are advisory notifications in the console, not DCS alarms, but they follow alarm-management practice (ANSI/ISA-18.2, EEMUA 191): delay-on and delay-off (persistence), hysteresis, priority from consequence and time to respond, shelving with a reason and expiry, suppression by operating state, and grouping of correlated detections into one event with one root candidate. A notification budget per user role is configured and tracked; exceeding it is itself shown as a health problem of the monitoring.
@@ -274,7 +274,7 @@ Spectral vibration analysis, oil analysis and thermography are out of scope: the
 
 **Ships today.** PCA with T2 and SPE, lagged columns, a stuck-sensor rule, a possible-ramp warning. exp29 round 3 met its criteria. No operating modes, asset templates, expected-value models, notification management, outcomes or prognosis.
 
-**Validation.** RougherSim injects degradations with ground truth (pump wear, rising bearing temperature, belt friction, valve stiction, transmitter drift and freeze) and operating-mode changes that must **not** produce events. Each v1 template gets an L5 row: detection, lead time and false events per mode under a frozen protocol. Degradation injection is a RougherSim milestone item where it does not exist yet. Real evidence needs owner data: quiet periods per mode and labelled events, ideally with maintenance history.
+**Validation.** RougherSim injects degradations with ground truth (pump wear, rising bearing temperature, belt friction, valve stiction, transmitter drift and freeze) and operating-mode changes that must **not** produce events. Each v1 template gets an L5 row: detection, lead time and false events per mode under a frozen protocol. Degradation injection is a RougherSim milestone item where it does not exist yet. Owner decision 2026-11-17: validation uses public data; asset-template work is deferred to Phase 4b.
 
 **Gap to product.**
 
@@ -325,7 +325,7 @@ UX details and open questions live in `docs/design/fuzzy-studio.md`.
 
 **Ships today.** Nothing. The only "ML" in the repository is PLS and PCA.
 
-**Gap to product.** Real historian data, a checkable confounding analysis, the economic objective and limits (owner decision, not decided). Plan of work to be proposed by the assistant and accepted by the owner.
+**Gap to product.** Public historian datasets, a checkable confounding analysis, and user-configured economic value per PV unit and limits (decision 2026-11-17, #35). Plan of work to be proposed by the assistant and accepted by the owner.
 
 **Phase.** 8.
 
@@ -336,8 +336,8 @@ ADR 012 ("Writes are a product capability", `docs/adr/012-writes-are-a-product-c
 - Only the Write Gateway writes. It is a separate process. Analysis packages never import write code and never hold credentials. CI guard tests now mean "only the gateway writes", not "nothing writes".
 - Write policy is data (schema `write-policy`). Limits, maximum step, maximum rate, minimum interval, allowed loop modes, hold-off time, watchdog period, read-back tolerance. No override flag.
 - Read-back verification of every write. Watchdog the control system can monitor. Operator priority: any manual change disables writing to that target for the hold-off time. Kill switch honoured within one gateway cycle, not bypassable by configuration. Hash-chained audit of every proposal, decision and write.
-- Allowed targets: setpoints of loops in cascade or remote-setpoint mode; PID tuning parameters (`confirm` only); output tags of virtual sensors. Never the controller output; the mode or setpoint-source node only for the setpoint handover of ADR 016 (release by default, take-remote only when a site enables it). A step-test assistant writing OUT in manual is an open owner decision (section 10).
-- Modes per target, default `off`: `off`, `advisory`, `dry_run`, `confirm`, `supervised`. Version 1 implements all five. PID tuning parameters are written in `confirm` only; `supervised` is allowed for loop setpoints and virtual-sensor tags within the policy. Who may enable `supervised` is an owner decision (section 10).
+- Allowed targets: setpoints of loops in cascade or remote-setpoint mode; PID tuning parameters (`confirm` only); output tags of virtual sensors. Controller output is excluded except for the separately scoped manual step-test assistant (`confirm` only, decision 2026-11-17); the mode or setpoint-source node only for the setpoint handover of ADR 016 (release by default, take-remote only when a site enables it). Owner decision 2026-11-17 permits a step-test assistant to propose OUT writes in manual, `confirm` only; implementation is a separate issue (section 10).
+- Modes per target, default `off`: `off`, `advisory`, `dry_run`, `confirm`, `supervised`. Version 1 implements all five. PID tuning parameters are written in `confirm` only; `supervised` is allowed for loop setpoints and virtual-sensor tags within the policy. Authority is configurable per site under ADR 013/014 (decision 2026-11-17, #31).
 - Authentication, roles (engineer, operator) and login are required before `confirm`. Local users only.
 - The simulator of Phase 1a replaces the "soft PLC" of earlier plans. The 12 gateway scenarios become real tests against it in Phase 2.
 
@@ -345,12 +345,12 @@ ADR 012 ("Writes are a product capability", `docs/adr/012-writes-are-a-product-c
 
 A separate project that Crosscut sees only as a black box through OPC UA and historian export. Ground truth is exposed on a separate channel. It is the base for a future simplified flowsheet-modelling tool for metallurgists.
 
-The repository is RougherSim (github.com/msurun/RougherSim, private, no licence yet); its plan is `docs/IMPLEMENTATION_PLAN.md` there, milestones M0-M7.
+The repository is RougherSim (github.com/msurun/RougherSim, private, no licence, retained by decision 2026-11-17 (original decision 2026-10-27)); its plan is `docs/IMPLEMENTATION_PLAN.md` there, milestones M0-M7.
 
 - **Process model as data.** Flowsheet JSON plus a unit library: feeder and conveyor with transport delay, ball mill, sump with pump, hydrocyclone, flotation bank of 3–4 cells with level and air (kinetic model), a simple cleaner, a concentrate thickener. Valves with deadband and stiction. Transmitters with noise, quantisation and historian compression. Separate mass balance for solids, water and minerals. Realistic couplings: integrating levels, inter-cell interaction, ore hardness and feed disturbances. About 20–30 PID loops including cascades. Starting point is the existing grinding model in `sim/`.
 - **Vendor profile as a replaceable layer.** First ABB 800xA / AC 800M: OPC UA address space and 800xA-style naming; PID block semantics (Man/Auto/Cascade/Remote SP, tracking, bumpless, Gain/Ti/Td names and units); alarms and events; historian export format. We do not imitate Operator Workplace or Aspect Objects. Second profile: Siemens (PCS 7 / S7 PID).
 - **Operating modes.** Real time and accelerated. Scripted operator actions. Fault injection. Scenario recording.
-- **Limitation to state openly.** The imitation proves our understanding of 800xA, not conformance with a real 800xA. Real-stack checks: Siemens PLCSIM Advanced trial (cheap check of the Siemens profile); ABB SoftController only with a legal ABB licence, in a legal environment, done by the owner. No unofficial downloads.
+- **Validation limits (2026-11-17).** The ABB profile remains ASSUMPTION; public ABB documentation checks conventions, not real-stack conformance. No ABB SoftController for now. Siemens PLCSIM Advanced is deferred until a Siemens user appears.
 
 The DCS simulator replaces the "soft PLC" for the gateway scenarios in Phase 2 and for the tuning cycle in Phase 3.
 
@@ -367,13 +367,13 @@ Every phase has a short detailed plan before its start and its own gates: `ruff`
 | **Phase 1a** — DCS simulator | See section 6 | Simulator runs as OPC UA server in ABB profile. Phase 1 Crosscut connects, builds the catalogue, computes live KPI. Mass balance closes (test). Loop step responses match ground truth |
 | **Phase 2** — Write Gateway v1 | Implementation per ADR 012: `off`, `advisory`, `dry_run`, `confirm`, then `supervised`. First write protocol: OPC UA. Write policy schema and GUI editor. Proposal queue in the console. Roles and login | All 12 gateway scenarios pass against the Phase 1a DCS simulator. e2e shows proposal → confirm → write → read-back → audit entry; kill switch stops in one cycle. Gateway, policy and permissions pass review |
 | **Phase 2.5** — APC core (owner decision 2026-11-10, before Phase 3) | Section 3.2 and ADR 015: one variable model in the catalogue, live variable status, loop readiness, controller host in the runtime, fuzzy supervisor as the first controller, operator console | Fuzzy supervisor runs as a controller in the runtime against RougherSim in closed loop: a bad CV is dropped, a lost MV or comms sheds to base control, restart restores the controller state, the operator switches controller and variables on and off in the console |
-| **Phase 3** — Module 1 as a complete product (first release) | Online monitoring of all catalogue loops. Tuning path from detection to write after confirmation, KPI check, one-click rollback. Optional step-test assistant | Full cycle on the DCS simulator: weak loop detected → test → tuning → write after confirmation → KPI improvement → rollback works. Then a pilot at the owner's site in `confirm` mode |
-| **Phase 4a** — Universal virtual-sensor engine with presets | See section 4.2 | A lab-and-analyser configuration built entirely in the GUI reproduces the exp31 numbers. exp30 (synthetic) still meets its criteria. Blind test on the next data delivery. Every v1 preset, configured only in the GUI, passes its L5 row against RougherSim, including the instrument-failure scenario (failover and accuracy criteria frozen in the protocol before the run) |
+| **Phase 3** — Module 1 as a complete product (first release) | Online monitoring of all catalogue loops. Tuning path from detection to write after confirmation, KPI check, one-click rollback. Optional step-test assistant | Full cycle on the DCS simulator: weak loop detected → test → tuning → write after confirmation → KPI improvement → rollback works. Public-data benchmarks (decision 2026-11-17); site deployment checks are separate |
+| **Phase 4a** — Universal virtual-sensor engine with presets | See section 4.2 | A lab-and-analyser configuration built entirely in the GUI is validated on public data (decision 2026-11-17). exp30 (synthetic) still meets its criteria. Every v1 preset, configured only in the GUI, passes its L5 row against RougherSim, including the instrument-failure scenario (failover and accuracy criteria frozen in the protocol before the run) |
 | **Phase 4b** — Asset templates and predictive maintenance | See section 4.3 (asset templates, expected-value models, health index, time to limit). Builds on the preset machinery of Phase 4a and the event management of Phase 3 | Every v1 asset template detects its injected degradation in RougherSim with the lead time and false-event rate set in a frozen protocol, and raises no event on operating-mode changes. Asset view in the GUI ranked by criticality |
 | **Phase 5** — Connectors | PI (PI Web API, optionally AF SDK); SQL/ODBC profiles (IP.21, PHD, AVEVA/Wonderware Historian, WinCC); OPC DA/HDA through a wrapper or proxy UA; Excel and Parquet | Each connector covers history, live read and metadata. Each has a test on a recorded fixture. Real-source tests are owner tasks. Writes stay gateway-only |
 | **Phase 6** — Fuzzy closed loop | Strategy Canvas (section 4.4). Supervisor advice becomes setpoint write proposals through the gateway: `confirm` first, then `supervised` | Write proposals flow through the gateway; run in `confirm` then `supervised` tested against the DCS simulator |
 | **Phase 7** — MPC | Identification from step tests and an editable model matrix in the GUI. Linear MPC with constraints (QP) checked on `sim/`. C++ runtime per ADR 001 | MPC writes setpoints through the gateway in `supervised` mode against the DCS simulator |
-| **Phase 8** — ML and optimisation | Operating-range recommendation and an economic layer (RTO) above MPC and fuzzy | Plan accepted by the owner. Economic objective and limits supplied by the owner |
+| **Phase 8** — ML and optimisation | Operating-range recommendation and an economic layer (RTO) above MPC and fuzzy | Plan accepted by the owner. Economic value per PV unit and limits entered by the site user; no decision blocker (2026-11-17, #35) |
 
 **Phase 1 item 1 (#43): implemented.** Legacy CSV wide/long, SQL, OPC UA polling,
 subscription and collector acquisition use connector adapters without changing their dataset
@@ -385,7 +385,7 @@ period for both layouts. See [Read connectors](CONNECTORS.md) for policy and com
 - Frozen protocols: an experiment freezes and commits its protocol before any run. Test seeds run once. Misses ship visibly; thresholds are not moved.
 - Experiments serve the product features in this document. They are not a separate line of work.
 - Simulator success is not a plant claim. Findings say "in our simulator, with our operator model".
-- Real plant data stays outside the repository.
+- Owner decision 2026-11-17: validation uses public datasets; owner-site data is excluded from development and validation.
 
 See `docs/TESTING_STRATEGY.md` (L0–L7 ladder), `docs/ASSUMPTIONS.md` (unproven assumptions and retirement plans), `experiments/README.md` (experiment index and status).
 
@@ -394,26 +394,26 @@ See `docs/TESTING_STRATEGY.md` (L0–L7 ladder), `docs/ASSUMPTIONS.md` (unproven
 Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 
 1. Every task names the module and phase in this document.
-2. Work on plant data yields a generic engine feature plus an example configuration, or nothing.
+2. Owner decision 2026-11-17: public-data work yields generic engine features; site facts remain user configuration.
 3. A new top-level element (package, experiment line, tool) requires the owner's approval.
 
-## 10. Open owner decisions
+## 10. Owner decisions - 2026-11-17
 
-| # | Decision | Blocks |
+| # | Decision (2026-11-17) | Follow-up |
 |---|---|---|
-| 1 | ABB/Siemens validation access (a deployment datum: the site's DCS and PidCC unit go in the plant map and policy, not into the product) | Phase 3 pilot |
-| 2 | Whether the step-test assistant may propose OUT writes in manual (`confirm` mode) | Phase 3 exit criteria |
-| 3 | Licence of the separate DCS simulator project RougherSim (name decided); whether Siemens PLCSIM Advanced (trial) is the second check | Phase 1a |
-| 4 | Whether there is legal access to ABB SoftController (Compact Control Builder) to check the ABB profile on a real stack | Phase 1a ABB verification |
-| 5 | ADR 008 licence (AGPL-3.0-only) review | Release terms |
-| 6 | Blind worklist review (≈20 loops) | Module 1 evidence |
-| 7 | One real valve stroke test | Module 1 evidence |
-| 8 | Optimisation objective (economic value per PV unit, operating limits) | Phase 8 |
-| 9 | ~~Write authority model~~ now configurable per site (ADR 013 "Configurable defaults", `docs/ADMIN_GUIDE.md`); no owner decision needed | - |
-| 10 | Virtual-sensor v1 preset set (section 4.2) and whether `backup` mode is in v1; which plant instruments (belt scale, pump, valve) can supply validation data | Phase 4a scope |
-| 11 | Critical-asset list and v1 asset templates (section 4.3); whether maintenance history (work orders, failure records) can be shared for labelled events | Phase 4b evidence |
+| 1 | **2026-11-17:** ABB/Siemens validation access is a deployment datum: the site DCS, PidCC unit and access policy belong in the plant map and write policy, not in product decisions. | See decision |
+| 2 | **2026-11-17:** The step-test assistant MAY propose OUT writes in manual, in `confirm` mode only. Implementation is a separate issue. | See decision |
+| 3 | **2026-11-17:** RougherSim stays private with no licence, as decided 2026-10-27. Siemens PLCSIM Advanced verification is deferred until a Siemens user appears. | See decision |
+| 4 | **2026-11-17:** No ABB SoftController for now. The ABB profile stays labelled ASSUMPTION; conventions are checked against public ABB documentation. | See decision |
+| 5 | **2026-11-17:** ADR 008 (AGPL-3.0-only, with CLA) and ADR 009 accepted (#29). | See decision |
+| 6 | **2026-11-17:** Blind worklist review is replaced by public-data benchmarks (separate issue). | See decision |
+| 7 | **2026-11-17:** The real valve stroke test is replaced by public-data benchmarks (separate issue). | See decision |
+| 8 | **2026-11-17:** The optimisation objective is per-site configuration: the user enters economic value per PV unit and operating limits, like item 9. Phase 8 is no longer blocked by a decision (#35). | See decision |
+| 9 | **2026-11-17:** Write authority is configurable per site under ADR 013/014 and `docs/ADMIN_GUIDE.md`; no owner decision is pending (#31). | See decision |
+| 10 | **2026-11-17:** Soft-sensor v1 consists of the presets marked v1 in section 4.2; `backup` mode IS in v1 (separate issue). Validation instruments use public data. | See decision |
+| 11 | **2026-11-17:** Deferred to Phase 4b: v1 asset templates are those marked in section 4.3; validation uses public data. | See decision |
 
-Also still relevant from PROJECT_DESIGN §8: real level step test (integrating loop), anomaly real data (≥ 2 weeks quiet plus labelled events), soft-sensor real data (lab timestamps, delay, tags), lab-stamp and missing-value-code meaning, analyser latency, UaExpert check and one ABB `PidCC` TI/TD export, ramp-warning precision against real archive gaps, next data delivery kept untouched for a blind exp31 test.
+Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. Plant data from the owner's site is not used for development or validation. Validation uses public datasets; site facts (tunings, sample metadata, vendor conventions, economic values) are per-site configuration entered by the user. Check the licence before use and add a row to `docs/PROVENANCE.md`; download to a scratch folder outside the repository; never commit or redistribute data. CC BY-SA and unlicensed datasets are used locally only; no derived data is published.
 
 ## 11. Document map
 
@@ -429,10 +429,10 @@ Also still relevant from PROJECT_DESIGN §8: real level step test (integrating l
 | `docs/PROVENANCE.md` | Public sources and third-party datasets |
 | `docs/OWNER_TASKS.md` | What only the owner can do; what to bring back |
 | `docs/adr/001` | C++ runtime, Python offline tooling (accepted) |
-| `docs/adr/008` | AGPL-3.0-only licensing |
-| `docs/adr/009` | Configuration is data (proposed) |
-| `docs/adr/010` | Advisory supervisor, no writes (proposed; write position superseded by ADR 012) |
-| `docs/adr/011` | Write path design; safety rules still in force |
+| `docs/adr/008` | AGPL-3.0-only with CLA (accepted 2026-11-17, #29) |
+| `docs/adr/009` | Configuration is data (accepted 2026-11-17, #29) |
+| `docs/adr/010` | Advisory supervisor (accepted 2026-11-17; partly superseded by ADR 012 and ADR 015) |
+| `docs/adr/011` | Write path design; owner open points closed by ADR 013/014 defaults (2026-11-17, #31); safety rules still in force |
 | `docs/adr/012` | Writes are a product capability |
 | `docs/adr/013` | Roles and authority |
 | `docs/adr/014` | Tuning write path |

@@ -1,6 +1,6 @@
 # ADR 008: AGPL-3.0-only
 
-Status: accepted (2026-10-13). Supersedes ADR 005.
+Status: **accepted** (owner confirmation 2026-11-17, #29): AGPL-3.0-only with CLA. Originally accepted 2026-10-13; supersedes ADR 005.
 
 The owner changed the repository licence from Apache-2.0 to the GNU Affero General Public License v3.0 (GitHub, commit
 920642b). The SPDX identifier used in package metadata is `AGPL-3.0-only`, because the licence text chosen carries no

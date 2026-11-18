@@ -1,107 +1,35 @@
 # Owner tasks
 
-## What only the owner can do or decide
+## Decisions recorded on 2026-11-17
 
-Each item lists why it matters and what to bring back. Tick a box when the item is done and the result is recorded in the repo.
+Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. Plant data from the owner's site is not used for development or validation. Validation uses public datasets; site facts (tunings, sample metadata, vendor conventions, economic values) are per-site configuration entered by the user. Check the licence before use and add a row to `docs/PROVENANCE.md`; download to a scratch folder outside the repository; never commit or redistribute data. CC BY-SA and unlicensed datasets are used locally only; no derived data is published.
 
-### Reviews
+- [x] **2026-11-17, PRODUCT section 10 item 1:** ABB/Siemens validation access is a deployment datum: the site DCS, PidCC unit and access policy belong in the plant map and write policy, not in product decisions.
+- [x] **2026-11-17, PRODUCT section 10 item 2:** The step-test assistant MAY propose OUT writes in manual, in `confirm` mode only. Implementation is a separate issue.
+- [x] **2026-11-17, PRODUCT section 10 item 3:** RougherSim stays private with no licence, as decided 2026-10-27. Siemens PLCSIM Advanced verification is deferred until a Siemens user appears.
+- [x] **2026-11-17, PRODUCT section 10 item 4:** No ABB SoftController for now. The ABB profile stays labelled ASSUMPTION; conventions are checked against public ABB documentation.
+- [x] **2026-11-17, PRODUCT section 10 item 5:** ADR 008 (AGPL-3.0-only, with CLA) and ADR 009 accepted (#29).
+- [x] **2026-11-17, PRODUCT section 10 item 6:** Blind worklist review is replaced by public-data benchmarks (separate issue).
+- [x] **2026-11-17, PRODUCT section 10 item 7:** The real valve stroke test is replaced by public-data benchmarks (separate issue).
+- [x] **2026-11-17, PRODUCT section 10 item 8:** The optimisation objective is per-site configuration: the user enters economic value per PV unit and operating limits, like item 9. Phase 8 is no longer blocked by a decision (#35).
+- [x] **2026-11-17, PRODUCT section 10 item 9:** Write authority is configurable per site under ADR 013/014 and `docs/ADMIN_GUIDE.md`; no owner decision is pending (#31).
+- [x] **2026-11-17, PRODUCT section 10 item 10:** Soft-sensor v1 consists of the presets marked v1 in section 4.2; `backup` mode IS in v1 (separate issue). Validation instruments use public data.
+- [x] **2026-11-17, PRODUCT section 10 item 11:** Deferred to Phase 4b: v1 asset templates are those marked in section 4.3; validation uses public data.
+- [x] **2026-11-17:** ADR 010 accepted, partly superseded by ADR 015; ADR 012 still supersedes its no-write position.
+- [x] **2026-11-17:** ADR 011 owner open points closed by ADR 013/014 configurable defaults (#31).
 
-- [ ] **Review ADR 008 (AGPL).**
-  - Why: the licence decides what a customer may run and publish.
-  - Bring back: accept, or a list of changes to the ADR.
-- [ ] **Review ADR 010 (advisory supervisor).**
-  - Why: it defines what the software may recommend and how operators acknowledge advice.
-  - Bring back: accept, or a list of changes to the ADR.
-- [ ] **Review ADR 011 (write path) when it exists.**
-  - Why: it is the only place where a write to a live system would be allowed.
-  - Bring back: accept, or a decision on each open point in the ADR.
+## Follow-up work
 
-### Flotation cell level step test
+- [ ] Implement the manual step-test assistant OUT proposals in `confirm` only (separate issue; decision 2026-11-17).
+- [ ] Replace blind worklist review and real valve stroke testing with public-data benchmarks (separate issues; decision 2026-11-17).
+- [ ] Complete the section 4.2 v1 presets, including `backup`, with public-data validation (separate issue; decision 2026-11-17).
+- [ ] Phase 4b: validate section 4.3 v1 asset templates on public data (decision 2026-11-17).
 
-- [ ] **Record a level step test on the flotation cell.**
-  - Why: the level loop model for the integrating-loop work (exp28) needs a real step response.
-  - Needs:
-    - PV level tag, OUT tag, mode, setpoint, units, sample period
-    - the loop in manual, output moved as a single step or a doublet
-    - at least 20 % quiet time before the first output move
-    - several dead times after the last move
-    - which valve and which cell
-  - Format: CSV with columns `t_utc, tag, value, quality`, or a wide CSV with a header.
-  - Bring back: the file, marked internal.
+## Remaining owner and deployment tasks
 
-### Real valve stroke test
+- [ ] Check the OPC UA demo with UaExpert; record the browsed nodes and errors (`docs/LIVE_DEMO.md`).
+- [ ] Review Polish and Spanish UI strings natively; return corrections or acceptance.
+- [ ] Review key protection on Windows/OneDrive.
+- [ ] For each deployment, enter tunings, sample metadata, vendor conventions, economic values, access and write policy locally. Do not supply owner-site data for development or validation (decision 2026-11-17).
 
-- [ ] **Run one real valve stroke test on a flow loop.**
-  - Why: the simulator stroke model is unverified against a real valve.
-  - Procedure: `docs/VALVE_STROKE_TEST.md`.
-  - Bring back: the record and the filled results table.
-
-### Blind review of the worklist
-
-- [ ] **Ask an independent control engineer to review about 20 loops blind.**
-  - Why: the worklist ranking has no outside check yet. The author is not independent.
-  - Pass criteria: Kendall tau >= 0.5 and >= 80 % agreement on the next action.
-  - Bring back: the reviewer's ranking and next-action choice for each loop.
-
-### UaExpert check
-
-- [ ] **Check the OPC UA demo with UaExpert.**
-  - Why: confirms the live demo server behaves as an OPC UA client expects.
-  - Procedure: `docs/LIVE_DEMO.md`.
-  - Bring back: a note of what was browsed and any error text.
-
-### ABB unit
-
-- [ ] **Provide the TI/TD unit from one real PidCC loop export.**
-  - Why: the ABB PID block time units are currently assumed, not checked.
-  - Bring back: the export file (marked internal) and the TI and TD values as the controller shows them.
-
-### Derived tables
-
-- [ ] **Decide whether SACAC and ISDB providers may be asked about publishing derived tables.**
-  - Why: the derived tables may contain data the providers own.
-  - Bring back: a yes or no per provider, in writing.
-
-### Real data per module
-
-- [ ] **Anomaly detection (Module 3): at least 2 weeks of quiet operation plus labelled events.**
-  - Why: the detector limits can only be checked against real quiet data.
-  - Bring back: CSV with columns `t_utc, tag, value, quality`, plus a list of labelled events with start and end times. Mark internal.
-- [ ] **Soft sensor (Module 4): lab results with timestamps, the sample-delay offset, and the process tags.**
-  - Why: the quality variable is only real with lab timestamps and the delay.
-  - Bring back: lab results CSV, the delay in minutes, and the process tag list. Mark internal.
-
-### Strings
-
-- [ ] **Read the machine-written Polish and Spanish UI strings natively.**
-  - Why: the machine translations have not been checked by a native speaker.
-  - Bring back: the list with corrections, or a note that they are acceptable.
-
-### Decisions
-
-- [ ] **Write authority model: who may allow a write, operator authority, watchdog.**
-  - Why: ADR 011 cannot be finished without it.
-  - Bring back: a written decision for each of the three parts.
-- [ ] **Optimisation objective: economic value per PV unit and limits.**
-  - Why: no optimisation module can be built without an objective.
-  - Bring back: the value per PV unit, and the operating limits.
-- [ ] **Whether the UI needs authentication.**
-  - Why: it decides the deployment design and the security review scope.
-  - Bring back: yes or no, and who should have access.
-- [ ] **Whether the first customer needs MPC.**
-  - Why: MPC has no write path yet, so it is ruled out for now.
-  - Bring back: yes or no, with the customer's reason.
-
-## What I need back for the new modules
-
-- [ ] **Try the Anomalies view with your own tags.**
-  - Needs: the tag ids and two weeks of quiet operation (CSV with columns `t_utc, tag, value, quality`).
-  - Bring back: the tag list and what the view showed. Mark internal.
-- [ ] **Try the Soft sensor view with a lab CSV.**
-  - Needs: a lab CSV with columns `sample_time, value`, the process tags and the lab sample delay in minutes.
-  - Bring back: the files (marked internal) and the delay used.
-- [ ] **Native review of the Polish and Spanish texts of the new views** (Anomalies and Soft sensor).
-  - Bring back: a list of corrections, or a note that the texts are acceptable.
-- [ ] **Decide the open points of ADR 011 (write path).**
-  - Why: the design stays a proposal until these are decided; nothing may write before that.
-  - Bring back: a decision on each open point listed in `docs/adr/011-write-path.md`.
+The former requests for owner-site level tests, PidCC exports, anomaly histories, lab files and untouched exp31 deliveries are retired by the decision of 2026-11-17. Authentication and write authority follow ADR 013/014; they do not await a new owner decision.

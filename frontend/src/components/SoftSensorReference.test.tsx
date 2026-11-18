@@ -61,7 +61,7 @@ describe("SoftSensorConfigSummary reference line", () => {
 
   it("lists the reference inputs with their settings, or none", () => {
     const { rerender } = render(<SoftSensorConfigSummary config={base} t={t} />);
-    expect(screen.getByText("none")).toBeInTheDocument();
+    expect(screen.getAllByText("none")).toHaveLength(2);
     const config = { ...base, reference_inputs: [{ tag: "an", window_s: 900, shift_s: 0, min_coverage: 0.7, bias_weight: 0.3 }] };
     rerender(<SoftSensorConfigSummary config={config} t={t} />);
     expect(screen.getByText("an: 900 s, shift 0 s, coverage at least 70 %, weight 0.3")).toBeInTheDocument();
