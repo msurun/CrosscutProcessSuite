@@ -18,6 +18,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -140,14 +141,14 @@ def import_opcua(
     values, qualities = _with_missing_codes(values, qualities, tag_settings)
 
     # Persist everything in one call: samples, tag list and source description.
-    info = _dataset_info(target, endpoint, ts_ns, unique_tag_ids)
+    info = _dataset_info(target, endpoint, ts_ns, (unique_tag_ids, node_ids))
     write_dataset(target.out_dir, Samples(ts_ns, unique_tag_ids, values, qualities), info)
 
     return _make_report(values, len(unique_tag_ids))
 
 
 def _dataset_info(
-    target: ImportTarget,
+    target: ImportTarget | str,
     endpoint: str,
     ts_ns: np.ndarray,
     tags_and_nodes: tuple[list[str], list[str]],
@@ -158,6 +159,8 @@ def _dataset_info(
     records, for each tag id, which OPC UA node id it was read from.
     """
     tag_ids, node_ids = tags_and_nodes
+    if isinstance(target, str):  # legacy call: just the dataset id, no site settings
+        target = ImportTarget(Path("."), target)
     return DatasetInfo(
         dataset_id=target.dataset_id,
         source={"kind": "opcua", "endpoint": endpoint},
@@ -259,7 +262,7 @@ async def _collect_samples(
     return (
         np.array(ts_ns, dtype=np.int64),
         np.array(rows, dtype=np.float64).T,
-        np.array(column_qualities, dtype=np.uint8).T,
+        np.array(column_qualities, dtype=np.uint8),
     )
 
 
@@ -468,7 +471,7 @@ def _start_iso(ts_ns: np.ndarray) -> str:
 
 
 def _tags_document(
-    tag_ids: list[str], node_ids: list[str], target: ImportTarget
+    tag_ids: list[str], node_ids: list[str], target: ImportTarget | None = None
 ) -> dict[str, Any]:
     """Build the tags.json document: one float tag per identifier, sourced from OPC UA.
 
@@ -495,7 +498,7 @@ def _tags_document(
     return {
         "schema_version": "0.1.0",
         "tags": [
-            _opcua_tag_entry(tag_id, node_id, target)
+            _opcua_tag_entry(tag_id, node_id, target or ImportTarget(Path("."), ""))
             for tag_id, node_id in zip(tag_ids, node_ids, strict=True)
         ],
     }

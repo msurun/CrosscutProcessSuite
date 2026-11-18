@@ -490,14 +490,21 @@ def _parse_timestamps(
 
 
 def _parse_value_matrices(
-    data_rows: list[list[str]], tag_ids: list[str], decimal: str, target: ImportTarget
+    data_rows: list[list[str]],
+    tag_ids: list[str] | int,
+    decimal: str,
+    target: ImportTarget | None = None,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Return dense value and quality matrices plus the count of BAD cells.
 
     Every row gets one value and one quality flag per tag, even when the source
     cell was empty, unparsable or holds a missing code declared by the site file
-    (such cells become NaN + BAD).
+    (such cells become NaN + BAD). ``tag_ids`` may be a plain tag count and ``target``
+    omitted (neutral settings), as in the pre-site-settings signature.
     """
+    if isinstance(tag_ids, int):
+        tag_ids = [""] * tag_ids
+    target = target or ImportTarget(Path("."), "")
     settings = [target.settings_for(tag_id) for tag_id in tag_ids]
     values = np.empty((len(data_rows), len(tag_ids)), dtype=np.float64)
     qualities = np.empty((len(data_rows), len(tag_ids)), dtype=np.uint8)
@@ -509,7 +516,7 @@ def _parse_value_matrices(
             is_bad = bool(np.isnan(value)) or _is_missing_cell(cell, value, settings[j])
             qualities[i, j] = BAD if is_bad else GOOD
             bad_count += int(is_bad)
-            values[i, j] = value
+            values[i, j] = np.nan if is_bad else value
     return values, qualities, bad_count
 
 
@@ -667,11 +674,19 @@ def _normalise_order(
 
 
 def _write_csv_dataset(
-    target: ImportTarget,
-    tags: ColumnTags,
-    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
+    target: ImportTarget | Path,
+    tags: ColumnTags | str,
+    *args: Any,
 ) -> None:
-    """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row."""
+    """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row.
+
+    Two call shapes: ``(target, tags, arrays)`` and the legacy
+    ``(out_dir, dataset_id, header_cells, arrays)`` without site settings.
+    """
+    if not isinstance(target, ImportTarget):
+        target, tags = ImportTarget(target, tags), _column_tags(args[0])
+        args = args[1:]
+    (arrays,) = args
     ts_ns, values, qualities = arrays
     info = DatasetInfo(
         dataset_id=target.dataset_id,
