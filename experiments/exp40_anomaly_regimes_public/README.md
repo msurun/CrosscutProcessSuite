@@ -101,4 +101,4 @@ change a definition are listed in results.md. Hypotheses about causes are marked
 Run: `python experiments/exp40_anomaly_regimes_public/run_exp40.py --data <scratch data folder with skab/ and w3/>`; without the
 data it prints a SKIP message and exits 0.
 
-## Frozen on 2026-11-18, commit <filled by the lead>
+## Frozen on 2026-11-18: protocol and runner merged to main by PR "exp40/exp41 frozen protocols" before any full run (the merge commit is the freeze point; results.md names it)

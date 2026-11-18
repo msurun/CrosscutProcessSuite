@@ -84,4 +84,4 @@ that do not change a definition are listed in results.md.
 Run: `python experiments/exp41_pronto_regimes/run_exp41.py --data <scratch folder with the case-study tree>`; without the data it
 prints SKIP and exits 0.
 
-## Frozen on 2026-11-18, commit <filled by the lead>
+## Frozen on 2026-11-18: protocol and runner merged to main by PR "exp40/exp41 frozen protocols" before any full run (the merge commit is the freeze point; results.md names it)
