@@ -39,10 +39,10 @@ lags, other settings the engine defaults at the commit of the run.
 
 | Item | Fixed value |
 |---|---|
-| regimes key | the air-flow and the water-flow set point columns (the two controller SP copies among the 12 columns after the 19 measurements of the csv). Positions are fixed from the header names, before the run, in `run_exp41.py` |
-| quantum | air set point 10 sm3/h, water set point 0.1 kg/s (the logged set points 20/50/100/120/150/200 and 0.1/0.5/1/2/3.5 are multiples) |
+| regimes key | the four controller set point columns among the 12 columns after the 19 measurements of the csv (csv column index, 0 = TIMESTAMP): `FIC302/PID1/SP.CV` (21) and `FIC301/PID1/SP.CV` (24) for air, `FIC102/PID1/SP.CV` (27) and `FIC101/PID1/SP.CV` (30) for water; named `sp_air_fic302`, `sp_air_fic301`, `sp_water_fic102`, `sp_water_fic101` in `run_exp41.py`. Fixed from the header names and from the median SP of the N blocks (not scored data). One column per quantity does not exist: which of the two air loops (302 for 20-150, 301 for 200 sm3/h) and which of the two water loops (101 for 0.1-0.5, 102 for 1-3.5 kg/s) carries the set point changes with the block, the idle loop sits at a constant (100.001 / 0), so the key is the tuple of all four |
+| quantum | the two air set point columns 10 sm3/h, the two water set point columns 0.1 kg/s (the logged set points 20/50/100/120/150/200 and 0.1/0.5/1/2/3.5 are multiples) |
 | min_rows | 120 rows (2 min) per regime |
-| setpoint_like | the two set point columns (not PCA tags); no other tag is named, the zero-diff share > 0.9 rule covers the rest |
+| setpoint_like | the four set point columns (not PCA tags of the 19 measurements; the engine needs them in `tags`, it zeroes them for fitting); no other tag is named, the zero-diff share > 0.9 rule covers the rest |
 | stuck exemption (b) | on; quantisation step = engine default estimate from training rows |
 
 Two arms on the same split: arm B = new engine (targets evaluated on B); arm A = exp38 engine configuration (no regimes, no

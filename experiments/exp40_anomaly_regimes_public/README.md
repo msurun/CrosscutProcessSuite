@@ -38,13 +38,13 @@ SKAB (time-reversed fit; exp36 fitted on the first 70 % of `anomaly-free.csv`):
 3W (new seeded draw; exp36 used `default_rng(87)`):
 
 - Pool = sorted real-well files per class that are NOT in the exp36 subset (list in exp36 results.md). Draw with
-  `numpy.random.default_rng(102)` per class, without replacement: class 0 normal 24 files, class 4 flow instability 10, class 7
+  `numpy.random.default_rng(102)` (a fresh generator per class), without replacement: class 0 normal 24 files, class 4 flow instability 10, class 7
   scaling in PCK 6, class 3 severe slugging 6; if a class has fewer files left, take all of them and report it. The draw list goes
   into results.md.
 - Per well with at least 3 drawn class 0 files (sorted by name): train = all class 0 files except the last two; calibration = the
   second-last class 0 file (reported only, like SKAB); quiet test = the last class 0 file plus the `class == 0` stretch of event
   files of that well. Wells with fewer than 3 class 0 files are skipped and listed (not fitted, not scored).
-- Training rows: `class == 0` and (if the `state` column exists) `state == 2`. Rows with `state != 2` are neither training nor
+- Training rows: `class == 0` and (if the `state` column exists) `state == 2`. Factual correction found when writing the runner: in every real-well file of the drawn pool `state` holds only 0 or NaN, never 2, so the literal rule would leave no training rows; the state filter is therefore applied only to a file in which `state == 2` occurs, otherwise class 0 alone is used (as in exp36). Rows with `state != 2` are neither training nor
   quiet. Event test = drawn class 3, 4, 7 files of fitted wells; onset = first row with class in {event, 100 + event}, as in exp36.
   NaN-class lead-in rows are scanned but are neither quiet nor event.
 - Tags per well = columns finite in >= 99 % of the bins of every file of the well and not constant in the training rows; the
