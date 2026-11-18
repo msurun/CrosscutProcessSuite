@@ -1078,3 +1078,10 @@ Still open for the owner: the three ADR 015 defaults (cycle 30 s, 3 overruns -> 
 
 Merged after the first handoff: #94 validation report generator (#40), #95 public benchmark loaders (#21, experiments/exp32), #97 L5 matrix executors (#53: P1, P2-e2e, P3 ready), #98 tuning intents API returns `targets` (#96, root cause of the intermittent tuning-live e2e), #99 owner decisions in PRODUCT.md (#80), #100 soft-sensor backup mode (#82), #106 step-test assistant OUT in MAN, confirm only (#81, ADR 017, other-vendor security review findings fixed, L5 row live), and public-data experiments exp33 two-tank (#86: 5 met, 1 missed, 1 not exercised), exp34 cascaded tanks (#83: K1-K4 met, no real step in the record), exp35 valve friction (#84: inconclusive), exp36 anomaly SKAB/3W (#87: every target missed - the anomaly engine does not transfer to real data yet), exp37 sealed worklist protocol (#85: not run, needs scipy).
 Engine gaps from the public data are collected in issue #102. Owner items: scipy install for #85, Kaggle files for #88, PRONTO run for #87, licences TEP/C-MAPSS, exp32 as a new experiment line, ADR 015 defaults.
+
+## 2026-11-18 - Review fixes C: site catalogue adapter, one loop-knowledge home, remap sync, job checks
+
+- #122: `api/site_loops.py` reads tag `eng_limits` and `loop.out_limits` (flat `eng_min/eng_max` of a dataset row still win); site and dataset tag rows are merged field by field.
+- #123 (ADR 015): knowledge of a catalogue loop lives in its `site.json` entry (new optional loop keys in `site.schema.json`), flows into `LoopTags`, and `PUT .../knowledge` writes there (`"source": "site"`); `project.json` only for loops outside the catalogue.
+- #124: catalogue remap updates generated `_anomaly/_softsensor` default configs when untouched (sidecar fingerprint), else reports `conflict` in `module_configs`/`stale_configs`.
+- #125 (API part): job validation refuses an unknown controller; `anomaly_id` accepted on PATCH. `rate_max` is handled with #115.
