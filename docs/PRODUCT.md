@@ -1,6 +1,8 @@
 # Crosscut Process Suite — Product definition
 
-This document is the single product definition of the Crosscut Process Suite. It replaces `docs/PROJECT_DESIGN.md`, which is kept only as a historical record. The ADRs in `docs/adr/` override this document where they conflict. Date: 2026-10-27.
+This document is the single product definition of the Crosscut Process Suite. It replaces `docs/PROJECT_DESIGN.md`, which is kept only as a historical record. The ADRs in `docs/adr/` override this document where they conflict. Date: 2026-10-27; the "current state" statements ("Exists today", "Ships today") were brought in line with origin/main on 2026-11-18.
+
+**Implemented is not validated.** Every state statement below says what is built. What is validated is stated separately and is less: results on simulators are not plant claims, and the public-data benchmarks of 2026-11-18 are mixed (section 8).
 
 ## 1. Product definition
 
@@ -28,13 +30,13 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 
 | Layer | Responsibility | Exists today | Gap |
 |---|---|---|---|
-| **Connect** | Read history and live values, browse metadata; write only through the gateway | One read connector interface; CSV wide/long history and imports, SQLite and any DB-API/ODBC connection (pyodbc is not a dependency), OPC UA polling and subscription, a Parquet collector | No PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
-| **Project catalogue** | Sources, tags, units, ranges, missing codes, time zone, loops (PV/SP/OUT/mode/PID parameters in vendor form), lab definitions; edited in the GUI | Does not exist. Import settings (missing codes, −9999 sentinel) live in `loops/.../plant_import.py` as code-level settings | Whole layer. The −9999 default constant must be removed (issue #42) |
-| **Engines** | Offline design mode and online run mode for each module | Loops, fuzzy, supervisor, anomaly, soft sensor: offline, on demand, over a stored window; loop KPI and anomaly scan also run online as runtime jobs | Online run mode for soft sensor and supervisor. Generic schema-driven configuration editor exists; not every configuration is editable |
-| **APC core** (section 3.2, Phase 2.5) | Shared variable model, live variable status, loop readiness as MV handle, controller host with a state machine, operator console | Does not exist. Each module keeps its own variable notion and works on stored datasets | Whole layer (ADR 015) |
-| **Runtime** | On-prem service (Windows service or systemd) runs deployed jobs cyclically: loop KPI, anomaly scan, soft-sensor estimate, fuzzy advice. Status, error log, start/stop from the GUI | Scheduler with per-job period, jobs `loop_kpi`, `anomaly_scan`, `tuning_review`, atomic state files, systemd unit, Runtime view | No controller host, no overrun monitoring, no heartbeat, no soft-sensor or supervisor job |
-| **Write Gateway** | Separate process. Writes proposals only. Policy as data, read-back, watchdog, operator priority, kill switch, audit | Implemented (ADR 012-014): five modes, OPC UA adapter, policy clamps, read-back, operator priority, latched kill switch, keyed audit chain, roles, tuning parameter sets with durable write intents. Tested against simulators only | No MV availability signal back to controllers; no explicit bumpless initialisation |
-| **Web console** | Browser UI: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | React + TypeScript frontend, e2e suite green. Some configurations are read-only in the GUI | Configuration editing for supervisor, anomaly and soft sensor; proposal queue; login and roles |
+| **Connect** | Read history and live values, browse metadata; write only through the gateway | One read connector interface (browse, metadata, history, live); CSV wide/long history and imports, SQLite and any DB-API/ODBC connection (pyodbc is not a dependency), SQL historian profiles (Aspen IP.21, Honeywell PHD, AVEVA/Wonderware, Siemens WinCC) as data, PI Web API, OPC UA polling and subscription, a Parquet collector. Tested on recorded fixtures and simulators, not on real sources | No AF SDK, OPC DA/HDA |
+| **Project catalogue** | Sources, tags, units, ranges, missing codes, time zone, loops (PV/SP/OUT/mode/PID parameters in vendor form), lab definitions; edited in the GUI | Built in part: one schema-validated site file `_site/site.json` (`schemas/site.schema.json`) with sources, units, tags, signals, equipment hierarchy, loops, labs, operating modes and controllers; catalogue editor in the GUI (direct editor and mapping wizard with role suggestion); catalogue loops drive the Loops, Anomalies and Soft sensor views; one site-settings function serves all importers | Versioning with diff, bulk CSV edit, loop templates, vendor profiles as data. Operating modes are stored and used for reference checks, but KPIs, anomaly limits and strategies do not yet work per mode |
+| **Engines** | Offline design mode and online run mode for each module | Loops, fuzzy, supervisor, anomaly, soft sensor: offline, on demand, over a stored window; loop KPI, anomaly scan and tuning review also run online as runtime jobs; the fuzzy supervisor runs online as a controller (APC core). Schema-generated configuration forms (nested objects and arrays; raw JSON only as an advanced fallback for oneOf/anyOf schemas) | No online soft-sensor job (the backup mode is in the engine, not in the runtime). Not every configuration has a dedicated editor |
+| **APC core** (section 3.2, Phase 2.5) | Shared variable model, live variable status, loop readiness as MV handle, controller host with a state machine, operator console | Built (ADR 015, Phase 2.5): variable model with nested limits in the catalogue, live variable status (including anomaly findings), MV readiness of loops, controller host, fuzzy controller, operator console (Controllers view) | Only one controller type (fuzzy). Validated in simulation only (L5 C rows against RougherSim); no plant claim |
+| **Runtime** | On-prem service (Windows service or systemd) runs deployed jobs cyclically: loop KPI, anomaly scan, soft-sensor estimate, fuzzy advice. Status, error log, start/stop from the GUI | Scheduler with per-job period, jobs `loop_kpi`, `anomaly_scan`, `tuning_review` and `controller`, atomic state files, systemd unit, Runtime view. Controller host with overrun monitoring and liveness beats to the gateway | No soft-sensor job |
+| **Write Gateway** | Separate process. Writes proposals only. Policy as data, read-back, watchdog, operator priority, kill switch, audit | Implemented (ADR 012-017): five modes, OPC UA adapter, policy clamps, read-back (also delayed), operator priority, latched kill switch, keyed audit chain, local users and roles with login, tuning parameter sets with durable write intents, setpoint handover (ADR 016), bounded OUT tests in MAN (ADR 017), one DCS heartbeat sent by the gateway, liveness monitoring of the runtime and of each controller. Tested against simulators only | No explicit bumpless initialisation. Real-DCS conformance is not established |
+| **Web console** | Browser UI: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | React + TypeScript frontend, e2e suite green. Views: Trends, Loops (detail, tuning, benefit, valve), Fuzzy, Advisor, Anomalies, Soft sensor, Steps, Import, Catalogue, Onboarding, Runtime, Controllers, Gateway (proposal queue, policy panel), Tuning, Users; login, forced password change, roles; English, Polish, Spanish | Some module configurations have no dedicated editor beyond the generated form; no strategy canvas |
 
 ### 3.1 Project catalogue
 
@@ -62,7 +64,7 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 4. Bulk edit through CSV export and import, validated on import, because engineers maintain large tag lists in spreadsheets.
 5. Every change is a version with a diff. A module configuration that refers to a removed or changed tag fails validation visibly; it never runs on a wrong tag.
 
-**Ships today.** `schemas/project.schema.json` and `schemas/tags.schema.json` (loops, variables, tags) and CSV/SQL import with missing-value settings held at code level in `loops/.../plant_import.py`. No GUI editor, no source binding, no equipment hierarchy, operating modes, labs or vendor profiles. The default −9999 constant must be removed (issue #42).
+**Ships today.** `schemas/site.schema.json`: one site file with sources, units, tags, signals, equipment hierarchy, loops (with their knowledge), labs, operating modes, controllers and readiness settings; no plant-specific defaults. GUI: catalogue editor (direct editor and mapping wizard with role suggestion), sources panel, onboarding; a remap updates untouched generated anomaly and soft-sensor configs and reports a conflict otherwise. `project.json` is kept only for loops outside the catalogue. **Not built:** versioning with diff, bulk CSV edit with validation, automatic proposals of modes and equipment, per-mode use of the operating modes by the modules, loop templates. **Planned debt:** vendor PID profiles are still a code dict (`VENDOR_FORMS` in `loops/src/crosscut_loops/vendor_forms.py`: ABB PidCC and Siemens PID Compact), not declarative data files; moving them to data is planned.
 
 **Phase.** 1.
 
@@ -79,6 +81,8 @@ Earlier documents recorded a "no writes to a plant" position (PROJECT_DESIGN §1
 | **Operator console** | Controller and variable on/off, operator limits, status, explanation of the last move |
 
 Writes stay gateway-only (section 5): a controller produces proposals; the gateway's policy, mode ladder and audit apply unchanged.
+
+**Built (ADR 015, owner decisions 2026-11-18).** Controller host in the runtime with the state machine `off` / `standby` / `on` / `shed`; cycle `cycle_s` 10-300 s, default 30 s, which is also the job period; an overrun is a start later than 1.1 x the period; `max_overruns` in a row shed the controller, default 5. An operator (permission `ctl.operate`) may switch a controller `on`; gateway target mode `supervised` is enough, `confirm` is not required, and in `off`, `advisory` or `dry_run` the gateway refuses the writes. Exactly one heartbeat goes to the DCS, sent by the gateway; the runtime process and each controller send liveness beats to the gateway through the signed mailbox, and the gateway releases the targets of a controller (or of all controllers, if the runtime is lost) after `liveness_cycles` x `cycle_s` of silence (default 3 cycles) and audits the loss; the console shows beat age and an alarm. Variable status takes anomaly findings; the fuzzy supervisor is the first controller. **Not established:** closed-loop behaviour against a real DCS; only simulator tests exist.
 
 **Phase.** 2.5.
 
@@ -136,13 +140,15 @@ Every finding gets an outcome from the user (fixed, not a problem, deferred, mai
 
 **Benefit and reports.** Benefit estimate: variance reduction → possible setpoint move toward a limit → value per year, using the value per unit of PV entered by the user (per-site configuration, decision 2026-11-17). Shift and weekly loop report: what changed, what was fixed, what still waits.
 
-**Ships today.** Worklist with findings (manual, saturated, flatline, oscillating); ACF oscillation test and oscillation clusters; valve health KPIs, stiction suspicion and guided stroke test; closed-loop and step identification (FOPDT, integrating experimental) with a quality gate; tuning report (SIMC/AMIGO, cascade planning); benefit estimate; Steps view. Loop KPIs also run online as a runtime job. PID parameter write in `confirm` through the gateway, before/after KPI review and rollback exist against simulators (ADR 014). No loop templates, no per-mode KPIs, no cause ordering in the worklist, no outcomes; vendor PID forms are code, not data; no loop readiness signal for controllers.
+**Ships today.** Worklist with findings (manual, saturated, flatline, oscillating); ACF oscillation test and oscillation clusters; valve health KPIs, stiction suspicion and guided stroke test; closed-loop and step identification (FOPDT, integrating experimental) with a quality gate; tuning report (SIMC/AMIGO, cascade planning); benefit estimate; Steps view. Loop KPIs also run online as a runtime job. PID parameter write in `confirm` through the gateway, before/after KPI review and rollback exist against simulators (ADR 014); the step-test assistant proposes bounded OUT tests in MAN, `confirm` only (ADR 017); MV readiness of a loop is available to controllers (section 3.2). No loop templates, no per-mode KPIs, no cause ordering in the worklist, no outcomes; vendor PID forms are code (`vendor_forms.py`), not data - planned debt: declarative vendor profiles.
+
+**Validated so far.** Public-data benchmarks of 2026-11-18: exp33 two-tank (5 targets met, 1 missed, 1 not exercised), exp34 cascaded tanks (K1-K4 met, no real step in the record), exp35 valve friction (inconclusive). exp37, the sealed worklist benchmark, had only 3 labelled problem loops out of 65 (no tuning or healthy labels), so by its frozen rule it is descriptive only: the ranking and the cause classification of the worklist are **not** validated, and its one concrete finding is an external-disturbance loop sent to a valve test. Engine gaps found are collected in issue #102.
 
 **Validation.** RougherSim L5 rows: a badly tuned loop is detected and improved; a sticky valve is diagnosed as a valve, not a tuning problem; a loop driven by an external oscillation is not retuned; an averaging level is not tuned tight; rollback restores the previous parameters exactly. Owner decision 2026-11-17: public-data benchmarks replace blind worklist review and a real valve stroke test (separate issues).
 
 **Gap to product.**
 
-1. Online KPI job in the runtime, per operating mode (Phase 1).
+1. Online KPI job exists in the runtime; per operating mode is open (Phase 1).
 2. Loop templates and vendor profiles through the catalogue (Phases 1 and 3).
 3. Worklist ranking by criticality and benefit, fixed diagnosis order, outcomes (Phase 3).
 4. Tuning path with preview, write in `confirm`, KPI check and rollback (Phase 3, needs Phase 2 gateway).
@@ -210,11 +216,12 @@ Every estimate carries a quality status (good, uncertain, bad, mapped to OPC UA 
 
 **Ships today.** The engine (`softsensor/`) is generic with respect to tags, but:
 
-- it supports PLS only and runs offline only;
-- the GUI can only read a configuration; a new configuration can be added only with the "Load example" button;
-- there is no `reference input` in the code. An online analyser can only be an ordinary input tag. PROJECT_DESIGN §4.4 claimed a reference input exists; this document corrects that;
-- bias correction is always on; its parameters are constants in `softsensor/.../bias.py`;
-- there are no physics templates, presets, validity conditions, operating modes or quality status.
+- it supports PLS only and runs offline only (no runtime job);
+- configurations are edited through the schema-generated form and the catalogue (a generated default config follows the catalogue mapping);
+- **reference inputs** (#13) exist: a reference measurement (for example an online analyser) enters the model as a causal window mean with a coverage validity check and an EWMA bias check against the lab value; a lab alignment scan exists (`docs/target-alignment.md`);
+- **backup mode** exists in the engine (#82, #100): it substitutes only rows the model marks valid; an invalid estimate gives quality `unavailable`, never `substituted`; an analyser flag with a missing value is treated as unknown and invalid. It is not deployed as a runtime job, and the validation protocol (`docs/softsensor-backup-validation-protocol.md`) is not yet completed;
+- bias correction parameters are constants in `softsensor/.../bias.py`;
+- there are no physics templates, presets, operating modes or uncertainty band.
 
 **Validation cases.** The plant-1 analyser work (exp31, `tools/analyzer_vs_lab.py`, `tools/lab_extract.py`) is the validation case for quality inference, not a feature in itself; it is absorbed in Phase 4a. Every v1 preset gets an L5 row against RougherSim: ground truth from the simulator, and a fault-injection scenario that fails the physical instrument and checks failover and accuracy. RougherSim must expose the signals the presets need (drive power and belt speed, pump speed, power and pressures, valve position, cyclone pressure); where it does not yet, that is a RougherSim milestone item, not Crosscut code. Simulator results are not plant claims.
 
@@ -222,7 +229,7 @@ Every estimate carries a quality status (good, uncertain, bad, mapped to OPC UA 
 
 1. Preset schema, preset loader and the v1 presets, each with a PROVENANCE row before implementation.
 2. Physics-template and hybrid structures beside the data-driven library (PLS, ridge/linear, gradient boosting); always blocked CV; comparison table against the preset's naive baseline.
-3. Target types lab, analyser, physical instrument, or none, as user configuration: stamp meaning (start, end, or middle plus offset), composite sample window, analyser latency, missing codes and validity ranges. Lag search. Explicit `reference input`.
+3. Target types lab, analyser, physical instrument, or none, as user configuration: stamp meaning (start, end, or middle plus offset), composite sample window, analyser latency, missing codes and validity ranges. Lag search. (The explicit `reference input` exists; the rest is open.)
 4. Validity conditions, quality status, uncertainty band, and the `shadow` / `backup` / `primary` modes with failover rules in the runtime. Residuals published to anomaly detection.
 5. GUI wizard: choose preset or custom → bind roles to catalogue tags → accept or edit parameters (pump curve points, Cv table, belt data, or fit from data) → calibrate on a window → validation report → choose mode → deploy to runtime → optionally write the estimate to a DCS tag through the gateway.
 
@@ -272,14 +279,16 @@ Spectral vibration analysis, oil analysis and thermography are out of scope: the
 
 **Boundary with the control system.** The module never writes a setpoint or a controller parameter. It can publish an asset health index or an event flag to a DCS tag through the Write Gateway, on the same path as virtual-sensor outputs (section 5). A work request to a maintenance system (CMMS) is a later export, not a write to the plant.
 
-**Ships today.** PCA with T2 and SPE, lagged columns, a stuck-sensor rule, a possible-ramp warning. exp29 round 3 met its criteria. No operating modes, asset templates, expected-value models, notification management, outcomes or prognosis.
+**Ships today.** PCA with T2 and SPE, lagged columns, a stuck-sensor rule, a possible-ramp warning; an online `anomaly_scan` runtime job; active anomaly findings reach controller variable status (so a flagged CV or MV is handled by the controller host); the history store keeps the source quality code per sample. No operating modes in the detector, asset templates, expected-value models, notification management, outcomes or prognosis.
+
+**Diagnostic readiness is NOT established.** exp29 met its criteria on simulated data only. On public real data the engine did not hold up: exp36 (SKAB and 3W) and exp38 (PRONTO) **missed every frozen target**. A model fitted on a short single-set-point window treats most quiet data as anomalous (PRONTO: 0.96 of quiet samples inside an event, 199.8 false events per quiet day against a target of 3; detection rate 0.59 against 0.70, which says little because events are open nearly all day). The anomaly engine does not transfer to real data yet; treat its output as an experimental advisory signal. Engine gaps found on public data are collected in issue #102.
 
 **Validation.** RougherSim injects degradations with ground truth (pump wear, rising bearing temperature, belt friction, valve stiction, transmitter drift and freeze) and operating-mode changes that must **not** produce events. Each v1 template gets an L5 row: detection, lead time and false events per mode under a frozen protocol. Degradation injection is a RougherSim milestone item where it does not exist yet. Owner decision 2026-11-17: validation uses public data; asset-template work is deferred to Phase 4b.
 
 **Gap to product.**
 
-1. Online monitoring job in the runtime with operating modes and per-mode limits (Phase 1).
-2. Configuration editable in the GUI (supervisor and anomaly configurations are read-only today): normal-window selection with exclusions, mode definitions, detector settings (Phase 1).
+1. Online monitoring job exists in the runtime; operating modes and per-mode limits are open (Phase 1).
+2. Configuration is editable through the generated form; a dedicated editor for normal-window selection with exclusions, mode definitions and detector settings is open (Phase 1).
 3. Event management: persistence, hysteresis, priority, shelving, suppression by state, grouping, budget, outcomes and per-detector precision (Phase 3).
 4. Instrument-health view tied to loop monitoring and virtual-sensor residuals (Phase 3).
 5. Asset templates, expected-value models, health index, time to limit and the GUI asset view ranked by criticality (Phase 4b, sharing the preset machinery of 4.2).
@@ -303,9 +312,9 @@ Spectral vibration analysis, oil analysis and thermography are out of scope: the
 
 UX details and open questions live in `docs/design/fuzzy-studio.md`.
 
-**Ships today.** Fuzzy Studio (full editing of variables and rules, versions, replay, backtest); advisory supervisor gated by module-1 loop state, explained by its dominant rules; hash-chained audit log with operator acknowledgement; modes `off` and `advisory`. exp27 met its frozen criteria in simulation. There is no block canvas, no state diagram, no fired-rule shading and no strategy template; supervisor configuration is read-only in the GUI.
+**Ships today.** Fuzzy Studio (full editing of variables and rules, versions, replay, backtest); advisory supervisor gated by module-1 loop state, explained by its dominant rules; hash-chained audit log with operator acknowledgement; modes `off` and `advisory`. The fuzzy supervisor also runs as the first APC controller in the runtime (section 3.2), proposing setpoint moves through the gateway within its limits. exp27 met its frozen criteria in simulation only. There is no block canvas, no state diagram, no fired-rule shading and no strategy template.
 
-**Gap to product.** Supervisor configuration editable in the GUI (generic editor in Phase 1). Strategy Canvas with blocks, wires, state diagram, live animation, fired-rule shading and templates. Advice becomes a write proposal to the gateway: `confirm` first, `supervised` later.
+**Gap to product.** Strategy Canvas with blocks, wires, state diagram, live animation, fired-rule shading and templates. Advice becomes a write proposal to the gateway: `confirm` first, `supervised` later.
 
 **Phase.** 1 (configuration editor) and 6 (Strategy Canvas and closed loop).
 
@@ -437,6 +446,8 @@ Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. P
 | `docs/adr/013` | Roles and authority |
 | `docs/adr/014` | Tuning write path |
 | `docs/adr/015` | APC core: shared variable model and controller host (Phase 2.5) |
+| `docs/adr/016` | Setpoint handover (mode writes) |
+| `docs/adr/017` | Manual-output step tests |
 | `experiments/README.md` | Experiment index and status (closed lines stay in place) |
 | `docs/archive/` | One-off plans and documents |
 | `docs/PROJECT_DESIGN.md` | Historical record only; not maintained |
