@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "site": {"name": "Public flotation plant (Kaggle, CC0)", "timezone": "UTC"},
+  "defaults": {"sample_period_s": 20},
+  "import": {
+    "missing_codes": [],
+    "decimal_comma": true,
+    "delimiter": ",",
+    "time_names": ["date"]
+  },
+  "tags": [
+    {"id": "FLOT.AMINA.FLOW", "name": "Amina flow", "unit": "", "area": "FLOT"},
+    {"id": "FLOT.PULP.PH", "name": "Ore pulp pH", "unit": "pH", "area": "FLOT"},
+    {"id": "FLOT.COL01.AIR", "name": "Flotation column 01 air flow", "unit": "", "area": "FLOT"},
+    {"id": "FLOT.SILICA.CONC", "name": "Silica concentrate, hourly lab", "unit": "%", "area": "FLOT"},
+    {"id": "FLOT.IRON.CONC", "name": "Iron concentrate, hourly lab", "unit": "%", "area": "FLOT"}
+  ],
+  "labs": [
+    {
+      "id": "LAB_SILICA_CONC",
+      "kind": "lab",
+      "sample_point": "flotation concentrate",
+      "variable": "silica",
+      "tag": "FLOT.SILICA.CONC",
+      "unit": "%",
+      "stamp": {"meaning": "start"},
+      "composite_window_s": 3600,
+      "report_delay_s": 3600,
+      "valid_range": {"min": 0, "max": 100}
+    },
+    {
+      "id": "LAB_IRON_CONC",
+      "kind": "lab",
+      "sample_point": "flotation concentrate",
+      "variable": "iron",
+      "tag": "FLOT.IRON.CONC",
+      "unit": "%",
+      "stamp": {"meaning": "start"},
+      "composite_window_s": 3600,
+      "report_delay_s": 3600,
+      "valid_range": {"min": 0, "max": 100}
+    }
+  ]
+}
