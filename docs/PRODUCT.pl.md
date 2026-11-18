@@ -2,7 +2,9 @@
 
 Polski odpowiednik `docs/PRODUCT.md`; przy rozbieżności rozstrzyga wersja angielska.
 
-Niniejszy dokument jest jedyną definicją produktu Crosscut Process Suite. Zastępuje `docs/PROJECT_DESIGN.md`, który pozostaje wyłącznie jako zapis historyczny. Tam, gdzie ADR w `docs/adr/` są sprzeczne z tym dokumentem, pierwszeństwo mają ADR. Data: 2026-10-27.
+Niniejszy dokument jest jedyną definicją produktu Crosscut Process Suite. Zastępuje `docs/PROJECT_DESIGN.md`, który pozostaje wyłącznie jako zapis historyczny. Tam, gdzie ADR w `docs/adr/` są sprzeczne z tym dokumentem, pierwszeństwo mają ADR. Data: 2026-10-27; opisy „stanu bieżącego” („Istnieje dziś”, „Dostarcza dziś”) uzgodniono ze stanem origin/main na 2026-11-18.
+
+**Zaimplementowane nie znaczy zwalidowane.** Każde stwierdzenie o stanie mówi, co jest zbudowane. To, co jest zwalidowane, podano osobno i jest tego mniej: wyniki na symulatorach nie są twierdzeniami o zakładzie, a publiczne benchmarki z 2026-11-18 dają wynik mieszany (sekcja 8).
 
 ## 1. Definicja produktu
 
@@ -30,13 +32,13 @@ Wcześniejsze dokumenty zapisywały stanowisko „żadnych zapisów do zakładu�
 
 | Warstwa | Odpowiedzialność | Istnieje dziś | Luka |
 |---|---|---|---|
-| **Connect** | Odczyt historii i wartości bieżących, przeglądanie metadanych; zapis wyłącznie przez gateway | Import CSV wide/long, połączenie SQLite i dowolne DB-API/ODBC (pyodbc nie jest zależnością), odpytywanie i subskrypcja OPC UA, kolektor Parquet | Jeden interfejs konektora. Brak PI Web API, IP.21, PHD, AVEVA, OPC DA/HDA |
-| **Katalog projektu** | Źródła, tagi, jednostki, zakresy, kody braków danych, strefa czasowa, pętle regulacji (PV/SP/OUT/tryb/parametry PID w postaci dostawcy), definicje labów; edycja w GUI | Nie istnieje. Ustawienia importu (kody braków danych, wartownik −9999) żyją w `loops/.../plant_import.py` jako ustawienia na poziomie kodu | Cała warstwa. Domyślna stała −9999 musi zostać usunięta (issue #42) |
-| **Silniki** | Tryb projektowania offline i tryb pracy online dla każdego modułu | Pętle regulacji, fuzzy, supervisor, anomalie, wirtualny sensor: offline, na żądanie, po zapisanym oknie; KPI pętli i skan anomalii działają też online jako zadania runtime | Tryb pracy online dla wirtualnego sensora i supervisora. Generyczny edytor konfiguracji napędzany schematem istnieje; nie każda konfiguracja jest edytowalna |
-| **Rdzeń APC** (sekcja 3.2, Faza 2.5) | Wspólny model zmiennych, status zmiennych na żywo, gotowość pętli jako uchwyt MV, host kontrolera z maszyną stanów, konsola operatora | Nie istnieje. Każdy moduł ma własne pojęcie zmiennej i działa na zapisanych zbiorach danych | Cała warstwa (ADR 015) |
-| **Runtime** | Usługa on-prem (usługa Windows lub systemd) uruchamia wdrożone zadania cyklicznie: KPI pętli, skan anomalii, estymacja wirtualnego sensora, porada fuzzy. Status, dziennik błędów, start/stop z GUI | Harmonogram z okresem na zadanie, zadania `loop_kpi`, `anomaly_scan`, `tuning_review`, atomowe pliki stanu, jednostka systemd, widok Runtime | Brak hosta kontrolera, monitoringu przekroczeń cyklu, heartbeat, zadania sensora wirtualnego i supervisora |
-| **Write Gateway** | Osobny proces. Zapisuje wyłącznie propozycje. Polityka jako dane, odczyt zwrotny, watchdog, priorytet operatora, kill switch, audyt | Zaimplementowany (ADR 012-014): pięć trybów, adapter OPC UA, ograniczenia polityki, odczyt zwrotny, priorytet operatora, zatrzaskowy kill switch, klucz audytu z łańcuchem, role, zestawy parametrów strojenia z trwałymi intencjami zapisu. Testowany tylko na symulatorach | Brak sygnału dostępności MV zwracanego do kontrolerów; brak jawnej inicjalizacji bezuderzeniowej |
-| **Konsola web** | Interfejs w przeglądarce: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | Frontend React + TypeScript, zestaw e2e zielony. Niektóre konfiguracje są tylko do odczytu w GUI | Edycja konfiguracji supervisor, anomalii i wirtualnego sensora; kolejka propozycji; logowanie i role |
+| **Connect** | Odczyt historii i wartości bieżących, przeglądanie metadanych; zapis wyłącznie przez gateway | Jeden interfejs konektora do odczytu (przeglądanie, metadane, historia, wartości bieżące); import CSV wide/long, połączenie SQLite i dowolne DB-API/ODBC (pyodbc nie jest zależnością), profile historianów SQL (Aspen IP.21, Honeywell PHD, AVEVA/Wonderware, Siemens WinCC) jako dane, PI Web API, odpytywanie i subskrypcja OPC UA, kolektor Parquet. Testowane na nagranych fixture'ach i symulatorach, nie na rzeczywistych źródłach | Brak AF SDK, OPC DA/HDA |
+| **Katalog projektu** | Źródła, tagi, jednostki, zakresy, kody braków danych, strefa czasowa, pętle regulacji (PV/SP/OUT/tryb/parametry PID w postaci dostawcy), definicje labów; edycja w GUI | Zbudowany częściowo: jeden plik zakładu `_site/site.json` walidowany schematem (`schemas/site.schema.json`) ze źródłami, jednostkami, tagami, sygnałami, hierarchią urządzeń, pętlami, labami, trybami pracy i kontrolerami; edytor katalogu w GUI (edytor bezpośredni i kreator mapowania z podpowiadaniem ról); pętle z katalogu zasilają widoki Loops, Anomalies i Soft sensor; jedna funkcja ustawień zakładu obsługuje wszystkie importery | Wersjonowanie z diffem, masowa edycja CSV, szablony pętli, profile dostawców jako dane. Tryby pracy są przechowywane i używane do kontroli odwołań, ale KPI, limity anomalii i strategie nie działają jeszcze na tryb |
+| **Silniki** | Tryb projektowania offline i tryb pracy online dla każdego modułu | Pętle regulacji, fuzzy, supervisor, anomalie, wirtualny sensor: offline, na żądanie, po zapisanym oknie; KPI pętli, skan anomalii i przegląd strojenia działają też online jako zadania runtime; supervisor fuzzy działa online jako kontroler (rdzeń APC). Formularze konfiguracji generowane ze schematu (zagnieżdżone obiekty i tablice; surowy JSON tylko jako zaawansowane obejście dla schematów oneOf/anyOf) | Brak zadania online dla wirtualnego sensora (tryb backup jest w silniku, nie w runtime). Nie każda konfiguracja ma dedykowany edytor |
+| **Rdzeń APC** (sekcja 3.2, Faza 2.5) | Wspólny model zmiennych, status zmiennych na żywo, gotowość pętli jako uchwyt MV, host kontrolera z maszyną stanów, konsola operatora | Zbudowany (ADR 015, Faza 2.5): model zmiennych z zagnieżdżonymi limitami w katalogu, status zmiennych na żywo (w tym ustalenia anomalii), gotowość MV pętli, host kontrolera, kontroler fuzzy, konsola operatora (widok Controllers) | Tylko jeden typ kontrolera (fuzzy). Zwalidowany wyłącznie w symulacji (wiersze L5 C przeciwko RougherSim); bez twierdzeń o zakładzie |
+| **Runtime** | Usługa on-prem (usługa Windows lub systemd) uruchamia wdrożone zadania cyklicznie: KPI pętli, skan anomalii, estymacja wirtualnego sensora, porada fuzzy. Status, dziennik błędów, start/stop z GUI | Harmonogram z okresem na zadanie, zadania `loop_kpi`, `anomaly_scan`, `tuning_review` i `controller`, atomowe pliki stanu, jednostka systemd, widok Runtime. Host kontrolera z monitoringiem przekroczeń cyklu i sygnałami żywotności do gateway | Brak zadania wirtualnego sensora |
+| **Write Gateway** | Osobny proces. Zapisuje wyłącznie propozycje. Polityka jako dane, odczyt zwrotny, watchdog, priorytet operatora, kill switch, audyt | Zaimplementowany (ADR 012-017): pięć trybów, adapter OPC UA, ograniczenia polityki, odczyt zwrotny (także opóźniony), priorytet operatora, zatrzaskowy kill switch, klucz audytu z łańcuchem, lokalni użytkownicy i role z logowaniem, zestawy parametrów strojenia z trwałymi intencjami zapisu, przekazanie nastawy (ADR 016), ograniczone testy OUT w MAN (ADR 017), jeden heartbeat do DCS wysyłany przez gateway, monitoring żywotności runtime i każdego kontrolera. Testowany tylko na symulatorach | Brak jawnej inicjalizacji bezuderzeniowej. Zgodność z rzeczywistym DCS nie jest wykazana |
+| **Konsola web** | Interfejs w przeglądarce: Trends, Loops, Fuzzy, Advisor, Anomalies, Soft sensor, Import, Steps | Frontend React + TypeScript, zestaw e2e zielony. Widoki: Trends, Loops (szczegóły, strojenie, korzyści, zawór), Fuzzy, Advisor, Anomalies, Soft sensor, Steps, Import, Catalogue, Onboarding, Runtime, Controllers, Gateway (kolejka propozycji, panel polityki), Tuning, Users; logowanie, wymuszona zmiana hasła, role; angielski, polski, hiszpański | Niektóre konfiguracje modułów nie mają dedykowanego edytora poza formularzem generowanym; brak kanwy strategii |
 
 ### 3.1 Katalog projektu
 
@@ -64,7 +66,7 @@ Wcześniejsze dokumenty zapisywały stanowisko „żadnych zapisów do zakładu�
 4. Edycja masowa przez eksport i import CSV, walidowana przy imporcie, bo inżynierowie utrzymują duże listy tagów w arkuszach.
 5. Każda zmiana to wersja z diffem. Konfiguracja modułu, która odwołuje się do usuniętego lub zmienionego tagu, widocznie nie przechodzi walidacji; nigdy nie działa na złym tagu.
 
-**Dostarcza dziś.** `schemas/project.schema.json` i `schemas/tags.schema.json` (pętle, zmienne, tagi) oraz import CSV/SQL z ustawieniami braków danych trzymanymi na poziomie kodu w `loops/.../plant_import.py`. Brak edytora w GUI, powiązania ze źródłem, hierarchii urządzeń, trybów pracy, labów i profili dostawców. Domyślna stała −9999 musi zostać usunięta (issue #42).
+**Dostarcza dziś.** `schemas/site.schema.json`: jeden plik zakładu ze źródłami, jednostkami, tagami, sygnałami, hierarchią urządzeń, pętlami (wraz z ich wiedzą), labami, trybami pracy, kontrolerami i ustawieniami gotowości; bez domyślnych wartości specyficznych dla zakładu. GUI: edytor katalogu (edytor bezpośredni i kreator mapowania z podpowiadaniem ról), panel źródeł, onboarding; przemapowanie aktualizuje nietknięte wygenerowane konfiguracje anomalii i wirtualnego sensora, a w przeciwnym razie zgłasza konflikt. `project.json` zostaje tylko dla pętli spoza katalogu. **Niezbudowane:** wersjonowanie z diffem, masowa edycja CSV z walidacją, automatyczne propozycje trybów i urządzeń, wykorzystanie trybów pracy przez moduły, szablony pętli. **Planowany dług:** profile PID dostawców to wciąż słownik w kodzie (`VENDOR_FORMS` w `loops/src/crosscut_loops/vendor_forms.py`: ABB PidCC i Siemens PID Compact), a nie deklaratywne pliki danych; przeniesienie do danych jest planowane.
 
 **Faza.** 1.
 
@@ -81,6 +83,8 @@ Wcześniejsze dokumenty zapisywały stanowisko „żadnych zapisów do zakładu�
 | **Konsola operatora** | Włączenie/wyłączenie kontrolera i zmiennych, limity operatora, status, wyjaśnienie ostatniego ruchu |
 
 Zapisy pozostają wyłącznie przez gateway (sekcja 5): kontroler produkuje propozycje; polityka gateway, drabina trybów i audyt obowiązują bez zmian.
+
+**Zbudowane (ADR 015, decyzje właściciela 2026-11-18).** Host kontrolera w runtime z maszyną stanów `off` / `standby` / `on` / `shed`; cykl `cycle_s` 10-300 s, domyślnie 30 s, będący jednocześnie okresem zadania; przekroczenie cyklu to start później niż 1,1 × okres; `max_overruns` kolejnych przekroczeń odłącza kontroler (`shed`), domyślnie 5. Operator (uprawnienie `ctl.operate`) może włączyć kontroler (`on`); tryb docelowy gateway `supervised` wystarcza, `confirm` nie jest wymagany, a w `off`, `advisory` lub `dry_run` gateway odrzuca zapisy. Do DCS idzie dokładnie jeden heartbeat, wysyłany przez gateway; proces runtime i każdy kontroler wysyłają sygnały żywotności do gateway przez podpisaną skrzynkę plikową, a gateway zwalnia cele kontrolera (lub wszystkich kontrolerów, jeśli runtime zniknie) po ciszy dłuższej niż `liveness_cycles` × `cycle_s` (domyślnie 3 cykle) i audytuje utratę; konsola pokazuje wiek sygnału i alarm. Status zmiennych uwzględnia ustalenia anomalii; supervisor fuzzy jest pierwszym kontrolerem. **Niewykazane:** zachowanie w pętli zamkniętej względem rzeczywistego DCS; istnieją tylko testy na symulatorach.
 
 **Faza.** 2.5.
 
@@ -138,13 +142,15 @@ Każde ustalenie dostaje od użytkownika wynik (naprawione, to nie problem, odł
 
 **Korzyść i raporty.** Szacowanie korzyści: redukcja wariancji → możliwe przesunięcie nastawy w stronę limitu → wartość roczna, z wartością na jednostkę PV wpisaną przez użytkownika (warstwa ekonomiczna jest konfiguracją zakładu, decyzja 2026-11-17, #35). Raport zmianowy i tygodniowy pętli: co się zmieniło, co naprawiono, co nadal czeka.
 
-**Dostarcza dziś.** Lista robocza z ustaleniami (manual, nasycenie, flatline, oscylacja); test oscylacji ACF i klastry oscylacji; KPI zdrowia zaworów, podejrzenie stiction i prowadzony test skoku; identyfikacja w pętli zamkniętej i ze skoków (FOPDT, integrujące eksperymentalnie) z bramką jakości; raport strojenia (SIMC/AMIGO, planowanie kaskady); szacowanie korzyści; widok Steps. KPI pętli działają też online jako zadanie runtime. Zapis parametrów PID w `confirm` przez gateway, przegląd KPI przed/po i rollback istnieją przeciwko symulatorom (ADR 014). Brak szablonów pętli, KPI na tryb pracy, kolejności przyczyn na liście roboczej, wyników ustaleń; formularze PID dostawców to kod, nie dane; brak sygnału gotowości pętli dla kontrolerów.
+**Dostarcza dziś.** Lista robocza z ustaleniami (manual, nasycenie, flatline, oscylacja); test oscylacji ACF i klastry oscylacji; KPI zdrowia zaworów, podejrzenie stiction i prowadzony test skoku; identyfikacja w pętli zamkniętej i ze skoków (FOPDT, integrujące eksperymentalnie) z bramką jakości; raport strojenia (SIMC/AMIGO, planowanie kaskady); szacowanie korzyści; widok Steps. KPI pętli działają też online jako zadanie runtime. Zapis parametrów PID w `confirm` przez gateway, przegląd KPI przed/po i rollback istnieją przeciwko symulatorom (ADR 014); asystent testu skoku proponuje ograniczone testy OUT w MAN, wyłącznie w `confirm` (ADR 017); gotowość MV pętli jest dostępna dla kontrolerów (sekcja 3.2). Brak szablonów pętli, KPI na tryb pracy, kolejności przyczyn na liście roboczej, wyników ustaleń; formularze PID dostawców to kod (`vendor_forms.py`), nie dane - planowany dług: deklaratywne profile dostawców.
+
+**Zwalidowane dotychczas.** Publiczne benchmarki z 2026-11-18: exp33 dwa zbiorniki (5 celów spełnionych, 1 chybiony, 1 niesprawdzony), exp34 zbiorniki kaskadowe (K1-K4 spełnione, brak rzeczywistego skoku w zapisie), exp35 tarcie zaworu (niejednoznaczny). exp37, zapieczętowany benchmark listy roboczej, miał tylko 3 oznaczone pętle problemowe z 65 (bez etykiet strojenia ani zdrowych), więc według zamrożonej reguły jest wyłącznie opisowy: ranking i klasyfikacja przyczyn na liście roboczej **nie są** zwalidowane, a jedyne konkretne ustalenie to pętla z zewnętrznym zakłóceniem skierowana do testu zaworu. Luki silnika znalezione na danych publicznych zebrano w issue #102.
 
 **Walidacja.** Wiersze L5 względem RougherSim: źle nastrojona pętla zostaje wykryta i poprawiona; zawór ze stiction jest zdiagnozowany jako problem zaworu, a nie strojenia; pętla pobudzana zewnętrzną oscylacją nie jest przestrajana; poziom uśredniający nie jest strojony ciasno; rollback dokładnie przywraca poprzednie parametry. Decyzja właściciela 2026-11-17: benchmarki na danych publicznych zastępują przegląd listy roboczej na ślepo i rzeczywisty test skoku zaworu (osobne zgłoszenia).
 
 **Luka do produktu.**
 
-1. Zadanie KPI online w runtime, na tryb pracy (Faza 1).
+1. Zadanie KPI online w runtime istnieje; na tryb pracy - do zrobienia (Faza 1).
 2. Szablony pętli i profile dostawców przez katalog (Fazy 1 i 3).
 3. Szeregowanie listy roboczej według krytyczności i korzyści, stała kolejność diagnozy, wyniki ustaleń (Faza 3).
 4. Ścieżka strojenia z podglądem, zapisem w `confirm`, kontrolą KPI i rollbackiem (Faza 3, wymaga gateway z Fazy 2).
@@ -212,11 +218,12 @@ Każda estymata ma status jakości (good, uncertain, bad, odwzorowane na kody st
 
 **Dostarcza dziś.** Silnik (`softsensor/`) jest generyczny względem tagów, ale:
 
-- obsługuje tylko PLS i działa wyłącznie offline;
-- GUI potrafi jedynie odczytać konfigurację; nową konfigurację można dodać tylko przyciskiem „Load example”;
-- w kodzie nie ma `reference input`. Analizator online może być jedynie zwykłym tagiem wejściowym. PROJECT_DESIGN §4.4 twierdził, że wejście referencyjne istnieje; niniejszy dokument to koryguje;
-- korekcja błędu (bias) jest zawsze włączona; jej parametry są stałymi w `softsensor/.../bias.py`;
-- nie ma szablonów fizycznych, presetów, warunków ważności, trybów pracy ani statusu jakości.
+- obsługuje tylko PLS i działa wyłącznie offline (bez zadania w runtime);
+- konfiguracje edytuje się formularzem generowanym ze schematu i katalogiem (wygenerowana konfiguracja domyślna podąża za mapowaniem katalogu);
+- **wejścia referencyjne** (#13) istnieją: pomiar referencyjny (np. analizator online) wchodzi do modelu jako przyczynowa średnia okienkowa z kontrolą pokrycia i kontrolą błędu EWMA względem wartości z laboratorium; istnieje skan dopasowania czasowego laba (`docs/target-alignment.md`);
+- **tryb backup** istnieje w silniku (#82, #100): podstawia tylko wiersze, które model uznaje za ważne; nieważna estymata daje jakość `unavailable`, nigdy `substituted`; flaga analizatora z brakującą wartością jest traktowana jako nieznana i nieważna. Nie jest wdrożony jako zadanie runtime, a protokół walidacji (`docs/softsensor-backup-validation-protocol.md`) nie jest jeszcze ukończony;
+- parametry korekcji błędu (bias) są stałymi w `softsensor/.../bias.py`;
+- nie ma szablonów fizycznych, presetów, trybów pracy ani pasma niepewności.
 
 **Przypadki walidacyjne.** Praca nad analizatorem zakładu 1 (exp31, `tools/analyzer_vs_lab.py`, `tools/lab_extract.py`) jest przypadkiem walidacyjnym dla wnioskowania o jakości, a nie osobną funkcją; zostaje wchłonięta w Fazie 4a. Każdy preset v1 dostaje wiersz L5 względem RougherSim: wartość odniesienia z symulatora oraz scenariusz wstrzykiwania awarii, który psuje fizyczny przyrząd i sprawdza przełączenie oraz dokładność. RougherSim musi udostępniać sygnały potrzebne presetom (moc napędu i prędkość taśmy, obroty, moc i ciśnienia pompy, położenie zaworu, ciśnienie na cyklonie); tam, gdzie jeszcze tego nie robi, jest to pozycja kamienia milowego RougherSim, a nie kod Crosscut. Wyniki z symulatora nie są twierdzeniami o zakładzie.
 
@@ -224,7 +231,7 @@ Każda estymata ma status jakości (good, uncertain, bad, odwzorowane na kody st
 
 1. Schemat presetu, loader presetów i presety v1, każdy z wierszem PROVENANCE przed implementacją.
 2. Struktury szablonu fizycznego i hybrydowa obok biblioteki opartej na danych (PLS, ridge/liniowy, gradient boosting); zawsze zablokowana walidacja krzyżowa; tabela porównania względem naiwnego punktu odniesienia presetu.
-3. Typ celu: lab, analizator, fizyczny przyrząd albo brak, jako konfiguracja użytkownika: znaczenie znacznika czasu (początek, koniec albo środek plus przesunięcie), okno próbki złożonej, opóźnienie analizatora, kody braków danych i zakresy ważności. Wyszukiwanie opóźnienia (lag search). Jawne `reference input`.
+3. Typ celu: lab, analizator, fizyczny przyrząd albo brak, jako konfiguracja użytkownika: znaczenie znacznika czasu (początek, koniec albo środek plus przesunięcie), okno próbki złożonej, opóźnienie analizatora, kody braków danych i zakresy ważności. Wyszukiwanie opóźnienia (lag search). (Jawne `reference input` istnieje; reszta do zrobienia.)
 4. Warunki ważności, status jakości, pasmo niepewności oraz tryby `shadow` / `backup` / `primary` z regułami przełączania w runtime. Residua publikowane do detekcji anomalii.
 5. Kreator w GUI: wybór presetu lub Custom → przypisanie ról do tagów z katalogu → akceptacja lub edycja parametrów (punkty charakterystyki pompy, tabela Cv, dane taśmy albo dopasowanie z danych) → kalibracja na oknie → raport walidacyjny → wybór trybu → wdrożenie do runtime → opcjonalnie zapis estymaty do tagu DCS przez gateway.
 
@@ -274,14 +281,16 @@ Analiza widmowa drgań, analiza oleju i termowizja są poza zakresem: ich wyniki
 
 **Granica z systemem sterowania.** Moduł nigdy nie zapisuje nastawy ani parametru regulatora. Może opublikować indeks zdrowia urządzenia albo flagę zdarzenia do tagu DCS przez Write Gateway, tą samą ścieżką co wyjścia wirtualnych sensorów (sekcja 5). Zlecenie pracy do systemu utrzymania ruchu (CMMS) to późniejszy eksport, a nie zapis do zakładu.
 
-**Dostarcza dziś.** PCA z T2 i SPE, kolumny z opóźnieniami, reguła zablokowanego czujnika, ostrzeżenie o możliwej rampie. Runda 3 exp29 spełniła swoje kryteria. Brak trybów pracy, szablonów urządzeń, modeli wartości oczekiwanej, zarządzania powiadomieniami, wyników zdarzeń i prognozy.
+**Dostarcza dziś.** PCA z T2 i SPE, kolumny z opóźnieniami, reguła zablokowanego czujnika, ostrzeżenie o możliwej rampie. Zadanie runtime `anomaly_scan` online; aktywne ustalenia anomalii trafiają do statusu zmiennych kontrolera (oflagowana CV lub MV jest obsługiwana przez host kontrolera); magazyn historii zachowuje kod jakości źródła dla każdej próbki. Brak trybów pracy w detektorze, szablonów urządzeń, modeli wartości oczekiwanej, zarządzania powiadomieniami, wyników zdarzeń i prognozy.
+
+**Gotowość diagnostyczna NIE jest wykazana.** exp29 spełnił kryteria wyłącznie na danych symulowanych. Na publicznych danych rzeczywistych silnik się nie sprawdził: exp36 (SKAB i 3W) oraz exp38 (PRONTO) **chybiły każdy zamrożony cel**. Model dopasowany na krótkim oknie w jednym punkcie pracy uznaje większość spokojnych danych za anomalię (PRONTO: 0,96 próbek spokojnych wewnątrz zdarzenia, 199,8 fałszywych zdarzeń na spokojną dobę przy celu 3; wykrywalność 0,59 wobec 0,70, co mówi niewiele, bo zdarzenia są otwarte prawie cały dzień). Silnik anomalii nie przenosi się jeszcze na dane rzeczywiste; jego wyjście należy traktować jako eksperymentalny sygnał doradczy. Luki silnika znalezione na danych publicznych zebrano w issue #102.
 
 **Walidacja.** RougherSim wstrzykuje degradacje z wartością odniesienia (zużycie pompy, rosnąca temperatura łożyska, opory przenośnika, stiction zaworu, dryf i zamrożenie przetwornika) oraz zmiany trybu pracy, które **nie** mogą wywołać zdarzeń. Każdy szablon v1 dostaje wiersz L5: wykrycie, czas wyprzedzenia i fałszywe zdarzenia na tryb według zamrożonego protokołu. Wstrzykiwanie degradacji, tam gdzie jeszcze nie istnieje, jest pozycją kamienia milowego RougherSim. Decyzja właściciela 2026-11-17: walidacja na danych publicznych; szablony urządzeń odroczono do Fazy 4b.
 
 **Luka do produktu.**
 
-1. Zadanie monitoringu online w runtime z trybami pracy i limitami na tryb (Faza 1).
-2. Konfiguracja edytowalna w GUI (konfiguracje supervisor i anomalii są dziś tylko do odczytu): wybór okna normalnego z wykluczeniami, definicje trybów, ustawienia detektorów (Faza 1).
+1. Zadanie monitoringu online w runtime istnieje; tryby pracy i limity na tryb - do zrobienia (Faza 1).
+2. Konfiguracja edytowalna formularzem generowanym; dedykowany edytor - do zrobienia: wybór okna normalnego z wykluczeniami, definicje trybów, ustawienia detektorów (Faza 1).
 3. Zarządzanie zdarzeniami: trwałość, histereza, priorytet, odkładanie, wyciszanie zależne od stanu, grupowanie, budżet, wyniki i precyzja detektorów (Faza 3).
 4. Widok zdrowia przyrządów powiązany z monitoringiem pętli i residuami wirtualnych sensorów (Faza 3).
 5. Szablony urządzeń, modele wartości oczekiwanej, indeks zdrowia, czas do limitu oraz widok urządzeń w GUI uszeregowany według krytyczności (Faza 4b, wspólna maszyneria presetów z 4.2).
@@ -305,9 +314,9 @@ Analiza widmowa drgań, analiza oleju i termowizja są poza zakresem: ich wyniki
 
 Szczegóły UX i otwarte pytania są w `docs/design/fuzzy-studio.md`.
 
-**Dostarcza dziś.** Fuzzy Studio (pełna edycja zmiennych i reguł, wersje, odtwarzanie, backtest); supervisor doradczy bramkowany stanem pętli z modułu 1, wyjaśniany przez swoje dominujące reguły; dziennik audytu z łańcuchem haszy i potwierdzaniem przez operatora; tryby `off` i `advisory`. exp27 spełnił swoje zamrożone kryteria w symulacji. Nie ma kanwy bloków, diagramu stanów, cieniowania aktywnych reguł ani szablonów strategii; konfiguracja supervisor jest w GUI tylko do odczytu.
+**Dostarcza dziś.** Fuzzy Studio (pełna edycja zmiennych i reguł, wersje, odtwarzanie, backtest); supervisor doradczy bramkowany stanem pętli z modułu 1, wyjaśniany przez swoje dominujące reguły; dziennik audytu z łańcuchem haszy i potwierdzaniem przez operatora; tryby `off` i `advisory`. Supervisor fuzzy działa też jako pierwszy kontroler APC w runtime (sekcja 3.2), proponując ruchy nastaw przez gateway w granicach limitów. exp27 spełnił swoje zamrożone kryteria wyłącznie w symulacji. Nie ma kanwy bloków, diagramu stanów, cieniowania aktywnych reguł ani szablonów strategii.
 
-**Luka do produktu.** Konfiguracja supervisor edytowalna w GUI (generyczny edytor w Fazie 1). Kanwa strategii z blokami, połączeniami, diagramem stanów, animacją na żywo, cieniowaniem aktywnych reguł i szablonami. Porada staje się propozycją zapisu do gateway: najpierw `confirm`, później `supervised`.
+**Luka do produktu.** Kanwa strategii z blokami, połączeniami, diagramem stanów, animacją na żywo, cieniowaniem aktywnych reguł i szablonami. Porada staje się propozycją zapisu do gateway: najpierw `confirm`, później `supervised`.
 
 **Faza.** 1 (edytor konfiguracji) i 6 (Kanwa strategii i pętla zamknięta).
 
@@ -434,6 +443,8 @@ Decyzja właściciela 2026-11-17: Crosscut jest frameworkiem, a nie konfiguracj�
 | `docs/adr/013` | Role i uprawnienia |
 | `docs/adr/014` | Ścieżka zapisu strojenia |
 | `docs/adr/015` | Rdzeń APC: wspólny model zmiennych i host kontrolera (Faza 2.5) |
+| `docs/adr/016` | Przekazanie nastawy (zapisy trybu) |
+| `docs/adr/017` | Ręczne testy skoku wyjścia |
 | `experiments/README.md` | Indeks i status eksperymentów (zamknięte linie pozostają na miejscu) |
 | `docs/archive/` | Jednorazowe plany i dokumenty |
 | `docs/PROJECT_DESIGN.md` | Wyłącznie zapis historyczny; nieutrzymywany |
