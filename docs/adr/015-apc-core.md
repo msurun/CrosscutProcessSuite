@@ -47,8 +47,12 @@ of a variable. Concretely:
 - An operator may switch a controller `on` (permission `ctl.operate`, held by `operator` and up). Gateway target mode `supervised` is
   enough; `confirm` is not required. In `off`, `advisory` or `dry_run` the gateway refuses the writes (`mode_no_write`).
 
-## Open point
-
-- Heartbeat to the DCS: proposed to stay in the gateway only (one connection that writes to the DCS, ADR 012); controller-host liveness is
-  covered by the gateway per-target write watchdog (`watchdog_s`: no write within the window -> target released to the DCS) and by
-  the host's own overrun shed. Awaiting owner confirmation after the system diagram.
+- Heartbeat and liveness (owner, 2026-11-18): exactly ONE heartbeat goes to the DCS, sent by the gateway (unchanged). The runtime is
+  monitored too, inside Crosscut:
+  - the runtime process sends a liveness beat to the gateway through the file mailbox (signed command, no DCS access);
+  - each controller that is `on` sends its cycle beat (controller id, state, cycle count) to the gateway every cycle;
+  - the gateway marks a controller lost when no beat arrives within `liveness_cycles` x `cycle_s` (default 3), releases the targets
+    proposed by that controller to the DCS (local setpoint), and audits `runtime_lost`; a lost runtime process does the same for every
+    controller it hosts;
+  - liveness of the runtime and of each controller is shown in the operator console with an alarm;
+  - the per-target write watchdog (`watchdog_s`) stays as the second line; a configuration with `watchdog_s` < 2 x `cycle_s` is refused.
