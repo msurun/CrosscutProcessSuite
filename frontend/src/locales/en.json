@@ -1684,6 +1684,7 @@
   "controllers.state.off": "Off",
   "controllers.state.standby": "Standby",
   "controllers.state.on": "On",
+  "controllers.state.advisory": "Advisory",
   "controllers.state.shed": "Shed",
   "controllers.status.good": "Good",
   "controllers.status.uncertain": "Uncertain",
@@ -1704,5 +1705,7 @@
   "controllers.reason.stale": "stale value",
   "controllers.reason.out_of_validity": "outside validity range",
   "controllers.reason.anomaly": "anomaly flagged",
-  "controllers.reason.operator_off": "switched off by the operator"
+  "controllers.reason.operator_off": "switched off by the operator",
+  "controllers.reason.advisory": "advice only",
+  "controllers.reason.readiness_unknown": "readiness unknown, not blocking"
 }

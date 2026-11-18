@@ -60,7 +60,14 @@ function ControllerRow({ row, selected, onOpen, t }: RowProps) {
       <td>{clockText(row.last_cycle_utc, none)}{row.last_duration_s !== null && <div className="hint">{row.last_duration_s} s</div>}</td>
       <td>{row.consecutive_overruns} / {row.overruns}</td>
       <td><LivenessCell row={row} t={t} /></td>
-      <td>{row.last_explanation || none}</td>
+      <td>
+        {row.last_explanation || none}
+        {row.state === "advisory" && (
+          <div className="hint" data-testid={`controller-advice-${row.id}`}>
+            {(row.last_advice ?? []).map((m) => `${m.variable_id} -> ${m.value}`).join("; ") || none}
+          </div>
+        )}
+      </td>
     </tr>
   );
 }

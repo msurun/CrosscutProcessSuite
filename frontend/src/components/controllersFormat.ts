@@ -8,6 +8,7 @@ import type { StatusLevel } from "./StatusChip";
 const STATE_LEVEL: Record<ControllerState, StatusLevel> = {
   on: "ok",
   standby: "warning",
+  advisory: "warning",
   shed: "problem",
   off: "unused",
 };

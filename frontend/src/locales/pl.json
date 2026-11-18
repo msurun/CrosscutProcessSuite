@@ -1695,6 +1695,7 @@
   "controllers.state.off": "Wylaczony",
   "controllers.state.standby": "Czuwanie",
   "controllers.state.on": "Wlaczony",
+  "controllers.state.advisory": "Doradczy",
   "controllers.state.shed": "Odlaczony",
   "controllers.status.good": "Dobry",
   "controllers.status.uncertain": "Niepewny",
@@ -1715,5 +1716,7 @@
   "controllers.reason.stale": "nieaktualna wartosc",
   "controllers.reason.out_of_validity": "poza zakresem waznosci",
   "controllers.reason.anomaly": "oznaczona anomalia",
-  "controllers.reason.operator_off": "wylaczona przez operatora"
+  "controllers.reason.operator_off": "wylaczona przez operatora",
+  "controllers.reason.advisory": "tylko porady",
+  "controllers.reason.readiness_unknown": "gotowosc nieznana, nie blokuje"
 }

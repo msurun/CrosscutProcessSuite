@@ -1695,6 +1695,7 @@
   "controllers.state.off": "Apagado",
   "controllers.state.standby": "En espera",
   "controllers.state.on": "Encendido",
+  "controllers.state.advisory": "Solo consejo",
   "controllers.state.shed": "Desconectado",
   "controllers.status.good": "Buena",
   "controllers.status.uncertain": "Dudosa",
@@ -1715,5 +1716,7 @@
   "controllers.reason.stale": "valor obsoleto",
   "controllers.reason.out_of_validity": "fuera del rango de validez",
   "controllers.reason.anomaly": "anomalia marcada",
-  "controllers.reason.operator_off": "apagada por el operador"
+  "controllers.reason.operator_off": "apagada por el operador",
+  "controllers.reason.advisory": "solo consejo",
+  "controllers.reason.readiness_unknown": "preparacion desconocida, no bloquea"
 }

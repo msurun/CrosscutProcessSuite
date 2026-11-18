@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -62,8 +63,9 @@ class FakeConnector:
 class Rig:
     """Host plus fakes."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, readiness: dict[str, Any] | None = None) -> None:
         self.root = root
+        self.readiness = readiness
         self.clock = FakeClock()
         self.connector = FakeConnector(self.clock)
         self.reasons: list[str] = []
@@ -74,9 +76,17 @@ class Rig:
     def availability(self, targets: list[str]) -> dict[str, dict[str, Any]]:
         return {t: {"available": not self.reasons, "reasons": list(self.reasons)} for t in targets}
 
+    def port(self) -> Any:
+        if self.readiness is None:
+            return None
+        answer = self.readiness
+        return lambda loop_id: answer
+
     def build(self) -> ControllerHost:
         config = HostConfig(DOC, TAGS, {"mv1": "t.sp"}, self.root)
-        ports = HostPorts(self.connector, self.availability, self.proposed.append, self.clock)
+        ports = HostPorts(
+            self.connector, self.availability, self.proposed.append, self.clock, self.port()
+        )
         return ControllerHost(self.controller, config, ports)
 
     def cycle(self, command: str | None = None) -> str:
@@ -102,11 +112,63 @@ def test_guard_refusal_mv_unavailable(tmp_path: Path) -> None:
     assert rig.controller.initialised == 0
 
 
-def test_guard_refusal_advisory_only(tmp_path: Path) -> None:
+def test_advisory_only_goes_to_advisory_and_never_proposes(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     rig.reasons = ["mode_no_write"]
-    assert rig.cycle("switch_on") == "standby"
+    assert rig.cycle("switch_on") == "advisory"
     assert rig.host.record.reason == "advisory_only"
+    assert rig.controller.initialised == 1
+    assert rig.cycle() == "advisory"
+    assert rig.proposed == [] and rig.controller.steps == 1
+    assert rig.host.record.last_advice == [asdict(MOVE)]
+    assert rig.host.record.last_explanation == "dummy step 1"
+    data = json.loads(record_path(tmp_path, "c1").read_text(encoding="utf-8"))
+    assert data["last_advice"] == [asdict(MOVE)]
+
+
+def test_advisory_sheds_on_other_guard_then_needs_switch_on(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.connector.comm_ok = False
+    assert rig.cycle() == "shed" and rig.host.record.last_advice is None
+    rig.connector.comm_ok = True
+    rig.reasons = []
+    assert rig.cycle() == "standby"
+    assert rig.cycle("switch_on") == "on"
+
+
+def test_advisory_never_turns_on_by_itself_and_off_wins(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.reasons = []
+    assert rig.cycle() == "advisory" and rig.proposed == []
+    assert rig.cycle("switch_on") == "on"
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("standby")
+    assert rig.cycle("switch_on") == "advisory"
+    assert rig.cycle("switch_off") == "off"
+
+
+def test_restart_restores_advisory_as_standby(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    rig.reasons = ["mode_no_write"]
+    rig.cycle("switch_on")
+    rig.cycle()
+    assert rig.build().record.state == "standby"
+
+
+def test_readiness_not_ready_sheds_with_mv_unavailable(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, readiness={"ready": False, "reasons": ["saturated"]})
+    assert rig.cycle("switch_on") == "standby"
+    assert rig.host.record.reason == "mv_unavailable"
+
+
+def test_readiness_unknown_does_not_block_and_is_recorded(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, readiness={"ready": True, "reasons": ["readiness_unknown"]})
+    rig.start_on()
+    assert rig.host.record.warnings == ["readiness_unknown:L1"]
 
 
 def test_guard_refusal_no_good_cv(tmp_path: Path) -> None:
@@ -230,6 +292,7 @@ def test_state_file_round_trips_and_statuses_written(tmp_path: Path) -> None:
     for key in (
         "state", "reason", "last_cycle_utc", "last_duration_s", "overruns",
         "consecutive_overruns", "liveness_utc", "last_explanation", "disabled",
+        "last_advice", "warnings",
     ):
         assert key in data
     assert data["state"] == "on" and data["last_duration_s"] == 1.0

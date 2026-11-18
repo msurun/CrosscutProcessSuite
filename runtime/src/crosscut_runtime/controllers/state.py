@@ -1,17 +1,21 @@
-"""Pure state machine of one controller: off, standby, on, shed.
+"""Pure state machine of one controller: off, standby, on, advisory, shed.
 
 ``switch_on`` needs healthy guards. From ``on`` the machine drops to ``shed`` when a guard
 fails; from ``shed`` it returns to ``standby`` by itself once the guards pass, and never
 straight back to ``on``: the operator has to switch on again. ``switch_off`` always wins.
+When the only failing guard is ``advisory_only`` (gateway mode cannot write), ``switch_on`` goes
+to ``advisory``: the controller steps and shows its advice but never proposes. ``advisory`` drops
+to ``shed`` on any other failing guard and never turns ``on`` by itself.
 Entering ``on`` runs the controller's ``initialise`` (done by the host, see ``enters_on``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 OFF, STANDBY, ON, SHED = "off", "standby", "on", "shed"
-STATES = (OFF, STANDBY, ON, SHED)
+ADVISORY = "advisory"
+STATES = (OFF, STANDBY, ON, ADVISORY, SHED)
 SWITCH_ON, SWITCH_OFF, STANDBY_CMD = "switch_on", "switch_off", "standby"
 COMMANDS = (SWITCH_ON, SWITCH_OFF, STANDBY_CMD)
 DEFAULT_MAX_OVERRUNS = 3
@@ -44,6 +48,8 @@ def _switch_on(state: str, health: Health) -> tuple[str, str]:
     problem = health.problem()
     if problem is None:
         return ON, SWITCH_ON
+    if problem == "advisory_only" and replace(health, advisory_only=False).problem() is None:
+        return ADVISORY, problem
     return (SHED if state == SHED else STANDBY), problem
 
 
@@ -52,6 +58,9 @@ def _automatic(state: str, health: Health) -> tuple[str, str]:
     problem = health.problem()
     if state == ON:
         return (ON, "running") if problem is None else (SHED, problem)
+    if state == ADVISORY:
+        rest = replace(health, advisory_only=False).problem()
+        return (ADVISORY, "advisory") if rest is None else (SHED, rest)
     if state == SHED:
         return (STANDBY, "recovered") if problem is None else (SHED, problem)
     return state, state
@@ -68,6 +77,11 @@ def transition(state: str, command: str | None, health: Health) -> tuple[str, st
     if command == STANDBY_CMD:
         return STANDBY, STANDBY_CMD
     return _automatic(state, health)
+
+
+def enters_advisory(old_state: str, new_state: str) -> bool:
+    """True when the move starts advice mode (the host then calls ``initialise``)."""
+    return new_state == ADVISORY and old_state != ADVISORY
 
 
 def enters_on(old_state: str, new_state: str) -> bool:

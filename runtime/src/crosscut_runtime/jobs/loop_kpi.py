@@ -130,6 +130,10 @@ def kpi_from_series(
         "saturation_fraction": _json_number(report.saturation_fraction, 4),
         # Minimum-variance benchmark ratio, 1.0 is best; None when the dead time is not known.
         "harris_index": _json_number(report.harris_index, 3),
+        # Share of PV samples that sit frozen, 0..1; None when withheld.
+        "flatline_fraction": _json_number(report.flatline_fraction, 4),
+        # Valve-test advice from the stiction check: "test_valve", "unlikely", "not_ranked", ...
+        "stiction_advice": report.stiction_advice,
         # Dominant oscillation period in seconds, or None when no cycle was found.
         "oscillation_period_s": report.oscillation_period_s,
         # One label: "manual", "saturated", "oscillating", "poor_performance" or "ok".
