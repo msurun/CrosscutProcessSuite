@@ -18,6 +18,7 @@ from crosscut_fuzzy.library import load_document
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
 from crosscut_loops.mv_readiness import loop_readiness
 
+from crosscut_runtime.controllers.anomaly_flags import make_anomaly_flags
 from crosscut_runtime.controllers.commands import pick_command, take_commands
 from crosscut_runtime.controllers.fuzzy import ControllerBindingError, FuzzyController
 from crosscut_runtime.controllers.gateway_adapter import make_gateway_ports
@@ -197,6 +198,9 @@ def build_controller_job(
     config = HostConfig(
         doc, tags_of, targets, root, int(doc.get("max_overruns", DEFAULT_MAX_OVERRUNS))
     )
-    ports = HostPorts(connector, availability, propose, readiness=make_readiness(root))
+    ports = HostPorts(
+        connector, availability, propose, readiness=make_readiness(root),
+        anomaly_flags=make_anomaly_flags(root),
+    )
     host = ControllerHost(controller, config, ports)
     return ControllerJob(host, root, doc["id"], _beat_of(deps, root, doc, targets))

@@ -1101,3 +1101,10 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - #123 (ADR 015): knowledge of a catalogue loop lives in its `site.json` entry (new optional loop keys in `site.schema.json`), flows into `LoopTags`, and `PUT .../knowledge` writes there (`"source": "site"`); `project.json` only for loops outside the catalogue.
 - #124: catalogue remap updates generated `_anomaly/_softsensor` default configs when untouched (sidecar fingerprint), else reports `conflict` in `module_configs`/`stale_configs`.
 - #125 (API part): job validation refuses an unknown controller; `anomaly_id` accepted on PATCH. `rate_max` is handled with #115.
+
+## 2026-11-18 - Review fixes A: controller limits, cache key, one clock, anomaly status (#115, #117, #118, #120, #125)
+
+- #115 (+ #125 `rate_max`): fuzzy MV step = min(`move_max`, `rate_max` x `cycle_s`); an SP outside the operator range only approaches it by one step per cycle and reports `sp_outside_range`.
+- #117: controller host cache key = SHA-256 of job, controller, MV loops, source, tag addresses and rule base content.
+- #118: `controller.cycle_s` is the job period; `period_s` optional on controller jobs, a different value is refused (API 422, runtime load error). `job.schema.json` requires `period_s` for the other kinds only.
+- #120: `controllers/anomaly_flags.py` feeds active, fresh anomaly_scan events into `StatusInputs.flags`; the host takes it as the optional `HostPorts.anomaly_flags`.

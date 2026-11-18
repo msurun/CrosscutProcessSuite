@@ -317,3 +317,51 @@ def test_disabled_variable_is_bad_and_persisted(tmp_path: Path) -> None:
     assert seen["cv1"] == "bad"
     data = json.loads(record_path(tmp_path, "c1").read_text(encoding="utf-8"))
     assert data["disabled"] == ["cv1"]
+
+
+def _scan_state(rig: Rig, age_s: float, closed: bool = False, tag: str = "t.cv1") -> None:
+    """Write a runtime state with one anomaly_scan job whose last run is ``age_s`` old."""
+    from crosscut_runtime.store import RuntimeStore
+
+    store = RuntimeStore(rig.root)
+    store.save_jobs({"schema_version": 1, "jobs": [
+        {"id": "a1", "kind": "anomaly_scan", "source": "s1", "tags": [tag, "t.x"],
+         "period_s": 60, "window_s": 600, "enabled": True}]})
+    ran = (rig.clock.t - timedelta(seconds=age_s)).isoformat()
+    event = {"kind": "stuck", "stuck_tag": tag, "closed": closed}
+    store.save_state({"jobs": {"a1": {"last_run_utc": ran,
+                                      "scan": {"status": "ok", "events": [event]}}}})
+
+
+def _rig_with_anomaly(root: Path) -> Rig:
+    """A rig whose host reads anomaly flags from the runtime state of ``root``."""
+    from crosscut_runtime.controllers.anomaly_flags import make_anomaly_flags
+
+    rig = Rig(root)
+    config = HostConfig(DOC, TAGS, {"mv1": "t.sp"}, root)
+    ports = HostPorts(rig.connector, rig.availability, rig.proposed.append, rig.clock,
+                      anomaly_flags=make_anomaly_flags(root))
+    rig.host = ControllerHost(rig.controller, config, ports)
+    return rig
+
+
+def _status(rig: Rig, variable: str) -> dict[str, Any]:
+    """The persisted status of one variable after a cycle."""
+    rig.cycle()
+    return next(s for s in read_variable_status(rig.root)["c1"] if s["variable_id"] == variable)
+
+
+def test_active_anomaly_finding_makes_the_variable_bad(tmp_path: Path) -> None:
+    rig = _rig_with_anomaly(tmp_path)
+    _scan_state(rig, age_s=10)
+    status = _status(rig, "cv1")
+    assert status["status"] == "bad" and "anomaly" in status["reasons"]
+    assert _status(rig, "cv2")["status"] == "good"
+
+
+def test_stale_or_closed_anomaly_finding_is_ignored(tmp_path: Path) -> None:
+    rig = _rig_with_anomaly(tmp_path)
+    _scan_state(rig, age_s=1000)
+    assert _status(rig, "cv1")["status"] == "good"
+    _scan_state(rig, age_s=10, closed=True)
+    assert _status(rig, "cv1")["status"] == "good"

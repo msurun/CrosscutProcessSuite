@@ -83,6 +83,7 @@ class HostPorts:
     propose: Callable[[Move], None]
     clock: Callable[[], datetime] = _utc_now
     readiness: Readiness | None = None  # loop id -> {"ready": bool, "reasons": [...]}
+    anomaly_flags: Callable[[datetime], Mapping[str, set[str]]] | None = None  # now -> tag flags
 
 
 @dataclass
@@ -181,7 +182,8 @@ class ControllerHost:
     def _statuses(self, snapshot: Snapshot, now: datetime) -> list[VariableStatus]:
         """Variable statuses of this cycle."""
         disabled = None if self.record.disabled is None else frozenset(self.record.disabled)
-        inputs = StatusInputs(snapshot, now, self._config.tags_of, disabled=disabled)
+        flags = self._ports.anomaly_flags(now) if self._ports.anomaly_flags else {}
+        inputs = StatusInputs(snapshot, now, self._config.tags_of, flags, disabled)
         return evaluate(self._effective_doc(), inputs)
 
     def _effective_doc(self) -> Mapping[str, Any]:
