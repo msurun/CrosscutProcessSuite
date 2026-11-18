@@ -1,4 +1,4 @@
-"""L5-G01..G12: the 12 gateway scenarios against a live RougherSim OPC UA server.
+"""L5-G01..G13: the 13 gateway scenarios against a live RougherSim OPC UA server.
 
 Skips with a message when RougherSim is absent or not at the pin. Each case starts the server
 with the hook file of its scenario on a free port and stops it in a finally block.

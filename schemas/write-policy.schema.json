@@ -26,6 +26,10 @@
       ],
       "description": "Operating mode of the write gateway. Default is never implied; mode must be explicitly specified."
     },
+    "allow_take_remote": {
+      "type": "boolean",
+      "description": "Optional, false when absent (ADR 016). When false the gateway never writes the take_remote value: a setpoint is written only while the source node already shows remote_value, otherwise the proposal is refused with not_remote. When true the gateway may write the configured take_remote value of the plant map (never another mode value). Enabling it is a policy change and needs the lead's pin."
+    },
     "targets": {
       "type": "object",
       "description": "Per-target write policy mapping target tag identifier to its constraints. If empty, all writes are refused.",

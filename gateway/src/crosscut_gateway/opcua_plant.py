@@ -10,6 +10,11 @@ node, so a real control system stays in local setpoint source and the engine's n
 tick sees "local" (operator takeover, hold_off) after every write. ``take_remote`` is
 plant-map data that makes ``write()`` put the source into remote first.
 
+By default the adapter never writes ``take_remote`` (ADR 016): ``write()`` puts the
+setpoint only while the source node shows ``remote_value`` and otherwise raises
+``NotRemoteError``. ``set_allow_take_remote(True)`` (write policy ``allow_take_remote``)
+restores the take-remote handover.
+
 Targets are of two kinds (ADR 014): setpoint targets (``setpoint_node``) used with
 ``read``/``write``/``release``/``setpoint_source``, and ``pid_param`` targets
 (``param_node``) used with ``read_param``/``write_param``. ``loop_mode`` works for both.
@@ -32,6 +37,8 @@ from typing import Any, Self, TypeVar
 import jsonschema
 from asyncua import Client, Node, ua
 from asyncua.ua.status_codes import get_name_and_doc
+
+from crosscut_gateway.interfaces import NotRemoteError
 
 PLANT_MAP_SCHEMA_NAME = "plant-map.schema.json"
 MAX_PARENT_WALK = 10  # levels searched upwards for the schemas/ directory
@@ -142,6 +149,7 @@ class OpcUaPlant:
         self._timeout_s = timeout_s
         self._client: Client | None = None
         self._closed = False
+        self._allow_take_remote = False
         self._heartbeat_counter = 0
         self._last_heartbeat_s: float | None = None
         self._loop = asyncio.new_event_loop()
@@ -179,6 +187,10 @@ class OpcUaPlant:
         self._loop.close()
         self._client = None
 
+    def set_allow_take_remote(self, allow: bool) -> None:
+        """Allow (policy ``allow_take_remote``) or forbid writing the ``take_remote`` value."""
+        self._allow_take_remote = allow
+
     def read(self, tag: str) -> float:
         """Current read-back value of ``tag``, in the engineering units of that tag.
 
@@ -209,7 +221,11 @@ class OpcUaPlant:
             ``take_remote`` write was refused (before the setpoint was written, or
             after it with the previous setpoint restored).
 
+        Without ``set_allow_take_remote(True)`` the ``take_remote`` entry is ignored: the
+        setpoint is written only while the source node shows ``remote_value``.
+
         Raises:
+            NotRemoteError: when take-remote is not allowed and the source is not remote.
             KeyError: if ``tag`` is not in the plant map.
             ConnectionError: on transport failure; with message ``write_state_unknown``
                 when the new setpoint was written, the take failed and the previous
@@ -218,8 +234,9 @@ class OpcUaPlant:
             ValueError: if ``tag`` is a pid_param target.
         """
         target = self._setpoint_target(tag)
-        take = target.get("take_remote")
+        take = target.get("take_remote") if self._allow_take_remote else None
         if take is None:
+            self._require_remote(tag, target)
             return self._write_setpoint(target, value)
         if take.get("before_setpoint", True):
             if not self._write_take_remote(target):
@@ -227,6 +244,13 @@ class OpcUaPlant:
             time.sleep(float(take.get("settle_s", 0.0)))
             return self._write_setpoint(target, value)
         return self._write_then_take(target, value)
+
+    def _require_remote(self, tag: str, target: Mapping[str, Any]) -> None:
+        """Raise NotRemoteError unless the take is allowed or the source shows remote."""
+        if self._allow_take_remote:
+            return
+        if self._call(self._source_async(target)) != "remote":
+            raise NotRemoteError(tag)
 
     def _write_then_take(self, target: Mapping[str, Any], value: float) -> bool:
         """Write the setpoint, then take remote; undo the setpoint if the take fails."""

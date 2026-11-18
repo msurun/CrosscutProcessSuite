@@ -86,11 +86,15 @@ class Rig:
 
 @contextmanager
 def rig(
-    tmp: Path, hook: str | None, speed: float = 20.0, mode: str = "supervised"
+    tmp: Path,
+    hook: str | None,
+    speed: float = 20.0,
+    mode: str = "supervised",
+    take_remote: bool = True,
 ) -> Iterator[Rig]:
     """Start RougherSim with ``hook`` (a gateway_hooks id) and build the gateway on it."""
     with rs_server(tmp / "server.log", hook and HOOK.format(hook), speed) as port:
-        harness = Harness(plant_map_for(port), speed)
+        harness = Harness(plant_map_for(port), speed, allow_take_remote=take_remote)
         try:
             harness.wait_ready()
             gateway = engine.WriteGateway(harness, {TAG: POLICY}, mode)
@@ -262,6 +266,20 @@ def g12(tmp: Path) -> None:
         assert r.gw.audit_records()
 
 
+def g13(tmp: Path) -> None:
+    """Default policy (allow_take_remote false) refuses with not_remote; the flag lets it write."""
+    with rig(tmp, None, take_remote=False) as r:
+        decision = r.gw.propose(r.up(5.0))
+        assert decision.reason_code == "not_remote" and not decision.accepted
+        assert r.h.writes == []
+        assert r.h.loop_mode(TAG) == "CAS"
+        assert r.source() == "local"
+        r.h.plant.set_allow_take_remote(True)
+        assert r.gw.propose(r.up(5.0)).accepted
+        r.step()
+        assert r.source() == "remote"
+
+
 SCENARIOS: dict[str, Callable[[Path], None]] = {
     "test_cas_handover_take_and_give_back": g01,
     "test_watchdog_loss_returns_plant_to_local": g02,
@@ -275,6 +293,7 @@ SCENARIOS: dict[str, Callable[[Path], None]] = {
     "test_tampered_policy_file_refuses_to_start": g10,
     "test_kill_switch_stops_writes_within_one_tick": g11,
     "test_dry_run_sends_nothing": g12,
+    "test_default_policy_refuses_when_not_remote": g13,
 }
 
 

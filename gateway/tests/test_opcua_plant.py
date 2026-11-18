@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from asyncua import Server, ua
 from crosscut_gateway.engine import WriteGateway
-from crosscut_gateway.interfaces import WritePolicy, WriteProposal
+from crosscut_gateway.interfaces import NotRemoteError, WritePolicy, WriteProposal
 from crosscut_gateway.opcua_plant import OpcUaPlant, PlantMapError
 
 TIMER_TOLERANCE_S = 0.02  # Seconds allowed for Windows timer granularity.
@@ -183,6 +183,13 @@ def _patch_target(
     target = {key: val for key, val in plant_map["targets"][TAG].items() if key not in drop}
     target.update(changes)
     return {**plant_map, "targets": {**plant_map["targets"], TAG: target}}
+
+
+def _taking_plant(rig: Rig, changes: Mapping[str, Any]) -> OpcUaPlant:
+    """A plant on a patched map with ``allow_take_remote`` on (ADR 016)."""
+    plant = rig.make_plant(_patch_target(rig.plant_map, changes))
+    plant.set_allow_take_remote(True)
+    return plant
 
 
 def _proposal(tag: str, value: float, t_ns: int = 0) -> WriteProposal:
@@ -455,7 +462,7 @@ def test_e2e_dead_server_fails_closed(rig: Rig) -> None:
 def test_take_remote_writes_source_before_setpoint(rig: Rig) -> None:
     """A take_remote entry puts the source into remote, so the setpoint write succeeds."""
     rig.server.set_node("FIC101.SRC", 0)
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": {"value": 1}}))
+    plant = _taking_plant(rig, {"take_remote": {"value": 1}})
     assert plant.write(TAG, 55.0) is True
     assert rig.server.get_node("FIC101.SRC") == 1
     assert plant.setpoint_source(TAG) == "remote"
@@ -464,7 +471,7 @@ def test_take_remote_writes_source_before_setpoint(rig: Rig) -> None:
 def test_e2e_take_remote_gives_enabled(rig: Rig) -> None:
     """With take_remote the engine sees remote ownership and the proposal is enabled."""
     rig.server.set_node("FIC101.SRC", 0)
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": {"value": 1}}))
+    plant = _taking_plant(rig, {"take_remote": {"value": 1}})
     gw = _gateway(plant)
     assert gw.propose(_proposal(TAG, 55.0)).accepted
     rig.server.set_node("FIC101.PV", 55.0)
@@ -472,20 +479,44 @@ def test_e2e_take_remote_gives_enabled(rig: Rig) -> None:
     assert gw.status()[TAG] == "enabled"
 
 
-def test_e2e_without_take_remote_gives_hold_off(rig: Rig) -> None:
-    """Without take_remote the source stays local, so the engine holds off."""
+def test_default_refuses_not_remote_and_writes_nothing(rig: Rig) -> None:
+    """Default policy: a local source gives not_remote, with no take and no setpoint write."""
     rig.server.set_node("FIC101.SRC", 0)
-    gw = _gateway(rig.make_plant(rig.plant_map))
-    gw.propose(_proposal(TAG, 55.0))
-    rig.server.set_node("FIC101.PV", 55.0)
-    gw.tick(1)
-    assert gw.status()[TAG] == "hold_off"
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": {"value": 1}}))
+    decision = _gateway(plant).propose(_proposal(TAG, 55.0))
+    assert not decision.accepted and decision.reason_code == "not_remote"
+    assert rig.server.get_node("FIC101.SP") == 50.0
+    assert rig.server.get_node("FIC101.SRC") == 0
+
+
+def test_default_writes_when_source_is_remote(rig: Rig) -> None:
+    """Default policy: the setpoint is written while the source already shows remote."""
+    rig.server.set_node("FIC101.SRC", 1)
+    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": {"value": 1}}))
+    assert _gateway(plant).propose(_proposal(TAG, 55.0)).accepted
+    assert rig.server.get_node("FIC101.SP") == 55.0
+
+
+def test_plant_write_raises_not_remote_without_flag(rig: Rig) -> None:
+    """The adapter itself refuses a local source when the flag is off."""
+    rig.server.set_node("FIC101.SRC", 2)
+    with pytest.raises(NotRemoteError):
+        rig.make_plant(rig.plant_map).write(TAG, 55.0)
+    assert rig.server.get_node("FIC101.SP") == 50.0
+
+
+def test_flag_writes_only_the_configured_remote_value(rig: Rig) -> None:
+    """With the flag on, only the take_remote value is written, never another mode value."""
+    rig.server.set_node("FIC101.SRC", 2)
+    plant = _taking_plant(rig, {"take_remote": {"value": 1}})
+    assert plant.write(TAG, 55.0) is True
+    assert rig.server.get_node("FIC101.SRC") == 1
 
 
 def test_take_remote_refused_blocks_setpoint(rig: Rig) -> None:
     """A refused take_remote write returns False and the setpoint is not written."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     assert plant.write(TAG, 55.0) is False
     assert rig.server.get_node("FIC101.SP") == 50.0
 
@@ -494,7 +525,7 @@ def test_take_remote_after_setpoint_writes_both(rig: Rig) -> None:
     """With before_setpoint false the setpoint and the source are both written."""
     rig.server.set_node("FIC101.SRC", 0)
     take = {"value": 1, "before_setpoint": False}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     assert plant.write(TAG, 55.0) is True
     assert rig.server.get_node("FIC101.SP") == 55.0
     assert rig.server.get_node("FIC101.SRC") == 1
@@ -503,7 +534,7 @@ def test_take_remote_after_setpoint_writes_both(rig: Rig) -> None:
 def test_take_remote_after_setpoint_refused_restores_setpoint(rig: Rig) -> None:
     """With before_setpoint false a refused take restores the previous setpoint."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     assert plant.write(TAG, 55.0) is False
     assert rig.server.get_node("FIC101.SP") == 50.0
 
@@ -513,7 +544,7 @@ def test_take_remote_after_setpoint_restore_failure_is_state_unknown(
 ) -> None:
     """If the take is refused and the restore fails too, the write state is unknown."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     calls: list[float] = []
     original = plant._write_setpoint
 
@@ -534,7 +565,7 @@ def test_take_remote_after_setpoint_restore_refused_is_state_unknown(
 ) -> None:
     """A restore the server refuses (False) also raises write_state_unknown."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": False}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     original = plant._write_setpoint
     seen: list[float] = []
 
@@ -550,7 +581,7 @@ def test_take_remote_after_setpoint_restore_refused_is_state_unknown(
 def test_take_remote_before_setpoint_unchanged_when_take_refused(rig: Rig) -> None:
     """With before_setpoint true a refused take writes nothing and needs no restore."""
     take = {"node": rig.server.nid(RO_TAG), "value": 1, "before_setpoint": True}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     assert plant.write(TAG, 55.0) is False
     assert rig.server.get_node("FIC101.SP") == 50.0
 
@@ -578,7 +609,7 @@ def test_loop_mode_rejects_bool_for_int_mode_value(rig: Rig) -> None:
 def test_take_remote_settle_waits_before_setpoint(rig: Rig) -> None:
     """settle_s delays the setpoint write after the take, and the write still succeeds."""
     take = {"value": 1, "settle_s": 0.3}
-    plant = rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+    plant = _taking_plant(rig, {"take_remote": take})
     started = time.monotonic()
     assert plant.write(TAG, 55.0) is True
     assert time.monotonic() - started >= take["settle_s"] - TIMER_TOLERANCE_S
@@ -589,4 +620,4 @@ def test_take_remote_negative_settle_is_a_schema_error(rig: Rig) -> None:
     """A negative settle_s is refused by the plant-map schema."""
     take = {"value": 1, "settle_s": -1}
     with pytest.raises(PlantMapError):
-        rig.make_plant(_patch_target(rig.plant_map, {"take_remote": take}))
+        _taking_plant(rig, {"take_remote": take})

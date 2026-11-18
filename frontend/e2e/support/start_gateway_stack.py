@@ -216,7 +216,12 @@ def install_files(root: Path, plant: PlantServer) -> tuple[Path, Path]:
     policy_path = root / "_gateway" / "policy" / "write-policy.json"
     policy_path.parent.mkdir(parents=True, exist_ok=True)
     targets = {TAG: POLICY_TARGET, **policy_targets()}
-    document = {"version": 1, "mode": POLICY_MODE_CAP, "targets": targets}
+    document = {
+        "version": 1,
+        "mode": POLICY_MODE_CAP,
+        "allow_take_remote": True,  # the e2e plant map relies on take_remote (ADR 016)
+        "targets": targets,
+    }
     signers = PinSigners("e2e-policy-author", "e2e-policy-approver")
     install_policy_with_pin(PinRequest(policy_path, document, key, signers, datetime.now(UTC)))
     return plant_map_path, policy_path
