@@ -92,6 +92,11 @@ POLL_S = 0.05
 REFUSAL_STATUSES = (403, 409, 422)
 
 
+def _with_targets(intent: dict[str, Any]) -> dict[str, Any]:
+    """The intent with ``targets`` (the name the UI reads) next to the gateway's ``items``."""
+    return {**intent, "targets": list(intent.get("items", []))}
+
+
 class HistoryWindow(BaseModel):
     """A window of the runtime history store (UTC)."""
 
@@ -679,11 +684,10 @@ class _Endpoints:
         gateway = self._gw()
         with gateway_errors():
             payload = gateway.list_open_intents(actor=actor)
+        raw = [i for i in payload.get("intents", []) if isinstance(i, dict)]
         if loop_id is not None:
-            raw = payload.get("intents", [])
-            filtered = [i for i in raw if isinstance(i, dict) and i.get("loop_id") == loop_id]
-            return {**payload, "intents": filtered}
-        return payload
+            raw = [i for i in raw if i.get("loop_id") == loop_id]
+        return {**payload, "intents": [_with_targets(i) for i in raw]}
 
     def post_resolve_intent(self, key: str, actor: ActorDep) -> dict[str, Any]:
         """POST /tuning/intents/{key}/resolve: Settle an open write intent."""

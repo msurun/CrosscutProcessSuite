@@ -129,3 +129,12 @@ def test_resolve_intent_damaged_store_refuses_with_409(world: World) -> None:
     response = resolve(world, user="eng2")
     assert response.status_code == 409
     assert response.json()["detail"] == "intent_store_unreadable"
+
+
+def test_get_intents_carries_targets_for_the_ui(world: World) -> None:
+    """The UI reads ``targets`` (target, to_value, current_value); the gateway sends ``items``."""
+    session = Session(world, "view1")
+    intent = session.call("GET", "/tuning/intents").json()["intents"][0]
+    assert intent["targets"] == intent["items"]
+    assert intent["targets"][0]["target"] == "FIC1.KP"
+    assert intent["targets"][0]["current_value"] == 2.0
