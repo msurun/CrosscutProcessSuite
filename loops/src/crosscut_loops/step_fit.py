@@ -17,7 +17,7 @@ from crosscut_loops.identification_ipdt import _effective_n, _f95_one
 # Minimum samples required for a fit; below this the window is too short to identify.
 MIN_SAMPLES = 30
 # Dimensionless fraction of the sample interval used for effective delay, in seconds.
-DELAY_FLOOR_FRACTION_OF_DT = 0.5
+DELAY_FLOOR_FRACTION_OF_DT = 1.0
 # Minimum OUT range (in OUT units) required for a fit; below this there is no detectable move.
 MIN_OUT_PTP = 1e-9
 # Number of points in the coarse tau log grid.
@@ -83,9 +83,10 @@ class StepFit:
 def effective_delay_s(fit: StepFit, dt_s: float) -> tuple[float, bool]:
     """Return effective dead time in seconds and whether the sampling floor was applied.
 
-    The half-rule accounts for sample-and-hold measurement adding about dt/2 to
-    effective dead time (Skogestad 2003, J. Process Control 13, "Simple analytic
-    rules for model reduction and PID controller tuning"). Raw fits stay unchanged.
+    A dead time below one sample interval cannot be resolved: the true value lies anywhere
+    in [0, dt). Tuning takes the upper bound dt, the conservative choice (a longer delay
+    gives a slower, more robust controller; SIMC and lambda tuning both detune with
+    theta). Raw fits stay unchanged.
     """
     minimum_delay_s = dt_s * DELAY_FLOOR_FRACTION_OF_DT
     return max(fit.theta_s.value, minimum_delay_s), fit.theta_s.value < minimum_delay_s

@@ -2,7 +2,7 @@
 
 Real chain: controller job (runtime wiring) -> OpcUaConnector snapshots -> proposals -> real
 WriteGateway (supervised) -> OpcUaPlant -> RougherSim. Skips with a message when RougherSim is
-absent or not at the pin. C02 is a strict xfail: RougherSim ``serve`` has no transmitter fault.
+absent or not at the pin. C02 uses the pv_fault hook of RougherSim 0.13.0.
 """
 
 from __future__ import annotations
@@ -13,16 +13,17 @@ import pytest
 from controller_rows import (
     CV_A,
     CV_B,
+    LATE_FAULT_HOOK,
     MOVE_MAX,
-    SensorFaultUnavailable,
     ctl_rig,
-    inject_transmitter_fault,
+    transmitter_fault_hook,
 )
 from gateway_rows import POLICY, TAG
 from golden import checkout_problem, load_pin, roughersim_dir
 
 MOVE_TOL = 1e-9
 CYCLES_ON = 6
+MAX_CYCLES_TO_SHED = 400  # one plant step per cycle; the late fault starts at 120 s
 
 
 @pytest.fixture(scope="module")
@@ -51,8 +52,7 @@ def c01(tmp: Path) -> None:
 
 def c02_second_cv(tmp: Path) -> None:
     """A failed transmitter turns its CV bad; a second CV keeps the controller running."""
-    with ctl_rig(tmp, cvs=(CV_A, CV_B)) as c:
-        inject_transmitter_fault(CV_A)
+    with ctl_rig(tmp, cvs=(CV_A, CV_B), hook=transmitter_fault_hook(CV_A)) as c:
         c.command("switch_on")
         for _ in range(CYCLES_ON):
             record = c.cycle()
@@ -60,13 +60,24 @@ def c02_second_cv(tmp: Path) -> None:
 
 
 def c02_only_cv(tmp: Path) -> None:
-    """With only that CV the controller sheds with no_good_cv."""
-    with ctl_rig(tmp) as c:
-        inject_transmitter_fault(CV_A)
+    """A controller that is on sheds with no_good_cv when its only CV fails (fault from 120 s)."""
+    with ctl_rig(tmp, hook=LATE_FAULT_HOOK) as c:
         c.command("switch_on")
-        for _ in range(CYCLES_ON):
-            record = c.cycle()
-        assert (record["state"], record["reason"]) == ("shed", "no_good_cv")
+        records = [c.cycle()]
+        assert records[0]["state"] == "on", records[0]
+        while records[-1]["state"] == "on" and len(records) < MAX_CYCLES_TO_SHED:
+            records.append(c.cycle())
+        assert (records[-1]["state"], records[-1]["reason"]) == ("shed", "no_good_cv")
+
+
+def c02_only_cv_refused(tmp: Path) -> None:
+    """Fault from t=0: switch_on is refused (standby, no_good_cv) and nothing is proposed."""
+    with ctl_rig(tmp, hook=transmitter_fault_hook(CV_A)) as c:
+        c.command("switch_on")
+        first = c.cycle()
+        assert (first["state"], first["reason"]) == ("standby", "no_good_cv"), first
+        assert c.cycle()["state"] == "standby"
+        assert c.decisions == []
 
 
 def c03(tmp: Path) -> None:
@@ -127,18 +138,20 @@ def test_controller_row_on_roughersim(row: str, tmp_path: Path, checkout: None) 
     ROWS[row](tmp_path)
 
 
-XFAIL_REASON = "RougherSim item: serve has no live transmitter (PV) fault hook"
-
 
 @pytest.mark.slow
-@pytest.mark.xfail(strict=True, raises=SensorFaultUnavailable, reason=XFAIL_REASON)
 def test_c02_failed_cv_with_second_cv_keeps_running(tmp_path: Path, checkout: None) -> None:
     """C02a: the failed CV is bad and the controller keeps running on the second CV."""
     c02_second_cv(tmp_path)
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(strict=True, raises=SensorFaultUnavailable, reason=XFAIL_REASON)
+def test_c02_failed_only_cv_refuses_switch_on(tmp_path: Path, checkout: None) -> None:
+    """C02b (as the host behaves): a controller never on cannot shed; switch_on is refused."""
+    c02_only_cv_refused(tmp_path)
+
+
+@pytest.mark.slow
 def test_c02_failed_only_cv_sheds(tmp_path: Path, checkout: None) -> None:
     """C02b: with only the failed CV the controller sheds (no_good_cv)."""
     c02_only_cv(tmp_path)

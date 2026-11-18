@@ -34,21 +34,9 @@ def test_tf2_not_writable_preserves_gain(tmp_path: Path, checkout: None) -> None
     reject_gain_change(tmp_path, "tf2_not_writable")
 
 
-# FINDING: Source inspection (not live observation): an active offset enters from_value.
-# Partial revert writes that biased baseline back; expiry exposes changed stored Gain.
-# Keep the original-plant assertion: alarming/stopping alone does not restore atomicity.
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TF3 still asserts synchronous refusal before a verification tick and restoration of "
-        "the pre-hook baseline from offset-biased from-values; delayed verification alone "
-        "does not satisfy these assertions (see docs/L5_FINDINGS.md, issue #54)."
-    ),
-    raises=AssertionError,
-)
 def test_tf3_gain_mismatch_restores_the_entire_set(tmp_path: Path, checkout: None) -> None:
-    """A readback mismatch must leave neither Gain nor the earlier Ti change applied."""
+    """A delayed Gain mismatch is reported, holds the target off and is never reverted."""
     reject_mismatched_gain(tmp_path)
 
 

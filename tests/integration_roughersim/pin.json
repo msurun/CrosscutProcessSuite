@@ -1,8 +1,8 @@
 {
-  "commit_sha": "edeae9c23ee54f6f555c6e4b37cea1a0d23b5345",
+  "commit_sha": "e56481963500f49b18caea92168d0a279e9dcc1b",
   "goldens": {
     "rs.nominal.base.v1/100001": "7c1fc5b4f90f0f8d845256495d19983a250852934910f45220da98248913f5dd",
     "rs.step_test.fic203.v1/100003": "51839a611b23b13cab14dee6b01fffc765af1a801c3ab5820bce6330c3ddd41b"
   },
-  "tag": "rs-v0.12.0"
+  "tag": "rs-v0.13.1"
 }

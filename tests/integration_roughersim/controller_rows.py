@@ -37,25 +37,20 @@ CV_A, CV_B, MV_PV = "DIC202.PV", "LIT201.PV", "FIC203.PV"
 RANGES = {CV_A: (0.0, 100.0), CV_B: (0.0, 1.0)}
 ADDRESSES = {
     CV_A: NS.format("DIC202/Pv"),
-    CV_B: NS.format("LIT201/Pv"),
+    CV_B: NS.format("LIC201/Pv"),
     MV_PV: NS.format("FIC203/Pv"),
     TAG: NS.format("FIC203/Rsp"),
 }
 
 
-class SensorFaultUnavailable(NotImplementedError):
-    """RougherSim ``serve`` cannot fail one transmitter (hook API 1.1.0 has no PV fault)."""
+PV_FAULT_HOOKS = {CV_A: "gw.pv_fault_dic202.v1", CV_B: "gw.pv_fault_lit201.v1"}
+LATE_FAULT_HOOK = "gw.pv_fault_dic202_late.v1"  # DIC202 PV Bad from 120 s sim time (rs 0.13.1)
+LATE_FAULT_START_S = 120.0
 
 
-def inject_transmitter_fault(tag: str) -> None:
-    """Fail the transmitter of ``tag`` on the live server.
-
-    Raises:
-        SensorFaultUnavailable: always; sensor faults exist only in recorded scenarios and
-            the hook types (reject_writes, comm_loss, readback_offset, operator_action) never
-            touch a PV node.
-    """
-    raise SensorFaultUnavailable(f"RougherSim serve cannot fail the transmitter of {tag}")
+def transmitter_fault_hook(tag: str) -> str:
+    """Hook id (RougherSim hook type pv_fault, API 1.2.0) failing the transmitter of ``tag``."""
+    return PV_FAULT_HOOKS[tag]
 
 
 async def _set_mode(endpoint: str, node_text: str, value: int) -> None:
@@ -135,9 +130,11 @@ class CtlRig:
     seen: list[tuple[float, float]] = field(default_factory=list)  # (sp_seen, proposed)
     job: ControllerJob | None = None
 
-    def _ports(self, root: Path, controller_id: str, now_ns: Callable[[], int]) -> Any:
+    def _ports(
+        self, root: Path, controller_id: str, now_ns: Callable[[], int], targets: frozenset[str]
+    ) -> Any:
         """Gateway ports of the host: the in-process real gateway."""
-        del root, controller_id, now_ns
+        del root, controller_id, now_ns, targets
         return self.rig.gw.mv_availability, self._propose
 
     def _propose(self, move: Move) -> None:
@@ -198,11 +195,11 @@ def _prepare_root(root: Path, cv_count: int) -> None:
 
 @contextmanager
 def ctl_rig(
-    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0
+    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0, hook: str | None = None
 ) -> Iterator[CtlRig]:
-    """RougherSim, supervised gateway, rule base and a controller job."""
-    with rs_server(tmp / "server.log", None, speed) as port:
-        harness = Harness(plant_map_for(port), speed)
+    """RougherSim (with the full hook id ``hook``), supervised gateway, rule base, job."""
+    with rs_server(tmp / "server.log", hook, speed) as port:
+        harness = Harness(plant_map_for(port), speed, allow_take_remote=True)
         try:
             harness.wait_ready()
             gateway = engine.WriteGateway(harness, {TAG: POLICY}, "supervised")

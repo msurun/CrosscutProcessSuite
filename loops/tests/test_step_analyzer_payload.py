@@ -277,5 +277,5 @@ def test_analyzer_exposes_the_delay_floor_with_the_resolution_reason(monkeypatch
     monkeypatch.setattr(step_analyzer, "fit_step", fit_with_unresolved_delay)
     row = _analyze(_build_record())["rows"][0]
     assert "theta_below_resolution" in row["reasons"]
-    assert row["delay_floor_s"] == DT_S / 2.0
+    assert row["delay_floor_s"] == DT_S  # one-sample conservative floor
     assert row["params"]["theta_s"]["value"] == 0.0

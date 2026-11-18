@@ -275,6 +275,7 @@ def g13(tmp: Path) -> None:
         assert r.h.loop_mode(TAG) == "CAS"
         assert r.source() == "local"
         r.h.plant.set_allow_take_remote(True)
+        r.step()  # a new proposal time: the refused proposal is remembered by its key
         assert r.gw.propose(r.up(5.0)).accepted
         r.step()
         assert r.source() == "remote"

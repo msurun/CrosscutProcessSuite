@@ -51,9 +51,11 @@ means theta < dt/2, where dt is the window's median sample interval; FOPDT
 `tau_below_resolution` means tau is at the lowest tau grid point (dt).
 Both appear in row `reasons`. For unresolved theta, the row also includes
 `delay_floor_s` for downstream tuning. `effective_delay_s(fit, dt_s)` returns
-`(max(theta, dt_s/2), floored_flag)`, using `DELAY_FLOOR_FRACTION_OF_DT = 0.5`.
-This follows the sample-and-hold half-rule (Skogestad 2003, J. Process Control 13,
-"Simple analytic rules for model reduction and PID controller tuning").
+`(max(theta, dt_s), floored_flag)`, using `DELAY_FLOOR_FRACTION_OF_DT = 1.0`.
+A delay below one sample cannot be resolved (it lies in [0, dt)), so tuning takes the
+upper bound: the conservative choice, because a longer delay detunes SIMC and lambda
+rules. (A dt/2 floor was tried first and made the L5-P3 LIC301 proposal exceed the
+gateway's max_ratio.)
 
 ## Alignment
 - `test_windows`: list of `{label, start_utc, end_utc}` (the dataset sidecar `test_windows.json`). A row's `test_label` is the

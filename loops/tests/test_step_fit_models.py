@@ -244,11 +244,11 @@ def _coarse_fopdt_fit(tau_s: float):
 
 
 def test_coarse_sampling_flags_zero_delay_and_preserves_the_raw_fit():
-    """An unresolved 10 s delay is reported as raw zero with a 30 s tuning floor."""
+    """An unresolved 10 s delay is reported as raw zero with a one-sample (60 s) tuning floor."""
     fitted = _coarse_fopdt_fit(tau_s=300.0)
     assert fitted.theta_s.value == 0.0
     assert "theta_below_resolution" in fitted.edges
-    assert effective_delay_s(fitted, COARSE_DT_S) == (30.0, True)
+    assert effective_delay_s(fitted, COARSE_DT_S) == (COARSE_DT_S, True)
     assert fitted.theta_s.value == 0.0
 
 

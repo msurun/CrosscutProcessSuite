@@ -22,11 +22,8 @@ HOOK_END_S = 600  # Simulation seconds; read stored values only after the offset
 SERVER_SPEED = 20.0  # Simulation seconds per wall second, as in the existing gateway rows.
 READBACK_TOLERANCE = 0.05  # Gain units or Ti seconds; the plant map uses native Ti seconds.
 TARGET_RATIO = 1.5  # Dimensionless; inside the policy's maximum ratio of 2.
+SETTLE_S = 3.0  # Simulation seconds; past the default verify_after_s of 2 s.
 PROPOSAL_LIFETIME_S = 3600  # Simulation seconds.
-
-
-class UnsafeTuningRestoration(AssertionError):
-    """Stored tuning differs from the pre-fault baseline after a partial revert."""
 
 
 @contextmanager
@@ -116,30 +113,26 @@ def reject_gain_change(tmp: Path, hook_name: str) -> None:
 
 
 def reject_mismatched_gain(tmp: Path) -> None:
-    """TF3: mismatched Gain must revert the whole set, including the earlier Ti write."""
+    """TF3: a delayed Gain mismatch is reported (audit, hold_off, invalid), never written back."""
     with tuning_rig(tmp, "tf3_gain_offset") as rig:
         baseline = read_baseline(rig)
         wait_for_fault(rig)
-        # Longer Ti detunes first; higher Gain goes last, exercising a multi-item revert.
         targets = {GAIN: baseline[GAIN] * TARGET_RATIO, TI: baseline[TI] * TARGET_RATIO}
         decision = approve_change(rig, targets)
-        assert not decision.accepted
-        assert decision.reason_code == "revert_failed"
-        reverts = audit_events(rig, "partial_revert")
-        assert len(reverts) == 1
-        assert reverts[0]["reason_code"] == "readback_mismatch"
-        assert reverts[0]["written"] == f"{TI},{GAIN}"
-        assert rig.gw.status()[GAIN].startswith("stopped:")
+        assert decision.accepted, decision.reason_code
+        writes = len(rig.h.writes)
+        settle_ns = rig.h.now_ns() + int(SETTLE_S * S)
+        while rig.h.now_ns() <= settle_ns:
+            rig.step(1, tick=True)
+        assert len(rig.h.writes) == writes, "gateway wrote to the plant after the apply"
+        assert audit_events(rig, "partial_revert") == []
+        changed = audit_events(rig, "param_changed_externally")
+        delayed = audit_events(rig, "readback_mismatch_delayed")
+        assert [r["tag"] for r in changed] == [GAIN]
+        assert [r["tag"] for r in delayed] == [GAIN]
+        assert delayed[0]["review"] == "invalid"
+        assert rig.gw.status()[GAIN] in ("hold_off", "stopped:comm")
         assert_loop_is_local(rig)
-        rig.h.wait_until_ns(int((HOOK_END_S + STEP_S) * S))
-        assert_restored_tuning(rig, baseline)
-
-
-def assert_restored_tuning(rig: Rig, baseline: dict[str, float]) -> None:
-    """Raise the specific expected failure only for unsafe stored tuning after hook expiry."""
-    actual = read_tuning(rig)
-    if actual != baseline:
-        raise UnsafeTuningRestoration(f"partial revert left {actual}; expected {baseline}")
 
 
 def accept_tolerated_ti_offset(tmp: Path) -> None:
