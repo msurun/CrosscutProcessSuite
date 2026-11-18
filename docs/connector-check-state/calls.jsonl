@@ -1,1 +1,0 @@
-{"ts": 1794962576.039, "event": "outcome", "id": "connector-review-task", "provider": "agy", "node": null, "model": "gemini-3.8-flash-high", "kind": "agent_ask", "cost_usd": 0.0, "verified": false, "verify_passed": false, "fix_rounds": 0, "reviewed": false, "blockers": 0, "review_fixed": false, "accepted": false, "seconds": 92.8}
