@@ -43,9 +43,13 @@ def score_file(
     t = np.arange(len(x)) * config.sample_period_s
     events = scan(model, t, x, config=config).events
     false_events = [e for e in events if quiet[e.start_index]]
-    alarm = sum(int(quiet[e.start_index : e.end_index + 1].sum()) for e in events)
+    inside = np.zeros(len(x), dtype=bool)  # union of events: PCA and stuck events may overlap
+    for e in events:
+        inside[e.start_index : e.end_index + 1] = True
+    alarm = int((inside & quiet).sum())
     later = [e.start_index for e in events if onset is not None and e.start_index >= onset]
-    return {"fa_events": len(false_events), "quiet_bins": int(quiet.sum()), "alarm_quiet_bins": alarm,
+    return {"fa_events": len(false_events), "quiet_bins": int(quiet.sum()),
+            "alarm_quiet_bins": alarm,
             "stuck_events": sum(e.kind == "stuck" for e in events),
             "delay_bins": (min(later) - onset) if later else None, "has_onset": onset is not None}
 
@@ -108,7 +112,7 @@ def load_3w(path: Path) -> tuple[dict[str, np.ndarray], np.ndarray]:
 
 
 def class_info(cls: np.ndarray, event: int) -> tuple[np.ndarray, int | None]:
-    """Quiet mask (all samples of the bin labelled 0) and onset bin (first event or transient label)."""
+    """Quiet mask (every sample of the bin labelled 0) and onset bin (event or transient label)."""
     quiet = (cls == 0).all(axis=1)
     hit = np.flatnonzero(np.isin(cls, (event, 100 + event)).any(axis=1)) if event else []
     return quiet, (int(hit[0]) if len(hit) else None)
@@ -218,7 +222,8 @@ def verdict(res: dict) -> dict:
         "F1_skab": s["fa_per_day"] <= TARGETS["F1"], "F1_3w": q["fa_per_day"] <= TARGETS["F1"],
         "F2_skab": s["alarm_share_quiet"] <= TARGETS["F2"],
         "F2_3w": q["alarm_share_quiet"] <= TARGETS["F2"],
-        "D1_skab": s["detection_rate"] >= TARGETS["D1"], "D1_3w": e["detection_rate"] >= TARGETS["D1"],
+        "D1_skab": s["detection_rate"] >= TARGETS["D1"],
+        "D1_3w": e["detection_rate"] >= TARGETS["D1"],
         "D2_skab": delay_ok(s["median_delay_s"], TARGETS["D2_skab_s"]),
         "D2_3w": delay_ok(e["median_delay_s"], TARGETS["D2_3w_min"] * 60.0),
         "R1": None if r["precision"] is None else r["precision"] >= TARGETS["R1"],
