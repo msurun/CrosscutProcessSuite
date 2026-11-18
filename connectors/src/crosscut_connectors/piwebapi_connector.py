@@ -27,6 +27,7 @@ from crosscut_connectors.base import (
     SourceConnectionError,
     TagMetadata,
 )
+from crosscut_connectors.site import Limits, SiteImportSettings, TagSettings
 
 TIMEOUT_S = 30  # Seconds per HTTP request.
 PAGE_SIZE = 1000  # Events per recorded request, including the continuation boundary.
@@ -85,29 +86,60 @@ def _reason(sample: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _live_value(sample: Mapping[str, Any]) -> LiveValue:
-    """Map PI flags to 0 good, 1 uncertain, 2 bad; bad overrides uncertain."""
+def _live_value(sample: Mapping[str, Any], settings: TagSettings | None = None) -> LiveValue:
+    """Map PI flags to 0 good, 1 uncertain, 2 bad; bad overrides uncertain.
+
+    A numeric value equal to a missing code the site declares is read as no value with BAD.
+    """
     reason = _reason(sample)
     quality = UNCERTAIN if sample.get("Questionable") or sample.get("Substituted") else GOOD
     value = None if reason else float(sample["Value"])
+    if value is not None and settings is not None and settings.is_missing_number(value):
+        value, quality = None, BAD
     return LiveValue(value, BAD if reason else quality, str(sample.get("Timestamp", "")))
 
 
-def _metadata(tag: str, point: Mapping[str, Any]) -> TagMetadata:
-    """Convert PI Zero and Span to engineering limits in the point's units."""
+def _metadata(
+    tag: str, point: Mapping[str, Any], settings: TagSettings | None = None
+) -> TagMetadata:
+    """Convert PI Zero and Span to engineering limits in the point's units.
+
+    The site unit and engineering limits win over the point's own values when declared.
+    """
     zero, span = point.get("Zero"), point.get("Span")
     # PI span is a width: upper engineering limit = zero + span, in engineering units.
     upper = zero + span if zero is not None and span is not None else None
-    return TagMetadata(tag, point.get("EngineeringUnits"), point.get("Descriptor"), zero, upper)
+    site_unit = settings.unit if settings is not None else ""
+    unit = site_unit or point.get("EngineeringUnits")
+    low, high = _site_limits(settings, zero, upper)
+    return TagMetadata(tag, unit, point.get("Descriptor"), low, high)
+
+
+def _site_limits(
+    settings: TagSettings | None, low: float | None, high: float | None
+) -> tuple[float | None, float | None]:
+    """Engineering limits from the site when declared, else the point's Zero and Zero+Span."""
+    limits: Limits | None = settings.eng_limits if settings is not None else None
+    if limits is None:
+        return low, high
+    return limits.low if limits.low is not None else low, (
+        limits.high if limits.high is not None else high
+    )
 
 
 class PiWebApiConnector:
     """Read-only PI adapter using point WebIds as tag identifiers."""
 
     def __init__(self, endpoint: str, options: Mapping[str, Any] | None = None,
-                 transport: Transport | None = None) -> None:
-        """Configure read requests; reject unsupported authentication and invalid page sizes."""
+                 transport: Transport | None = None,
+                 settings: SiteImportSettings | None = None) -> None:
+        """Configure read requests; reject unsupported authentication and invalid page sizes.
+
+        ``settings`` is the site settings read through ``site.read_import_settings``; it
+        supplies missing codes, units, engineering limits and sampling periods.
+        """
         self.options = dict(options or {})
+        self.settings = settings
         self.endpoint = str(self.options.get("base_url", endpoint)).rstrip("/")
         address = urlsplit(self.endpoint)
         if (address.scheme not in {"http", "https"} or not address.hostname
@@ -156,26 +188,44 @@ class PiWebApiConnector:
                          not bool(server), item.get("PointType"), item.get("EngineeringUnits"))
                 for item in items]
 
+    def _tag_settings(self, tag: str) -> TagSettings | None:
+        """The site settings of one tag, or None when no site file was read."""
+        return self.settings.for_tag(tag) if self.settings is not None else None
+
     def metadata(self, tag_ids: Sequence[str]) -> list[TagMetadata]:
         """Fetch point descriptions, units and engineering limits."""
-        return [_metadata(tag, self._get(f"points/{quote(tag, safe='')}")) for tag in tag_ids]
+        return [
+            _metadata(tag, self._get(f"points/{quote(tag, safe='')}"), self._tag_settings(tag))
+            for tag in tag_ids
+        ]
 
     def history(self, tag_ids: Sequence[str], start_utc: str, end_utc: str,
                 period_s: float | None = None) -> Mapping[str, Any]:
-        """Return tag-keyed sample dictionaries, retaining quality and bad-state reasons."""
+        """Return tag-keyed sample dictionaries, retaining quality and bad-state reasons.
+
+        A ``period_s`` of None uses the sampling period the site declares for each tag.
+        """
         if period_s is not None and (not math.isfinite(period_s) or period_s <= 0):
             raise ValueError("PI period_s must be finite and positive seconds")
         parameters = [("startTime", start_utc), ("endTime", end_utc)]
         result = {}
         for tag in tag_ids:
-            path = f"streams/{quote(tag, safe='')}"
-            if period_s is None:
-                samples = self._recorded(path, parameters)
-            else:
-                samples = self._get(f"{path}/interpolated",
-                                    [*parameters, ("interval", f"{period_s}s")])["Items"]
-            result[tag] = [_history_sample(sample) for sample in samples]
+            result[tag] = self._tag_history(tag, parameters, period_s)
         return result
+
+    def _tag_history(self, tag: str, parameters: list[tuple[str, Any]],
+                     period_s: float | None) -> list[dict[str, Any]]:
+        """Read one tag's history, interpolated when a period applies."""
+        settings = self._tag_settings(tag)
+        period = period_s if period_s is not None else (
+            settings.sample_period_s if settings is not None else None)
+        path = f"streams/{quote(tag, safe='')}"
+        if period is None:
+            samples = self._recorded(path, parameters)
+        else:
+            samples = self._get(f"{path}/interpolated",
+                                [*parameters, ("interval", f"{period}s")])["Items"]
+        return [_history_sample(sample, settings) for sample in samples]
 
     def _recorded(self, path: str, parameters: list[tuple[str, Any]]) -> list[Mapping[str, Any]]:
         samples: list[Mapping[str, Any]] = []
@@ -204,7 +254,7 @@ class PiWebApiConnector:
         values, reasons = {}, []
         for tag in tag_ids:
             sample = samples.get(tag, {"Good": False})
-            values[tag] = _live_value(sample)
+            values[tag] = _live_value(sample, self._tag_settings(tag))
             reason = _reason(sample)
             if reason:
                 reasons.append(f"{tag}: {reason}")
@@ -221,8 +271,10 @@ class PiWebApiConnector:
             return Snapshot(cycle, values, False, str(error))
 
 
-def _history_sample(sample: Mapping[str, Any]) -> dict[str, Any]:
+def _history_sample(
+    sample: Mapping[str, Any], settings: TagSettings | None = None
+) -> dict[str, Any]:
     """Keep history and live quality semantics identical."""
-    value = _live_value(sample)
+    value = _live_value(sample, settings)
     return {"timestamp_utc": value.timestamp_utc, "value": value.value,
             "quality": value.quality, "reason": _reason(sample)}

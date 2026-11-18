@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -26,6 +26,14 @@ from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 
 from crosscut_connectors.csv_connector import CsvConnector
 from crosscut_connectors.import_target import ImportTarget
+from crosscut_connectors.site import (
+    DEFAULT_TIMEZONE,
+    Limits,
+    SiteError,
+    SiteImportSettings,
+    TagSettings,
+    UnitConversion,
+)
 
 # --------------------------------------------------------------------------- #
 # Public data structures
@@ -482,26 +490,39 @@ def _parse_timestamps(
 
 
 def _parse_value_matrices(
-    data_rows: list[list[str]], n_tags: int, decimal: str
+    data_rows: list[list[str]],
+    tag_ids: list[str] | int,
+    decimal: str,
+    target: ImportTarget | None = None,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Return dense value and quality matrices plus the count of BAD cells.
 
     Every row gets one value and one quality flag per tag, even when the source
-    cell was empty or unparsable (such cells become NaN + BAD).
+    cell was empty, unparsable or holds a missing code declared by the site file
+    (such cells become NaN + BAD). ``tag_ids`` may be a plain tag count and ``target``
+    omitted (neutral settings), as in the pre-site-settings signature.
     """
-    values = np.empty((len(data_rows), n_tags), dtype=np.float64)
-    qualities = np.empty((len(data_rows), n_tags), dtype=np.uint8)
+    if isinstance(tag_ids, int):
+        tag_ids = [""] * tag_ids
+    target = target or ImportTarget(Path("."), "")
+    settings = [target.settings_for(tag_id) for tag_id in tag_ids]
+    values = np.empty((len(data_rows), len(tag_ids)), dtype=np.float64)
+    qualities = np.empty((len(data_rows), len(tag_ids)), dtype=np.uint8)
     bad_count = 0
     for i, row in enumerate(data_rows):
         # row[0] is the timestamp already consumed; row[1:] are the tag values.
         for j, cell in enumerate(row[1:]):
             value = _parse_cell(cell, decimal)
-            # NaN is the sentinel for "could not parse this cell".
-            is_bad = bool(np.isnan(value))
+            is_bad = bool(np.isnan(value)) or _is_missing_cell(cell, value, settings[j])
             qualities[i, j] = BAD if is_bad else GOOD
             bad_count += int(is_bad)
-            values[i, j] = value
+            values[i, j] = np.nan if is_bad else value
     return values, qualities, bad_count
+
+
+def _is_missing_cell(cell: str, value: float, settings: TagSettings) -> bool:
+    """True when the site file declares this cell, as text or as number, missing."""
+    return settings.is_missing_text(cell) or settings.is_missing_number(value)
 
 
 def _unique_tag_ids(original_tag_names: list[str]) -> list[str]:
@@ -530,29 +551,98 @@ def split_unit(header_cell: str) -> tuple[str, str]:
     return match.group("name"), match.group("unit").strip()
 
 
-def _tags_document(
-    tag_ids: list[str], original_tag_names: list[str], units: list[str]
-) -> dict[str, Any]:
-    """Build the tag schema: sanitised ids, original display names, units from the header.
+class ColumnTags(NamedTuple):
+    """Ids, display names and source units of the value columns, aligned by index."""
 
-    The CSV has no way to provide description or role, so they are placeholders; the unit comes
-    from a bracketed header suffix such as ``Level [m]`` and is "" when there is none.
+    ids: list[str]
+    names: list[str]
+    units: list[str]
+
+
+def _column_tags(header_cells: list[str]) -> ColumnTags:
+    """Tag ids, display names and header units of the value columns.
+
+    A bracketed suffix such as ``Level [m]`` gives the unit; two headers that only differ in
+    their suffix would collide once it is cut, so then the full headers stay the names.
+    """
+    split_cells = [split_unit(cell) for cell in header_cells]
+    if len({name for name, _ in split_cells}) < len(split_cells):
+        split_cells = [(cell.strip(), "") for cell in header_cells]
+    names = [name for name, _ in split_cells]
+    return ColumnTags(_unique_tag_ids(names), names, [unit for _, unit in split_cells])
+
+
+def _tags_document(tags: ColumnTags, target: ImportTarget) -> dict[str, Any]:
+    """Build the tag schema: sanitised ids, display names and the site's units and ranges.
+
+    The CSV has no way to provide description or role, so they are placeholders.
     """
     return {
         "schema_version": "0.1.0",
         "tags": [
-            {
-                "id": tag_id,
-                "name": original,
-                "description": "",
-                "unit": unit,
-                "type": "float",
-                "role": "other",
-                "source": {"driver": "csv", "address": original},
-            }
-            for tag_id, original, unit in zip(tag_ids, original_tag_names, units, strict=True)
+            _tag_entry(tag_id, name, unit, target)
+            for tag_id, name, unit in zip(tags.ids, tags.names, tags.units, strict=True)
         ],
     }
+
+
+def _tag_entry(tag_id: str, name: str, source_unit: str, target: ImportTarget) -> dict[str, Any]:
+    """One tag entry; the site unit, limits and period win over the header when declared."""
+    site = target.settings_for(tag_id)
+    entry: dict[str, Any] = {
+        "id": tag_id,
+        "name": name,
+        "description": "",
+        "unit": site.unit or source_unit,
+        "type": "float",
+        "role": "other",
+        "source": {"driver": "csv", "address": name},
+    }
+    _add_site_ranges(entry, site)
+    if site.sample_period_s is not None:
+        entry["sample_period_s"] = site.sample_period_s
+    return entry
+
+
+def _add_site_ranges(entry: dict[str, Any], site: TagSettings) -> None:
+    """Copy the tag's engineering limits into its tags.json entry, side by side."""
+    limits: Limits | None = site.eng_limits
+    if limits is None:
+        return
+    if limits.low is not None:
+        entry["eng_min"] = limits.low
+    if limits.high is not None:
+        entry["eng_max"] = limits.high
+
+
+def _convert_columns(values: np.ndarray, tags: ColumnTags, target: ImportTarget) -> np.ndarray:
+    """Convert every column from its header unit to the unit the site declares."""
+    converted = values.copy()
+    for column, (tag_id, source_unit) in enumerate(zip(tags.ids, tags.units, strict=True)):
+        conversion = _required_conversion(target, source_unit, target.settings_for(tag_id).unit)
+        if conversion is not None:
+            converted[:, column] = conversion.convert(values[:, column])
+    return converted
+
+
+def _required_conversion(
+    target: ImportTarget, from_unit: str, to_unit: str
+) -> UnitConversion | None:
+    """The declared conversion, or None when no conversion is needed.
+
+    Raises:
+        SiteError: the file uses a unit the site file does not know how to convert.
+    """
+    if not from_unit or not to_unit or from_unit == to_unit:
+        return None
+    settings = target.settings or SiteImportSettings()
+    conversion = settings.conversion(from_unit, to_unit)
+    if conversion is None:
+        raise SiteError(
+            f"units.conversions: add a conversion from {from_unit!r} to {to_unit!r}, "
+            "or correct the tag unit in the site file"
+        )
+    return conversion
 
 
 def _start_iso(ts_ns: np.ndarray) -> str:
@@ -584,30 +674,37 @@ def _normalise_order(
 
 
 def _write_csv_dataset(
-    out_dir: Path,
-    dataset_id: str,
-    header_cells: list[str],
-    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
+    target: ImportTarget | Path,
+    tags: ColumnTags | str,
+    *args: Any,
 ) -> None:
-    """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row."""
+    """Write the dataset; ``arrays`` is (ts_ns, values, qualities), aligned by row.
+
+    Two call shapes: ``(target, tags, arrays)`` and the legacy
+    ``(out_dir, dataset_id, header_cells, arrays)`` without site settings.
+    """
+    if not isinstance(target, ImportTarget):
+        target, tags = ImportTarget(target, tags), _column_tags(args[0])
+        args = args[1:]
+    (arrays,) = args
     ts_ns, values, qualities = arrays
-    split_cells = [split_unit(cell) for cell in header_cells]
-    if len({name for name, _ in split_cells}) < len(split_cells):
-        # "Level (A)" and "Level (B)" would collide once the suffix is cut: keep the full headers
-        split_cells = [(cell.strip(), "") for cell in header_cells]
-    original_tag_names = [name for name, _ in split_cells]
-    units = [unit for _, unit in split_cells]
-    tag_ids = _unique_tag_ids(original_tag_names)
     info = DatasetInfo(
-        dataset_id=dataset_id,
+        dataset_id=target.dataset_id,
         source={"kind": "file"},
         start_utc=_start_iso(ts_ns),
-        tags_document=_tags_document(tag_ids, original_tag_names, units),
+        tags_document=_tags_document(tags, target),
     )
-    write_dataset(out_dir, Samples(ts_ns, tag_ids, values, qualities), info)
+    write_dataset(target.out_dir, Samples(ts_ns, tags.ids, values, qualities), info)
 
 
-def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -> ImportReport:
+def import_csv(
+    path: Path,
+    out_dir: Path,
+    *,
+    dataset_id: str,
+    tz: str | None = None,
+    settings: SiteImportSettings | None = None,
+) -> ImportReport:
     """Import a CSV file exported by :func:`render_messy_csv`.
 
     The function writes a dataset to ``out_dir`` and returns an :class:`ImportReport`
@@ -627,7 +724,12 @@ def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -
     dataset_id:
         Identifier used inside the dataset metadata.
     tz:
-        Timezone name (e.g. ``"Europe/Warsaw"``) used for naive timestamps.
+        Timezone name (e.g. ``"Europe/Warsaw"``) used for naive timestamps; None
+        keeps the site time zone, or UTC when no site settings are given.
+    settings:
+        The site settings read through :func:`read_import_settings`; they supply
+        missing codes, quality codes, units, engineering ranges and the sampling
+        period. None keeps the documented neutral defaults.
 
     Returns
     -------
@@ -642,7 +744,8 @@ def import_csv(path: Path, out_dir: Path, *, dataset_id: str, tz: str = "UTC") -
     """
     connector = CsvConnector(str(path.parent), {"file_name": path.name, "import_layout": "wide"})
     table = connector.history([], "", "")["table"]
-    return _import_csv_table(table, ImportTarget(out_dir, dataset_id, tz))
+    timezone_name = tz or (settings.timezone if settings else DEFAULT_TIMEZONE)
+    return _import_csv_table(table, ImportTarget(out_dir, dataset_id, timezone_name, settings))
 
 
 def _import_csv_table(
@@ -650,14 +753,15 @@ def _import_csv_table(
 ) -> ImportReport:
     """Normalise a parsed wide table with the legacy timestamp and quality rules."""
     delimiter, header, data_rows = table
+    # The header is [timestamp, tag_0, tag_1, ...].
+    tags = _column_tags(header[1:])
     ts_ns, ts_format_name, dst_repeats = _parse_timestamps(data_rows, target.tz)
     # Decimal comma ("1,5") and point ("1.5") both occur; _parse_cell needs to know.
     decimal = _detect_decimal_separator(data_rows, delimiter)
-    # The header is [timestamp, tag_0, tag_1, ...].
-    values, qualities, bad_count = _parse_value_matrices(data_rows, len(header) - 1, decimal)
-
+    values, qualities, bad_count = _parse_value_matrices(data_rows, tags.ids, decimal, target)
+    values = _convert_columns(values, tags, target)
     ts_ns, values, qualities, dup_dropped, unsorted = _normalise_order(ts_ns, values, qualities)
-    _write_csv_dataset(target.out_dir, target.dataset_id, header[1:], (ts_ns, values, qualities))
+    _write_csv_dataset(target, tags, (ts_ns, values, qualities))
     return ImportReport(
         n_rows=ts_ns.shape[0],
         n_duplicates_dropped=dup_dropped,

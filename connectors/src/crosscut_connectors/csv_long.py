@@ -46,13 +46,16 @@ def read_long_rows(path: Path) -> list[tuple[Any, ...]]:
     return read_long_file(path).rows
 
 
-def read_long_file(path: Path) -> LongFile:
+def read_long_file(path: Path, *, keep_raw_quality: bool = False) -> LongFile:
     """Parse the file into rows and per-tag units.
 
     Cells that are not numbers become NaN (the importer marks them BAD). The optional columns are
     found by their header word: ``quality`` / ``q`` / ``status`` (a number 0 good, 1 uncertain,
     2 bad, or the words good / ok / uncertain / bad, or empty = good) and ``unit`` / ``units`` /
     ``eu``. Without a recognised header word the fourth column is the quality, as before.
+
+    With ``keep_raw_quality`` the quality cell stays text, so the caller can map the status codes
+    the site file declares instead of assuming 0/1/2.
 
     Raises:
         ValueError: if the file has fewer than three columns, a quality cell is none of these, or
@@ -70,7 +73,10 @@ def read_long_file(path: Path) -> LongFile:
             row[0].strip(),
             row[1].strip(),
             _parse_cell(row[2], decimal),
-            *_quality_of(row[quality_at : quality_at + 1] if quality_at is not None else []),
+            *_quality_of(
+                row[quality_at : quality_at + 1] if quality_at is not None else [],
+                keep_raw_quality,
+            ),
         )
         for row in cells
     ]
@@ -100,11 +106,17 @@ def _units_by_tag(cells: list[list[str]], unit_at: int | None) -> dict[str, str]
     return units
 
 
-def _quality_of(cell: list[str]) -> list[int]:
-    """The quality flag of a row as a one-element list, or [] when the file has no such column."""
+def _quality_of(cell: list[str], keep_raw_quality: bool) -> list[Any]:
+    """The quality flag of a row as a one-element list, or [] when the file has no such column.
+
+    With ``keep_raw_quality`` the cell text is returned unchanged (empty means "no quality"),
+    so the SQL importer can map the codes declared by the site file.
+    """
     if not cell:
         return []
     text = cell[0].strip()
+    if keep_raw_quality:
+        return [text] if text else []
     if text.lower() in QUALITY_WORDS:
         return [QUALITY_WORDS[text.lower()]]
     try:
@@ -114,7 +126,14 @@ def _quality_of(cell: list[str]) -> list[int]:
 
 
 def import_csv_long(path: Path, target: ImportTarget) -> SqlImportReport:
-    """Import a long-format CSV; ``target.tz`` applies to timestamps without a UTC offset."""
+    """Import a long-format CSV; ``target.tz`` applies to timestamps without a UTC offset.
+
+    ``target.settings`` supplies the missing codes, quality codes, units and sampling period of
+    the site file; without it the reader keeps its neutral 0/1/2 quality convention.
+    """
+    if target.settings is not None:
+        parsed = read_long_file(path, keep_raw_quality=True)
+        return _import_rows(parsed.rows, target, parsed.units)
     connector = CsvConnector(str(path.parent), {"file_name": path.name, "import_layout": "long"})
     history = connector.history([], "", "")
     return _import_rows(history["rows"], target, history["units"])

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import csv
 import os
-from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -30,6 +31,29 @@ class LongFormatError(ValueError):
     """Raised when the CSV cannot be read as long-format historian output."""
 
 
+@dataclass(frozen=True)
+class LabReadSettings:
+    """Site settings the lab reader needs: the plant clock and its missing-value codes.
+
+    timezone: IANA zone of stamps without an offset, for example America/Santiago.
+    missing_codes: numbers that mean "no result".
+    missing_text_codes: text cells that mean "no result", compared ignoring case.
+    codes_by_tag: per-tag numeric codes; they replace the site-wide ones for that tag.
+
+    A caller builds this from the site file (connectors ``read_import_settings``); the
+    soft sensor keeps its own copy so it does not depend on the connectors package.
+    """
+
+    timezone: str = "UTC"
+    missing_codes: tuple[float, ...] = ()
+    missing_text_codes: frozenset[str] = frozenset()
+    codes_by_tag: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
+
+    def missing_for(self, tag: str) -> tuple[float, ...]:
+        """The numeric missing codes of one tag: its own when declared, else the site's."""
+        return self.codes_by_tag.get(tag, self.missing_codes)
+
+
 @dataclass(frozen=True, eq=False)
 class TagSeries:
     """Time series for a single tag: sample times in seconds and matching float values."""
@@ -44,13 +68,15 @@ def load_long_csv(
     *,
     tags: Collection[str] | None = None,
     utc_offset_h: float = 0.0,
+    settings: LabReadSettings | None = None,
 ) -> dict[str, TagSeries]:
     """Read a long-format CSV into a mapping of tag name to `TagSeries`.
 
-    Rows with an empty or non-numeric value are skipped. Duplicate stamps within a tag keep
-    the last row and each tag is sorted ascending. If `tags` is given, only those exact tag
-    names are kept. `utc_offset_h` is the local offset east of UTC, so true UTC is
-    local minus that offset.
+    Rows with an empty, non-numeric or declared missing value are skipped. Duplicate stamps
+    within a tag keep the last row and each tag is sorted ascending. If `tags` is given, only
+    those exact tag names are kept. `utc_offset_h` is the local offset east of UTC, so true
+    UTC is local minus that offset; `settings.timezone` replaces it when given, which keeps
+    daylight-saving changes correct.
 
     Returns:
         Mapping from tag name to its sorted `TagSeries`.
@@ -62,7 +88,7 @@ def load_long_csv(
     with file_path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader: csv.DictReader[str] = csv.DictReader(handle)
         _require_columns(reader.fieldnames, file_path)
-        return _collect_by_tag(reader, tags, utc_offset_h)
+        return _collect_by_tag(reader, tags, utc_offset_h, settings)
 
 
 def to_lab_results(
@@ -119,11 +145,12 @@ def _collect_by_tag(
     reader: csv.DictReader[str],
     tags: Collection[str] | None,
     utc_offset_h: float,
+    settings: LabReadSettings | None,
 ) -> dict[str, TagSeries]:
     """Group parsed rows by tag and build one sorted `TagSeries` per tag."""
     stamp_by_tag: dict[str, dict[float, float]] = {}
     for row in reader:
-        parsed = _parse_row(row, tags, utc_offset_h)
+        parsed = _parse_row(row, tags, utc_offset_h, settings)
         if parsed is None:
             continue
         tag, t_s, value = parsed
@@ -136,16 +163,30 @@ def _parse_row(
     row: dict[str, str],
     tags: Collection[str] | None,
     utc_offset_h: float,
+    settings: LabReadSettings | None,
 ) -> tuple[str, float, float] | None:
     """Return (tag, t_s, value) for a usable row, or None when the row should be skipped."""
     tag = (row.get("tag") or "").strip()
     if tags is not None and tag not in tags:
         return None
-    value = _parse_float(row.get("value"))
+    value = _read_value(row.get("value"), tag, settings)
     if value is None:
         return None
-    t_s = _parse_timestamp(row.get("timestamp"), utc_offset_h)
+    t_s = _parse_timestamp(row.get("timestamp"), utc_offset_h, settings)
     return tag, t_s, value
+
+
+def _read_value(text: str | None, tag: str, settings: LabReadSettings | None) -> float | None:
+    """Parse a cell, returning None for empty, non-numeric or declared missing values."""
+    stripped = (text or "").strip()
+    if settings is not None and stripped.casefold() in settings.missing_text_codes:
+        return None
+    value = _parse_float(stripped)
+    if value is None:
+        return None
+    if settings is not None and value in settings.missing_for(tag):
+        return None
+    return value
 
 
 def _parse_float(text: str | None) -> float | None:
@@ -159,8 +200,10 @@ def _parse_float(text: str | None) -> float | None:
         return None
 
 
-def _parse_timestamp(text: str | None, utc_offset_h: float) -> float:
-    """Parse a stamp as if it were UTC wall clock, then subtract the local offset."""
+def _parse_timestamp(
+    text: str | None, utc_offset_h: float, settings: LabReadSettings | None
+) -> float:
+    """Parse a stamp in the site time zone, or shift a fixed local offset to UTC."""
     stripped = (text or "").strip().replace("T", " ")
     try:
         parsed = datetime.fromisoformat(stripped)
@@ -168,6 +211,9 @@ def _parse_timestamp(text: str | None, utc_offset_h: float) -> float:
         raise LongFormatError(
             f"Unparseable timestamp '{stripped}'; expected '{TIMESTAMP_FORMAT}' or ISO 'T'."
         ) from error
+    if settings is not None and settings.timezone != "UTC":
+        # ZoneInfo knows the zone's offset on each date, so daylight-saving changes apply.
+        return parsed.replace(tzinfo=ZoneInfo(settings.timezone)).timestamp()
     # Treat the wall-clock value as if it were UTC, then correct by the local offset.
     wall_clock_s = parsed.replace(tzinfo=UTC).timestamp()
     return wall_clock_s - utc_offset_h * SECONDS_PER_HOUR

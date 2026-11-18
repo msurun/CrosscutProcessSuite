@@ -153,6 +153,12 @@
       "items": {"type": "number"},
       "uniqueItems": true
     },
+    "text_code_list": {
+      "type": "array",
+      "description": "Text cells that mean no result, for example NaN-BAD. Compared ignoring case.",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,
@@ -195,6 +201,10 @@
           "$ref": "#/$defs/number_list",
           "description": "Numbers that mean no result and are read as missing. Empty when the site has none."
         },
+        "missing_text_codes": {
+          "$ref": "#/$defs/text_code_list",
+          "description": "Text cells that mean no result, for example NaN-BAD. Empty when the site has none."
+        },
         "decimal_comma": {
           "type": "boolean",
           "description": "Read 1,5 as 1.5 (needs a delimiter other than a comma)."
@@ -220,7 +230,8 @@
       "description": "Status codes of the historian or OPC UA quality column.",
       "properties": {
         "good_codes": {"$ref": "#/$defs/number_list", "description": "Codes of trustworthy values."},
-        "bad_codes": {"$ref": "#/$defs/number_list", "description": "Codes of values that are not used."}
+        "bad_codes": {"$ref": "#/$defs/number_list", "description": "Codes of values that are not used."},
+        "uncertain_codes": {"$ref": "#/$defs/number_list", "description": "Codes of values that are used but not trusted."}
       }
     },
     "naming": {
@@ -264,6 +275,14 @@
         "profile_path": {
           "type": "string",
           "description": "Path to a site copy of a SQL historian profile; it overrides profile."
+        },
+        "missing_codes": {
+          "$ref": "#/$defs/number_list",
+          "description": "Numbers this source writes for no result; they replace the import codes."
+        },
+        "missing_text_codes": {
+          "$ref": "#/$defs/text_code_list",
+          "description": "Text this source writes for no result; it replaces the import text codes."
         },
         "options": {
           "type": "object",
@@ -470,7 +489,11 @@
         },
         "missing_codes": {
           "$ref": "#/$defs/number_list",
-          "description": "Missing-value codes of this tag; replace the site's import codes."
+          "description": "Missing-value codes of this tag; replace the source's and the site's codes."
+        },
+        "missing_text_codes": {
+          "$ref": "#/$defs/text_code_list",
+          "description": "Text this tag writes for no result; it replaces the source and site text codes."
         },
         "quality_map": {
           "type": "object",
