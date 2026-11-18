@@ -1,5 +1,7 @@
 # Handoff (updated 2026-11-18): Phase 2.5 APC core merged, night run over the kanban board
 
+> **Next session:** run the plan in `docs/handoff-2026-11-18-unattended-plan.md` (written 2026-11-18 evening).
+
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`, then this file, then `docs/IMPLEMENTATION_LOG.md` (entry 2026-11-17..18 lists every merged PR and the decisions taken without the owner).
 
 ## Owner decisions - 2026-11-17 (issue #80)
