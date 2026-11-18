@@ -44,7 +44,7 @@ concrete finding: a thickness loop with an external disturbance was sent to a va
   no-knowledge default, which is what a first-time user sees.
 - Default OP range 0-100 does not match ISDB data scales (also noted in exp18); saturation findings on these loops
   are partly artefacts of that.
-- The 62 unlabelled loops give a distribution only: 3 `problem`, 26 `warning`, 36 `not_assessed` by status. That is
+- Over all 65 loops the status split is 3 `problem`, 27 `warning`, 35 `not_assessed`; for the unlabelled ones this is a distribution only That is
   coverage evidence, not accuracy.
 - Not met / not testable: the frozen scoring needed at least 10 labelled loops (3 exist), no tuning class exists in
   the sealed part, and no healthy negatives exist. A usable blind benchmark needs labels the sealed public data do not
