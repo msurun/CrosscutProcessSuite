@@ -1,35 +1,39 @@
 """
 Live anomaly scan job (Phase 1 #44, module 3).
-Learns a PCA model from the runtime history store, then scans the latest
-window with the offline detector, so live and offline share one code path.
+Scans the latest window of the runtime history with the PCA model that the anomaly API
+fitted and stored (<data root>/_anomaly/<id>.model.json), using the offline detector, so
+live and offline share one code path. The job never trains a model by itself.
 """
 
+import json
 import math
 import time
 from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from crosscut_anomaly import config, detect, pca_model
+from crosscut_anomaly.config import AnomalyConfigError
 
 from crosscut_runtime.history import HistoryStore
 
-REFIT_EVERY_S = 3600.0
-MIN_TRAIN_ROWS_BASE = 60
-MIN_TRAIN_ROWS_PER_TAG = 10
+ANOMALY_DIR = "_anomaly"
+NO_MODEL = "no_trained_model"
 
 
 def _aligned_matrix(
-    history: HistoryStore, tags: list[str]
+    history: HistoryStore, tags: list[str], since_ts: float | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Query every tag, keep only timestamps present for ALL tags (intersection).
+    Query every tag since ``since_ts``, keep only timestamps present for ALL tags (intersection).
     
     Returns:
         A tuple (t_array, x_array) where t_array is 1D timestamps and
         x_array is 2D (samples x tags) of values, aligned and sorted by time.
     """
-    tag_series = [history.query(tag) for tag in tags]
+    tag_series = [history.query(tag, since_ts) for tag in tags]
     if not tag_series:
         return np.array([]), np.array([[]])
     
@@ -78,7 +82,7 @@ def _extract_events(result: Any) -> list[dict[str, Any]]:
 
 class AnomalyScanJob:
     """
-    Periodic job that samples live tags, stores them, and runs PCA anomaly detection.
+    Periodic job that samples live tags, stores them, and scans them with the stored PCA model.
     """
 
     def __init__(
@@ -86,111 +90,119 @@ class AnomalyScanJob:
         job_doc: dict[str, Any],
         connector: Any,
         history: HistoryStore,
-        clock: Callable[[], float] = time.time
+        clock: Callable[[], float] = time.time,
+        model_dir: Path | None = None,
     ) -> None:
-        """Initialize the anomaly scan job."""
+        """Initialize the job; ``model_dir`` is the ``_anomaly`` folder of the data root."""
         self._id = job_doc["id"]
+        self._model_id = job_doc.get("anomaly_id", self._id)
         self._tags = job_doc["tags"]
         self._period_s = float(job_doc.get("period_s", 60.0))
         self._window_s = float(job_doc.get("window_s", 3600.0))
         self._connector = connector
         self._history = history
         self._clock = clock
-        self._model: Any = None
-        self._last_fit_ts = 0.0
+        self._dir = model_dir
+        self._quality: dict[tuple[str, float], int] = {}
 
         if len(self._tags) < 2:
             raise ValueError("anomaly_scan needs at least 2 tags")
 
+    def _sample_ts(self, stamp: str, now: float) -> float:
+        """Source timestamp floored to the sample period; ``now`` when it cannot be parsed."""
+        try:
+            ts = datetime.fromisoformat(stamp).timestamp()
+        except (TypeError, ValueError):
+            ts = now
+        return math.floor(ts / self._period_s) * self._period_s
+
     def _sample_live(self, now: float) -> None:
-        """Read live tags and append finite values to history."""
+        """Read live tags; append finite values to history and remember their quality."""
         live_data = self._connector.read_live(self._tags)
         rows = []
         for tag in self._tags:
             live_val = live_data.get(tag)
-            if live_val is not None and live_val.value is not None:
-                if math.isfinite(live_val.value):
-                    rows.append((tag, now, live_val.value))
+            if live_val is None or live_val.value is None:
+                continue
+            if math.isfinite(live_val.value):
+                ts = self._sample_ts(live_val.timestamp_utc, now)
+                rows.append((tag, ts, live_val.value))
+                self._quality[(tag, ts)] = int(live_val.quality)
         if rows:
             self._history.append(rows)
 
-    def _build_config(self) -> config.AnomalyConfig:
-        """Construct the validated configuration for the anomaly detector."""
-        doc = {
+    def _quality_matrix(self, t: np.ndarray) -> np.ndarray:
+        """Quality code per row and tag (0 when unknown, e.g. rows stored before a restart)."""
+        q = np.zeros((len(t), len(self._tags)))
+        for j, tag in enumerate(self._tags):
+            for i, ts in enumerate(t):
+                q[i, j] = self._quality.get((tag, float(ts)), 0)
+        return q
+
+    def _prune_quality(self, since: float) -> None:
+        """Drop remembered quality codes older than the scan window."""
+        self._quality = {k: v for k, v in self._quality.items() if k[1] >= since}
+
+    def _load_config(self) -> config.AnomalyConfig:
+        """The stored detector config, or one built from the job doc (detector defaults)."""
+        path = self._dir / f"{self._model_id}.json" if self._dir else None
+        if path is not None and path.is_file():
+            return config.load_config(json.loads(path.read_text(encoding="utf-8")))
+        return config.load_config({
             "schema_version": "1.0.0",
-            "id": self._id,
+            "id": self._model_id,
             "tags": self._tags,
             "mode": "advisory",
             "sample_period_s": self._period_s,
-            "dynamic_lags": 0,
-            "stuck_samples": 0,
-        }
-        return config.load_config(doc)
+        })
 
-    def _split_data(
-        self, t: np.ndarray, x: np.ndarray, now: float
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Split historical data into training and scanning windows."""
-        cutoff_ts = now - self._window_s
-        scan_mask = t >= cutoff_ts
-        train_mask = t < cutoff_ts
-        return t[train_mask], x[train_mask], t[scan_mask], x[scan_mask]
-
-    def _update_model(
-        self, train_x: np.ndarray, cfg: config.AnomalyConfig, now: float
-    ) -> str | None:
-        """Refit the model if necessary. Returns an error reason or None on success."""
-        if self._model is not None and (now - self._last_fit_ts) < REFIT_EVERY_S:
+    def _load_model(self) -> pca_model.PcaModel | None:
+        """The model fitted through the anomaly API, or None when none was stored."""
+        path = self._dir / f"{self._model_id}.model.json" if self._dir else None
+        if path is None or not path.is_file():
             return None
+        return pca_model.PcaModel.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    def _prepare(
+        self,
+    ) -> tuple[config.AnomalyConfig, pca_model.PcaModel] | dict[str, Any]:
+        """Config and model, or an error response when they are missing or unusable."""
         try:
-            self._model = pca_model.fit_from_config(train_x, cfg)
-            self._last_fit_ts = now
-            return None
-        except pca_model.PcaModelError as err:
-            return str(err)
+            cfg = self._load_config()
+            model = self._load_model()
+        except (AnomalyConfigError, pca_model.PcaModelError, OSError, ValueError, KeyError) as err:
+            return self._error_response(0, f"invalid_model_or_config: {err}")
+        if model is None:
+            return self._error_response(0, NO_MODEL)
+        if list(model.tags) != list(cfg.tags) or list(cfg.tags) != list(self._tags):
+            return self._error_response(0, "stale_model: tags differ, fit it again")
+        return cfg, model
 
     def run(self) -> dict[str, Any]:
-        """Execute one cycle of sampling and scanning."""
+        """Execute one cycle of sampling and scanning with the stored model."""
         now = self._clock()
         self._sample_live(now)
-        
-        t, x = _aligned_matrix(self._history, self._tags)
-        cfg = self._build_config()
-        t_train, x_train, t_scan, x_scan = self._split_data(t, x, now)
-        
-        n_train = len(t_train)
-        needed = max(MIN_TRAIN_ROWS_BASE, MIN_TRAIN_ROWS_PER_TAG * len(self._tags))
-        
-        if n_train < needed:
-            return self._learning_response(len(t), n_train, needed, None)
-            
-        err_reason = self._update_model(x_train, cfg, now)
-        if err_reason is not None:
-            return self._learning_response(len(t), n_train, needed, err_reason)
-            
-        result = detect.scan(self._model, t_scan, x_scan, None, cfg)
+        since = now - self._window_s
+        self._prune_quality(since)
+        prepared = self._prepare()
+        if isinstance(prepared, dict):
+            return prepared
+        cfg, model = prepared
+        t, x = _aligned_matrix(self._history, self._tags, since)
+        result = detect.scan(model, t, x, self._quality_matrix(t), cfg)
         return {
             "samples": len(t),
             "kpi": None,
             "scan": {
                 "status": "ok",
-                "train_rows": n_train,
+                "train_rows": model.n_train,
                 "n_valid": result.n_valid,
                 "events": _extract_events(result),
-            }
+            },
         }
 
-    def _learning_response(
-        self, total: int, n_train: int, needed: int, reason: str | None
-    ) -> dict[str, Any]:
-        """Format a learning response when training data or fit fails."""
-        resp = {
-            "status": "learning",
-            "train_rows": n_train,
-            "needed": needed,
-            "events": [],
-        }
-        if reason:
-            resp["reason"] = reason
-        return {"samples": total, "kpi": None, "scan": resp}
+    @staticmethod
+    def _error_response(total: int, reason: str) -> dict[str, Any]:
+        """Format an error response (no model, stale model or bad config)."""
+        scan = {"status": "error", "reason": reason, "events": []}
+        return {"samples": total, "kpi": None, "scan": scan}

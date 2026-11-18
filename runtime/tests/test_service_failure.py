@@ -155,7 +155,7 @@ def test_disabled_job_gets_no_run(tmp_path: Path) -> None:
     assert "last_run_utc" not in job_state
 
 
-def test_anomaly_scan_job_runs_and_reports_learning_scan(tmp_path: Path) -> None:
+def test_anomaly_scan_job_runs_and_reports_no_trained_model(tmp_path: Path) -> None:
     job = {
         "id": "scan-1",
         "kind": "anomaly_scan",
@@ -169,7 +169,8 @@ def test_anomaly_scan_job_runs_and_reports_learning_scan(tmp_path: Path) -> None
     _run_passes(service, clock, 1)
     job_state = _state(root)["jobs"]["scan-1"]
     assert job_state["status"] == "ok"
-    assert job_state["scan"]["status"] == "learning"
+    assert job_state["scan"]["status"] == "error"
+    assert job_state["scan"]["reason"] == "no_trained_model"
 
 
 def test_stop_marks_service_stopped(tmp_path: Path) -> None:
