@@ -192,6 +192,9 @@ def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
         raise
 
 
+write_json_atomic = _write_json_atomic  # public name for the controller host
+
+
 def read_variable_status(root: Path) -> dict[str, list[dict[str, Any]]]:
     """Per-controller variable statuses, empty when the file is missing or corrupt."""
     path = root / RUNTIME_FOLDER / VARIABLES_FILE
