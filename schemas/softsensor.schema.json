@@ -18,6 +18,22 @@
     "max_components": {"type": "integer", "minimum": 1, "default": 8},
     "cv_blocks": {"type": "integer", "minimum": 2, "default": 5},
     "mode": {"enum": ["off", "advisory"]},
+    "backup": {
+      "description": "Backup mode: while the measured value of measured_tag is invalid (bad quality, frozen for frozen_s, outside [range_lo, range_hi], or flag_tag non-zero) the virtual sensor output substitutes it; the measurement returns after return_hold_s of continuous validity. When enabled is true every field except flag_tag is required (no plant defaults).",
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "measured_tag": {"type": "string", "minLength": 1},
+        "frozen_s": {"type": "number", "exclusiveMinimum": 0},
+        "range_lo": {"type": "number"},
+        "range_hi": {"type": "number"},
+        "return_hold_s": {"type": "number", "minimum": 0},
+        "flag_tag": {"type": "string", "minLength": 1}
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"required": ["measured_tag", "frozen_s", "range_lo", "range_hi", "return_hold_s"]}
+    },
     "reference_inputs": {
       "description": "Sparse or window-aggregated reference measurements (analyser, inferential) used as model inputs through a causal window mean over (t - shift_s - window_s, t - shift_s]. No defaults: every field is required.",
       "type": "array", "minItems": 1,

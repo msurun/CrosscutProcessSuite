@@ -7,6 +7,7 @@ import type { Translate } from "../findings";
 import { validateWindow } from "../anomaly";
 import { scoreAgainstLabs } from "../softsensorSeries";
 import { BiasChart, EstimateChart } from "./SoftSensorCharts";
+import { SoftSensorBackup } from "./SoftSensorBackup";
 import { SoftSensorReference } from "./SoftSensorReference";
 import { SoftSensorDrift, SoftSensorScores } from "./SoftSensorScores";
 import { SoftSensorValidityView } from "./SoftSensorValidity";
@@ -42,6 +43,7 @@ function RunResultView({ result, model, labs, labDelayS, t }: ResultProps) {
       <EstimateChart series={result.series} labs={labs} labDelayS={labDelayS} t={t} />
       <SoftSensorValidityView counts={result.validity_counts} t={t} />
       <SoftSensorReference rows={result.reference} t={t} />
+      <SoftSensorBackup backup={result.backup} t={t} />
       <SoftSensorScores all={all} afterCut={afterCut} nLabUsed={result.n_lab_used} t={t} />
       <BiasChart series={result.series} cvSigma={model.cv_sigma} t={t} />
       <SoftSensorDrift episodes={result.drift_episodes} model={model} t={t} />

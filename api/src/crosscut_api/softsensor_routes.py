@@ -19,6 +19,7 @@ from typing import Annotated, Any
 
 import numpy as np
 from crosscut_softsensor.alignment import AlignmentError, scan_alignment
+from crosscut_softsensor.backup import backup_columns, run_backup
 from crosscut_softsensor.bias import BiasTrackerError
 from crosscut_softsensor.config import SoftSensorConfig, SoftSensorConfigError, load_config
 from crosscut_softsensor.features import FeatureError
@@ -258,6 +259,7 @@ class _SoftSensorEndpoints:
         document = _run_document(result, rows, request.max_points)
         features = _features_or_422(columns, config)
         document["reference"] = reference_report(config, features, t_s, labs)
+        document["backup"] = _backup_document(config, result, t_s, columns, request.max_points)
         return document
 
     def post_alignment_scan(
@@ -312,7 +314,8 @@ class _SoftSensorEndpoints:
         """Bin start times and bin means by input tag (NaN where no good sample)."""
         t_s, columns = self.load_seconds(dataset_id)
         quality = self.load_quality(dataset_id)
-        tags = list(dict.fromkeys([*config.input_tags, *(r.tag for r in config.reference_inputs)]))
+        tags = list(dict.fromkeys([*config.input_tags, *(r.tag for r in config.reference_inputs),
+                                   *_backup_tags(config)]))
         missing = [tag for tag in tags if tag not in columns]
         if missing:
             raise HTTPException(status_code=422, detail=f"unknown tags: {missing}")
@@ -490,5 +493,44 @@ def _run_document(
             "bias": _num(run.bias[-1]),
             "drift": bool(run.drift[-1]),
             "validity": run.validity[-1],
+        },
+    }
+
+
+def _backup_tags(config: SoftSensorConfig) -> list[str]:
+    """Tags the backup mode reads besides the model inputs (measured value and flag)."""
+    cfg = config.backup
+    return [] if cfg is None else [cfg.measured_tag, *([cfg.flag_tag] if cfg.flag_tag else [])]
+
+
+def _backup_document(
+    config: SoftSensorConfig,
+    run: SoftSensorRun,
+    t_s: np.ndarray,
+    columns: dict[str, np.ndarray],
+    max_points: int,
+) -> dict[str, Any] | None:
+    """Backup output series (downsampled), switch log and current status; None when off."""
+    if config.backup is None:
+        return None
+    measured, flag = backup_columns(columns, config.backup)
+    virtual = np.where(np.isfinite(run.corrected), run.corrected, run.estimate)
+    result = run_backup(t_s, measured, flag, virtual, config.backup)
+    n = len(t_s)
+    picks = np.unique(np.linspace(0, n, min(max_points, n), endpoint=False).astype(int))
+    return {
+        "measured_tag": config.backup.measured_tag,
+        "series": {
+            "t_s": t_s[picks].tolist(),
+            "output": _values(result.output, picks),
+            "substituted": result.substituted[picks].tolist(),
+            "quality": result.quality[picks].tolist(),
+        },
+        "switches": result.switches,
+        "n_substituted": int(result.substituted.sum()),
+        "latest": {
+            "substituted": bool(result.substituted[-1]),
+            "quality": int(result.quality[-1]),
+            "reason": result.reason[-1],
         },
     }
