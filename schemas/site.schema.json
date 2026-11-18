@@ -132,9 +132,9 @@
         "id": {"$ref": "#/$defs/identifier"},
         "type": {"enum": ["fuzzy"], "description": "Controller kind; mpc is added later."},
         "description": {"type": "string"},
-        "cycle_s": {"type": "number", "minimum": 1, "maximum": 3600, "description": "Cycle period in seconds; 30 when omitted."},
+        "cycle_s": {"type": "number", "minimum": 10, "maximum": 300, "description": "Cycle period in seconds; 30 when omitted."},
         "stale_cycles": {"type": "integer", "minimum": 1, "description": "Cycles after which an unchanged source time stamp is stale; 3 when omitted."},
-        "max_overruns": {"type": "integer", "minimum": 1, "description": "Overruns in a row before the controller sheds; 3 when omitted."},
+        "max_overruns": {"type": "integer", "minimum": 1, "description": "Overruns in a row before the controller sheds; 5 when omitted."},
         "rule_base": {"$ref": "#/$defs/identifier", "description": "Id of a fuzzy system (fuzzy controllers)."},
         "variables": {
           "type": "array",

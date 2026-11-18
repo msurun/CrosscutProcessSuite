@@ -18,7 +18,7 @@ ADVISORY = "advisory"
 STATES = (OFF, STANDBY, ON, ADVISORY, SHED)
 SWITCH_ON, SWITCH_OFF, STANDBY_CMD = "switch_on", "switch_off", "standby"
 COMMANDS = (SWITCH_ON, SWITCH_OFF, STANDBY_CMD)
-DEFAULT_MAX_OVERRUNS = 3
+DEFAULT_MAX_OVERRUNS = 5
 
 
 @dataclass(frozen=True)

@@ -39,8 +39,16 @@ of a variable. Concretely:
   comms sheds to base control, a restart restores the controller state, and the operator switches controller and variables in the console.
 - Simulator results are not plant claims (PRODUCT.md section 8).
 
-## Open points (for the Phase 2.5 plan)
+## Owner decisions (2026-11-18)
 
-- Controller cycle period range and what counts as an overrun.
-- Whether the heartbeat to the DCS stays in the gateway only (today) or the controller host gets its own.
-- Who may switch a controller `on` (role), and whether `on` requires the gateway target mode `confirm` or `supervised`.
+- Controller cycle period: default 30 s, allowed range 10 s to 5 min (`cycle_s` 10-300 in `site.schema.json`). An overrun is a start
+  later than period x 1.1 after the previous start (`OVERRUN_MARGIN`).
+- Overruns in a row before `shed`: configurable per controller (`max_overruns`), default 5.
+- An operator may switch a controller `on` (permission `ctl.operate`, held by `operator` and up). Gateway target mode `supervised` is
+  enough; `confirm` is not required. In `off`, `advisory` or `dry_run` the gateway refuses the writes (`mode_no_write`).
+
+## Open point
+
+- Heartbeat to the DCS: proposed to stay in the gateway only (one connection that writes to the DCS, ADR 012); controller-host liveness is
+  covered by the gateway per-target write watchdog (`watchdog_s`: no write within the window -> target released to the DCS) and by
+  the host's own overrun shed. Awaiting owner confirmation after the system diagram.

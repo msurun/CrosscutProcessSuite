@@ -226,15 +226,15 @@ def test_comm_loss_sheds(tmp_path: Path) -> None:
     assert rig.host.record.reason == "comm_loss"
 
 
-def test_three_overruns_shed(tmp_path: Path) -> None:
+def test_default_five_overruns_shed(tmp_path: Path) -> None:
     rig = Rig(tmp_path)
     rig.start_on()
     states = []
-    for _ in range(3):
+    for _ in range(5):
         rig.clock.t += timedelta(seconds=120)
         states.append(rig.cycle())
-    assert states == ["on", "on", "shed"]
-    assert rig.host.record.overruns == 3
+    assert states == ["on", "on", "on", "on", "shed"]
+    assert rig.host.record.overruns == 5
     assert rig.host.record.reason == "overruns"
 
 

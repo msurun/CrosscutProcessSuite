@@ -28,7 +28,7 @@ Order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8. Steps 2 and 4 may run in parallel a
 ## Proposed defaults for the open points of ADR 015 (owner confirms or changes)
 
 1. **Cycle period:** configurable per controller, 1 s to 3600 s, default 30 s for a fuzzy supervisor. Overrun = a cycle that starts later
-   than one period after the previous start; counted and shown. After 3 overruns in a row the controller goes to `shed`.
+   than one period after the previous start; counted and shown. After `max_overruns` overruns in a row (default 5, configurable per controller) the controller goes to `shed`.
 2. **Heartbeat:** the DCS-facing heartbeat stays in the gateway only (one watchdog the DCS has to monitor). The controller host publishes its
    own liveness in runtime state, and the gateway refuses controller proposals when that liveness is older than two cycles.
 3. **Who switches a controller `on`:** operator or engineer role (ADR 013); `on` is allowed only when every required MV target is in gateway

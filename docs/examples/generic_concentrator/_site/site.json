@@ -1607,7 +1607,7 @@
       "description": "Crusher supervisor (example)",
       "cycle_s": 30,
       "stale_cycles": 3,
-      "max_overruns": 3,
+      "max_overruns": 5,
       "rule_base": "crusher_supervisor",
       "variables": [
         {

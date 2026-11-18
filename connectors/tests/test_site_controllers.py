@@ -122,9 +122,9 @@ def test_rule_base_is_only_an_id() -> None:
 
 def test_schema_ranges_and_documented_defaults() -> None:
     props = SCHEMA["$defs"]["controller"]["properties"]
-    assert (props["cycle_s"]["minimum"], props["cycle_s"]["maximum"]) == (1, 3600)
+    assert (props["cycle_s"]["minimum"], props["cycle_s"]["maximum"]) == (10, 300)
     assert props["type"]["enum"] == ["fuzzy"]
-    for name, default in (("cycle_s", "30"), ("stale_cycles", "3"), ("max_overruns", "3")):
+    for name, default in (("cycle_s", "30"), ("stale_cycles", "3"), ("max_overruns", "5")):
         assert f"{default} when omitted" in props[name]["description"]
 
 
@@ -136,7 +136,7 @@ def test_optional_fields_may_be_omitted() -> None:
     assert _problems(strip) == []
 
 
-@pytest.mark.parametrize("cycle", [0.5, 3601])
+@pytest.mark.parametrize("cycle", [9.9, 301])
 def test_cycle_out_of_range_fails_schema(cycle: float) -> None:
     def set_cycle(doc: dict[str, Any]) -> None:
         doc["controllers"][0]["cycle_s"] = cycle
