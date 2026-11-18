@@ -26,6 +26,7 @@ const MODEL: SoftSensorModelSummary = {
 const CONFIG = {
   schema_version: "1.0.0", id: ID, target_tag: "lab.quality", input_tags: ["sim.mc.mill_power"], lab_delay_s: 3600, mode: "advisory",
 };
+const SCHEMA = { type: "object", properties: {} };
 const RUN: SoftSensorRun = {
   series: {
     t_s: [0, 60, 120, 180], estimate: [null, 11, 12, 13], corrected: [null, null, 12, 13],
@@ -54,6 +55,7 @@ function respond(routes: Routes) {
 
 const storedRoutes = (extra: Routes = {}): Routes => ({
   "GET /api/softsensor": { body: [ID] },
+  "GET /api/schemas/softsensor": { body: SCHEMA },
   [`GET ${BASE}`]: { body: CONFIG },
   [`GET ${BASE}/lab`]: { status: 404, body: { detail: `no lab results uploaded: ${ID}` } },
   [`GET ${BASE}/model`]: { status: 404, body: { detail: `model not fitted: ${ID}` } },
