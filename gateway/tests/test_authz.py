@@ -28,8 +28,10 @@ VIEWER_PERMISSIONS = {
     "gw.kill",
     "gw.mode.down",
     "gw.reject",
+    "ctl.view",
 }
 OPERATOR_PERMISSIONS = VIEWER_PERMISSIONS | {
+    "ctl.operate",
     "analysis.run",
     "job.stop",
     "gw.approve",

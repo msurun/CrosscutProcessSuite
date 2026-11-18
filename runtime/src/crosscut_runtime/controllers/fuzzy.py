@@ -83,6 +83,10 @@ class FuzzyController:
             raise ControllerBindingError(f"no gateway target for MV {missing[0]!r}")
         self.base_sp: dict[str, float] = {}
 
+    def apply_limits(self, variables: Sequence[Mapping[str, Any]]) -> None:
+        """Take the limits of the effective variables (catalogue plus operator overrides)."""
+        self._limits = {v["id"]: v.get("limits", {}) for v in variables}
+
     def initialise(self, statuses: Sequence[VariableStatus]) -> None:
         """Record the current setpoints as the base (bumpless: no move is made here)."""
         self.base_sp = {

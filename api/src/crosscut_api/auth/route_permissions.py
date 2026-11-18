@@ -69,6 +69,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/runtime/variables"): "data.view",
     ("GET", "/runtime/jobs"): "data.view",
 
+    # APC core operator console (ADR 013): view for every role, operate for operator and up;
+    # switch_off needs ctl.operate only, never a step-up
+    ("GET", "/controllers"): "ctl.view",
+    ("GET", "/controllers/{controller_id}"): "ctl.view",
+    ("POST", "/controllers/{controller_id}/command"): "ctl.operate",
+    ("PUT", "/controllers/{controller_id}/variables/{variable_id}"): "ctl.operate",
+
     # analysis.run (POST)
     ("POST", "/fuzzy/diff"): "analysis.run",
     ("POST", "/fuzzy/infer"): "analysis.run",

@@ -75,6 +75,13 @@ describe("parseHash", () => {
     expect(formatHash(route)).toBe("#/d/sales/runtime");
   });
 
+  it("keeps the controllers view outside the dataset path", () => {
+    const route = parseHash("#/controllers");
+    expect(route).toEqual({ dataset: "", view: "controllers", loop: null, sub: "detail" });
+    expect(formatHash(route)).toBe("#/controllers");
+    expect(formatHash({ ...route, dataset: "sales" })).toBe("#/controllers");
+  });
+
   it("parses the gateway view and formats it back", () => {
     const route = parseHash("#/d/sales/gateway");
     expect(route).toEqual({ dataset: "sales", view: "gateway", loop: null, sub: "detail" });

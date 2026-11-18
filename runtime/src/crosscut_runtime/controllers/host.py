@@ -17,6 +17,11 @@ from typing import Any
 
 from crosscut_connectors.base import Snapshot, SnapshotConnector
 
+from crosscut_runtime.controllers.overrides import (
+    CONTROLLERS_FOLDER,
+    apply_overrides,
+    read_overrides,
+)
 from crosscut_runtime.controllers.protocol import Controller, Move
 from crosscut_runtime.controllers.state import (
     DEFAULT_MAX_OVERRUNS,
@@ -38,7 +43,6 @@ from crosscut_runtime.variable_status import (
     evaluate,
 )
 
-CONTROLLERS_FOLDER = "controllers"
 OVERRUN_MARGIN = 0.1  # a start later than period * (1 + margin) after the last start is late
 NO_WRITE_REASON = "mode_no_write"  # gateway reason: mode off, advisory or dry_run
 
@@ -171,7 +175,16 @@ class ControllerHost:
         """Variable statuses of this cycle."""
         disabled = None if self.record.disabled is None else frozenset(self.record.disabled)
         inputs = StatusInputs(snapshot, now, self._config.tags_of, disabled=disabled)
-        return evaluate(self._config.controller_doc, inputs)
+        return evaluate(self._effective_doc(), inputs)
+
+    def _effective_doc(self) -> Mapping[str, Any]:
+        """The controller document with the operator overrides of this cycle applied."""
+        overrides = read_overrides(self._config.data_root, self._controller.id)
+        doc = apply_overrides(self._config.controller_doc, overrides)
+        apply_limits = getattr(self._controller, "apply_limits", None)
+        if apply_limits is not None:
+            apply_limits(doc["variables"])
+        return doc
 
     def _health(self, snapshot: Snapshot, statuses: list[VariableStatus]) -> Health:
         """Guard inputs: communication, required MVs, good CVs, gateway mode, overruns."""

@@ -18,6 +18,8 @@ from crosscut_gateway.actor import normalize_actor
 PERMISSIONS: frozenset[str] = frozenset(
     {
         "data.view",
+        "ctl.view",
+        "ctl.operate",
         "gw.view",
         "audit.view",
         "gw.kill",
