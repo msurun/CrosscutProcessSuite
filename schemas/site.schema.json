@@ -92,7 +92,7 @@
     "variable_limits": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Nested limits: validity contains eng contains operator. move_max is the largest change per cycle (MV only); rate_max the largest change per second.",
+      "description": "Nested limits: validity contains eng contains operator. move_max is the largest change per cycle (MV only); rate_max the largest change per second (the fuzzy controller steps by at most min(move_max, rate_max x cycle_s) per cycle).",
       "properties": {
         "eng": {"$ref": "#/$defs/bound", "description": "Engineering range of the variable."},
         "operator": {"$ref": "#/$defs/bound", "description": "Range the operator allows."},

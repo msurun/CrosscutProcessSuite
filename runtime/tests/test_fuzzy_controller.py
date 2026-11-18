@@ -144,3 +144,30 @@ def test_initialise_records_base_setpoint_and_moves_nothing() -> None:
     controller = _make(OR_RULES)
     controller.initialise(_statuses(9.0, 9.0, sp=42.0))
     assert controller.base_sp == {"mv1": 42.0}
+
+
+def test_sp_outside_range_approaches_by_at_most_move_max() -> None:
+    limits = {"move_max": 2.0, "operator": {"lo": 0.0, "hi": 50.0}}
+    result = _make(OR_RULES, limits).step(_statuses(9.0, 9.0, sp=90.0))
+    move = result.moves[0]
+    assert move.value == pytest.approx(88.0)
+    assert "sp_outside_range" in move.reason and "sp_outside_range" in result.explanation
+
+
+def test_sp_outside_range_moves_inward_even_when_rules_push_outward() -> None:
+    limits = {"move_max": 5.0, "operator": {"lo": 0.0, "hi": 50.0}}
+    assert _make(OR_RULES, limits).step(_statuses(9.0, 9.0, sp=52.0)).moves[0].value == 50.0
+
+
+def test_rate_max_limits_step_per_cycle() -> None:
+    doc = _doc({"move_max": 5.0, "rate_max": 0.05})
+    doc["cycle_s"] = 30
+    controller = FuzzyController(doc, _system(OR_RULES), {"mv1": "sp.tag"})
+    assert controller.step(_statuses(9.0, 9.0)).moves[0].value == pytest.approx(51.5)
+
+
+def test_rate_max_alone_limits_step() -> None:
+    doc = _doc({"rate_max": 0.1})
+    doc["cycle_s"] = 20
+    controller = FuzzyController(doc, _system(OR_RULES), {"mv1": "sp.tag"})
+    assert controller.step(_statuses(9.0, 9.0)).moves[0].value == pytest.approx(52.0)

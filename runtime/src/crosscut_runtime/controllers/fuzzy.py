@@ -2,7 +2,8 @@
 
 Binds a fuzzy rule base to the variables of a site ``controllers[]`` entry (fuzzy variable id ==
 controller variable id). A fuzzy output is a delta added to the MV's current setpoint; the only
-limits are the catalogue limits of the MV (``move_max``, operator range, else engineering range).
+limits are the catalogue limits of the MV (``move_max``, ``rate_max`` x cycle, operator range,
+else engineering range), resolved together: a move never exceeds the step limit.
 A bad input is dropped together with the rules that need it; no move is made when no rule is left.
 """
 
@@ -18,11 +19,12 @@ from crosscut_fuzzy.payload import infer_payload
 from crosscut_supervisor.advise import dominant_reasons
 
 from crosscut_runtime.controllers.protocol import Move, StepResult
-from crosscut_runtime.variable_status import BAD, VariableStatus
+from crosscut_runtime.variable_status import BAD, DEFAULT_CYCLE_S, VariableStatus
 
 INPUT_ROLES = ("CV", "DV", "ICV")
 INSUFFICIENT = "insufficient_inputs"
 MAX_SENTENCES = 2
+SP_OUTSIDE_RANGE = "sp_outside_range"
 
 
 class ControllerBindingError(ValueError):
@@ -73,6 +75,7 @@ class FuzzyController:
     ) -> None:
         """Bind the rule base to the controller; ControllerBindingError when it does not fit."""
         self.id = str(controller_doc["id"])
+        self._cycle_s = float(controller_doc.get("cycle_s", DEFAULT_CYCLE_S))
         variables = controller_doc["variables"]
         _bind(system, variables)
         self._system = system
@@ -132,14 +135,41 @@ class FuzzyController:
         if status is None or status.status == BAD or status.sp_value is None:
             return None, f"{mv_id}: MV not usable"
         limits = self._limits[mv_id]
-        step_max = limits.get("move_max")
-        delta = crisp if step_max is None else min(max(crisp, -step_max), step_max)
+        step = _step_limit(limits, self._cycle_s)
         bounds = limits.get("operator") or limits.get("eng")
-        target = _clamp(status.sp_value + delta, bounds)
+        target, conflict = _resolve(status.sp_value, crisp, step, bounds)
         if math.isclose(target, status.sp_value):
             return None, f"{mv_id}: hold"
         note = f"{mv_id}: {target - status.sp_value:+.4g}"
+        if conflict:
+            note += f" ({SP_OUTSIDE_RANGE})"
+            why = f"{SP_OUTSIDE_RANGE}: {why}" if why else SP_OUTSIDE_RANGE
         return Move(mv_id, str(self._targets[mv_id]), target, why or note), note
+
+
+def _step_limit(limits: Mapping[str, Any], cycle_s: float) -> float | None:
+    """Largest change per cycle: the smaller of ``move_max`` and ``rate_max`` x cycle time."""
+    caps = [limits["move_max"]] if limits.get("move_max") is not None else []
+    if limits.get("rate_max") is not None:
+        caps.append(limits["rate_max"] * cycle_s)
+    return min(caps) if caps else None
+
+
+def _resolve(
+    sp: float, delta: float, step: float | None, bounds: Mapping[str, float] | None
+) -> tuple[float, bool]:
+    """New setpoint from the step and range limits together, and whether they conflict.
+
+    Inside the range the delta is cut to ``step`` and the target to the range (never more than
+    ``step`` from ``sp``). Outside the range the move only approaches it, by at most ``step``,
+    whatever the delta says; that is reported as a conflict.
+    """
+    if bounds is not None and not bounds["lo"] <= sp <= bounds["hi"]:
+        edge = _clamp(sp, bounds)
+        reach = abs(edge - sp) if step is None else min(step, abs(edge - sp))
+        return sp + math.copysign(reach, edge - sp), True
+    cut = delta if step is None else min(max(delta, -step), step)
+    return _clamp(sp + cut, bounds), False
 
 
 def _finite(value: float | None) -> bool:
