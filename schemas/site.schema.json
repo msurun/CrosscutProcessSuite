@@ -388,7 +388,15 @@
         "action": {"enum": ["direct", "reverse"], "description": "Direction of the controller action."},
         "out_limits": {"$ref": "#/$defs/limits", "description": "Limits of the output, in the unit of the output tag."},
         "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
-        "vendor": {"type": "string", "minLength": 1, "description": "Vendor form of the PID parameters."}
+        "vendor": {"type": "string", "minLength": 1, "description": "Vendor form of the PID parameters."},
+        "delay_s": {"type": "number", "exclusiveMinimum": 0, "description": "Knowledge: transport delay of the process, in seconds."},
+        "ultimate_period_s": {"type": "number", "exclusiveMinimum": 0, "description": "Knowledge: ultimate oscillation period, in seconds."},
+        "amplitude_limit": {"type": "number", "exclusiveMinimum": 0, "description": "Knowledge: amplitude below which an oscillation is ignored, in PV units."},
+        "process_kind": {"enum": ["self_regulating", "integrating"], "description": "Knowledge: process kind; self_regulating when omitted."},
+        "pv_eng_min": {"type": "number", "description": "Knowledge: override of the PV engineering minimum."},
+        "pv_eng_max": {"type": "number", "description": "Knowledge: override of the PV engineering maximum."},
+        "out_eng_min": {"type": "number", "description": "Knowledge: override of the OUT engineering minimum."},
+        "out_eng_max": {"type": "number", "description": "Knowledge: override of the OUT engineering maximum."}
       }
     },
     "lab": {
