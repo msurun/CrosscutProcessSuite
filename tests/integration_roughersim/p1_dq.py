@@ -14,6 +14,7 @@ from typing import Any
 
 import pyarrow.parquet as pq
 from crosscut_connectors.onboarding import evaluate_dataset_readiness
+from crosscut_loops.overview import LoopTags
 from crosscut_loops.sensor_faults import SensorFaultFinding, score_findings
 from crosscut_sim.dataset import read_dataset, to_wide
 from golden import record, roughersim_dir
@@ -23,6 +24,7 @@ FLOWSHEET = "examples/rougher_mvp.json"  # loop tag -> pv instrument, to place t
 NS_PER_S = 1e9  # nanoseconds per second
 MIN_PRECISION = 0.9  # owner target, event level, over all findings on all tags
 MIN_RECALL = 0.8  # owner target, event level, over the injected events
+HELD_OUT_SEED = 100105  # never used before the detector fix round; DEV_SEED None = pinned file
 SUMMARY: dict[str, Any] = {}  # numbers of the last run, for the findings document
 
 
@@ -30,6 +32,29 @@ def recorded_tags() -> dict[str, str]:
     """Instrument name -> recorded column: the recorder stores a loop's PV under the loop tag."""
     flowsheet = json.loads((roughersim_dir() / FLOWSHEET).read_text(encoding="utf-8"))
     return {loop["pv"]: loop["tag"] for loop in flowsheet["loops"]}
+
+
+def recorded_loops() -> list[LoopTags]:
+    """Loop roles as the site catalogue gives them: the loop tag is the PV column."""
+    flowsheet = json.loads((roughersim_dir() / FLOWSHEET).read_text(encoding="utf-8"))
+    return [
+        LoopTags(loop["tag"], loop["tag"], f"{loop['tag']}_sp", f"{loop['tag']}_out",
+                 f"{loop['tag']}_mode", "", None, None)
+        for loop in flowsheet["loops"]
+    ]
+
+
+def scenario_with_seed(seed: int | None, work: Path) -> Path:
+    """The pinned scenario file, or a copy in `work` with only the seed changed."""
+    source = roughersim_dir() / SCENARIO
+    if seed is None:
+        return source
+    doc = json.loads(source.read_text(encoding="utf-8"))
+    doc["seed"] = seed
+    doc["flowsheet"] = str((source.parent / doc["flowsheet"]).resolve())
+    copy = work / "scenario.json"
+    copy.write_text(json.dumps(doc), encoding="utf-8")
+    return copy
 
 
 def load_truth_events(recording: Path) -> list[dict[str, Any]]:
@@ -52,7 +77,7 @@ def report_findings(recording: Path) -> list[SensorFaultFinding]:
     """Run the onboarding readiness report on the recording; return every sensor-fault finding."""
     ts, columns = to_wide(read_dataset(recording))
     seconds = (ts.astype("int64") - ts.astype("int64")[0]) / NS_PER_S
-    report = evaluate_dataset_readiness(recording.name, seconds, columns, [])
+    report = evaluate_dataset_readiness(recording.name, seconds, columns, recorded_loops())
     return [event for events in report.sensor_faults.values() for event in events]
 
 
@@ -71,11 +96,11 @@ def summarise(findings: list[SensorFaultFinding], truth: list[dict[str, Any]]) -
     }
 
 
-def execute() -> None:
-    """Executor of L5-P1-dq: record, report, score, assert the owner targets."""
+def execute(seed: int | None = HELD_OUT_SEED) -> None:
+    """Executor of L5-P1-dq: record (default: the held-out seed), report, score, assert targets."""
     with tempfile.TemporaryDirectory() as tmp:
         recording = Path(tmp) / "rec"
-        record(roughersim_dir(), roughersim_dir() / SCENARIO, recording)
+        record(roughersim_dir(), scenario_with_seed(seed, Path(tmp)), recording)
         truth = load_truth_events(recording)
         assert len(truth) == 3, truth
         SUMMARY.update(summarise(report_findings(recording), truth))
