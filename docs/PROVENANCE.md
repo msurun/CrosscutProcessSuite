@@ -54,3 +54,7 @@ Citations are given from memory and must be verified against the originals befor
 1. Add a row (source, date, author of the implementation) before implementing a method.
 2. Do not reproduce parameters, code or results from any non-public source.
 3. If an idea came from a talk or video, record its title, author and date next to the original paper.
+
+## Owner decision — 2026-11-17
+
+Crosscut validation uses public datasets; owner-site data is not used for development or validation. Check the licence before any use and add a source row here before use. Download only to a scratch folder outside the repository; never commit or redistribute the data. CC BY-SA and unlicensed datasets are local-only, with no derived data published. Existing historical rows do not grant permission to publish derived data. Unverified licence entries require checking before use, not only before redistribution.

@@ -1,6 +1,6 @@
 # ADR 010: Module 2 is an advisory supervisor that cannot write to a plant
 
-Status: **proposed** (2026-10-21), written by the assistant for the owner's review. Work proceeds on the proposal.
+Status: **accepted** (owner decision 2026-11-17); partly superseded by [ADR 015](015-apc-core.md) (shared APC core and controller host).
 Superseded in part by [ADR 012](012-writes-are-a-product-capability.md) (2026-10-27): writing is a product capability through the Write Gateway; the safety design here still applies.
 Builds on ADR 009 (configuration is data) and `docs/archive/NEXT_MODULE_OPTIONS.md`.
 
