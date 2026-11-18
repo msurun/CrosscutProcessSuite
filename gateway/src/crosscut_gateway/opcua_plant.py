@@ -584,8 +584,16 @@ class OpcUaPlant:
         return await self._write_or_refuse(node, variant)
 
     async def _release_async(self, target: Mapping[str, Any]) -> None:
-        """Write the release value to the source node, keeping the node's own type."""
+        """Write the release value to the source node, keeping the node's own type.
+
+        Only while the gateway still owns the setpoint (source node == ``remote_value``):
+        when an operator has already taken the loop (MAN, AUTO, ...), nothing is written,
+        so a release never overrides an operator's mode change.
+        """
         node = await self._node(target["source_node"])
+        raw = await self._read_node(node.read_value())
+        if not _raw_equal(raw, target["remote_value"]):
+            return
         variant_type = await self._read_node(node.read_data_type_as_variant_type())
         variant = ua.Variant(target["release_value"], variant_type)
         try:
