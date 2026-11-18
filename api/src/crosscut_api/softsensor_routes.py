@@ -503,6 +503,13 @@ def _backup_tags(config: SoftSensorConfig) -> list[str]:
     return [] if cfg is None else [cfg.measured_tag, *([cfg.flag_tag] if cfg.flag_tag else [])]
 
 
+def _usable_virtual(run: SoftSensorRun) -> np.ndarray:
+    """Corrected (else raw) estimate, NaN where the model marks the row invalid (validity != ok)."""
+    virtual = np.where(np.isfinite(run.corrected), run.corrected, run.estimate)
+    ok = np.array([v == "ok" for v in run.validity], dtype=bool)
+    return np.where(ok, virtual, np.nan)
+
+
 def _backup_document(
     config: SoftSensorConfig,
     run: SoftSensorRun,
@@ -514,7 +521,7 @@ def _backup_document(
     if config.backup is None:
         return None
     measured, flag = backup_columns(columns, config.backup)
-    virtual = np.where(np.isfinite(run.corrected), run.corrected, run.estimate)
+    virtual = _usable_virtual(run)
     result = run_backup(t_s, measured, flag, virtual, config.backup)
     n = len(t_s)
     picks = np.unique(np.linspace(0, n, min(max_points, n), endpoint=False).astype(int))

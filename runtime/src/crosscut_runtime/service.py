@@ -82,7 +82,7 @@ class RuntimeService:
         self._anomaly_jobs: dict[str, tuple[dict[str, Any], AnomalyScanJob]] = {}
         self._review_jobs: dict[str, TuningReviewJob] = {}
         self._history = HistoryStore(history_path(root))
-        self._pending_samples: list[tuple[str, float, float]] = []
+        self._pending_samples: list[tuple[str, float, float, int]] = []
 
     def run_once(self) -> None:
         """Synchronize configuration, run due jobs, and record the results."""
@@ -250,8 +250,11 @@ class RuntimeService:
         return cached
 
     def _buffer_sample(self, tag: str, ts: float, value: float) -> None:
-        """Queue one accepted live sample; it is written to history at the end of the pass."""
-        self._pending_samples.append((tag, ts, value))
+        """Queue one accepted live sample; it is written to history at the end of the pass.
+
+        Only GOOD samples are accepted by the loop-KPI job, so they are stored with quality 0.
+        """
+        self._pending_samples.append((tag, ts, value, 0))
 
     def _flush_samples(self) -> None:
         """Write the samples queued during this pass; a store failure is logged, not raised."""

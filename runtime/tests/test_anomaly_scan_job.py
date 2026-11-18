@@ -215,3 +215,13 @@ def test_job_with_one_tag_is_rejected(tmp_path: Path) -> None:
     history = HistoryStore(tmp_path / "history.db")
     with pytest.raises(ValueError, match="at least 2 tags"):
         AnomalyScanJob(_job_doc(["FIC101.pv"]), ReplayConnector(_correlated_matrix(1)), history)
+
+
+def test_bad_quality_survives_a_restart(tmp_path: Path) -> None:
+    """Issue #121: quality comes from the history store, not from RAM of one job instance."""
+    history = HistoryStore(tmp_path / "history.db")
+    history.append([(TAGS[0], 60.0, 1.0, 2), (TAGS[0], 120.0, 1.0, 0)])
+    reopened = HistoryStore(tmp_path / "history.db")
+    job = AnomalyScanJob(_job_doc(TAGS), ReplayConnector(_correlated_matrix(1)), reopened)
+    q = job._quality_matrix(np.array([60.0, 120.0, 180.0]), 0.0)
+    assert list(q[:, 0]) == [2.0, 0.0, 1.0]  # stored BAD, stored GOOD, unknown -> uncertain

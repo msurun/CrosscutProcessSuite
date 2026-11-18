@@ -17,7 +17,7 @@ import numpy as np
 from crosscut_anomaly import config, detect, pca_model
 from crosscut_anomaly.config import AnomalyConfigError
 
-from crosscut_runtime.history import HistoryStore
+from crosscut_runtime.history import QUALITY_UNCERTAIN, HistoryStore
 
 ANOMALY_DIR = "_anomaly"
 NO_MODEL = "no_trained_model"
@@ -103,7 +103,6 @@ class AnomalyScanJob:
         self._history = history
         self._clock = clock
         self._dir = model_dir
-        self._quality: dict[tuple[str, float], int] = {}
 
         if len(self._tags) < 2:
             raise ValueError("anomaly_scan needs at least 2 tags")
@@ -117,7 +116,7 @@ class AnomalyScanJob:
         return math.floor(ts / self._period_s) * self._period_s
 
     def _sample_live(self, now: float) -> None:
-        """Read live tags; append finite values to history and remember their quality."""
+        """Read live tags; append finite values with their quality code to the history store."""
         live_data = self._connector.read_live(self._tags)
         rows = []
         for tag in self._tags:
@@ -126,22 +125,17 @@ class AnomalyScanJob:
                 continue
             if math.isfinite(live_val.value):
                 ts = self._sample_ts(live_val.timestamp_utc, now)
-                rows.append((tag, ts, live_val.value))
-                self._quality[(tag, ts)] = int(live_val.quality)
+                rows.append((tag, ts, live_val.value, int(live_val.quality)))
         if rows:
             self._history.append(rows)
 
-    def _quality_matrix(self, t: np.ndarray) -> np.ndarray:
-        """Quality code per row and tag (0 when unknown, e.g. rows stored before a restart)."""
+    def _quality_matrix(self, t: np.ndarray, since: float) -> np.ndarray:
+        """Quality code per row and tag from the history store (missing code = uncertain)."""
         q = np.zeros((len(t), len(self._tags)))
         for j, tag in enumerate(self._tags):
-            for i, ts in enumerate(t):
-                q[i, j] = self._quality.get((tag, float(ts)), 0)
+            stored = {ts: code for ts, _, code in self._history.query_quality(tag, since)}
+            q[:, j] = [stored.get(float(ts), QUALITY_UNCERTAIN) for ts in t]
         return q
-
-    def _prune_quality(self, since: float) -> None:
-        """Drop remembered quality codes older than the scan window."""
-        self._quality = {k: v for k, v in self._quality.items() if k[1] >= since}
 
     def _load_config(self) -> config.AnomalyConfig:
         """The stored detector config, or one built from the job doc (detector defaults)."""
@@ -183,13 +177,12 @@ class AnomalyScanJob:
         now = self._clock()
         self._sample_live(now)
         since = now - self._window_s
-        self._prune_quality(since)
         prepared = self._prepare()
         if isinstance(prepared, dict):
             return prepared
         cfg, model = prepared
         t, x = _aligned_matrix(self._history, self._tags, since)
-        result = detect.scan(model, t, x, self._quality_matrix(t), cfg)
+        result = detect.scan(model, t, x, self._quality_matrix(t, since), cfg)
         return {
             "samples": len(t),
             "kpi": None,

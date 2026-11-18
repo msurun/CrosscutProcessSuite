@@ -11,6 +11,12 @@ from pathlib import Path
 
 HISTORY_FILE = "history.sqlite3"
 
+# Connector quality codes (0 good, 1 uncertain, 2 bad). A sample stored without a quality code
+# (rows written before quality was persisted, or by a caller that gave none) reads back as
+# UNCERTAIN, never GOOD: an unknown provenance must not be promoted to a trusted value.
+QUALITY_GOOD = 0
+QUALITY_UNCERTAIN = 1
+
 
 class HistoryError(RuntimeError):
     """Raised when a database operation fails, wrapping the underlying SQLite error."""
@@ -47,6 +53,7 @@ class HistoryStore:
             tag TEXT NOT NULL,
             ts REAL NOT NULL,
             value REAL NOT NULL,
+            quality INTEGER,
             PRIMARY KEY(tag, ts)
         ) WITHOUT ROWID;
         """
@@ -55,20 +62,31 @@ class HistoryStore:
                 conn.execute("PRAGMA journal_mode=WAL;")
                 with conn:
                     conn.execute(schema)
+                    self._add_quality_column(conn)
         except sqlite3.Error as err:
             raise HistoryError(f"Failed to initialize database: {err}") from err
 
-    def append(self, rows: Iterable[tuple[str, float, float]]) -> int:
+    @staticmethod
+    def _add_quality_column(conn: sqlite3.Connection) -> None:
+        """Migrate a database created before quality was stored (old rows keep NULL quality)."""
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(samples)")]
+        if "quality" not in columns:
+            conn.execute("ALTER TABLE samples ADD COLUMN quality INTEGER")
+
+    def append(self, rows: Iterable[tuple]) -> int:
         """
         Insert multiple samples, ignoring existing exact duplicates (tag + timestamp).
         
         Args:
-            rows: Iterable of (tag, timestamp in epoch seconds UTC, value in engineering units).
+            rows: Iterable of (tag, timestamp in epoch seconds UTC, value in engineering units)
+                or the same plus a fourth item, the connector quality code (0 good, 1 uncertain,
+                2 bad). Without it the quality is stored as NULL and reads back as UNCERTAIN.
             
         Returns:
             The number of rows successfully inserted.
         """
-        query = "INSERT OR IGNORE INTO samples (tag, ts, value) VALUES (?, ?, ?)"
+        query = "INSERT OR IGNORE INTO samples (tag, ts, value, quality) VALUES (?, ?, ?, ?)"
+        rows = [(*row, None) if len(row) == 3 else tuple(row) for row in rows]
         try:
             with closing(sqlite3.connect(self._path)) as conn:
                 start_changes = conn.total_changes
@@ -110,6 +128,30 @@ class HistoryStore:
                 return [(row[0], row[1]) for row in cursor.fetchall()]
         except sqlite3.Error as err:
             raise HistoryError(f"Failed to query tag {tag}: {err}") from err
+
+    def query_quality(
+        self, tag: str, since_ts: float | None = None, until_ts: float | None = None
+    ) -> list[tuple[float, float, int]]:
+        """
+        Like ``query`` but with the stored quality code: (timestamp UTC, value, quality).
+
+        A missing (NULL) quality is returned as QUALITY_UNCERTAIN, never as good.
+        """
+        query = "SELECT ts, value, quality FROM samples WHERE tag = ?"
+        params: list[str | float] = [tag]
+        if since_ts is not None:
+            query += " AND ts >= ?"
+            params.append(since_ts)
+        if until_ts is not None:
+            query += " AND ts <= ?"
+            params.append(until_ts)
+        query += " ORDER BY ts ASC"
+        try:
+            with closing(sqlite3.connect(self._path)) as conn:
+                found = conn.execute(query, params).fetchall()
+        except sqlite3.Error as err:
+            raise HistoryError(f"Failed to query tag {tag}: {err}") from err
+        return [(r[0], r[1], QUALITY_UNCERTAIN if r[2] is None else int(r[2])) for r in found]
 
     def tags(self) -> list[str]:
         """
