@@ -71,7 +71,7 @@ class FakeConnector:
 def _ports(proposed: list[Move]) -> Any:
     """Gateway ports factory with a fake availability and a recording propose."""
 
-    def make(root: Path, controller_id: str, now_ns: Any) -> Any:
+    def make(root: Path, controller_id: str, now_ns: Any, allowed: frozenset[str]) -> Any:
         def availability(targets: list[str]) -> dict[str, dict[str, Any]]:
             return {t: {"available": True, "reasons": []} for t in targets}
 

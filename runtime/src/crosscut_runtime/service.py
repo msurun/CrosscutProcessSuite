@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,20 @@ def _failing_run(message: str) -> Callable[[], Any]:
         raise ValueError(message)
 
     return run
+
+
+def _controller_cache_key(job: dict[str, Any], site: dict[str, Any]) -> dict[str, Any]:
+    """Copy binding documents so even in-place site edits invalidate the host."""
+    controller = next(
+        (entry for entry in site.get("controllers", []) if entry["id"] == job["controller"]),
+        {},
+    )
+    loop_ids = {
+        variable["binding"]["loop"] for variable in controller.get("variables", [])
+        if variable["role"] == "MV"
+    }
+    loops = [loop for loop in site.get("loops", []) if loop["id"] in loop_ids]
+    return deepcopy({"job": job, "controller": controller, "loops": loops})
 
 
 class RuntimeService:
@@ -125,7 +140,7 @@ class RuntimeService:
         self._controller_jobs.pop(job_id, None)
 
     def _sync_controller(self, job: dict[str, Any], site: dict[str, Any]) -> None:
-        """Update the JobSlot of a controller job; its host is cached per job doc."""
+        """Update a controller slot; cache its host per job and binding documents."""
         run = self._controller_run(job, site)
         existing = self._scheduler.get(job["id"])
         if existing:
@@ -135,16 +150,17 @@ class RuntimeService:
 
     def _controller_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
         """The run function of a controller job; a job that cannot be built fails each pass."""
-        cached = self._controller_jobs.get(job["id"])
-        if cached is None or cached[0] != job:
-            deps = (self._connector_factory, self._gateway_ports)
-            try:
+        try:
+            key = _controller_cache_key(job, site)
+            cached = self._controller_jobs.get(job["id"])
+            if cached is None or cached[0] != key:
+                deps = (self._connector_factory, self._gateway_ports)
                 built = build_controller_job(job, site, self._store.root, deps)
-            except (ValueError, ImportError) as error:
-                return _failing_run(str(error))
-            cached = (job, built)
-            self._controller_jobs[job["id"]] = cached
-        return cached[1].run
+                cached = (key, built)
+                self._controller_jobs[job["id"]] = cached
+            return cached[1].run
+        except (ValueError, ImportError, TypeError, KeyError) as error:
+            return _failing_run(str(error))
 
     def _sync_review(self, job: dict[str, Any]) -> None:
         """Update the JobSlot of a tuning_review job; no connector needed."""
