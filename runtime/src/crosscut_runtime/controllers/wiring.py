@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from crosscut_connectors.base import Snapshot
+from crosscut_connectors.base import LiveValue, Snapshot
 from crosscut_fuzzy.library import load_document
 from crosscut_fuzzy.model import FuzzyModelError, FuzzySystem, system_from_dict
 from crosscut_loops.mv_readiness import loop_readiness
@@ -32,7 +32,8 @@ from crosscut_runtime.controllers.state import DEFAULT_MAX_OVERRUNS
 from crosscut_runtime.store import RuntimeStore
 
 FUZZY_FOLDER = "_fuzzy"
-GatewayPorts = Callable[[Path, str, Callable[[], int]], tuple[Any, Any]]
+BAD_QUALITY = 2  # Connector quality code for an unusable value.
+GatewayPorts = Callable[[Path, str, Callable[[], int], frozenset[str]], tuple[Any, Any]]
 default_gateway_ports: GatewayPorts = make_gateway_ports
 
 
@@ -47,8 +48,10 @@ class AddressedSnapshot:
         """Sample the addresses of the tags; values are re-keyed by the original tag ids."""
         pairs = [(self._addresses.get(tag, tag), tag) for tag in tag_ids]
         snap: Snapshot = self._inner.read_snapshot([address for address, _ in pairs])
-        values = {tag: snap.values[address] for address, tag in pairs if address in snap.values}
-        return Snapshot(snap.cycle_utc, values, snap.comm_ok, snap.reason)
+        missing = LiveValue(None, BAD_QUALITY, snap.cycle_utc)
+        values = {tag: snap.values.get(address, missing) for address, tag in pairs}
+        reason = snap.reason or ("missing" if any(v is missing for v in values.values()) else None)
+        return Snapshot(snap.cycle_utc, values, snap.comm_ok, reason)
 
 
 class ControllerJob:
@@ -112,6 +115,7 @@ def _variable_tags(
     tags_of: dict[str, list[str]] = {}
     targets: dict[str, str] = {}
     for var in doc["variables"]:
+        _validate_limits(var)
         binding = var["binding"]
         if var["role"] != "MV":
             tags_of[var["id"]] = [binding["tag"]]
@@ -122,6 +126,17 @@ def _variable_tags(
         tags_of[var["id"]] = [loop["pv"], loop["sp"]]
         targets[var["id"]] = loop["sp"]
     return tags_of, targets
+
+
+def _validate_limits(variable: Mapping[str, Any]) -> None:
+    """Require bounded MV steps and ordered ranges before building a controller."""
+    limits = variable.get("limits", {})
+    if variable["role"] == "MV" and limits.get("move_max") is None:
+        raise ControllerBindingError(f"binding: MV {variable['id']!r} requires limits.move_max")
+    for name in ("operator", "eng"):
+        bounds = limits.get(name)
+        if bounds is not None and bounds["lo"] >= bounds["hi"]:
+            raise ControllerBindingError(f"binding: {variable['id']!r} {name} requires lo < hi")
 
 
 def _connector(
@@ -153,7 +168,7 @@ def build_controller_job(
         raise ValueError(f"binding: {error}") from error
     sources = {src["id"]: src for src in site.get("sources", [])}
     connector = _connector(deps[0], sources.get(job["source"], {}), site)
-    availability, propose = deps[1](root, doc["id"], time.time_ns)
+    availability, propose = deps[1](root, doc["id"], time.time_ns, frozenset(targets.values()))
     config = HostConfig(
         doc, tags_of, targets, root, int(doc.get("max_overruns", DEFAULT_MAX_OVERRUNS))
     )

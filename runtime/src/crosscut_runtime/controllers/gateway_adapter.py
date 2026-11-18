@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from crosscut_runtime.controllers.fuzzy import ControllerBindingError
 from crosscut_runtime.controllers.protocol import Move
 
 Availability = Callable[[list[str]], Mapping[str, Mapping[str, Any]]]
@@ -38,7 +39,7 @@ def proposal_args(move: Move, controller_id: str, now_ns: int) -> dict[str, Any]
 
 
 def make_gateway_ports(
-    root: Path, controller_id: str, now_ns: Callable[[], int]
+    root: Path, controller_id: str, now_ns: Callable[[], int], allowed_targets: frozenset[str]
 ) -> tuple[Callable[[list[str]], Mapping[str, Mapping[str, Any]]], Callable[[Move], None]]:
     """``(availability, propose)`` callables for the host; the client is built on first use."""
     from crosscut_api.auth.actor import ActorContext  # type: ignore[import-untyped]  # noqa: PLC0415
@@ -55,7 +56,8 @@ def make_gateway_ports(
         stepup=False,
         permissions=frozenset({"gw.propose"}),
     )
-    return _availability(client, actor), _propose(client, actor, controller_id, now_ns)
+    propose = _restricted_propose(_propose(client, actor, controller_id, now_ns), allowed_targets)
+    return _availability(client, actor), propose
 
 
 def _availability(client: Any, actor: Any) -> Availability:
@@ -86,5 +88,20 @@ def _propose(
             return
         if not decision.get("accepted", False):
             LOGGER.info("proposal for %s refused: %s", move.target_tag, decision.get("reason_code"))
+
+    return propose
+
+
+def _restricted_propose(
+    send: Callable[[Move], None], allowed_targets: frozenset[str]
+) -> Callable[[Move], None]:
+    """Reject moves outside this controller before the service principal reaches the gateway."""
+    targets = frozenset(allowed_targets)
+
+    def propose(move: Move) -> None:
+        """Send an authorised move or raise a binding error without gateway I/O."""
+        if move.target_tag not in targets:
+            raise ControllerBindingError(f"binding: unauthorised MV target {move.target_tag!r}")
+        send(move)
 
     return propose
