@@ -142,7 +142,11 @@ def import_opcua(
 
     # Persist everything in one call: samples, tag list and source description.
     info = _dataset_info(target, endpoint, ts_ns, (unique_tag_ids, node_ids))
-    write_dataset(target.out_dir, Samples(ts_ns, unique_tag_ids, values, qualities), info)
+    # Samples wants (n_samples, n_tags); the arrays here are node-major (n_tags, n_samples).
+    samples = Samples(
+        ts_ns, unique_tag_ids, np.ascontiguousarray(values.T), np.ascontiguousarray(qualities.T)
+    )
+    write_dataset(target.out_dir, samples, info)
 
     return _make_report(values, len(unique_tag_ids))
 
