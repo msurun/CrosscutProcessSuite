@@ -19,6 +19,15 @@ function referencesText(config: SoftSensorConfig, t: Translate): string {
     .join("; ");
 }
 
+/** The backup mode as one line: the measured tag and its validity rules, or "none". */
+function backupText(config: SoftSensorConfig, t: Translate): string {
+  const b = config.backup;
+  if (b === undefined || !b.enabled) return t("soft.config.none");
+  return t("soft.config.backupItem", {
+    tag: b.measured_tag ?? "", frozen: b.frozen_s ?? 0, lo: b.range_lo ?? 0, hi: b.range_hi ?? 0, hold: b.return_hold_s ?? 0,
+  });
+}
+
 /** The configuration as a definition list. */
 export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfig; t: Translate }) {
   const seconds = (value: number) => t("soft.config.seconds", { value });
@@ -32,6 +41,7 @@ export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfi
     [t("soft.config.maxComponents"), String(config.max_components ?? DEFAULT_MAX_COMPONENTS)],
     [t("soft.config.cvBlocks"), String(config.cv_blocks ?? DEFAULT_CV_BLOCKS)],
     [t("soft.config.references"), referencesText(config, t)],
+    [t("soft.config.backup"), backupText(config, t)],
   ];
   return (
     <section aria-label={t("soft.config.title")}>

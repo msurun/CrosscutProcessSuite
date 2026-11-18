@@ -262,3 +262,34 @@ def test_unknown_reference_tag_is_422_and_bad_reference_config_names_the_field(
     assert client.post("/softsensor/p80lab/lab", json=body).status_code == 200
     fit = client.post(f"/datasets/{dataset}/softsensor/p80lab/fit", json={})
     assert fit.status_code == 422 and "unknown tags" in fit.json()["detail"]
+
+
+def test_run_without_backup_reports_none(client: TestClient, root: Path) -> None:
+    dataset = _fitted(client, root)
+    body = client.post(f"/datasets/{dataset}/softsensor/p80lab/run", json={}).json()
+    assert body["backup"] is None
+
+
+def test_backup_substitutes_out_of_range_rows_and_logs_the_switches(
+    client: TestClient, root: Path
+) -> None:
+    dataset = _dataset_id(client)
+    _, columns = DatasetStore(root).load_seconds(dataset)
+    low = float(np.percentile(columns[INPUTS[1]], 30))  # the lowest ~30 % count as out of range
+    backup = {"enabled": True, "measured_tag": INPUTS[1], "frozen_s": 100000,
+              "range_lo": low, "range_hi": 1e9, "return_hold_s": 60}
+    assert client.put("/softsensor/p80lab", json={**CONFIG, "backup": backup}).status_code == 200
+    body = {"csv_text": _lab_csv(root, dataset)}
+    assert client.post("/softsensor/p80lab/lab", json=body).status_code == 200
+    fit = client.post(f"/datasets/{dataset}/softsensor/p80lab/fit", json={})
+    assert fit.status_code == 200, fit.text
+    run = client.post(f"/datasets/{dataset}/softsensor/p80lab/run", json={})
+    document = json.loads(run.text, parse_constant=_refuse_constant)
+    result = document["backup"]
+    assert result["measured_tag"] == INPUTS[1] and result["n_substituted"] > 0
+    assert result["switches"][0]["reason"] == "out_of_range"
+    assert result["switches"][0]["to"] == "backup"
+    series = result["series"]
+    assert len(series["output"]) == len(series["substituted"]) == len(series["quality"])
+    assert set(series["quality"]) <= {0, 1, 2} and 1 in series["quality"]
+    assert result["latest"]["quality"] in (0, 1, 2)
