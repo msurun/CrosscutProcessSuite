@@ -1,0 +1,46 @@
+{
+  "ramps": {
+    "file": "graphite_data_ol_ramps.csv",
+    "samples": 142071,
+    "blocks": 2841,
+    "deadband": 31.283586247172423,
+    "bracket": [
+      30.283586247172423,
+      32.28358624717242
+    ],
+    "lower_bound": null,
+    "resolution_le": 2.0,
+    "reason": "",
+    "reference_n": 15,
+    "reference_median": 32.60821931497425,
+    "reference_q25_q75": [
+      32.26079472385125,
+      34.7575605343751
+    ],
+    "T1_pass": true,
+    "T2_pass": false,
+    "T3_bracket_contains_S": false
+  },
+  "sinusoidal": {
+    "file": "graphite_data_ol_sinusoidal.csv",
+    "samples": 138441,
+    "blocks": 2768,
+    "deadband": 31.16250272347296,
+    "bracket": [
+      30.16250272347296,
+      32.16250272347296
+    ],
+    "lower_bound": null,
+    "resolution_le": 2.0,
+    "reason": "",
+    "reference_n": 11,
+    "reference_median": 32.177462579955815,
+    "reference_q25_q75": [
+      32.003934648803316,
+      32.787689750608955
+    ],
+    "T1_pass": true,
+    "T2_pass": false,
+    "T3_bracket_contains_S": false
+  }
+}

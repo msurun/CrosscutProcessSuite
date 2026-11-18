@@ -1079,6 +1079,35 @@ export interface SoftSensorConfig {
   cv_blocks?: number;
   mode: "off" | "advisory";
   reference_inputs?: ReferenceInputConfig[];
+  backup?: BackupConfig;
+}
+
+/** Backup mode (no defaults when enabled): the virtual sensor substitutes an invalid measurement. */
+export interface BackupConfig {
+  enabled: boolean;
+  measured_tag?: string;
+  frozen_s?: number;
+  range_lo?: number;
+  range_hi?: number;
+  return_hold_s?: number;
+  flag_tag?: string;
+}
+
+/** One switch between the measurement and the virtual sensor. */
+export interface BackupSwitch {
+  t_s: number;
+  from: "measured" | "backup";
+  to: "measured" | "backup";
+  reason: string;
+}
+
+/** Backup output of a run: series with substitution flag and quality code (0 measured, 1 substituted, 2 unavailable), log. */
+export interface SoftSensorBackup {
+  measured_tag: string;
+  series: { t_s: number[]; output: (number | null)[]; substituted: boolean[]; quality: number[] };
+  switches: BackupSwitch[];
+  n_substituted: number;
+  latest: { substituted: boolean; quality: number; reason: string };
 }
 
 /** A reference measurement used as a model input through a causal window mean (no defaults). */
@@ -1165,6 +1194,8 @@ export interface SoftSensorRun {
   lab_points: LabRow[];
   n_lab_used: number;
   reference: ReferenceReport[];
+  /** Null when backup mode is not enabled in the configuration. */
+  backup: SoftSensorBackup | null;
   latest: {
     t_s: number;
     estimate: number | null;
