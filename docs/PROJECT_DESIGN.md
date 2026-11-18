@@ -394,6 +394,8 @@ conventions at the relevant sites.
 | `docs/design/plant-import.md` | whole historian file import |
 | `docs/design/step-analyzer.md` | Steps view design |
 | `docs/design/fuzzy-studio.md` | Fuzzy Studio editor design |
+| `docs/design/mpc-design-note.md` | MPC design note (Phase 7; blocked on the ADR 011 write path) |
+| `docs/design/dml-operating-range-note.md` | DML operating-range note: causal assumptions, simulator ground truth and limits |
 | `docs/adr/001` | C++ runtime, Python offline tooling (accepted) |
 | `docs/adr/006` | provenance / third-party material rules |
 | `docs/adr/008` | AGPL-3.0-only licensing |
