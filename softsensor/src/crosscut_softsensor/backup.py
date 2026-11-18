@@ -36,11 +36,17 @@ class BackupResult:
 def invalid_reasons(
     measured: np.ndarray, flag: np.ndarray | None, t_s: np.ndarray, cfg: BackupConfig
 ) -> list[str]:
-    """Reason per row why the measurement is invalid ("" = valid); flag, quality, range, frozen."""
+    """Reason per row why the measurement is invalid ("" = valid); flag, quality, range, frozen.
+
+    A configured flag tag that is NaN/missing is "analyser_flag_unknown" (invalid); flag 0 is OK.
+    """
     frozen = _frozen(measured, t_s, cfg.frozen_s)
     out = []
     for i, value in enumerate(measured):
-        if flag is not None and np.isfinite(flag[i]) and flag[i] != 0:
+        if flag is not None and not np.isfinite(flag[i]):
+            # A configured flag with no value: the instrument state is unknown, so not GOOD.
+            out.append("analyser_flag_unknown")
+        elif flag is not None and flag[i] != 0:
             out.append("analyser_flag")
         elif not np.isfinite(value):
             out.append("bad_quality")
