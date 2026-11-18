@@ -229,6 +229,13 @@ def _p1_executor() -> None:
     execute()
 
 
+def _p1_dq_executor() -> None:
+    """Executor of L5-P1-dq: onboarding sensor-fault findings scored against injected faults."""
+    from p1_dq import execute
+
+    execute()
+
+
 def _p3_executor() -> None:
     """Executor of L5-P3: run the P3 tuning-chain tests of test_l5_p3.py in a pytest subprocess."""
     import subprocess
@@ -260,6 +267,7 @@ def _p2_executor() -> None:
 EXECUTORS["L5-P25"] = _controller_executor
 EXECUTORS["L5-P2-e2e"] = _p2_executor
 EXECUTORS["L5-P1"] = _p1_executor
+EXECUTORS["L5-P1-dq"] = _p1_dq_executor
 EXECUTORS["L5-P3"] = _p3_executor
 EXECUTORS.update(
     {f"L5-G{n:02d}": _gateway_executor(ref) for n, (ref, _) in enumerate(GATEWAY_CASES, 1)}
