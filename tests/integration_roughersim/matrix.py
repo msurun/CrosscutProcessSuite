@@ -208,7 +208,7 @@ def _gateway_executor(scenario_ref: str) -> Callable[[], None]:
 
 
 def _controller_executor() -> None:
-    """Executor of L5-P25: rows C01, C03, C04 and C05 (C02 runs in pytest with the pv_fault hooks)."""
+    """Executor of L5-P25: rows C01, C03, C04 and C05 (C02 runs in pytest, pv_fault hooks)."""
     import tempfile
     from pathlib import Path
 
