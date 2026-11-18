@@ -1,6 +1,6 @@
 # Experiments index and status
 
-This index covers all 34 directories under `experiments/`. Closed experiments stay in place and are not moved: their paths are frozen, some files are sha256-frozen, and exp15 and exp16 import from each other.
+This index covers all 35 directories under `experiments/`. Closed experiments stay in place and are not moved: their paths are frozen, some files are sha256-frozen, and exp15 and exp16 import from each other.
 New experiments must serve a product feature named in `docs/PRODUCT.md`; a validation case is not a feature.
 
 | Experiment | Module | Status | What it decided |
@@ -38,4 +38,5 @@ New experiments must serve a product feature named in `docs/PRODUCT.md`; a valid
 | exp29_anomaly_detection | anomaly | active | Round 3 B1 and B2 met; ships labelled "false alarm rate not validated on real data". |
 | exp30_soft_sensor | virtual sensors | active | S1 and S2 met, S3 missed; affected case labelled "no better than last lab value". |
 | exp31 | virtual sensors | validation case | Online analyser vs lab, plant-1 validation case: R1 passes both primary targets; R2 misses one (RMSE 1.074 vs limit 1.05) and passes the other; R3 misses both; bias correction is not a default for the failing target. |
+| exp35_valve_friction_public | loop monitoring/tuning | validation case | Stroke test deadband on public graphite valve data (Marques, CC BY 4.0) vs published Choudhury S 26.42: Crosscut 31.2-31.3 (T1 met by 0.1-0.3 only), independent reference 32.2-32.6 (T2 missed); verdict inconclusive, DAMADICS blocked on terms. |
 | review_pack | foundations | active | Blind-review pack for the loop worklist (HANDOFF step 3). |
