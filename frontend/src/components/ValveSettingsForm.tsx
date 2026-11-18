@@ -62,6 +62,80 @@ function shouldOpenAdvanced(invalidField: keyof Settings | null): boolean {
   return invalidField !== null && ADVANCED_FIELDS.includes(invalidField);
 }
 
+type RenderField = (id: string, key: keyof Settings, label: string, help?: string) => JSX.Element;
+
+/** The five main fields of the form. */
+function MainFields({ renderField, t }: { renderField: RenderField; t: Translate }) {
+  return (
+    <>
+      {renderField(
+        "valve-op-start",
+        "opStart",
+        t("valve.settings.opStart"),
+        t("valve.settings.opStartHelp"),
+      )}
+      {renderField(
+        "valve-dwell",
+        "dwellS",
+        t("valve.settings.dwell"),
+        t("valve.settings.dwellHelp"),
+      )}
+      {renderField("valve-op-low", "opLow", t("valve.settings.opLow"))}
+      {renderField("valve-op-high", "opHigh", t("valve.settings.opHigh"))}
+      {renderField(
+        "valve-pv-band",
+        "pvBand",
+        t("valve.settings.pvBand"),
+        t("valve.settings.pvBandHelp"),
+      )}
+    </>
+  );
+}
+
+/** Collapsible section with the step sizes and steps per leg. */
+function AdvancedSection({
+  renderField,
+  invalidField,
+  t,
+}: {
+  renderField: RenderField;
+  invalidField: keyof Settings | null;
+  t: Translate;
+}) {
+  return (
+    <details className="valve-advanced" open={shouldOpenAdvanced(invalidField)}>
+      <summary>{t("valve.settings.advanced")}</summary>
+      {renderField(
+        "valve-step-sizes",
+        "stepSizes",
+        t("valve.settings.stepSizes"),
+        t("valve.settings.stepSizesHelp"),
+      )}
+      {renderField("valve-steps-per-leg", "stepsPerLeg", t("valve.settings.stepsPerLeg"))}
+    </details>
+  );
+}
+
+/** Build a renderer for one field bound to the settings key, wired to the shared invalid message. */
+function makeFieldRenderer(
+  settings: Settings,
+  invalidField: keyof Settings | null,
+  invalidMessage: string,
+  onChange: (key: keyof Settings, value: string) => void,
+): RenderField {
+  return (id, key, label, help) => (
+    <ValveField
+      id={id}
+      label={label}
+      help={help}
+      value={settings[key]}
+      isInvalid={invalidField === key}
+      invalidMessage={invalidMessage}
+      onChange={(value) => onChange(key, value)}
+    />
+  );
+}
+
 /**
  * Form for the valve step-test settings.
  *
@@ -83,19 +157,11 @@ export function ValveSettingsForm({
   onSubmit: () => void;
   t: Translate;
 }) {
-  const invalidMessage = t("valve.settings.invalid");
-
-  /** Render one field bound to the settings key, wired to the shared invalid message. */
-  const renderField = (id: string, key: keyof Settings, label: string, help?: string) => (
-    <ValveField
-      id={id}
-      label={label}
-      help={help}
-      value={settings[key]}
-      isInvalid={invalidField === key}
-      invalidMessage={invalidMessage}
-      onChange={(value) => onChange(key, value)}
-    />
+  const renderField = makeFieldRenderer(
+    settings,
+    invalidField,
+    t("valve.settings.invalid"),
+    onChange,
   );
 
   return (
@@ -107,37 +173,9 @@ export function ValveSettingsForm({
     >
       <p className="valve-intro">{t("valve.intro")}</p>
 
-      {renderField(
-        "valve-op-start",
-        "opStart",
-        t("valve.settings.opStart"),
-        t("valve.settings.opStartHelp"),
-      )}
-      {renderField(
-        "valve-dwell",
-        "dwellS",
-        t("valve.settings.dwell"),
-        t("valve.settings.dwellHelp"),
-      )}
-      {renderField("valve-op-low", "opLow", t("valve.settings.opLow"))}
-      {renderField("valve-op-high", "opHigh", t("valve.settings.opHigh"))}
-      {renderField(
-        "valve-pv-band",
-        "pvBand",
-        t("valve.settings.pvBand"),
-        t("valve.settings.pvBandHelp"),
-      )}
+      <MainFields renderField={renderField} t={t} />
 
-      <details className="valve-advanced" open={shouldOpenAdvanced(invalidField)}>
-        <summary>{t("valve.settings.advanced")}</summary>
-        {renderField(
-          "valve-step-sizes",
-          "stepSizes",
-          t("valve.settings.stepSizes"),
-          t("valve.settings.stepSizesHelp"),
-        )}
-        {renderField("valve-steps-per-leg", "stepsPerLeg", t("valve.settings.stepsPerLeg"))}
-      </details>
+      <AdvancedSection renderField={renderField} invalidField={invalidField} t={t} />
 
       <p className="form-actions">
         <button type="submit" className="filter-chip" disabled={busy}>

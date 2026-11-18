@@ -207,24 +207,19 @@ function MinuteField({
   );
 }
 
-/** The two trend panes of the picker, or the loading/error message replacing them. */
-function WindowTrends({
-  state,
-  loop,
-  t,
-  xRange,
-  fitCurve,
-  onZoom,
-}: {
-  state: SeriesState;
-  loop: LoopSummary;
+interface PaneProps {
   t: Translate;
   xRange: readonly [number, number] | null;
-  fitCurve: FitCurve | null;
   onZoom: (minSeconds: number, maxSeconds: number) => void;
-}) {
-  // The data arrays must keep their identity between renders: TrendPane resets the visible range
-  // whenever `data` changes, and onZoom re-renders this component, which would loop forever.
+}
+
+/**
+ * Chart data of the two panes, with a stable identity between renders.
+ *
+ * The data arrays must keep their identity: TrendPane resets the visible range
+ * whenever `data` changes, and onZoom re-renders the parent, which would loop forever.
+ */
+function usePaneData(state: SeriesState, fitCurve: FitCurve | null) {
   const columns = useMemo(() => (state.status === "ready" ? toUplotData(state.series) : null), [state]);
   const pvData = useMemo(() => {
     if (!columns) return null;
@@ -233,6 +228,69 @@ function WindowTrends({
     return [columns[0], columns[1], alignCurve(columns[0], firstS, fitCurve)];
   }, [columns, fitCurve]);
   const outData = useMemo(() => (columns ? [columns[0], columns[2]] : null), [columns]);
+  return { pvData, outData };
+}
+
+/** The pane showing the measured PV, with the fitted ramp when there is one. */
+function PvPane({
+  data,
+  unit,
+  fitCurve,
+  t,
+  xRange,
+  onZoom,
+}: PaneProps & { data: NonNullable<ReturnType<typeof usePaneData>["pvData"]>; unit: string; fitCurve: FitCurve | null }) {
+  return (
+    <TrendPane
+      timeLabel={t("trends.time")}
+      data={data}
+      labels={fitCurve === null ? [t("tuning.window.pvLabel")] : [t("tuning.window.pvLabel"), t("tuning.check.ramp")]}
+      colors={fitCurve === null ? [PV_COLOR] : [PV_COLOR, FIT_COLOR]}
+      unit={unit}
+      height={PANE_HEIGHT_PX}
+      syncKey={SYNC_KEY}
+      xRange={xRange}
+      onZoom={onZoom}
+    />
+  );
+}
+
+/** The pane showing the controller output. */
+function OutPane({
+  data,
+  t,
+  xRange,
+  onZoom,
+}: PaneProps & { data: NonNullable<ReturnType<typeof usePaneData>["outData"]> }) {
+  return (
+    <TrendPane
+      timeLabel={t("trends.time")}
+      data={data}
+      labels={[t("tuning.window.outLabel")]}
+      colors={[OUT_COLOR]}
+      unit={OUT_UNIT}
+      height={PANE_HEIGHT_PX}
+      syncKey={SYNC_KEY}
+      xRange={xRange}
+      onZoom={onZoom}
+    />
+  );
+}
+
+/** The two trend panes of the picker, or the loading/error message replacing them. */
+function WindowTrends({
+  state,
+  loop,
+  t,
+  xRange,
+  fitCurve,
+  onZoom,
+}: PaneProps & {
+  state: SeriesState;
+  loop: LoopSummary;
+  fitCurve: FitCurve | null;
+}) {
+  const { pvData, outData } = usePaneData(state, fitCurve);
   if (state.status === "loading") {
     return <p className="status">{t("tuning.window.loadingTrend")}</p>;
   }
@@ -243,28 +301,8 @@ function WindowTrends({
 
   return (
     <>
-      <TrendPane
-        timeLabel={t("trends.time")}
-        data={pvData}
-        labels={fitCurve === null ? [t("tuning.window.pvLabel")] : [t("tuning.window.pvLabel"), t("tuning.check.ramp")]}
-        colors={fitCurve === null ? [PV_COLOR] : [PV_COLOR, FIT_COLOR]}
-        unit={loop.unit}
-        height={PANE_HEIGHT_PX}
-        syncKey={SYNC_KEY}
-        xRange={xRange}
-        onZoom={onZoom}
-      />
-      <TrendPane
-        timeLabel={t("trends.time")}
-        data={outData}
-        labels={[t("tuning.window.outLabel")]}
-        colors={[OUT_COLOR]}
-        unit={OUT_UNIT}
-        height={PANE_HEIGHT_PX}
-        syncKey={SYNC_KEY}
-        xRange={xRange}
-        onZoom={onZoom}
-      />
+      <PvPane data={pvData} unit={loop.unit} fitCurve={fitCurve} t={t} xRange={xRange} onZoom={onZoom} />
+      <OutPane data={outData} t={t} xRange={xRange} onZoom={onZoom} />
     </>
   );
 }
@@ -279,6 +317,81 @@ function recordBounds(state: SeriesState): { firstS: number; lastS: number } | n
     return null;
   }
   return { firstS: timeAxis[0] as number, lastS: timeAxis[timeAxis.length - 1] as number };
+}
+
+/** Zoom range of the plots for the chosen window, or null while there is none. */
+function useWindowRange(
+  seriesState: SeriesState,
+  window: { startS: number; endS: number } | null,
+): readonly [number, number] | null {
+  return useMemo<readonly [number, number] | null>(() => {
+    if (seriesState.status !== "ready" || window === null) {
+      return null;
+    }
+    return windowToRange(toUplotData(seriesState.series)[0], [window.startS, window.endS]);
+  }, [seriesState, window?.startS, window?.endS]);
+}
+
+/** The typed minute fields with the apply button and the invalid-window alert. */
+function MinuteInputs({
+  inputs,
+  t,
+}: {
+  inputs: ReturnType<typeof useMinuteInputs>;
+  t: Translate;
+}) {
+  return (
+    <>
+      <div className="window-picker-inputs">
+        <MinuteField
+          label={t("tuning.window.startMin")}
+          value={inputs.startText}
+          onChange={inputs.setStartText}
+        />
+        <MinuteField
+          label={t("tuning.window.endMin")}
+          value={inputs.endText}
+          onChange={inputs.setEndText}
+        />
+        <button type="button" className="filter-chip" disabled={!inputs.canApply} onClick={inputs.apply}>
+          {t("tuning.window.apply")}
+        </button>
+      </div>
+
+      {inputs.isInvalid && (
+        <p role="alert">{t("tuning.window.invalid")}</p>
+      )}
+    </>
+  );
+}
+
+/** Visible zoom range of the trends and the handler that turns it into the chosen window. */
+function useVisibleWindow(seriesState: SeriesState, onSelectWindow: (w: AnalysisWindow) => void) {
+  const [visible, setVisible] = useState<VisibleRange | null>(null);
+  const bounds = useMemo(() => recordBounds(seriesState), [seriesState]);
+  const recordS = bounds === null ? 0 : bounds.lastS - bounds.firstS;
+
+  const onZoom = (minSeconds: number, maxSeconds: number) =>
+    setVisible((old) => (old && old[0] === minSeconds && old[1] === maxSeconds ? old : [minSeconds, maxSeconds]));
+
+  const selectVisible = () => {
+    if (visible === null || bounds === null) {
+      return;
+    }
+    const relative = { startS: visible[0] - bounds.firstS, endS: visible[1] - bounds.firstS };
+    onSelectWindow(clampWindow(relative, recordS));
+  };
+
+  return { recordS, onZoom, selectVisible, canUseVisible: visible !== null && bounds !== null };
+}
+
+/** Button that takes the visible stretch of the zoomed trends as the window. */
+function UseVisibleButton({ enabled, onClick, t }: { enabled: boolean; onClick: () => void; t: Translate }) {
+  return (
+    <button type="button" className="filter-chip" disabled={!enabled} onClick={onClick}>
+      {t("tuning.window.useVisible")}
+    </button>
+  );
 }
 
 /**
@@ -307,27 +420,9 @@ export function WindowPicker({
   t: Translate;
 }) {
   const seriesState = useLoopSeries(datasetId, loop);
-  const [visible, setVisible] = useState<VisibleRange | null>(null);
-
-  const bounds = useMemo(() => recordBounds(seriesState), [seriesState]);
-  const recordS = bounds === null ? 0 : bounds.lastS - bounds.firstS;
-
-  const xRange = useMemo<readonly [number, number] | null>(() => {
-    if (seriesState.status !== "ready" || window === null) {
-      return null;
-    }
-    return windowToRange(toUplotData(seriesState.series)[0], [window.startS, window.endS]);
-  }, [seriesState, window?.startS, window?.endS]);
-
-  const inputs = useMinuteInputs(window, recordS, onSelectWindow);
-
-  const useVisibleRange = () => {
-    if (visible === null || bounds === null) {
-      return;
-    }
-    const relative = { startS: visible[0] - bounds.firstS, endS: visible[1] - bounds.firstS };
-    onSelectWindow(clampWindow(relative, recordS));
-  };
+  const xRange = useWindowRange(seriesState, window);
+  const picked = useVisibleWindow(seriesState, onSelectWindow);
+  const inputs = useMinuteInputs(window, picked.recordS, onSelectWindow);
 
   return (
     <section className="window-picker" aria-labelledby="window-picker-title">
@@ -339,40 +434,13 @@ export function WindowPicker({
         t={t}
         xRange={xRange}
         fitCurve={fitCurve}
-        onZoom={(minSeconds, maxSeconds) =>
-          setVisible((old) => (old && old[0] === minSeconds && old[1] === maxSeconds ? old : [minSeconds, maxSeconds]))
-        }
+        onZoom={picked.onZoom}
       />
 
       <p className="hint">{t("tuning.window.zoomHint")}</p>
-      <button
-        type="button"
-        className="filter-chip"
-        disabled={visible === null || bounds === null}
-        onClick={useVisibleRange}
-      >
-        {t("tuning.window.useVisible")}
-      </button>
+      <UseVisibleButton enabled={picked.canUseVisible} onClick={picked.selectVisible} t={t} />
 
-      <div className="window-picker-inputs">
-        <MinuteField
-          label={t("tuning.window.startMin")}
-          value={inputs.startText}
-          onChange={inputs.setStartText}
-        />
-        <MinuteField
-          label={t("tuning.window.endMin")}
-          value={inputs.endText}
-          onChange={inputs.setEndText}
-        />
-        <button type="button" className="filter-chip" disabled={!inputs.canApply} onClick={inputs.apply}>
-          {t("tuning.window.apply")}
-        </button>
-      </div>
-
-      {inputs.isInvalid && (
-        <p role="alert">{t("tuning.window.invalid")}</p>
-      )}
+      <MinuteInputs inputs={inputs} t={t} />
     </section>
   );
 }
