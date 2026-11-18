@@ -6,6 +6,7 @@ module validates by hand (no jsonschema dependency). Error messages start with t
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,7 +15,8 @@ from typing import Any
 MODES = ("off", "advisory")
 _REQUIRED = ("schema_version", "id", "tags", "mode")
 _OPTIONAL = (
-    "description", "variance_fraction", "alpha", "min_consecutive", "close_after",
+    "regimes", "setpoint_like", "description", "variance_fraction", "alpha",
+    "min_consecutive", "close_after",
     "sample_period_s", "dynamic_lags", "stuck_samples", "ramp_min_hours", "counter_like_share",
 )
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
@@ -26,6 +28,15 @@ class AnomalyConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class RegimeConfig:
+    """Tags defining operating points, with rounding steps in tag engineering units."""
+
+    by: tuple[str, ...]
+    min_rows: int = 200
+    quantum: tuple[tuple[str, float], ...] = ()
+
+
+@dataclass(frozen=True)
 class AnomalyConfig:
     """A validated advisory anomaly detector configuration."""
 
@@ -33,6 +44,8 @@ class AnomalyConfig:
     id: str
     tags: tuple[str, ...]
     mode: str
+    regimes: RegimeConfig | None = None
+    setpoint_like: tuple[str, ...] = ()
     description: str = ""
     variance_fraction: float = 0.90
     alpha: float = 0.99
@@ -61,6 +74,8 @@ def load_config(doc: Mapping[str, Any]) -> AnomalyConfig:
         tags=_tags(doc["tags"]),
         mode=_mode(doc),
         description=description,
+        regimes=parse_regimes(doc.get("regimes")),
+        setpoint_like=tag_names(doc.get("setpoint_like", [])),
         variance_fraction=_number(doc, "variance_fraction", 0.90, 0.5, 0.999),
         alpha=_number(doc, "alpha", 0.99, 0.9, 0.9999),
         min_consecutive=_integer(doc, "min_consecutive", 5),
@@ -175,3 +190,32 @@ def _stuck(doc: Mapping[str, Any]) -> int:
     if value != 0 and value < 3:
         raise AnomalyConfigError(f"stuck_samples: {value} must be 0 (off) or at least 3")
     return value
+
+
+def tag_names(value: Any) -> tuple[str, ...]:
+    """Validate a possibly empty list of unique tag names."""
+    if not isinstance(value, list | tuple):
+        raise AnomalyConfigError("tag names must be an array")
+    if any(not isinstance(tag, str) or not tag for tag in value):
+        raise AnomalyConfigError("tag names must be non-empty strings")
+    if len(set(value)) != len(value):
+        raise AnomalyConfigError("tag names must be unique")
+    return tuple(value)
+
+
+def parse_regimes(value: Any) -> RegimeConfig | None:
+    """Validate the optional regime grouping contract."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) - {"by", "min_rows", "quantum"}:
+        raise AnomalyConfigError("regimes: expected by, min_rows and quantum")
+    names = tag_names(value.get("by", []))
+    if not names:
+        raise AnomalyConfigError("regimes.by: at least one tag is required")
+    quantum = value.get("quantum", {})
+    if not isinstance(quantum, Mapping) or set(quantum) - set(names):
+        raise AnomalyConfigError("regimes.quantum: keys must occur in by")
+    steps = tuple((tag, _positive(quantum, tag, 1.0)) for tag in quantum)
+    if any(not math.isfinite(step) for _, step in steps):
+        raise AnomalyConfigError("regimes.quantum: steps must be finite")
+    return RegimeConfig(names, _integer(value, "min_rows", 200), steps)

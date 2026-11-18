@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -113,14 +113,14 @@ def _choose_k(eigenvalues: np.ndarray, fraction: float) -> int:
     return max(1, min(k, len(eigenvalues) - 1))
 
 
-def _clean_rows(x: np.ndarray, n_tags: int) -> np.ndarray:
+def _clean_rows(x: np.ndarray, n_tags: int, allow_constants: bool = False) -> np.ndarray:
     """Drop rows with NaN or +-inf and validate size and variance."""
     if x.ndim != 2 or x.shape[1] != n_tags:
         raise PcaModelError("x must be samples by tags")
     valid = x[np.isfinite(x).all(axis=1)]
     if len(valid) < max(50, 10 * n_tags):
         raise PcaModelError(f"too few valid rows: {len(valid)}")
-    if np.any(valid.std(axis=0, ddof=1) <= 0.0):
+    if not allow_constants and np.any(valid.std(axis=0, ddof=1) <= 0.0):
         raise PcaModelError("a tag has zero variance")
     return valid
 
@@ -143,6 +143,7 @@ def fit_pca(
     alpha: float = 0.99,
     dynamic_lags: int = 0,
     stuck_samples: int = 0,
+    allow_constants: bool = False,
 ) -> PcaModel:
     """Fit a PCA monitoring model on samples-by-tags data.
 
@@ -161,10 +162,15 @@ def fit_pca(
     raw = np.asarray(x, dtype=float)
     if raw.ndim != 2 or raw.shape[1] != len(base):
         raise PcaModelError("x must be samples by tags")
-    valid = _clean_rows(augment_lags(raw, dynamic_lags), len(tags))
+    valid = _clean_rows(augment_lags(raw, dynamic_lags), len(tags), allow_constants)
     mean, scale = valid.mean(axis=0), valid.std(axis=0, ddof=1)
+    # Constant mode/setpoint columns contribute zero training variance. A unit scale
+    # retains their raw-unit deviations without division by zero (n rows by p tags).
+    scale = np.where(scale > 0, scale, 1.0)
     z = (valid - mean) / scale
-    values, vectors = _eigen_sorted(np.atleast_2d(np.corrcoef(z, rowvar=False)))
+    if not np.any(z):
+        raise PcaModelError("training needs at least one moving tag")
+    values, vectors = _eigen_sorted(np.atleast_2d(np.cov(z, rowvar=False)))
     k = _choose_k(values, variance_fraction)
     n = len(valid)
     spe_lim, method = _choose_spe_limit(z, vectors[:, :k], values, alpha)
@@ -179,10 +185,12 @@ def fit_pca(
 
 def fit_from_config(x: np.ndarray, config: AnomalyConfig) -> PcaModel:
     """Thin helper: ``fit_pca`` with the tags, variance_fraction and alpha of ``config``."""
-    return fit_pca(
+    model = fit_pca(
         x, config.tags, config.variance_fraction, config.alpha, config.dynamic_lags,
-        config.stuck_samples,
+        config.stuck_samples, allow_constants=config.regimes is not None,
     )
+    profiles = training_profiles(x, config.stuck_samples) if config.stuck_samples else ()
+    return replace(model, stuck_profiles=profiles)
 
 
 @dataclass(frozen=True)
@@ -203,6 +211,7 @@ class PcaModel:
     dynamic_lags: int = 0
     spe_limit_method: str = "jackson_mudholkar"
     stuck_runs: tuple[int, ...] = ()
+    stuck_profiles: tuple[dict[str, Any], ...] = ()
 
     @property
     def monitored_tags(self) -> tuple[str, ...]:
@@ -278,6 +287,8 @@ class PcaModel:
         if self.dynamic_lags:
             out["base_tags"] = list(self.base_tags)
             out["dynamic_lags"] = self.dynamic_lags
+        if self.stuck_profiles:
+            out["stuck_profiles"] = list(self.stuck_profiles)
         if self.stuck_runs:
             out["stuck_runs"] = list(self.stuck_runs)
         if self.spe_limit_method != "jackson_mudholkar":
@@ -299,6 +310,7 @@ class PcaModel:
             base_tags=tuple(d.get("base_tags", d["tags"])),
             dynamic_lags=int(d.get("dynamic_lags", 0)),
             spe_limit_method=str(d.get("spe_limit_method", "jackson_mudholkar")),
+            stuck_profiles=tuple(d.get("stuck_profiles", ())),
             stuck_runs=tuple(int(v) for v in d.get("stuck_runs", ())),
         )
 
@@ -312,3 +324,87 @@ def _normalise(v: np.ndarray) -> np.ndarray:
     """Scale non-negative values to sum 1 (uniform if the sum is zero)."""
     total = float(v.sum())
     return v / total if total > 0 else np.full(len(v), 1.0 / len(v))
+
+
+def training_profiles(rows: np.ndarray, hold_samples: int) -> tuple[dict[str, Any], ...]:
+    """Learn legitimate holds from raw samples by tag, in engineering units."""
+    profiles = []
+    for column in rows.T:
+        finite = column[np.isfinite(column)]
+        differences = np.abs(np.diff(column))
+        positive = differences[np.isfinite(differences) & (differences > 0)]
+        # A lower decile rejects isolated tiny changes; resolution has the tag's units.
+        resolution = float(np.quantile(positive, 0.1)) if len(positive) else 0.0
+        cuts = np.r_[0, np.flatnonzero(column[1:] != column[:-1]) + 1, len(column)]
+        levels = column[cuts[:-1]][np.diff(cuts) >= hold_samples]
+        profiles.append({"min": float(finite.min()), "max": float(finite.max()),
+                         "resolution": resolution, "levels": levels[np.isfinite(levels)].tolist(),
+                         "setpoint_like": bool(np.mean(differences == 0) > 0.9)})
+    return tuple(profiles)
+
+
+@dataclass(frozen=True)
+class RegimeModelSet:
+    """Independent PCA models indexed by canonical operating-point keys."""
+
+    config: AnomalyConfig
+    models: dict[str, PcaModel]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-ready configuration and models."""
+        from dataclasses import asdict
+        return {"kind": "regime_pca", "config": asdict(self.config),
+                "models": {key: model.to_dict() for key, model in self.models.items()}}
+
+    @classmethod
+    def from_dict(cls, document: dict[str, Any]) -> RegimeModelSet:
+        """Restore models and their key definition from JSON."""
+        from crosscut_anomaly.config import load_config
+        if document.get("kind") != "regime_pca":
+            raise PcaModelError("expected a regime_pca model set")
+        config = dict(document["config"])
+        if config["regimes"] is not None:
+            config["regimes"]["quantum"] = dict(config["regimes"]["quantum"])
+        return cls(load_config(config), {key: PcaModel.from_dict(value)
+                                        for key, value in document["models"].items()})
+
+    def sha256(self) -> str:
+        """Hash the canonical JSON representation."""
+        payload = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def regime_keys(x: np.ndarray, config: AnomalyConfig, mode_ids: Sequence[Any] | None = None
+                ) -> list[str | None]:
+    """Build one key per row; non-finite grouping values have no known regime."""
+    if mode_ids is not None:
+        if len(mode_ids) != len(x):
+            raise PcaModelError("mode_ids must contain one id per row")
+        return [None if value is None else json.dumps(str(value)) for value in mode_ids]
+    if config.regimes is None:
+        raise PcaModelError("regimes configuration or mode_ids is required")
+    if set(config.regimes.by) - set(config.tags):
+        raise PcaModelError("regimes.by must name input tags; otherwise pass mode_ids")
+    values = np.asarray(x)[:, [config.tags.index(tag) for tag in config.regimes.by]].copy()
+    # Keys are rounded setpoints (value/step), or exact discrete modes, per row.
+    for column, tag in enumerate(config.regimes.by):
+        step = dict(config.regimes.quantum).get(tag)
+        if step is not None:
+            values[:, column] = np.rint(values[:, column] / step)
+    return [json.dumps(row.tolist()) if np.isfinite(row).all() else None for row in values]
+
+
+def fit_regimes(x: np.ndarray, config: AnomalyConfig,
+                mode_ids: Sequence[Any] | None = None) -> RegimeModelSet:
+    """Fit sufficiently populated regimes; lag history never crosses a regime boundary."""
+    rows = np.asarray(x, dtype=float)
+    keys = regime_keys(rows, config, mode_ids)
+    minimum = config.regimes.min_rows if config.regimes else 200
+    models = {}
+    for key in sorted(set(keys) - {None}):
+        selected = np.array([value == key for value in keys])
+        training = np.where(selected[:, None], rows, np.nan)
+        valid = augment_lags(training, config.dynamic_lags)
+        if np.isfinite(valid).all(axis=1).sum() >= max(minimum, 50, 10 * valid.shape[1]):
+            models[key] = fit_from_config(training, config)
+    return RegimeModelSet(config, models)
