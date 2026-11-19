@@ -389,6 +389,40 @@ subscription and collector acquisition use connector adapters without changing t
 contracts. CSV history applies UTC bounds `[start, end)` and last-value sampling per requested
 period for both layouts. See [Read connectors](CONNECTORS.md) for policy and compatibility details.
 
+**Phase PL - Platform lifecycle and deployment (added 2026-11-19, milestone "PL").** Runs after the
+Phase 3 release items and before the Phase 4a presets: versioned catalogue and models with diff,
+publish and approval (#165), dependency invalidation (#166), backup and restore without history
+(#167), Windows installer (#168), Docker Compose (#169), observability in the GUI (#170). Exit
+criterion: a configuration change is versioned, approved where required, reversible and restorable
+on a fresh installation without a shell.
+
+### 7.1 Feature status matrix (2026-11-19)
+
+Four statuses per feature, kept apart on purpose: **Built** (code on main), **Evidence** (what
+proves it works, and where), **GUI** (an engineer can do it without editing a file), **Deploy**
+(ready for a site). "Sim" means RougherSim or `sim/` only, not a plant claim. Update this table in
+the same PR that changes one of its rows.
+
+| Feature | Built | Evidence | GUI | Deploy | Open issues |
+|---|---|---|---|---|---|
+| Read connectors (CSV, SQL/ODBC, PI Web API, OPC UA) | yes | recorded fixtures, sim | yes | no real-source test | #32 |
+| Project catalogue | partly | e2e | editor and wizard; no versions, CSV bulk, mode proposals | no | #144, #145, #165, #166 |
+| Operating modes used by modules | stored only | - | edit only | no | #146 |
+| Loop KPI online | yes | L5-P1 live (catalogue built in code) | view yes, build path not proven | no | #151, #146 |
+| Worklist and diagnosis | partly | exp37 descriptive only | yes | no | #149, #150, #152 |
+| Identification and tuning report | yes | exp33 5/7 met, exp34 K1-K4 | yes | no | #147, #148 |
+| PID write in confirm, KPI check, rollback | yes | sim (ADR 014, L5) | yes | no real DCS | #151 |
+| Valve stroke and OUT tests in MAN | yes | sim; exp35 inconclusive | yes | no | #84 |
+| Write Gateway (modes, policy, audit, kill switch) | yes | sim, 12 scenarios | yes | no real DCS | #153 |
+| APC core and fuzzy controller | yes | L5 C rows, L5-P6 3/3 in sim | yes | no | - |
+| Strategy Canvas | no | - | no | no | #162 |
+| Soft sensor (PLS, reference input, backup in engine) | partly, offline | exp39: loses to lab persistence | generated form | no runtime job | #154-#159 |
+| Anomaly (PCA, stuck, regimes) online | yes | exp40 missed, exp41 D2 only | yes | no | #160, #146 |
+| Asset templates and predictive maintenance | no | - | no | no | #161 |
+| MPC | no (design note) | - | no | no | #163 |
+| Economic layer and ML | no (design notes) | - | no | no | #164 |
+| Config lifecycle, backup, installers, observability | no (systemd unit only) | - | no | no | #165-#170 |
+
 ## 8. Evidence discipline and claim limits
 
 - Frozen protocols: an experiment freezes and commits its protocol before any run. Test seeds run once. Misses ship visibly; thresholds are not moved.
@@ -423,6 +457,15 @@ Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 | 11 | **2026-11-17:** Deferred to Phase 4b: v1 asset templates are those marked in section 4.3; validation uses public data. | See decision |
 
 Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. Plant data from the owner's site is not used for development or validation. Validation uses public datasets; site facts (tunings, sample metadata, vendor conventions, economic values) are per-site configuration entered by the user. Check the licence before use and add a row to `docs/PROVENANCE.md`; download to a scratch folder outside the repository; never commit or redistribute data. CC BY-SA and unlicensed datasets are used locally only; no derived data is published.
+
+### Owner decisions - 2026-11-19
+
+| # | Decision (2026-11-19) | Follow-up |
+|---|---|---|
+| 1 | Deployment ships both a Windows installer (services and console) and Docker Compose for Linux on-prem. | #168, #169 |
+| 2 | Publishing a new catalogue or model version needs a second person (controls engineer) only when the change touches loops or controller variables with active writes; otherwise one engineer publishes. | #165 |
+| 3 | Backup and restore cover configuration, models, policies, users and audit, not the Parquet history; history stays in the source historian. | #167 |
+| 4 | Phase PL (platform lifecycle and deployment) is added between the Phase 3 release items and the Phase 4a presets. | section 7 |
 
 ## 11. Document map
 

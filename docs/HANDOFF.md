@@ -1,6 +1,6 @@
-# Handoff (updated 2026-11-18 late): unattended plan of 2026-11-18 done
+# Handoff (updated 2026-11-19): roadmap review done, next = Phase 3 release items
 
-> **Next session:** pick from "Open after the 2026-11-18 plan" below; the plan file `docs/handoff-2026-11-18-unattended-plan.md` is closed.
+> **Next session:** read `docs/PRODUCT.md` section 7.1 (status matrix) and pick from milestone P3 (#147-#152 first, #151 is the no-code acceptance test), then milestone PL (#165-#170). Phase 4a presets wait for #154 (exp39 PLS vs lab persistence) and RougherSim M8 (#15, #16). Nightly L5 (`nightly-l5.yml`) runs and passed on 2026-11-19; the note below that L5 rows skip in CI is history.
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`, then this file, then `docs/IMPLEMENTATION_LOG.md` (entries 2026-11-17..18).
 

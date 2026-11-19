@@ -1118,3 +1118,10 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - Found: L5 controller rig lacked liveness beats since #112 (C01/C03/C05 failed locally); fixed in #141. ForemanKit agent-run placeholder author blocked license/cla; fixed in ForemanKit 4efcf7f.
 - Decisions taken without the owner: exp40 3W kept as run even though the draw reduced to one well (pre-registered, reported); no detector tuning after the held-out seed; P6 last write stamped at the takeover instant counts as before it (same sim step).
 
+
+## 2026-11-19 - Roadmap review: status matrix, Phase PL, gap issues (docs only)
+
+- Review of Crosscut and RougherSim against PRODUCT.md and the boards: milestones P4a/P6/P7/P8 had only design notes or owner tasks closed while their features do not exist; the PRODUCT gap lists had no issues.
+- Added PRODUCT 7.1 feature status matrix (Built / Evidence / GUI / Deploy) and Phase PL; owner decisions 2026-11-19 in section 10 (both Windows installer and Docker Compose; second-person approval only for changes touching loops or controller variables with active writes; backup without history).
+- Opened #144-#170 (gaps of P1, P2, P3, P4a, anomaly gate, epics P4b/P6/P7/P8, milestone PL) and RougherSim M8 #15-#20. Board card #79 moved to Done.
+- Noted: L5-P1 (`tests/integration_roughersim/p1_live.py`) builds the catalogue in code, so the no-code exit criterion is not proven yet (#151). exp39 PLS loses to lab persistence (#154) and gates the presets.
