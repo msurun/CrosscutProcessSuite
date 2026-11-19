@@ -302,3 +302,31 @@ def test_alignment_tolerates_skew_within_half_a_period() -> None:
 
 
 CHANNELS_FOR_TEST = ("pv", "sp", "out", "mode")
+
+
+def test_unchanged_setpoint_and_mode_with_old_source_stamp_still_pair() -> None:
+    """OPC UA keeps the source stamp of the last value change: an SP and mode that never change
+    arrive with their old stamp on every read. Read GOOD now, they count at this read's PV instant,
+    so the live KPI appears (it never did with nearest-within-tolerance pairing alone)."""
+    n = monitor.MIN_KPI_SAMPLES + 5
+    ticks = []
+    for i in range(n):
+        tick = _tick(1000.0 + i)
+        tick[LOOP_DOC["sp"]] = (50.0, 0, 10.0)  # unchanged since t = 10 s
+        tick[LOOP_DOC["mode"]] = (1.0, 0, 10.0)
+        ticks.append(tick)
+    job = LoopKpiJob(JOB_DOC, {LOOP_DOC["id"]: LOOP_DOC}, _ScriptedConnector(ticks))
+    for _ in ticks:
+        result = job.run()
+    assert result["kpi"] is not None and LOOP_DOC["id"] in result["kpi"]
+    assert [ts for ts, _ in job.window.rows(LOOP_DOC["sp"])][-1] == 1000.0 + n - 1
+
+
+def test_a_bad_setpoint_read_still_drops_its_instant() -> None:
+    """Only GOOD reads are restamped: a BAD SP read adds nothing, so its instant is dropped."""
+    ticks = [_tick(1000.0 + i) for i in range(3)]
+    ticks[1][LOOP_DOC["sp"]] = (50.0, 2, 10.0)  # BAD
+    job = LoopKpiJob(JOB_DOC, {LOOP_DOC["id"]: LOOP_DOC}, _ScriptedConnector(ticks))
+    for _ in ticks:
+        job.run()
+    assert [ts for ts, _ in job.window.rows(LOOP_DOC["sp"])] == [1000.0, 1002.0]

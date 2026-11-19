@@ -81,6 +81,13 @@ def _nearest(rows: list[tuple[float, float]], ts: float, tol_s: float) -> float 
     return rows[min(near, key=lambda j: abs(stamps[j] - ts))][1]
 
 
+def _good_stamp(live: Any) -> float | None:
+    """Epoch seconds of a GOOD live sample with a value, else None (connector stamps UTC ISO)."""
+    if live is None or live.value is None or live.quality != GOOD_QUALITY:
+        return None
+    return datetime.fromisoformat(live.timestamp_utc).timestamp()
+
+
 def align_channels(
     rows: dict[str, list[tuple[float, float]]], tol_s: float
 ) -> tuple[list[float], dict[str, list[float]]]:
@@ -212,15 +219,20 @@ class LoopKpiJob:
     def _pull(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> None:
         """Read the four live values of one loop and append the good ones to the window."""
         values = self.connector.read_live(list(tags.values()))
+        anchor = _good_stamp(values.get(tags["pv"]))
         for _channel, tag in tags.items():
-            live = values.get(tag)
-            if live is None or live.value is None or live.quality != GOOD_QUALITY:
+            ts = _good_stamp(values.get(tag))
+            if ts is None:
                 continue  # missing, or not GOOD (uncertain/bad): never analysed or stored
-            # The connector stamps samples in UTC ISO text; the window works in epoch seconds.
-            ts = datetime.fromisoformat(live.timestamp_utc).timestamp()
-            self.window.add(tag, ts, live.value)
+            if anchor is not None and ts < anchor:
+                # OPC UA keeps the source timestamp of the last value CHANGE: a setpoint or mode
+                # that has not changed arrives with an old stamp. Read GOOD now, it is valid now,
+                # so it is stamped at this read's PV instant (else alignment never pairs it).
+                ts = anchor
+            value = values[tag].value
+            self.window.add(tag, ts, value)
             if self.on_sample is not None:
-                self.on_sample(tag, ts, float(live.value))
+                self.on_sample(tag, ts, float(value))
 
     def _loop_kpi(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> dict[str, Any] | None:
         """The KPI of one loop from the window, or None while below the sample threshold."""
