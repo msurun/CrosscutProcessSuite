@@ -1810,5 +1810,10 @@
   "soft.backup.reason.frozen": "valor congelado",
   "soft.backup.reason.out_of_range": "fuera de rango",
   "soft.backup.reason.analyser_flag": "marca del analizador",
-  "soft.backup.reason.measurement_valid": "medición válida de nuevo"
+  "soft.backup.reason.measurement_valid": "medición válida de nuevo",
+  "nav.main": "Menú principal",
+  "nav.group.loops": "Lazos",
+  "nav.group.fuzzy": "Fuzzy",
+  "nav.group.site": "Planta",
+  "nav.group.admin": "Administración"
 }

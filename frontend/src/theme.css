@@ -184,8 +184,15 @@ body {
 }
 
 /* Loop views */
-.view-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
-.view-tab { padding: 6px 14px; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; font: inherit; cursor: pointer; }
+/* Main menu (#172): groups of views, styled as a menu bar; wraps instead of clipping. */
+.main-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.main-nav-item { padding: 8px 14px; color: var(--text); background: none; border: 1px solid transparent; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.main-nav-item:hover { background: var(--surface-2); }
+.main-nav-item[aria-current="page"] { color: var(--surface); background: var(--accent); }
+/* Second row: the views of the current group. */
+.view-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.view-tab { padding: 6px 14px; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; font: inherit; cursor: pointer; white-space: nowrap; }
+.view-tab:hover { color: var(--text); }
 .view-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
 .link-button { padding: 0; color: var(--accent); background: none; border: none; font: inherit; text-decoration: underline; cursor: pointer; }
 .loops-summary { margin: 0 0 8px; font-weight: 600; }
@@ -366,7 +373,7 @@ body {
 .valve-record fieldset { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; }
 .valve-record fieldset label { display: block; margin: 4px 0; }
 @media print {
-  .no-print, .top-bar, .sidebar, .view-tabs, .skip-link, .stepper, .breadcrumb, .context-bar, .link-button { display: none !important; }
+  .no-print, .top-bar, .sidebar, .main-nav, .view-tabs, .skip-link, .stepper, .breadcrumb, .context-bar, .link-button { display: none !important; }
   .app-shell, .app-body { display: block; height: auto; }
   .main-area { overflow: visible; padding: 0; }
   body { background: #fff; color: #000; }

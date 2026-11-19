@@ -63,6 +63,7 @@ test("admin signs in, sees the role badge and the Users tab", async ({ page }) =
   await signIn(page, ADMIN_USER, ADMIN_PASSWORD);
   await expectSignedIn(page, ADMIN_USER);
   await expect(page.getByTestId("role-badge-chips")).toBeVisible();
+  await page.locator("nav.main-nav").getByRole("button", { name: /Administracja|Administration|Administración/ }).click();
   await expect(page.locator("nav.view-tabs button").filter({ hasText: USERS_TAB })).toBeVisible();
 });
 

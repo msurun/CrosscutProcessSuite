@@ -1810,5 +1810,10 @@
   "soft.backup.reason.frozen": "zamrożona wartość",
   "soft.backup.reason.out_of_range": "poza zakresem",
   "soft.backup.reason.analyser_flag": "flaga analizatora",
-  "soft.backup.reason.measurement_valid": "pomiar znów ważny"
+  "soft.backup.reason.measurement_valid": "pomiar znów ważny",
+  "nav.main": "Menu główne",
+  "nav.group.loops": "Pętle",
+  "nav.group.fuzzy": "Fuzzy",
+  "nav.group.site": "Instalacja",
+  "nav.group.admin": "Administracja"
 }

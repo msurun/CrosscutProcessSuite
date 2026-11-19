@@ -30,7 +30,7 @@ function renderGate() {
     <AuthProvider>
       <AuthGate t={t}>
         <p>the app</p>
-        <ViewTabs view="trends" onSelect={() => undefined} t={t} />
+        <ViewTabs view="gateway" onSelect={() => undefined} t={t} />
       </AuthGate>
     </AuthProvider>,
   );
@@ -85,7 +85,7 @@ describe("AuthGate", () => {
     render(
       <AuthProvider>
         <AuthGate t={t}>
-          <ViewTabs view="trends" onSelect={onSelect} t={t} />
+          <ViewTabs view="gateway" onSelect={onSelect} t={t} />
         </AuthGate>
       </AuthProvider>,
     );
