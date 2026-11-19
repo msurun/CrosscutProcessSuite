@@ -19,6 +19,8 @@ const THEME_SELECT_ID = "top-bar-theme";
 export interface TopBarProps {
   /** Application name shown on the left. */
   title: string;
+  /** Optional one-line product description shown under the name. */
+  tagline?: string;
   /** Text of the badge warning the user that the session cannot be edited. */
   readOnlyLabel: string;
   /** Language codes the user can pick from, e.g. ["pl", "en"]. */
@@ -52,6 +54,7 @@ export interface TopBarProps {
  */
 export function TopBar({
   title,
+  tagline,
   readOnlyLabel,
   languages,
   language,
@@ -77,7 +80,10 @@ export function TopBar({
     <header className="top-bar">
       <span className="brand">
         <BrandMark />
-        <strong>{title}</strong>
+        <span className="brand-text">
+          <strong>{title}</strong>
+          {tagline && <span className="brand-tagline">{tagline}</span>}
+        </span>
       </span>
 
       {onCatalogue && catalogueLabel && (

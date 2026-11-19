@@ -172,6 +172,7 @@ function ShellHeader({ lang, route, navigate }: ShellProps & { route: Route; nav
   return (
     <TopBar
       title={t("app.name")}
+      tagline={t("app.tagline")}
       readOnlyLabel={t("app.readOnly")}
       languages={availableLanguages()}
       language={lang.language}

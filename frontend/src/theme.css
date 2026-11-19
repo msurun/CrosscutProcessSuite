@@ -126,6 +126,8 @@ body {
 
 .top-bar > .brand { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
 .brand strong { letter-spacing: 0.02em; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.brand-tagline { font-size: 0.72rem; color: var(--text-muted); }
 .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
 .login-brand-name { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.02em; }
 .login-brand-tagline { font-size: 0.85rem; color: var(--text-muted); }
@@ -316,6 +318,7 @@ body {
 /* --- Narrow screens: stack the frame, let the top bar wrap, single-column content --- */
 @media (max-width: 800px) {
   .app-shell { grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+  .brand-tagline { display: none; }
   .top-bar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px; }
   .app-body { grid-template-columns: 1fr; }
   .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
