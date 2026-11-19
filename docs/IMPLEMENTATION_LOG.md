@@ -1114,6 +1114,7 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - Merged: #135 small fixes; #136 regime-aware anomaly (RegimeConfig, fit_regimes, RegimeModelSet, rows_unscored, stuck exemptions setpoint_like / training_run / training_limit / quantised_level); #137 exp33 loop fixes (settling band >= 3 x quantisation step, delay_below_sample flag, ACF amplitude gate, saturation warning 0.1 / fault 0.2, closed_loop_staircase); #138 exp40/41 protocols; #139 sensor_faults in onboarding + L5-P1-dq executor; #140 exp40/41 results; #141 L5-P6. RougherSim PR #14, tag rs-v0.13.2 (live `disturbance` hook).
 - Reviews: DeepSeek long_context on #136, #137, #139 (agent-review had no second-vendor reviewer); all high/medium findings fixed in codex fix rounds before merge.
 - Results (honest): exp40 every target missed (no regime key in SKAB/3W); exp41 D2 met, F1/F2/D1 missed; L5-P1-dq held-out P 0.75 / R 1.00 (pending); L5-P6 3/3 live.
+- Found: live loop KPI broken since #119 (old OPC UA source stamps of unchanged SP/mode never paired); fixed in #143.
 - Found: L5 controller rig lacked liveness beats since #112 (C01/C03/C05 failed locally); fixed in #141. ForemanKit agent-run placeholder author blocked license/cla; fixed in ForemanKit 4efcf7f.
 - Decisions taken without the owner: exp40 3W kept as run even though the draw reduced to one well (pre-registered, reported); no detector tuning after the held-out seed; P6 last write stamped at the takeover instant counts as before it (same sim step).
 
