@@ -217,14 +217,15 @@ def _prepare_root(root: Path, cv_count: int) -> None:
 
 @contextmanager
 def ctl_rig(
-    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0, hook: str | None = None
+    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0, hook: str | None = None,
+    *, mode: engine.Mode = "supervised",
 ) -> Iterator[CtlRig]:
-    """RougherSim (with the full hook id ``hook``), supervised gateway, rule base, job."""
+    """RougherSim (with the full hook id ``hook``), gateway in ``mode``, rule base, job."""
     with rs_server(tmp / "server.log", hook, speed) as port:
         harness = Harness(plant_map_for(port), speed, allow_take_remote=True)
         try:
             harness.wait_ready()
-            gateway = engine.WriteGateway(harness, {TAG: POLICY}, "supervised")
+            gateway = engine.WriteGateway(harness, {TAG: POLICY}, mode)
             _prepare_root(tmp / "root", len(cvs))
             c = CtlRig(Rig(harness, gateway, tmp), tmp / "root", site_for(port, cvs))
             yield from _run_job(c)

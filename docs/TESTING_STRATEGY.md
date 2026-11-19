@@ -102,6 +102,13 @@ M5 scenarios and recording (Crosscut-format Parquet plus ground truth), M6 ABB O
 | P6 fuzzy closed loop | M7 | operator_actions, hardness_shift | proposals flow through the gateway in confirm then supervised; operator action always wins |
 | P7 MPC | after MVP | step_test, hardness_shift | MPC writes setpoints through the gateway in supervised mode and respects constraints |
 
+L5-P6 is ready with three cases in `p6_rows.py`, also parametrised in
+`test_l5_controller_rows.py`, using the pinned rs-v0.13.2
+`gw.hardness_shift_operator_override.v1` hook. They check confirmation before writes,
+bounded supervised moves, and operator AUTO/SP preservation during gateway hold-off.
+Assertions use live decisions, writes, read-back and controller records; no ground truth.
+See `L5_FINDINGS.md` for the validation result and environment limitations.
+
 ## L6 and L7: customer-run validation and pilot
 
 - **Customer-run validation kit:** a short guide for exporting data (tag list template, CSV format, time range),

@@ -7,6 +7,7 @@ absent or not at the pin. C02 uses the pv_fault hook of RougherSim 0.13.0.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from controller_rows import (
 )
 from gateway_rows import POLICY, TAG
 from golden import checkout_problem, load_pin, roughersim_dir
+from p6_rows import P6_CASES
 
 MOVE_TOL = 1e-9
 CYCLES_ON = 6
@@ -155,3 +157,12 @@ def test_c02_failed_only_cv_refuses_switch_on(tmp_path: Path, checkout: None) ->
 def test_c02_failed_only_cv_sheds(tmp_path: Path, checkout: None) -> None:
     """C02b: with only the failed CV the controller sheds (no_good_cv)."""
     c02_only_cv(tmp_path)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("case", P6_CASES, ids=[case.__name__ for case in P6_CASES])
+def test_p6_controller_row_on_roughersim(
+    case: Callable[[Path], None], tmp_path: Path, checkout: None
+) -> None:
+    """P6 confirm, supervised and operator-priority outcomes hold on the pinned simulator."""
+    case(tmp_path)
