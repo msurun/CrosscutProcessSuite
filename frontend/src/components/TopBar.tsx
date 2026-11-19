@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import type { ThemePreference } from "../useTheme";
+import { BrandMark } from "./BrandMark";
 
 /** The theme options in the order they are offered to the user. */
 const THEME_OPTIONS: readonly ThemePreference[] = ["system", "light", "dark"];
@@ -74,7 +75,10 @@ export function TopBar({
 
   return (
     <header className="top-bar">
-      <strong>{title}</strong>
+      <span className="brand">
+        <BrandMark />
+        <strong>{title}</strong>
+      </span>
 
       {onCatalogue && catalogueLabel && (
         <button

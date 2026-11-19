@@ -7,6 +7,7 @@ import type { Dispatch, FormEvent, ReactNode, RefObject, SetStateAction } from "
 import { ApiError, type LoginPayload } from "./authApi";
 import { useAuth } from "./AuthContext";
 import type { Translate } from "./findings";
+import { BrandMark } from "./components/BrandMark";
 
 export interface LoginPageProps {
   t: Translate;
@@ -190,9 +191,18 @@ function useLoginSubmitHandler(
   return { error, lockout, isSubmitting, executeSubmit };
 }
 
-function LoginPageLayout({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+interface LoginPageLayoutProps { title: string; subtitle: string; brand: string; tagline: string; children: ReactNode }
+
+function LoginPageLayout({ title, subtitle, brand, tagline, children }: LoginPageLayoutProps) {
   return (
     <div className="login-page-container" style={{ maxWidth: 400, width: "100%", margin: "40px auto", padding: 24, boxSizing: "border-box" }}>
+      <div className="login-brand">
+        <BrandMark size={40} />
+        <div>
+          <div className="login-brand-name">{brand}</div>
+          <div className="login-brand-tagline">{tagline}</div>
+        </div>
+      </div>
       <h1 style={{ marginTop: 0, marginBottom: 8 }}>{title}</h1>
       <p style={{ marginTop: 0, marginBottom: 20, color: "var(--color-muted, #666)" }}>{subtitle}</p>
       {children}
@@ -221,7 +231,7 @@ export function LoginPage({ t, onLoginSuccess }: LoginPageProps) {
   };
 
   return (
-    <LoginPageLayout title={t("auth.login.title")} subtitle={t("auth.login.subtitle")}>
+    <LoginPageLayout title={t("auth.login.title")} subtitle={t("auth.login.subtitle")} brand={t("app.name")} tagline={t("app.tagline")}>
       <LoginErrorSummary error={h.error} lockoutSeconds={h.lockout} errorRef={form.errorRef} t={t} />
       <LoginForm username={form.username} password={form.password} isPending={h.isSubmitting || h.lockout > 0} isSubmitting={h.isSubmitting} onSubmit={handleSubmit} onUsernameChange={form.setUsername} onPasswordChange={form.setPassword} t={t} />
     </LoginPageLayout>
