@@ -324,7 +324,16 @@ UX details and open questions live in `docs/design/fuzzy-studio.md`.
 
 **Ships today.** Nothing. There is a plan and a C++20 smoke test with a Python parity test.
 
-**Gap to product.** Identification from step tests (Steps view plus a generalised driver-response tool), an editable model matrix in the GUI, linear MPC with constraints (QP), C++ runtime per ADR 001, setpoint writes through the gateway in `supervised` mode.
+**Plan (accepted 2026-11-19, epic #163).** Design and decisions: `docs/design/mpc-design-note.md` sections 7-8. MPC is the second controller type on the APC core; v1 controls measured CVs only.
+
+| Stage | Scope | Exit criterion |
+|---|---|---|
+| 7.0 Test beds | Wood-Berry 2x2 for development; RougherSim M9 grinding circuit (MIMO, live ore-hardness DV, ground-truth gain matrix) for validation | Step responses match the ground truth |
+| 7.1 Identification | Multi-MV step-test planner as `confirm` proposals; per-pair MIMO fit with quality gate; `ident_model` artifact; GUI model-matrix editor | Identified gains inside the ground-truth confidence interval |
+| 7.2 Engine | Python reference (steady-state target and dynamic QP, OSQP); GUI pre-commissioning simulator against the current PID | L1 tests on known plants, infeasible QP, saturated MV |
+| 7.3 Runtime | `controller.type = mpc`, advisory -> confirm -> supervised, bumpless start, console with predictions and active constraints | L5 rows on RougherSim |
+| 7.4 C++ core | ADR 001 core with parity test | Parity; solve time below 10 % of the cycle |
+| 7.5 Validation | Frozen protocol: MPC versus well-tuned PID and fuzzy under the same constraints | Repeatable advantage, or a reported miss |
 
 **Phase.** 7.
 
@@ -334,7 +343,14 @@ UX details and open questions live in `docs/design/fuzzy-studio.md`.
 
 **Ships today.** Nothing. The only "ML" in the repository is PLS and PCA.
 
-**Gap to product.** Public historian datasets, a checkable confounding analysis, and user-configured economic value per PV unit and limits (decision 2026-11-17, #35). Plan of work to be proposed by the assistant and accepted by the owner.
+**Plan (accepted 2026-11-19, epic #164).** Design: `docs/design/dml-operating-range-note.md`.
+
+| Stage | Scope | Exit criterion |
+|---|---|---|
+| 8.1 Economic layer | Objective in the MPC steady-state target from per-site values and limits; GUI objective editor, benefit report | Higher value than setpoint-tracking MPC on RougherSim, no constraint violations |
+| 8.2 Model registry | Versions (Phase PL), drift and model-mismatch monitoring for soft-sensor, anomaly and MPC models; retrain recommendation; GUI Models view | Degradation flagged within a frozen lead time |
+| 8.3 Operating range | Descriptive envelope per mode, then DML with overlap, sensitivity and refusal outside the data; GUI question builder | Seven RougherSim cases including the expected hidden-confounder failure |
+| 8.4 RTO | Steady-state flowsheet optimisation | Later; out of v1 |
 
 **Phase.** 8.
 
@@ -371,6 +387,7 @@ Every phase has a short detailed plan before its start and its own gates: `ruff`
 
 | Phase | Goal | Exit criteria |
 |---|---|---|
+| **Phase PG** — Console navigation (owner decision 2026-11-19, first in the plan) | Grouped 9-item menu, Overview start page, global status bar with approval queue, role-based menu, loop data in the catalogue, endpoints without a GUI resolved (`docs/design/screens.md`, #172-#177) | Every implemented feature reachable from the grouped menu; old routes redirect; e2e and axe green at 1280 and 390 px |
 | **Phase 0** — Cleanup, no new features | This document replaces PROJECT_DESIGN. ADR 012 replaces the no-write position. Guard tests change meaning. `docs/archive/` for one-off plans and documents. `tools/` marked for absorption. Anti-drift rule in `CLAUDE.md`. GitHub milestones 0–8, with Phase 4 split into 4a and 4b. Closed experiment lines (stiction, ACF, idle) are **not** moved; `experiments/README.md` indexes their status | All gates green after moves. No dead links in docs. `git mv` preserves history |
 | **Phase 1** — Online foundation | One connector interface (browse, metadata, history, live, write-through-gateway only). Project catalogue plus GUI editor. Runtime as an on-prem service. Generic configuration editor generated from `schemas/*.schema.json` | Simulated OPC UA server → catalogue built in the GUI → runtime computes live loop KPI and shows it in the console. No file edited by hand (e2e test) |
 | **Phase 1a** — DCS simulator | See section 6 | Simulator runs as OPC UA server in ABB profile. Phase 1 Crosscut connects, builds the catalogue, computes live KPI. Mass balance closes (test). Loop step responses match ground truth |
@@ -388,6 +405,43 @@ Every phase has a short detailed plan before its start and its own gates: `ruff`
 subscription and collector acquisition use connector adapters without changing their dataset
 contracts. CSV history applies UTC bounds `[start, end)` and last-value sampling per requested
 period for both layouts. See [Read connectors](CONNECTORS.md) for policy and compatibility details.
+
+**Order of work (owner decision 2026-11-19).** Phase PG -> Phase 3 release items -> Phase PL -> Phase 7 (MPC) -> Phase 8.1 (economic layer) -> Phase 4a presets, Phase 8.2-8.3, Phase 4b, Phase 6. The phase numbers stay as names; this order replaces the numeric order. MPC v1 does not wait for Phase 4a because it controls measured CVs only.
+
+**Phase PL - Platform lifecycle and deployment (added 2026-11-19, milestone "PL").** Runs after the
+Phase 3 release items and before the Phase 4a presets: versioned catalogue and models with diff,
+publish and approval (#165), dependency invalidation (#166), backup and restore without history
+(#167), Windows installer (#168), Docker Compose (#169), observability in the GUI (#170). Exit
+criterion: a configuration change is versioned, approved where required, reversible and restorable
+on a fresh installation without a shell.
+
+### 7.1 Feature status matrix (2026-11-19)
+
+Four statuses per feature, kept apart on purpose: **Built** (code on main), **Evidence** (what
+proves it works, and where), **GUI** (an engineer can do it without editing a file), **Deploy**
+(ready for a site). "Sim" means RougherSim or `sim/` only, not a plant claim. Update this table in
+the same PR that changes one of its rows.
+
+| Feature | Built | Evidence | GUI | Deploy | Open issues |
+|---|---|---|---|---|---|
+| Console navigation (grouped menu, start page, status bar) | no (15 flat tabs) | - | - | - | #172-#177 |
+| Read connectors (CSV, SQL/ODBC, PI Web API, OPC UA) | yes | recorded fixtures, sim | yes | no real-source test | #32 |
+| Project catalogue | partly | e2e | editor and wizard; no versions, CSV bulk, mode proposals | no | #144, #145, #165, #166 |
+| Operating modes used by modules | stored only | - | edit only | no | #146 |
+| Loop KPI online | yes | L5-P1 live (catalogue built in code) | view yes, build path not proven | no | #151, #146 |
+| Worklist and diagnosis | partly | exp37 descriptive only | yes | no | #149, #150, #152 |
+| Identification and tuning report | yes | exp33 5/7 met, exp34 K1-K4 | yes | no | #147, #148 |
+| PID write in confirm, KPI check, rollback | yes | sim (ADR 014, L5) | yes | no real DCS | #151 |
+| Valve stroke and OUT tests in MAN | yes | sim; exp35 inconclusive | yes | no | #84 |
+| Write Gateway (modes, policy, audit, kill switch) | yes | sim, 12 scenarios | yes | no real DCS | #153 |
+| APC core and fuzzy controller | yes | L5 C rows, L5-P6 3/3 in sim | yes | no | - |
+| Strategy Canvas | no | - | no | no | #162 |
+| Soft sensor (PLS, reference input, backup in engine) | partly, offline | exp39: loses to lab persistence | generated form | no runtime job | #154-#159 |
+| Anomaly (PCA, stuck, regimes) online | yes | exp40 missed, exp41 D2 only | yes | no | #160, #146 |
+| Asset templates and predictive maintenance | no | - | no | no | #161 |
+| MPC | no (design accepted) | - | no | no | #163, #178-#186 |
+| Economic layer and ML | no (design accepted) | - | no | no | #164, #187-#191 |
+| Config lifecycle, backup, installers, observability | no (systemd unit only) | - | no | no | #165-#170 |
 
 ## 8. Evidence discipline and claim limits
 
@@ -423,6 +477,22 @@ Enforced for every task, and written into the repository `CLAUDE.md` in Phase 0:
 | 11 | **2026-11-17:** Deferred to Phase 4b: v1 asset templates are those marked in section 4.3; validation uses public data. | See decision |
 
 Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. Plant data from the owner's site is not used for development or validation. Validation uses public datasets; site facts (tunings, sample metadata, vendor conventions, economic values) are per-site configuration entered by the user. Check the licence before use and add a row to `docs/PROVENANCE.md`; download to a scratch folder outside the repository; never commit or redistribute data. CC BY-SA and unlicensed datasets are used locally only; no derived data is published.
+
+### Owner decisions - 2026-11-19
+
+| # | Decision (2026-11-19) | Follow-up |
+|---|---|---|
+| 1 | Deployment ships both a Windows installer (services and console) and Docker Compose for Linux on-prem. | #168, #169 |
+| 2 | Publishing a new catalogue or model version needs a second person (controls engineer) only when the change touches loops or controller variables with active writes; otherwise one engineer publishes. | #165 |
+| 3 | Backup and restore cover configuration, models, policies, users and audit, not the Parquet history; history stays in the source historian. | #167 |
+| 4 | Phase PL (platform lifecycle and deployment) is added between the Phase 3 release items and the Phase 4a presets. | section 7 |
+| 5 | Phase PG (console navigation) is the first step of the plan; Advisor moves under Fuzzy, Steps and Tuning proposals under Loops, Catalogue/Import/Onboarding under Site, Runtime/Gateway/Users under Administration. | #172-#177 |
+| 6 | Order of work: PG, Phase 3 release, PL, Phase 7 MPC, Phase 8.1, then 4a presets, 8.2-8.3, 4b, 6. | section 7 |
+| 7 | MPC test beds: Wood-Berry (development) and RougherSim grinding circuit (validation); v1 measured CVs only. | #178, RougherSim M9 |
+| 8 | MPC model refresh is started by the engineer from the GUI on a model-mismatch recommendation; `supervised` allowed, enabled by the controls engineer. | #184 |
+| 9 | MPC defaults: cycle 30-60 s, `Np` = settling time / cycle, `Nc` 5-10; infeasible plan relaxes CVs by priority, holds MVs, sheds after 3 cycles. | #182 |
+| 10 | QP solver OSQP (Apache-2.0) in Python and C++. | #182, #185 |
+| 11 | DML: the user picks `T`, `Y` and `X` in a GUI question builder; the objective stays per-site configuration. | #190 |
 
 ## 11. Document map
 

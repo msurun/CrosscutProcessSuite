@@ -1,6 +1,6 @@
-# Handoff (updated 2026-11-18 late): unattended plan of 2026-11-18 done
+# Handoff (updated 2026-11-19): plan accepted - PG navigation first, then P3, PL, MPC, P8.1
 
-> **Next session:** pick from "Open after the 2026-11-18 plan" below; the plan file `docs/handoff-2026-11-18-unattended-plan.md` is closed.
+> **Next session:** order of work is in `docs/PRODUCT.md` section 7 ("Order of work"). Start with milestone PG (#172-#177, grouped navigation first, target in `docs/design/screens.md`), then P3 (#147-#152, #151 is the no-code acceptance test), then PL (#165-#170), then P7 MPC (#178-#186, design `docs/design/mpc-design-note.md` sections 7-8) and P8.1 (#187). Phase 4a presets wait for #154 and RougherSim M8. Nightly L5 (`nightly-l5.yml`) runs; the older note that L5 rows skip in CI is history.
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`, then this file, then `docs/IMPLEMENTATION_LOG.md` (entries 2026-11-17..18).
 
