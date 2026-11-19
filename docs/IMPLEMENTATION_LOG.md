@@ -1125,3 +1125,9 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - Added PRODUCT 7.1 feature status matrix (Built / Evidence / GUI / Deploy) and Phase PL; owner decisions 2026-11-19 in section 10 (both Windows installer and Docker Compose; second-person approval only for changes touching loops or controller variables with active writes; backup without history).
 - Opened #144-#170 (gaps of P1, P2, P3, P4a, anomaly gate, epics P4b/P6/P7/P8, milestone PL) and RougherSim M8 #15-#20. Board card #79 moved to Done.
 - Noted: L5-P1 (`tests/integration_roughersim/p1_live.py`) builds the catalogue in code, so the no-code exit criterion is not proven yet (#151). exp39 PLS loses to lab persistence (#154) and gates the presets.
+
+## 2026-11-19 - Plan accepted: console navigation first, MPC and ML stages (docs only)
+
+- Owner accepted the plan: Phase PG (console navigation, #172-#177) first, then the Phase 3 release, Phase PL, Phase 7 MPC (#178-#186), Phase 8.1 economic layer, then 4a presets, 8.2-8.3, 4b, 6. PRODUCT 4.5, 4.6, 7 and 10 updated; MPC and DML design notes carry the decisions and stages; `docs/design/screens.md` has the target navigation.
+- GUI review: 122 API routes, 7 without a frontend caller (#177); 15 flat tabs not recognised as a menu by the owner; loop data saved to project.json instead of the catalogue (#176).
+- RougherSim M9 (#22-#24) for the MPC test bed.

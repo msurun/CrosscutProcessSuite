@@ -1,10 +1,11 @@
 # MPC design note (Phase 7)
 
-Status: design only. Nothing is implemented. Module: MPC (PRODUCT.md section 4.5). Builds on ADR 001
+Status: design accepted 2026-11-19; implementation planned in Phase 7 stages 7.0-7.5 (section 8). Nothing is
+implemented yet. Module: MPC (PRODUCT.md section 4.5). Builds on ADR 001
 (language split), ADR 011 (write path), ADR 015 (APC core) and ADR 016 (setpoint handover).
 
-The design is **blocked on ADR 011**: no MPC may write a setpoint until the Write Gateway safety suite passes
-and the owner has run a supervised site test. The safety rules of ADR 011 stay in force.
+Writes go only through the Write Gateway (ADR 012, built with ADR 013-017) under its policy and mode ladder.
+The safety rules of ADR 011 stay in force.
 
 ## 1. Aim and position in the product
 
@@ -62,13 +63,10 @@ The model is an artifact, not a hand-edited table. It is produced offline and re
 A quality variable can only be a CV when a validated inferential model exists and is stored as an artifact.
 That model does not exist.
 
-- On four weeks of plant-1 data a process-only soft sensor had a negative blocked-CV R2 at every alignment.
-  An analyser used as an input worked (CV R2 0.76 for Cu), but exp31 was not blind.
-- The lab stamp meaning and the analyser delay are still open (ASSUMPTIONS A20). Without them the sample cannot
-  be aligned with the process tags.
-- Therefore an MPC with a quality CV cannot be commissioned now. The design keeps the ICV role and the model
-  path, but validation fails visibly when the quality model is absent.
-- A first MPC may control measured CVs only. That is a scope choice for the owner (section 7).
+- Owner decision 2026-11-17 excludes owner-site data from development and validation.
+- Quality CVs wait for the soft-sensor gate (exp39 lost to lab persistence, #154) and Phase 4a.
+- Decision 2026-11-19: MPC v1 controls measured CVs only. The ICV role and model path stay in the design;
+  validation fails visibly when a quality model is absent.
 
 ## 3. Controller structure
 
@@ -160,16 +158,26 @@ core contains only the `Fopdt` smoke test with a pybind11 parity test.
   in `standby`, and the operator console switches the controller on and off.
 - No plant claim. A pilot is Phase 7 work under the owner's agreement.
 
-## 7. Open owner decisions
+## 7. Owner decisions (2026-11-19)
 
-| # | Decision | Blocks |
+| # | Question | Decision |
 |---|---|---|
-| 1 | Whether the first customer needs MPC at all (also in `docs/OWNER_TASKS.md`) | the whole phase |
-| 2 | The first unit and its CV, MV and DV list | model identification |
-| 3 | The quality variable, and whether lab or analyser data with stamp and delay will be supplied | any quality CV (ICV) |
-| 4 | Whether v1 may control measured CVs only, with quality left to the operator | scope of the first controller |
-| 5 | Who runs the step tests and owns model refresh, and how often a model is re-identified | model lifecycle |
-| 6 | Whether MPC setpoint writes are allowed in `supervised`, and who may enable that mode | Phase 7 exit |
-| 7 | Default horizons, cycle period and the accepted overrun and shed behaviour | controller configuration |
-| 8 | Infeasible plan: hold the last MV position or shed, and after how many cycles | safety behaviour |
-| 9 | QP solver: own code or a third-party library, and its licence | C++ core delivery |
+| 1 | Is MPC built at all | Yes: Phase 7, after Phase PG (console navigation), the Phase 3 release and Phase PL |
+| 2 | First unit and its CV, MV and DV list | Wood-Berry 2x2 for development; RougherSim grinding circuit (M9) for validation; no site unit |
+| 3, 4 | Quality CV and v1 scope | v1 controls measured CVs only; ICV after #154 and Phase 4a |
+| 5 | Model refresh | The engineer starts re-identification from the GUI; the system recommends it when a model-mismatch index exceeds a threshold |
+| 6 | `supervised` for MPC | Allowed; enabled by the controls-engineer role (ADR 013) |
+| 7 | Defaults | Cycle 30-60 s, `Np` = settling time / cycle, `Nc` 5-10; overrun shed as the host (5 in a row) |
+| 8 | Infeasible plan | Relax CVs by priority, then hold the MVs, shed to base control after 3 cycles |
+| 9 | QP solver | OSQP (Apache-2.0, compatible with AGPL-3.0) in Python and C++; PROVENANCE and licence row before use |
+
+## 8. Implementation stages (2026-11-19)
+
+| Stage | Scope | Exit criterion | Issue |
+|---|---|---|---|
+| 7.0 Test beds | Wood-Berry 2x2 (`crosscut_opcua`) for development; RougherSim M9 grinding circuit as MIMO with live ore-hardness DV and a ground-truth gain matrix | Step responses match the ground truth | #178, RougherSim #22-#24 |
+| 7.1 Identification | Multi-MV test planner (bounded SP steps or GBN as `confirm` proposals, like ADR 017); per-pair step-response or FIR fit with the per-pair gate; `ident_model` artifact (ADR 004); GUI model-matrix editor with audited gain override | Identified gains inside the ground-truth confidence interval on both beds | #179-#181 |
+| 7.2 Engine | Python reference: steady-state target and dynamic QP, output bias, CV funnels, priority relaxation, OSQP; GUI pre-commissioning simulator (MPC versus current PID on the model) | L1: known linear plants, infeasible QP, saturated MV | #182, #183 |
+| 7.3 Runtime | `controller.type = mpc`, host per ADR 015, advisory -> confirm -> supervised, bumpless start (#153); console with CV/MV limits, predictions, active constraints, why no move | L5 rows of section 6 on RougherSim | #184 |
+| 7.4 C++ core | C++20 per ADR 001 with parity test, deterministic iteration cap | Parity within tolerance; solve time below 10 % of the cycle | #185 |
+| 7.5 Validation | Frozen-protocol experiment: MPC versus well-tuned PID and versus fuzzy under the same constraints | Repeatable advantage in CV variance, constraint violations and distance to the active constraint; a miss is reported | #186 |

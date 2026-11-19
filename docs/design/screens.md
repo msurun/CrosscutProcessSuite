@@ -22,12 +22,30 @@ become a requirement.
 
 ## Navigation map
 
-```
-Data Studio (datasets) -> Trend viewer (any tags)
-                      \-> Loop overview -> Loop detail -> Tuning report -> Benefit report
-```
+Target accepted by the owner on 2026-11-19 (Phase PG, issues #172-#177). The console had 15 flat top-level
+tabs that mixed analysis modules, configuration steps and infrastructure. The sketches below (S1-S6) are the
+2026-10-11 originals and keep their content; their place in the menu follows this map.
 
-Left rail (icons + labels): Datasets, Trends, Loops, Reports. Top bar: dataset name, time range, `READ-ONLY`.
+| Menu item | Contents | Main role |
+|---|---|---|
+| 1 Overview | Start page: site status, worklist shortcut, alarms and anomaly findings, controller states | operator, engineer |
+| 2 Trends | Any tags | all |
+| 3 Loops | List, then per loop: Detail, Steps, Tuning, Valve, Benefit; a cross-loop Tuning proposals list (former top-level Steps and Tuning tabs) | engineer, operator |
+| 4 Anomalies | Models, scans, events | engineer |
+| 5 Soft sensors | Configuration, fit, backup | engineer |
+| 6 Fuzzy | Studio (variables, rules, replay, backtest) and Advisor (former top-level Advisory tab) | engineer |
+| 7 Controllers | APC console shared by all controller types; MPC models later | operator, controls engineer |
+| 8 Site | Catalogue, Data import, Readiness (former Catalogue, Import and Onboarding tabs); the duplicate Catalogue link in the header goes | process engineer |
+| 9 Administration | Write Gateway (policy, kill switch, audit), Runtime, Users | controls engineer, admin |
+
+- **Global status bar** on every page: gateway mode, kill switch state, number of write proposals waiting for
+  approval (opens the approval queue), runtime state, active alarms.
+- **Role-based menu** following the existing permissions (ADR 013): an operator sees Overview, Trends, Loops,
+  Controllers and the approval queue by default; Site and Administration are for engineers and controls
+  engineers.
+- The menu looks like navigation, nothing is clipped at 1280 px and it works at 390 px. Old hash routes redirect
+  to the new ones, so bookmarks and e2e specs keep working.
+- The start page is Overview, never an empty Trends view.
 
 ## S1. Datasets (entry screen)
 

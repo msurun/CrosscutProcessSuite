@@ -1,7 +1,7 @@
 # DML operating-range note (Phase 8)
 
-Status: design note. Nothing is implemented. Module: ML operating-range recommendation
-(PRODUCT.md section 4.6), Phase 8.
+Status: design accepted 2026-11-19 as stage 8.3 of Phase 8 (PRODUCT.md section 4.6). Nothing is implemented
+yet. Module: ML operating-range recommendation.
 
 DML here means double/debiased machine learning: estimate a low-dimensional causal effect while flexible
 learners adjust for observed confounders. The method is described in Chernozhukov, Chetverikov, Demirer,
@@ -36,7 +36,7 @@ observed data may sit at the edge of the data.
 
 ## 2. Blockers and owner decisions
 
-### **OPEN OWNER DECISION: objective**
+### Objective (decided 2026-11-17, #35: per-site configuration entered by the user)
 
 - What is maximised or minimised: grade, recovery, throughput, energy per tonne, or money.
 - The unit and the value per unit.
@@ -45,7 +45,7 @@ observed data may sit at the edge of the data.
 
 Without this there is no "best range". The same data can recommend opposite moves for two objectives.
 
-### **OPEN OWNER DECISION: data**
+### Data (decided 2026-11-17: owner-site data excluded; RougherSim ground truth and public datasets with a licence check and a row in `docs/PROVENANCE.md`)
 
 - Real historian data: tags, units, ranges, quality codes, missing-value codes and operating modes.
 - Lab or analyser results with the stamp meaning, composite window and analyser delay (ASSUMPTIONS A20).
@@ -53,12 +53,12 @@ Without this there is no "best range". The same data can recommend opposite move
   effect and the ore effect cannot be separated.
 - Permission to use the data. Plant data stays outside the repository (PRODUCT.md section 8).
 
-Until both decisions are written down, no estimate can be called a result.
+Per site, the user enters the objective items above in the GUI; without them the product shows effect estimates only, never a recommended range.
 
-### **OPEN OWNER DECISION: treatment, outcome and confounders**
+### Treatment, outcome and confounders (decided 2026-11-19)
 
-The owner and the process engineer must name `T`, `Y` and the confounders `X` before any analysis. A data
-search may propose candidates, but the choice is a process decision, not a statistical one.
+The user selects `T`, `Y` and the confounders `X` from the site catalogue in a GUI question builder before any
+analysis. The engine may propose candidates, but the choice is a process decision, not a statistical one.
 
 ## 3. Causal assumptions
 
@@ -130,10 +130,21 @@ confounder is ours, so a simulator pass is not a plant claim.
 
 ## 6. Work items before coding
 
-1. Owner writes the objective, limits and value per unit (**OPEN OWNER DECISION**).
-2. Owner supplies historian and lab data with the stamp and delay (**OPEN OWNER DECISION**).
-3. Name `T`, `Y` and `X` with the process engineer (**OPEN OWNER DECISION**).
+1. Objective, limits and value per unit: per-site configuration in the GUI (decided).
+2. Data: RougherSim ground truth and public datasets (decided); a site supplies its own historian data.
+3. `T`, `Y` and `X`: chosen by the user in the question builder (decided).
 4. Write the protocol: assumptions, estimator, cross-fitting blocks, placebo and sensitivity tests, pass
    criteria. Freeze it before the first run.
 5. Build the RougherSim ground-truth cases in section 4 and run them once on unused seeds.
 6. Only then add a report view. No GUI work before the estimator passes its frozen protocol.
+
+## 7. Place in Phase 8 (2026-11-19)
+
+| Stage | Scope | Exit criterion |
+|---|---|---|
+| 8.1 Economic layer | Objective in the MPC steady-state target (value per CV unit, MV cost, limits); GUI objective editor and benefit report | On RougherSim the economic MPC yields higher value than setpoint-tracking MPC without constraint violations |
+| 8.2 Model registry | Shared by soft sensors, anomaly models and MPC models; versions from Phase PL; drift and model-mismatch monitoring; retrain recommendation; GUI "Models" view | A model degradation on RougherSim (ore change) is flagged within the lead time of a frozen protocol |
+| 8.3 Operating-range recommendation (this note) | First a descriptive best-operating envelope per operating mode (conditional quantiles), then DML with blocked cross-fitting, overlap map, sensitivity statement and refusal outside the observed range | The seven RougherSim cases of section 4, including the expected failure with a hidden confounder |
+| 8.4 RTO | Steady-state flowsheet optimisation, e.g. on a RougherSim surrogate | Later; out of v1 |
+
+Issues: #187-#191 (epic #164).
