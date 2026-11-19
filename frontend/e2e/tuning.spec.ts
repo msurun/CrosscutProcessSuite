@@ -73,6 +73,7 @@ async function openFirst(page: Page) {
 test("the Tuning tab opens the proposals view with the detail of a proposal", async ({ page }) => {
   await mockApi(page, [proposal("p1")]);
   await page.goto(`/#/d/${DATASET}/trends`);
+  await page.locator("nav.main-nav button").filter({ hasText: /^Pętle$/ }).click();
   await page.locator("nav.view-tabs button").filter({ hasText: /Nastawy/ }).click();
   await expect(page.getByTestId("tuning-proposals-page")).toBeVisible({ timeout: 30_000 });
   await openFirst(page);

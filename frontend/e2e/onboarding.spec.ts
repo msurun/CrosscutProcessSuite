@@ -31,6 +31,7 @@ test("renders onboarding view with overall verdict and module checklist", async 
 
 test("navigating via view tabs reaches onboarding view", async ({ page }) => {
   await page.goto(`/#/d/${DATASET}/trends`);
+  await page.locator("nav.main-nav").getByRole("button", { name: /Instalacja|Site|Planta/ }).click();
   const onboardingTab = page.locator("nav.view-tabs").getByRole("button", { name: /Wdrożenie|Onboarding|Incorporación/ });
   await expect(onboardingTab).toBeVisible();
   await onboardingTab.click();

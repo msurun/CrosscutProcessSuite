@@ -1799,5 +1799,10 @@
   "soft.backup.reason.frozen": "frozen value",
   "soft.backup.reason.out_of_range": "out of range",
   "soft.backup.reason.analyser_flag": "analyser flag",
-  "soft.backup.reason.measurement_valid": "measurement valid again"
+  "soft.backup.reason.measurement_valid": "measurement valid again",
+  "nav.main": "Main menu",
+  "nav.group.loops": "Loops",
+  "nav.group.fuzzy": "Fuzzy",
+  "nav.group.site": "Site",
+  "nav.group.admin": "Administration"
 }

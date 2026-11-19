@@ -67,13 +67,13 @@ test("renders site catalogue form, displays fields, and allows saving", async ({
   expect(errors).toEqual([]);
 });
 
-test("navigating via TopBar catalogue button reaches catalogue view", async ({ page }) => {
+test("navigating via the Site menu group reaches catalogue view", async ({ page }) => {
   await page.goto(`/#/d/${DATASET}/trends`);
-  await expect(page.locator("nav.view-tabs").getByRole("button", { name: /Trendy|Trends/ })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("nav.main-nav").getByRole("button", { name: /Trendy|Trends/ })).toHaveAttribute("aria-current", "page");
 
-  const topBarButton = page.locator("header.top-bar").getByRole("button", { name: /Katalog|Catalogue/ });
-  await expect(topBarButton).toBeVisible();
-  await topBarButton.click();
+  const siteGroup = page.locator("nav.main-nav").getByRole("button", { name: /Instalacja|Site|Planta/ });
+  await expect(siteGroup).toBeVisible();
+  await siteGroup.click();
 
   await expect(page.locator("nav.view-tabs").getByRole("button", { name: /Katalog|Catalogue/ })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: /Konfiguracja|Configuration/ })).toBeVisible({ timeout: 30_000 });
