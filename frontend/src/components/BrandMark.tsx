@@ -4,13 +4,18 @@
  * Pure SVG, coloured by theme tokens so it works in light and dark mode.
  */
 
-/** Step response y = 11 + 9·e^(-3.4t)·cos(2π·1.55t), sampled on a 24-unit grid. */
+/** Underdamped step response y = 12 + 9·e^(-2t)·cos(2π·2.4t), on a 24-unit grid. */
 const RESPONSE_PATH =
-  "M2.5 20 L3 18.9 L3.6 17.4 L4.1 15.7 L4.6 13.9 L5.1 12.2 L5.7 10.7 L6.2 9.5 " +
-  "L6.7 8.6 L7.2 8.1 L7.8 7.8 L8.3 7.9 L8.8 8.1 L9.4 8.5 L9.9 9.1 L10.4 9.7 " +
-  "L10.9 10.3 L11.5 10.8 L12 11.3 L12.5 11.6 L13.1 11.9 L13.6 12 L14.1 12.1 " +
-  "L14.6 12 L15.2 11.9 L15.7 11.8 L16.2 11.6 L16.8 11.4 L17.3 11.2 L17.8 11 " +
-  "L18.3 10.9 L18.9 10.8 L19.4 10.7 L19.9 10.6 L20.4 10.6 L21 10.7 L21.5 10.7";
+  "M2 21 L2.33 20.43 L2.67 19.38 L3 17.94 L3.33 16.22 L3.67 14.35 L4 12.46 " +
+  "L4.33 10.66 L4.67 9.06 L5 7.75 L5.33 6.78 L5.67 6.20 L6 6.01 L6.33 6.21 " +
+  "L6.67 6.75 L7 7.58 L7.33 8.63 L7.67 9.83 L8 11.07 L8.33 12.30 L8.67 13.43 " +
+  "L9 14.39 L9.33 15.15 L9.67 15.66 L10 15.92 L10.33 15.91 L10.67 15.66 " +
+  "L11 15.21 L11.33 14.58 L11.67 13.83 L12 13.02 L12.33 12.20 L12.67 11.42 " +
+  "L13 10.72 L13.33 10.15 L13.67 9.73 L14 9.48 L14.33 9.40 L14.67 9.48 " +
+  "L15 9.72 L15.33 10.08 L15.67 10.54 L16 11.06 L16.33 11.60 L16.67 12.13 " +
+  "L17 12.62 L17.33 13.04 L17.67 13.37 L18 13.59 L18.33 13.70 L18.67 13.70 " +
+  "L19 13.59 L19.33 13.39 L19.67 13.12 L20 12.80 L20.33 12.44 L20.67 12.09 " +
+  "L21 11.75 L21.33 11.45 L21.67 11.20 L22 11.01";
 
 export interface BrandMarkProps {
   /** Rendered width and height in pixels. */
@@ -33,8 +38,8 @@ export function BrandMark({ size = 24 }: BrandMarkProps) {
       aria-hidden="true"
       focusable="false"
     >
-      <line x1="2" y1="11" x2="22" y2="11" stroke="var(--text-muted)" strokeWidth="1.25" strokeDasharray="2.5 2" />
-      <path d={RESPONSE_PATH} stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="2" y1="12" x2="22" y2="12" stroke="var(--text-muted)" strokeWidth="1.25" strokeDasharray="2.5 2" />
+      <path d={RESPONSE_PATH} stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
