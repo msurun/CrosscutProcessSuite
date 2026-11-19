@@ -59,6 +59,7 @@ describe("TrendsPage", () => {
     expect(screen.getByText("trends.readoutNone")).toBeTruthy();
     fireEvent.click(screen.getByText("cursor-a"));
     expect(screen.getAllByText(/20\.00|20,00/)).toHaveLength(2);
-    expect(screen.queryByText("trends.readoutNone")).toBeNull();
+    // The hint keeps its space (no layout shift that would offset the crosshair) but is hidden.
+    expect(screen.getByText("trends.readoutNone").style.visibility).toBe("hidden");
   });
 });
