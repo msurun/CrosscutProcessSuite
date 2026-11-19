@@ -21,6 +21,7 @@ from crosscut_connectors.base import Snapshot
 from crosscut_connectors.opcua_connector import OpcUaConnector
 from crosscut_gateway import engine
 from crosscut_gateway.interfaces import WriteDecision, WriteProposal
+from crosscut_gateway.liveness import KIND_RUNTIME, Beat
 from crosscut_runtime.controllers.commands import enqueue_command
 from crosscut_runtime.controllers.protocol import Move
 from crosscut_runtime.controllers.wiring import ControllerJob, build_controller_job
@@ -129,6 +130,7 @@ class CtlRig:
     decisions: list[WriteDecision] = field(default_factory=list)
     seen: list[tuple[float, float]] = field(default_factory=list)  # (sp_seen, proposed)
     job: ControllerJob | None = None
+    _runtime_beats: int = 0
 
     def _ports(
         self, root: Path, controller_id: str, now_ns: Callable[[], int], targets: frozenset[str]
@@ -146,6 +148,19 @@ class CtlRig:
         self.seen.append((sp_seen, move.value))
         self.decisions.append(self.rig.gw.propose(proposal))
 
+    def _beats(self, root: Path, controller_id: str, kind: str) -> Callable[..., None]:
+        """Beat-sender factory of the runtime wiring: each cycle beat goes straight to the gateway
+        (the signed mailbox of production is replaced in-process; since ADR 015 the gateway
+        refuses a controller proposal without a fresh beat)."""
+        del root, controller_id, kind
+
+        def send(kind: str, sender: str, state: str, count: int, cycle_s: float,
+                 cycles: int, targets: Sequence[str]) -> None:
+            beat = Beat(kind, sender, state, count, cycle_s, cycles, tuple(targets))
+            self.rig.gw.record_beat(beat)
+
+        return send
+
     def _connector(self, source: dict[str, Any]) -> RecordingConnector:
         """Connector factory of the runtime wiring."""
         connector = RecordingConnector(source["endpoint"])
@@ -155,7 +170,7 @@ class CtlRig:
     def start_job(self) -> ControllerJob:
         """Build a new job (a new host: its record is restored from disk)."""
         job = {"controller": CONTROLLER_ID, "source": SOURCE}
-        deps = (self._connector, self._ports)
+        deps = (self._connector, self._ports, self._beats)
         self.job = build_controller_job(job, self.site, self.root, deps)
         return self.job
 
@@ -164,8 +179,15 @@ class CtlRig:
         assert self.job is not None
         self.rig.step()
         self.rig.tick()
+        self.runtime_beat()
         record: dict[str, Any] = self.job.run()["controller"]
         return record
+
+    def runtime_beat(self) -> None:
+        """The runtime-process beat the service sends every cycle (ADR 015: writes need both)."""
+        self._runtime_beats += 1
+        beat = Beat(KIND_RUNTIME, "runtime", "on", self._runtime_beats, CYCLE_S, 3)
+        self.rig.gw.record_beat(beat)
 
     def operator_manual(self) -> None:
         """An operator puts the base loop FIC203 into manual (mode node written over OPC UA)."""
@@ -195,14 +217,15 @@ def _prepare_root(root: Path, cv_count: int) -> None:
 
 @contextmanager
 def ctl_rig(
-    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0, hook: str | None = None
+    tmp: Path, cvs: Sequence[str] = (CV_A,), speed: float = 20.0, hook: str | None = None,
+    *, mode: engine.Mode = "supervised",
 ) -> Iterator[CtlRig]:
-    """RougherSim (with the full hook id ``hook``), supervised gateway, rule base, job."""
+    """RougherSim (with the full hook id ``hook``), gateway in ``mode``, rule base, job."""
     with rs_server(tmp / "server.log", hook, speed) as port:
         harness = Harness(plant_map_for(port), speed, allow_take_remote=True)
         try:
             harness.wait_ready()
-            gateway = engine.WriteGateway(harness, {TAG: POLICY}, "supervised")
+            gateway = engine.WriteGateway(harness, {TAG: POLICY}, mode)
             _prepare_root(tmp / "root", len(cvs))
             c = CtlRig(Rig(harness, gateway, tmp), tmp / "root", site_for(port, cvs))
             yield from _run_job(c)

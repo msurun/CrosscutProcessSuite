@@ -182,6 +182,7 @@ MATRIX: tuple[MatrixRow, ...] = (
             "proposals flow through the gateway in confirm then supervised; "
             "operator action always wins"
         ),
+        status="ready",
     ),
     MatrixRow(
         row_id="L5-P7",
@@ -272,3 +273,18 @@ EXECUTORS["L5-P3"] = _p3_executor
 EXECUTORS.update(
     {f"L5-G{n:02d}": _gateway_executor(ref) for n, (ref, _) in enumerate(GATEWAY_CASES, 1)}
 )
+
+
+def _p6_executor() -> None:
+    """Run all three P6 cases with isolated scratch directories."""
+    import tempfile
+    from pathlib import Path
+
+    from p6_rows import P6_CASES
+
+    for case in P6_CASES:
+        with tempfile.TemporaryDirectory() as tmp:
+            case(Path(tmp))
+
+
+EXECUTORS["L5-P6"] = _p6_executor
