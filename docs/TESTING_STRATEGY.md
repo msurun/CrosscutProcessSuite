@@ -107,7 +107,7 @@ L5-P6 is ready with three cases in `p6_rows.py`, also parametrised in
 `gw.hardness_shift_operator_override.v1` hook. They check confirmation before writes,
 bounded supervised moves, and operator AUTO/SP preservation during gateway hold-off.
 Assertions use live decisions, writes, read-back and controller records; no ground truth.
-See `L5_FINDINGS.md` for the validation result and environment limitations.
+Result 2026-11-18: 3 of 3 pass on the live server (`L5_FINDINGS.md`).
 
 ## L6 and L7: customer-run validation and pilot
 

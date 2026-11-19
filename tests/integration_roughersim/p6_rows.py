@@ -108,7 +108,8 @@ def p6_operator_wins(tmp: Path) -> None:
         assert (record["state"], record["reason"]) == ("shed", "mv_unavailable"), record
         assert any(entry["event"] == "operator_override"
                    for entry in controller.rig.gw.audit_records())
-        assert all(stamp < TAKEOVER_S * S for stamp, _, _ in _writes(controller))
+        # a write stamped at the takeover instant precedes it (same sim step); none may follow
+        assert all(stamp <= TAKEOVER_S * S for stamp, _, _ in _writes(controller))
         previous_writes = _writes(controller)
         hold_started_ns = controller.rig.clock_ns
         _assert_operator_preserved(controller)
