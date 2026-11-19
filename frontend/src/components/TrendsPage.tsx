@@ -76,7 +76,8 @@ function CursorReadout(props: { groups: UnitGroup[]; seconds: number | null; t: 
   return (
     <div role="group" aria-label={props.t("trends.readout")}>
       <p className="trend-readout-title">{props.t("trends.readout")}</p>
-      {props.seconds === null && <p className="status">{props.t("trends.readoutNone")}</p>}
+      {/* The hint keeps its space while hidden, so the charts below do not jump when the cursor enters a plot. */}
+      <p className="status" style={{ visibility: props.seconds === null ? "visible" : "hidden" }}>{props.t("trends.readoutNone")}</p>
       <ul className="trend-readout">
         {props.groups.flatMap((group) =>
           group.labels.map((label, index) => (
