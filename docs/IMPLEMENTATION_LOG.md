@@ -1134,5 +1134,5 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 
 ## 2026-11-20 - Console review: sources, loops, anomaly per loop (docs only)
 
-- Owner review of Trends, Loops and Anomalies. Decisions in PRODUCT section 10 (2026-11-20): analysis on catalogue sources and live loops instead of dataset copies; loop knowledge proposed from metadata and history; regex naming rules for loop discovery (#209 comment); anomaly detection per catalogue loop with learned normal operation and equipment condition variables (PRODUCT 4.3).
-- New issues: #201-#209 (sources, history, trend chart builder), #212 live loops, #213 automatic loop knowledge, #214-#216 per-loop anomaly. Trends crosshair fix in PR #211.
+- Owner review of Trends, Loops and Anomalies. Decisions in PRODUCT section 10 (2026-11-20): analysis on catalogue sources and live loops instead of dataset copies; loop knowledge proposed from metadata and history; regex naming rules for loop discovery (#209 comment); anomaly detection per equipment (loops and condition signals grouped by regex) with learned normal operation (PRODUCT 4.3).
+- New issues: #201-#209 (sources, history, trend chart builder), #212 live loops, #213 automatic loop knowledge, #214-#216 per-equipment anomaly. Trends crosshair fix in PR #211.
