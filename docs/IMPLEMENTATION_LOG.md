@@ -1131,3 +1131,8 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - Owner accepted the plan: Phase PG (console navigation, #172-#177) first, then the Phase 3 release, Phase PL, Phase 7 MPC (#178-#186), Phase 8.1 economic layer, then 4a presets, 8.2-8.3, 4b, 6. PRODUCT 4.5, 4.6, 7 and 10 updated; MPC and DML design notes carry the decisions and stages; `docs/design/screens.md` has the target navigation.
 - GUI review: 122 API routes, 7 without a frontend caller (#177); 15 flat tabs not recognised as a menu by the owner; loop data saved to project.json instead of the catalogue (#176).
 - RougherSim M9 (#22-#24) for the MPC test bed.
+
+## 2026-11-20 - Console review: sources, loops, anomaly per loop (docs only)
+
+- Owner review of Trends, Loops and Anomalies. Decisions in PRODUCT section 10 (2026-11-20): analysis on catalogue sources and live loops instead of dataset copies; loop knowledge proposed from metadata and history; regex naming rules for loop discovery (#209 comment); anomaly detection per equipment (loops and condition signals grouped by regex) with learned normal operation (PRODUCT 4.3).
+- New issues: #201-#209 (sources, history, trend chart builder), #212 live loops, #213 automatic loop knowledge, #214-#216 per-equipment anomaly. Trends crosshair fix in PR #211.
