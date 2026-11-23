@@ -245,6 +245,8 @@ Every estimate carries a quality status (good, uncertain, bad, mapped to OPC UA 
 | **Instrument health** | Is this transmitter frozen, drifting, noisy or out of calibration? | The tag itself, its redundant or virtual twin (4.2), loop behaviour (4.1) |
 | **Equipment health** (predictive maintenance) | Is this pump, conveyor, mill, motor or valve degrading, and how fast? | DCS and historian tags: power and current, bearing and winding temperatures, pressures, flow against speed, overall vibration values imported as tags |
 
+**Primary unit: the equipment (owner decisions 2026-11-20).** Anomaly detection is organised around **equipment** of the catalogue (pump, motor, agitator, conveyor, or a single process loop), not around hand-picked tag sets. The catalogue hierarchy area -> equipment -> loops and condition signals is filled from tag names by the regex naming rules (group `equipment`, #209) and confirmed in the GUI (#214). An equipment item carries its loops (PV/SP/OUT/MODE, FB) and optional **condition signals**: temperature, current or power, torque, vibration, speed. A loop without equipment is a one-loop equipment; a shared loop has one primary owner. The system **learns the normal operation of each equipment item by itself** (#215): it chooses training windows from the historian (equipment running, loops in AUTO, outputs not saturated, no open events, healthy loop KPIs, several operating points, per operating mode); the user sees the proposed windows and may exclude spans, but does not have to pick them. Methods are classical and explainable first: PCA with lags over all variables of the equipment (contributions give the diagnosis), expected-value regression of each condition signal from the operating point (residual = actual - expected), EWMA/CUSUM on residuals, time to a user limit with an uncertainty band. Deep models enter only as registered candidates (8.2) that beat this baseline on public data under a frozen protocol. Live, the runtime scores every learned equipment item (#216), suppressed while it is stopped, and raises one event per equipment, broken down into its loops and signals: loop behaviour ("OUT higher than usual for this SP and inflow") and equipment condition ("motor current +12 % against expected for 3 days, rising"). With too little quiet data the engine falls back to per-loop models and says so. The free-tag PCA detector stays as an advanced option; asset templates (below) add asset-specific knowledge on top of the same equipment model later. The design rules below apply unchanged.
+
 Spectral vibration analysis, oil analysis and thermography are out of scope: their results enter Crosscut as tags from the systems that produce them.
 
 **Processing chain.** The module follows the layer structure of ISO 13374 (condition monitoring data processing): data acquisition → data manipulation (cleaning, missing codes, resampling, features) → state detection (is it abnormal?) → health assessment (what is degrading, how badly?) → prognosis (how long until a limit?) → advisory (what to do, for whom). Each layer has its own output in the console and in the audit log, so an engineer can see where a conclusion came from.
@@ -438,6 +440,7 @@ the same PR that changes one of its rows.
 | Strategy Canvas | no | - | no | no | #162 |
 | Soft sensor (PLS, reference input, backup in engine) | partly, offline | exp39: loses to lab persistence | generated form | no runtime job | #154-#159 |
 | Anomaly (PCA, stuck, regimes) online | yes | exp40 missed, exp41 D2 only | yes | no | #160, #146 |
+| Per-equipment anomaly with learned normal operation and condition signals | no | - | no | no | #214-#216 |
 | Asset templates and predictive maintenance | no | - | no | no | #161 |
 | MPC | no (design accepted) | - | no | no | #163, #178-#186 |
 | Economic layer and ML | no (design accepted) | - | no | no | #164, #187-#191 |
@@ -493,6 +496,15 @@ Owner decision 2026-11-17: Crosscut is a framework, not a setup for one plant. P
 | 9 | MPC defaults: cycle 30-60 s, `Np` = settling time / cycle, `Nc` 5-10; infeasible plan relaxes CVs by priority, holds MVs, sheds after 3 cycles. | #182 |
 | 10 | QP solver OSQP (Apache-2.0) in Python and C++. | #182, #185 |
 | 11 | DML: the user picks `T`, `Y` and `X` in a GUI question builder; the objective stays per-site configuration. | #190 |
+
+### Owner decisions - 2026-11-20
+
+| # | Decision (2026-11-20) | Follow-up |
+|---|---|---|
+| 1 | Analysis works on catalogue sources (PI, historian, SQL) and live loops, not on dataset copies; datasets become an internal cache. | #201-#203, #212 |
+| 2 | Loop knowledge (ranges, dead time, ultimate period, process kind) is proposed from source metadata and history with evidence and confirmed by the user; the amplitude limit stays a user decision. | #213 |
+| 3 | Loops are found from tag names by ordered regex naming rules with a live tester and presets. | #209 |
+| 4 | Anomaly detection is per equipment: loops and condition signals (temperature, current/power, torque, vibration) are grouped into equipment by regex naming rules; the system learns normal operation of each equipment item by itself with classical, explainable ML first (PCA, expected-value regression, residual drift); deep models only if they beat this baseline under a frozen protocol (section 4.3). | #209, #214-#216 |
 
 ## 11. Document map
 
