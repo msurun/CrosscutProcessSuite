@@ -346,7 +346,9 @@ export function TrendPane(props: TrendPaneProps) {
           onUndo={rangeHistory.undo}
         />
       )}
-      <div ref={containerRef} role="img" aria-label={props.labels.join(", ")} />
+      {/* uPlot caches the plot position on mouseenter; re-read it on every move so a layout shift above the
+          plot (readout rewrapping, a notice appearing) cannot offset the crosshair from the mouse. */}
+      <div ref={containerRef} role="img" aria-label={props.labels.join(", ")} onMouseMoveCapture={() => plotRef.current?.syncRect()} />
       {props.t && spans.length > 0 && <p className="trend-mode-note">{props.t("trend.modeBand")}</p>}
     </div>
   );
