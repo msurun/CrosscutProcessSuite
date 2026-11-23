@@ -18,6 +18,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { type AnalysisInfo } from "./components/LoopsPage";
 import { RoleBadge } from "./components/RoleBadge";
 import { TagList } from "./components/TagList";
+import { SourcePicker } from "./components/SourcePicker";
 import { TopBar } from "./components/TopBar";
 import { ViewContent } from "./components/ViewContent";
 import { ConsoleNav } from "./components/ViewTabs";
@@ -198,6 +199,8 @@ function ApiOffline({ retry, t }: { retry: () => void; t: LanguageState["t"] }) 
 
 interface SidebarProps {
   datasets: DatasetSummary[];
+  /** Called with the cached dataset id after plant history was loaded from a source (#201, #202). */
+  onHistory: (datasetId: string) => void;
   route: Route;
   tags: TagInfo[];
   loops: LoopSummary[];
@@ -207,19 +210,43 @@ interface SidebarProps {
   t: LanguageState["t"];
 }
 
-/** Dataset picker, plus the tag list while the trends view is open. */
+/** Where the sidebar takes its data from: a catalogue source and window, or files and simulations. */
+type DataMode = "source" | "files";
+
+/** True for a history cache of a catalogue source; those are reached through the source picker. */
+function isHistoryCache(one: DatasetSummary): boolean {
+  return one.source.kind === "history";
+}
+
+/** The files-and-simulations picker; a history cache shows only while it is the open dataset. */
+function DatasetSelect(p: SidebarProps) {
+  const shown = p.datasets.filter((one) => !isHistoryCache(one) || one.id === p.route.dataset);
+  return (
+    <label className="field">
+      <span className="field-label">{p.t("datasets.title")}</span>
+      <select className="field-input" value={p.route.dataset} onChange={(event) => p.onDataset(event.target.value)}>
+        {shown.map((one) => (
+          <option key={one.id} value={one.id}>{one.id}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Data picker (plant source + window, or files), plus the tag list while the trends view is open. */
 function Sidebar(p: SidebarProps) {
   const { t } = p;
+  const [mode, setMode] = useState<DataMode>("source");
   return (
     <aside className="sidebar">
-      <label className="field">
-        <span className="field-label">{t("datasets.title")}</span>
-        <select className="field-input" value={p.route.dataset} onChange={(event) => p.onDataset(event.target.value)}>
-          {p.datasets.map((one) => (
-            <option key={one.id} value={one.id}>{one.id}</option>
-          ))}
-        </select>
-      </label>
+      <div className="trend-toolbar" role="group" aria-label={t("sidebar.dataMode")}>
+        {(["source", "files"] as const).map((m) => (
+          <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
+            {t(m === "source" ? "sidebar.fromSource" : "sidebar.fromFiles")}
+          </button>
+        ))}
+      </div>
+      {mode === "source" ? <SourcePicker t={t} onLoaded={(result) => p.onHistory(result.dataset_id)} /> : <DatasetSelect {...p} />}
       {p.route.view === "trends" && (
         <TagList tags={p.tags} selected={p.selectedTags} onToggle={p.onToggleTag} searchLabel={t("trends.searchTags")} emptyLabel={t("trends.noTagsMatch")} loops={p.loops} otherLabel={t("trends.otherTags")} />
       )}
@@ -227,12 +254,27 @@ function Sidebar(p: SidebarProps) {
   );
 }
 
+/** The open dataset and the trend tags picked in the sidebar, with the actions that change them. */
+function useDataSelection(route: Route, navigate: Navigate, refresh: () => void) {
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const changeDataset = (id: string) => {
+    navigate(withDataset(route, id));
+    setSelectedTags([]);
+  };
+  const openHistory = (id: string) => {
+    refresh(); // the new cache must be in the list, or the shell reports the dataset as missing
+    changeDataset(id);
+  };
+  const toggleTag = (id: string) =>
+    setSelectedTags((prev) => (prev.includes(id) ? prev.filter((one) => one !== id) : [...prev, id]));
+  return { selectedTags, changeDataset, openHistory, toggleTag };
+}
+
 /** The signed-in application: header, dataset sidebar, tabs and the current page. */
 function AppShell({ lang }: ShellProps) {
   const { t } = lang;
   const { datasets, failed, loaded, retry, refresh } = useDatasets();
   const [route, navigate] = useRoute();
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisInfo | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   useDefaultDataset(datasets, route, navigate);
@@ -241,12 +283,7 @@ function AppShell({ lang }: ShellProps) {
   const loops = useLoops(route.dataset);
   const dataset = datasets.find((one) => one.id === route.dataset);
   const datasetMissing = loaded && route.dataset !== "" && dataset === undefined;
-  const changeDataset = (id: string) => {
-    navigate(withDataset(route, id));
-    setSelectedTags([]);
-  };
-  const toggleTag = (id: string) =>
-    setSelectedTags((prev) => (prev.includes(id) ? prev.filter((one) => one !== id) : [...prev, id]));
+  const { selectedTags, changeDataset, openHistory, toggleTag } = useDataSelection(route, navigate, refresh);
 
   return (
     <div className="app-shell">
@@ -255,7 +292,7 @@ function AppShell({ lang }: ShellProps) {
       </a>
       <ShellHeader lang={lang} />
       <div className="app-body">
-        <Sidebar datasets={datasets} route={route} tags={tags} loops={loops} selectedTags={selectedTags} onDataset={changeDataset} onToggleTag={toggleTag} t={t} />
+        <Sidebar datasets={datasets} onHistory={openHistory} route={route} tags={tags} loops={loops} selectedTags={selectedTags} onDataset={changeDataset} onToggleTag={toggleTag} t={t} />
         <main className="main-area" id="main-content" tabIndex={-1} ref={mainRef}>
           {failed && <ApiOffline retry={retry} t={t} />}
           <ConsoleNav view={route.view} onSelect={(next) => navigate(withView(route, next))} t={t} />
