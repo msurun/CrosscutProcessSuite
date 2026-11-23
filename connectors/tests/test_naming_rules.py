@@ -123,7 +123,7 @@ def test_roles_override_map_replaces_the_suffix_default() -> None:
 
 
 def test_roles_override_with_uppercase_key_is_applied() -> None:
-    """Documents the bug: an uppercase roles key should override the role but does not."""
+    """An uppercase roles key overrides the role like a lowercase one."""
     rules = compile_rules(
         [{"pattern": r"^(?P<loop>\w+-\d+)\.(?P<role>\w+)$", "roles": {"OP": "sp"}}]
     )
