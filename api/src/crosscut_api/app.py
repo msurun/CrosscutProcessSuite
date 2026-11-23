@@ -57,6 +57,7 @@ from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_loops import flat_tag_rows, site_entry_names, site_loops_of
 from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
+from crosscut_api.source_admin_routes import build_source_admin_router
 from crosscut_api.source_history import build_source_history_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
 from crosscut_api.supervisor_routes import build_supervisor_router
@@ -714,6 +715,7 @@ def _mount_data_routers(
     app.include_router(build_catalogue_router(store.root, store.tags_of))
     app.include_router(build_connector_router(store.root))
     app.include_router(build_source_history_router(store.root))
+    app.include_router(build_source_admin_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
     app.include_router(build_controller_router(store.root))

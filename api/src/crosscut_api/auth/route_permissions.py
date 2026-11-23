@@ -129,6 +129,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/sources/{source_id}/test"): "connector.use",
     ("GET", "/sources/{source_id}/browse"): "connector.use",
     ("POST", "/sources/{source_id}/read-live"): "connector.use",
+    # Source management (#208): entries in site.json, secrets in the OS secret store.
+    ("POST", "/sources/test-draft"): "connector.use",
+    ("PUT", "/sources/{source_id}"): "config.edit",
+    ("DELETE", "/sources/{source_id}"): "config.edit",
+    ("GET", "/sources/{source_id}/secret"): "config.edit",
+    ("PUT", "/sources/{source_id}/secret"): "config.edit",
+    ("DELETE", "/sources/{source_id}/secret"): "config.edit",
 
     # job.manage (POST/PATCH/DELETE)
     ("POST", "/runtime/jobs"): "job.manage",

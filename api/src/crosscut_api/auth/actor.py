@@ -20,6 +20,8 @@ STEPUP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/tuning/proposals/{proposal_id}/escape"),
         ("POST", "/tuning/intents/{key}/resolve"),
+        # Storing a source password or token in the OS secret store (#208).
+        ("PUT", "/sources/{source_id}/secret"),
     }
 )
 
