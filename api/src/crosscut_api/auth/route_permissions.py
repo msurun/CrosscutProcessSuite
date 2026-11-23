@@ -60,6 +60,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/site"): "data.view",
     ("GET", "/site/import-settings"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
+    # Saved trend charts (#204): each user keeps their own; sharing is checked in the handler.
+    ("GET", "/trends/charts"): "data.view",
+    ("POST", "/trends/charts"): "data.view",
+    ("GET", "/trends/charts/{chart_id}"): "data.view",
+    ("PUT", "/trends/charts/{chart_id}"): "data.view",
+    ("DELETE", "/trends/charts/{chart_id}"): "data.view",
+    ("POST", "/trends/charts/{chart_id}/copy"): "data.view",
     ("GET", "/sources"): "data.view",
     ("GET", "/schemas"): "data.view",
     ("GET", "/schemas/{name}"): "data.view",

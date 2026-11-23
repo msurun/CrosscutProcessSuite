@@ -80,7 +80,7 @@ export interface FetchSeriesOptions {
   maxPoints?: number;
 }
 
-const API_PREFIX = '/api';
+export const API_PREFIX = '/api';
 /** Name of the field FastAPI puts its error message in. */
 const DETAIL_FIELD = 'detail';
 
@@ -113,7 +113,7 @@ function isRecordWithStringDetail(value: unknown): value is Record<'detail', str
  * Fetch `url` and parse the JSON body.
  * @throws {ApiError} When the response status is not ok, with the server `detail` as message.
  */
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const response = await apiFetch(url);
   if (!response.ok) {
     throw new ApiError(response.status, await readErrorMessage(response));
