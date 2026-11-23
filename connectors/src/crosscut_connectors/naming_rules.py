@@ -189,7 +189,9 @@ def _map_role(role: str | None, roles: dict[str, str]) -> str | None:
     """Map a role to a canonical role using the rule's roles dict."""
     if not role:
         return None
-    canonical_role = roles.get(role.lower(), role_mapping.SUFFIX_TO_ROLE.get(role.lower()))
+    # Role group values match the rule's map in any case ("OP", "op" and "Op" are one value).
+    by_value = {key.lower(): value for key, value in roles.items()}
+    canonical_role = by_value.get(role.lower(), role_mapping.SUFFIX_TO_ROLE.get(role.lower()))
     return canonical_role if canonical_role in role_mapping.LOOP_ROLES else None
 
 def _find_incomplete_loops(loop_roles: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
