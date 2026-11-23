@@ -236,7 +236,11 @@ function DatasetSelect(p: SidebarProps) {
 /** Data picker (plant source + window, or files), plus the tag list while the trends view is open. */
 function Sidebar(p: SidebarProps) {
   const { t } = p;
-  const [mode, setMode] = useState<DataMode>("source");
+  // Until the user picks a mode, follow the open data: a history cache shows the source picker,
+  // anything else (or nothing loaded yet) the files list.
+  const open = p.datasets.find((one) => one.id === p.route.dataset);
+  const [picked, setMode] = useState<DataMode | null>(null);
+  const mode: DataMode = picked ?? (open && isHistoryCache(open) ? "source" : "files");
   return (
     <aside className="sidebar">
       <div className="trend-toolbar" role="group" aria-label={t("sidebar.dataMode")}>
