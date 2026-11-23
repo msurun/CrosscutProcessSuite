@@ -43,6 +43,7 @@ from crosscut_api.auth.sessions import AuthConfig
 from crosscut_api.auth.settings import load_auth_config
 from crosscut_api.auth_routes import build_auth_router, build_auth_router_for
 from crosscut_api.catalogue_routes import build_catalogue_router
+from crosscut_api.catalogue_source_routes import build_catalogue_source_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.controller_routes import build_controller_router
 from crosscut_api.downsample import Envelope, downsample_minmax
@@ -716,6 +717,7 @@ def _mount_data_routers(
     app.include_router(build_connector_router(store.root))
     app.include_router(build_source_history_router(store.root))
     app.include_router(build_source_admin_router(store.root))
+    app.include_router(build_catalogue_source_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
     app.include_router(build_controller_router(store.root))
