@@ -370,13 +370,9 @@ class _DatasetEndpoints:
         """Return a summary of every dataset found on disk, sorted by dataset id."""
         # Every dataset lives in its own sub-directory of the root and carries a
         # ``dataset.json`` with its metadata; the glob finds those files only.
-        # History caches of catalogue sources (``hist-*``, #201) are internal: they are reached
-        # through /sources/{id}/history, so the dataset list leaves them out.
-        documents = [
-            _read_json(path)
-            for path in self.store.root.glob("*/dataset.json")
-            if not path.parent.name.startswith("hist-")
-        ]
+        # History caches of catalogue sources (source kind "history", #201) are listed too, so a
+        # link to one keeps working; the console hides them from its dataset picker.
+        documents = [_read_json(path) for path in self.store.root.glob("*/dataset.json")]
         summaries = (_summary(document) for document in documents)
         # Sorted by string id so paging and diffing clients see a stable order.
         return sorted(summaries, key=lambda summary: str(summary["id"]))
