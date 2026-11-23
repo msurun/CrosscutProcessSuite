@@ -70,7 +70,7 @@ async function openDetail(page: Page) {
 test("the Controllers tab opens the view and shows the variables", async ({ page }) => {
   await mockApi(page);
   await page.goto("/#/d/mill_circuit_observational_seed42/trends");
-  const tab = page.locator("nav.view-tabs button").filter({ hasText: /Regulatory/ });
+  const tab = page.locator("nav.main-nav button").filter({ hasText: /Regulatory/ });
   // The tab bar can re-render while the dataset loads and swallow the first click: retry it.
   await expect(async () => {
     await tab.click();

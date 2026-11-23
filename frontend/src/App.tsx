@@ -20,7 +20,7 @@ import { RoleBadge } from "./components/RoleBadge";
 import { TagList } from "./components/TagList";
 import { TopBar } from "./components/TopBar";
 import { ViewContent } from "./components/ViewContent";
-import { ViewTabs } from "./components/ViewTabs";
+import { ConsoleNav } from "./components/ViewTabs";
 import { formatHash, withDataset, withView, type Route } from "./route";
 import { useRoute } from "./useRoute";
 import { useTheme, type ThemePreference } from "./useTheme";
@@ -160,7 +160,7 @@ interface ShellProps {
 }
 
 /** Header with the theme/language pickers and, when auth is on, the signed-in user badge. */
-function ShellHeader({ lang, route, navigate }: ShellProps & { route: Route; navigate: Navigate }) {
+function ShellHeader({ lang }: ShellProps) {
   const { t } = lang;
   const [theme, setTheme] = useTheme();
   const { status } = useAuth();
@@ -181,8 +181,6 @@ function ShellHeader({ lang, route, navigate }: ShellProps & { route: Route; nav
       onTheme={setTheme}
       themeLabel={t("top.theme")}
       themeNames={themeNames}
-      onCatalogue={() => navigate(withView(route, "catalogue"))}
-      catalogueLabel={t("nav.catalogue")}
       account={status === "authenticated" ? <RoleBadge t={t} /> : undefined}
     />
   );
@@ -255,13 +253,13 @@ function AppShell({ lang }: ShellProps) {
       <a className="skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}>
         {t("a11y.skipToContent")}
       </a>
-      <ShellHeader lang={lang} route={route} navigate={navigate} />
+      <ShellHeader lang={lang} />
       <div className="app-body">
         <Sidebar datasets={datasets} route={route} tags={tags} loops={loops} selectedTags={selectedTags} onDataset={changeDataset} onToggleTag={toggleTag} t={t} />
         <main className="main-area" id="main-content" tabIndex={-1} ref={mainRef}>
           {failed && <ApiOffline retry={retry} t={t} />}
+          <ConsoleNav view={route.view} onSelect={(next) => navigate(withView(route, next))} t={t} />
           <ContextBar dataset={dataset} analysis={route.view === "loops" ? analysis : null} t={t} />
-          <ViewTabs view={route.view} onSelect={(next) => navigate(withView(route, next))} t={t} />
           <ErrorBoundary t={t} resetKey={formatHash(route)}>
             {datasetMissing && <p className="status status-error" role="alert">{t("route.notFoundDataset", { id: route.dataset })}</p>}
             <ViewContent route={route} navigate={navigate} dataset={dataset} datasetMissing={datasetMissing} tags={tags} loops={loops} selectedTags={selectedTags} onAnalysed={setAnalysis} onDatasetCreated={refresh} t={t} />

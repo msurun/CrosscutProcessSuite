@@ -1,5 +1,5 @@
 // frontend/src/components/ViewTabs.test.tsx
-// The Tuning tab needs gw.view; the Users tab needs users.manage.
+// The Tuning tab (Loops group) needs gw.view; the Users tab needs users.manage.
 
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const tabs = <nav data-testid="tabs-ready"><ViewTabs view="trends" onSelect={() => undefined} t={mockT} /></nav>;
+const tabs = <nav data-testid="tabs-ready"><ViewTabs view="loops" onSelect={() => undefined} t={mockT} /></nav>;
 
 describe("ViewTabs", () => {
   it.each(["viewer", "operator", "engineer", "lead", "off"])("shows the tuning tab for %s", async (role) => {
