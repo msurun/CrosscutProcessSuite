@@ -53,6 +53,20 @@ export interface TrendPaneProps {
   markerSeries?: number[];
   /** Called with the time (seconds) under the cursor, or null when the cursor leaves the plot. */
   onCursor?: (seconds: number | null) => void;
+  /** Several y-axes (saved charts, #205); without it the pane has one axis labelled `unit`. */
+  yAxes?: readonly PaneAxis[];
+  /** Axis id of every value series, in `labels` order; required with `yAxes`. */
+  seriesAxis?: readonly string[];
+}
+
+/** One y-axis of a multi-axis pane: its own uPlot scale, drawn on the left or right. */
+export interface PaneAxis {
+  id: string;
+  side: "left" | "right";
+  unit?: string;
+  /** Fixed lower/upper limit; null or absent = follow the data. */
+  min?: number | null;
+  max?: number | null;
 }
 
 /** What a value series is in the control loop. */
@@ -125,10 +139,40 @@ const CURSOR_FORMAT: Intl.DateTimeFormatOptions = { ...TICK_FORMAT, second: "2-d
 
 /** One value series: a line, or markers only when its index is listed in `markerSeries`. */
 function seriesOptions(props: TrendPaneProps, index: number): uPlot.Series {
-  const stroke = readCssVar(props.colors[index]);
-  const base = { label: legendLabel(props, index), value: legendValue, stroke, width: SERIES_STROKE_WIDTH, spanGaps: false };
+  const stroke = resolveColor(props.colors[index]);
+  const scale = props.seriesAxis?.[index] ?? "y";
+  const base = { label: legendLabel(props, index), value: legendValue, stroke, scale, width: SERIES_STROKE_WIDTH, spanGaps: false };
   if (!props.markerSeries?.includes(index)) return base;
   return { ...base, paths: () => null, points: { show: true, size: MARKER_SIZE_PX, stroke, fill: stroke } };
+}
+
+/** A series colour: "#rrggbb" as given (saved charts), else a CSS variable name of the theme. */
+function resolveColor(color: string): string {
+  return color.startsWith("#") ? color : readCssVar(color);
+}
+
+/** uPlot draws an axis on side 1 (right) or 3 (left). */
+const UPLOT_SIDE = { left: 3, right: 1 } as const;
+
+/** The y-axes: one per `yAxes` entry on its own scale, or the single unit axis; only the first draws a grid. */
+function yAxesOptions(props: TrendPaneProps, textColor: string, gridColor: string): uPlot.Axis[] {
+  if (!props.yAxes || props.yAxes.length === 0) return [{ label: props.unit, stroke: textColor, grid: { stroke: gridColor } }];
+  return props.yAxes.map((axis, index) => ({
+    scale: axis.id,
+    side: UPLOT_SIDE[axis.side],
+    label: axis.unit,
+    stroke: textColor,
+    grid: { show: index === 0, stroke: gridColor },
+  }));
+}
+
+/** Scales of the y-axes: a fixed limit replaces the data minimum or maximum on that side only. */
+function yScalesOptions(props: TrendPaneProps): Record<string, uPlot.Scale> {
+  const scales: Record<string, uPlot.Scale> = {};
+  for (const axis of props.yAxes ?? []) {
+    scales[axis.id] = { range: (_u, dataMin, dataMax) => [axis.min ?? dataMin, axis.max ?? dataMax] };
+  }
+  return scales;
 }
 
 /** The x series: label plus a locale-formatted cursor readout when x is clock time. */
@@ -147,7 +191,7 @@ function axesOptions(props: TrendPaneProps, isTime: boolean, textColor: string, 
       grid: { stroke: gridColor },
       ...(isTime ? { space: TIME_TICK_SPACE_PX, values: (_: uPlot, ticks: number[]) => ticks.map(formatTick) } : {}),
     },
-    { label: props.unit, stroke: textColor, grid: { stroke: gridColor } },
+    ...yAxesOptions(props, textColor, gridColor),
   ];
 }
 
@@ -183,7 +227,7 @@ function buildOptions(props: TrendPaneProps, width: number, callbacks: PlotCallb
     width,
     height: props.height ?? DEFAULT_HEIGHT_PX,
     cursor: { sync: { key: props.syncKey ?? DEFAULT_SYNC_KEY } },
-    scales: { x: { time: props.xIsTime ?? true } },
+    scales: { x: { time: props.xIsTime ?? true }, ...yScalesOptions(props) },
     axes: axesOptions(props, isTime, textColor, gridColor),
     series,
     hooks: hooksOptions(props, callbacks, textColor),
