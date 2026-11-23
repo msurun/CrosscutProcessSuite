@@ -68,6 +68,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("DELETE", "/trends/charts/{chart_id}"): "data.view",
     ("POST", "/trends/charts/{chart_id}/copy"): "data.view",
     ("GET", "/sources"): "data.view",
+    # Read-only history window of a catalogue source, cached as a dataset (#201).
+    ("GET", "/sources/{source_id}/history"): "data.view",
     ("GET", "/schemas"): "data.view",
     ("GET", "/schemas/{name}"): "data.view",
     ("GET", "/config/{kind}/{config_id}"): "data.view",

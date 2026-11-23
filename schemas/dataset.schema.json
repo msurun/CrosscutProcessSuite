@@ -46,8 +46,36 @@
           "enum": [
             "sim",
             "opcua",
-            "file"
+            "file",
+            "history"
           ]
+        },
+        "source_id": {
+          "type": "string",
+          "description": "Catalogue source a history cache was read from (kind history, #201)."
+        },
+        "window": {
+          "type": "object",
+          "description": "Requested window of a cached source history read (kind history).",
+          "additionalProperties": false,
+          "required": [
+            "start_utc",
+            "end_utc"
+          ],
+          "properties": {
+            "start_utc": {
+              "type": "string"
+            },
+            "end_utc": {
+              "type": "string"
+            },
+            "period_s": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
         },
         "plant": {
           "type": "string"
