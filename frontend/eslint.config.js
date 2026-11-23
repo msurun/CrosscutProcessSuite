@@ -7,6 +7,7 @@ const TOUCHED = [
   "src/trendWindow.ts",
   "src/trendChartModel.ts",
   "src/components/SavedChartsPanel.tsx",
+  "src/components/ChartBuilder.tsx",
   "src/App.tsx",
   "src/AuthContext.tsx",
   "src/ChangePasswordPage.tsx",
