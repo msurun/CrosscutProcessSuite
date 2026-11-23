@@ -18,6 +18,7 @@ from typing import Annotated, Any
 from crosscut_connectors.base import CAP_HISTORY, CAP_METADATA, ConnectorError
 from crosscut_connectors.history_table import HistoryTable, history_table
 from crosscut_connectors.registry import connector_from_source
+from crosscut_connectors.site import SiteError, load_site
 from crosscut_sim.dataset import DatasetInfo, Samples, write_dataset
 from fastapi import APIRouter, HTTPException, Query
 
@@ -84,14 +85,37 @@ def _tags_document(source: Doc, tags: list[str], units: dict[str, str]) -> Doc:
     return {"schema_version": "0.1.0", "tags": entries}
 
 
-def _read(source: Doc, tags: list[str], window: Doc) -> Read:
-    """Read the window through the connector; 400 without history support, 502 on failures."""
+def catalogue_tags(root: Path, source_id: str) -> dict[str, Doc]:
+    """Site catalogue tags read from this source, by catalogue id (empty without a site)."""
+    try:
+        tags = load_site(root).get("tags", [])
+    except (OSError, SiteError):
+        return {}
+    return {str(t["id"]): t for t in tags if t.get("source") == source_id}
+
+
+def _renamed(table: HistoryTable, names: list[str]) -> HistoryTable:
+    """The same table with its columns named by catalogue id instead of source address."""
+    return HistoryTable(table.ts_ns, names, table.values, table.qualities)
+
+
+def _read(source: Doc, tags: list[str], window: Doc, catalogue: dict[str, Doc]) -> Read:
+    """Read the window through the connector; 400 without history support, 502 on failures.
+
+    A requested id found in the catalogue is read at its ``address`` and keeps its catalogue
+    id and unit in the cache, so analyses see the site's names; other ids go to the source as is.
+    """
+    addresses = [str(catalogue.get(tag, {}).get("address") or tag) for tag in tags]
     try:
         connector = connector_from_source(source)
         if CAP_HISTORY not in connector.capabilities():
             raise HTTPException(status_code=400, detail="source does not offer history")
-        raw = connector.history(tags, window["start_utc"], window["end_utc"], window["period_s"])
-        return history_table(raw, tags), _units(connector, tags)
+        start, end, period = window["start_utc"], window["end_utc"], window["period_s"]
+        table = history_table(connector.history(addresses, start, end, period), addresses)
+        by_address = _units(connector, addresses)
+        units = {tag: str(catalogue.get(tag, {}).get("unit") or by_address.get(addr, ""))
+                 for tag, addr in zip(tags, addresses, strict=True)}
+        return _renamed(table, tags), units
     except ConnectorError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
     except ValueError as error:  # "no samples" or a layout the normaliser does not know
@@ -145,7 +169,9 @@ class _Endpoints:
         folder = self.root / f"{CACHE_PREFIX}{cache_key(source_id, tag, window)}"
         if (folder / "dataset.json").is_file():
             return _summary(json.loads((folder / "dataset.json").read_text("utf-8")), cached=True)
-        doc = _write(folder, source, _read(source, list(dict.fromkeys(tag)), window), window)
+        tags = list(dict.fromkeys(tag))
+        read = _read(source, tags, window, catalogue_tags(self.root, source_id))
+        doc = _write(folder, source, read, window)
         evict(self.root)
         return _summary(doc, cached=False)
 
