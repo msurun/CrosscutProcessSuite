@@ -46,7 +46,7 @@ function datasetViews(p: ViewContentProps, id: string) {
     steps: <StepsPage datasetId={id} loopNames={p.loops.map((loop) => loop.name)} initialLoop={p.route.loop} t={p.t} />,
     onboarding: <OnboardingPage datasetId={id} t={p.t} />,
     fuzzy: <FuzzyPage datasetId={id} t={p.t} />,
-    trends: <TrendsPage datasetId={id} tags={p.tags} selectedTags={p.selectedTags} t={p.t} />,
+    trends: <TrendsPage datasetId={id} dataset={p.dataset} tags={p.tags} selectedTags={p.selectedTags} t={p.t} />,
   };
   return views as Record<string, ReactNode>;
 }
