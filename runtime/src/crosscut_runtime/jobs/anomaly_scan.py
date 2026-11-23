@@ -18,6 +18,7 @@ from crosscut_anomaly import config, detect, pca_model
 from crosscut_anomaly.config import AnomalyConfigError
 
 from crosscut_runtime.history import QUALITY_UNCERTAIN, HistoryStore
+from crosscut_runtime.jobs import backfill
 
 ANOMALY_DIR = "_anomaly"
 NO_MODEL = "no_trained_model"
@@ -129,6 +130,31 @@ class AnomalyScanJob:
         if rows:
             self._history.append(rows)
 
+    def _latest_stored(self, since: float) -> float | None:
+        """Newest stored sample time of any job tag inside the window, None when none."""
+        stamps = [rows[-1][0] for tag in self._tags if (rows := self._history.query(tag, since))]
+        return max(stamps) if stamps else None
+
+    def _backfill(self, now: float) -> dict[str, Any] | None:
+        """Fill the stored window from source history when it is empty or has a gap (#203)."""
+        if not backfill.has_history(self._connector):
+            return None
+        latest = self._latest_stored(now - self._window_s)
+        start = backfill.plan(latest, now, self._window_s, self._period_s)
+        if start is None:
+            return None
+        rows: list[tuple[str, float, float, int]] = []
+
+        def keep(tag: str, ts: float, value: float) -> None:
+            """Collect one GOOD history sample, floored to the sample period like live ones."""
+            rows.append((tag, math.floor(ts / self._period_s) * self._period_s, value, 0))
+
+        todo = backfill.BackfillPlan(list(self._tags), start, now, self._period_s)
+        added = backfill.backfill(self._connector, todo, keep)
+        if rows:
+            self._history.append(rows)
+        return added
+
     def _quality_matrix(self, t: np.ndarray, since: float) -> np.ndarray:
         """Quality code per row and tag from the history store (missing code = uncertain)."""
         q = np.zeros((len(t), len(self._tags)))
@@ -175,6 +201,7 @@ class AnomalyScanJob:
     def run(self) -> dict[str, Any]:
         """Execute one cycle of sampling and scanning with the stored model."""
         now = self._clock()
+        filled = self._backfill(now)
         self._sample_live(now)
         since = now - self._window_s
         prepared = self._prepare()
@@ -183,7 +210,7 @@ class AnomalyScanJob:
         cfg, model = prepared
         t, x = _aligned_matrix(self._history, self._tags, since)
         result = detect.scan(model, t, x, self._quality_matrix(t, since), cfg)
-        return {
+        response = {
             "samples": len(t),
             "kpi": None,
             "scan": {
@@ -193,6 +220,9 @@ class AnomalyScanJob:
                 "events": _extract_events(result),
             },
         }
+        if filled is not None:
+            response["backfill"] = filled
+        return response
 
     @staticmethod
     def _error_response(total: int, reason: str) -> dict[str, Any]:
