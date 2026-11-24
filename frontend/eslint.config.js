@@ -3,6 +3,11 @@
 import tseslint from "typescript-eslint";
 
 const TOUCHED = [
+  "src/components/equipmentModel.ts",
+  "src/components/EquipmentTree.tsx",
+  "src/components/EquipmentSignals.tsx",
+  "src/components/EquipmentDetail.tsx",
+  "src/components/EquipmentEditor.tsx",
   "src/loopTrendChart.ts",
   "src/useSourceReload.ts",
   "src/liveLoopsApi.ts",
