@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 import secrets
 import tempfile
 import time
@@ -26,6 +27,7 @@ from crosscut_api.auth.actor import ActorContext, actor_of
 Doc = dict[str, Any]
 SCHEMA_FILE = "trend-chart.schema.json"
 SHARE_PERMISSION = "config.edit"
+CHART_ID = re.compile(r"[a-z0-9]{12}")  # same as the schema pattern of id
 MAX_AXES_PER_PANE = 3
 # Fields the API owns: a client may send them, but the stored values always win.
 SERVER_FIELDS = ("schema_version", "id", "owner", "created_utc", "updated_utc")
@@ -100,7 +102,9 @@ class ChartStore:
 
     def get(self, chart_id: str) -> Doc | None:
         """One chart, or None when the id is malformed, missing or unreadable."""
-        if not (len(chart_id) == 12 and chart_id.isalnum() and chart_id.islower()):
+        # str.islower() is False for an all-digit id such as "123456789012", which token_hex
+        # can produce, so the id is checked against the schema pattern instead.
+        if not CHART_ID.fullmatch(chart_id):
             return None
         return self._read(self.folder / f"{chart_id}.json")
 
