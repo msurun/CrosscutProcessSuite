@@ -52,6 +52,7 @@ from crosscut_api.knowledge_catalogue import (
     promote_loop,
     save_catalogue,
 )
+from crosscut_api.knowledge_proposal_routes import build_knowledge_proposal_router
 from crosscut_api.live_loops_routes import build_live_loops_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
@@ -744,6 +745,7 @@ def _mount_data_routers(
     # The fuzzy rule-base endpoints (replay, backtest) need the same loaded tables, so they
     # share the cached loader instead of reading the dataset again.
     app.include_router(build_fuzzy_router(store.root, store.load_wide))
+    app.include_router(build_knowledge_proposal_router(store, _dataset_dir))
     app.include_router(
         build_supervisor_router(store.root, store.load_seconds, store.loops_of, provider)
     )
