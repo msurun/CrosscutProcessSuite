@@ -30,6 +30,8 @@ export interface Route {
   view: View;
   loop: string | null;
   sub: LoopSub;
+  /** Optional query part of the hash (`?chart=<id>`, `?src=...`); absent when there is none. */
+  query?: Record<string, string>;
 }
 
 /** Where the app lands when the hash is empty or unparsable. */
@@ -94,7 +96,8 @@ function isLoopSub(value: string): value is LoopSub {
  * (missing sub -> "detail", loop on a non-"loops" view -> dropped).
  */
 export function parseHash(hash: string): Route {
-  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+  const full = hash.startsWith("#") ? hash.slice(1) : hash;
+  const [raw, queryText] = splitQuery(full);
   if (`#${raw}` === CONTROLLERS_HASH) {
     return { dataset: "", view: "controllers", loop: null, sub: "detail" };
   }
@@ -116,7 +119,25 @@ export function parseHash(hash: string): Route {
     return { ...DEFAULT_ROUTE };
   }
 
-  return buildRoute(dataset, viewName, loopName ?? null, subName ?? null);
+  return withQuery(buildRoute(dataset, viewName, loopName ?? null, subName ?? null), queryText);
+}
+
+/** Split "path?query" at the first "?" (dynamic segments are percent-encoded, so it is unambiguous). */
+function splitQuery(full: string): [string, string] {
+  const at = full.indexOf("?");
+  return at < 0 ? [full, ""] : [full.slice(0, at), full.slice(at + 1)];
+}
+
+/** Attach the parsed query to a route; an empty query leaves the route without the field. */
+function withQuery(route: Route, queryText: string): Route {
+  const entries = [...new URLSearchParams(queryText).entries()];
+  return entries.length === 0 ? route : { ...route, query: Object.fromEntries(entries) };
+}
+
+/** Render the query of a route as "?a=b&c=d", or "" when it has none. */
+function formatQuery(query: Record<string, string> | undefined): string {
+  const text = new URLSearchParams(Object.entries(query ?? {})).toString();
+  return text === "" ? "" : `?${text}`;
 }
 
 /**
@@ -148,7 +169,14 @@ export function formatHash(route: Route): string {
   if (route.view === "loops" && route.loop !== null) {
     encodedParts.push(encodeURIComponent(route.loop), route.sub);
   }
-  return HASH_PREFIX + encodedParts.join("/");
+  return HASH_PREFIX + encodedParts.join("/") + formatQuery(route.query);
+}
+
+/** Return a copy of `route` with `query` as its query part (an empty object removes it). */
+export function withQueryParams(route: Route, query: Record<string, string>): Route {
+  const next: Route = { ...route, query };
+  if (Object.keys(query).length === 0) delete next.query;
+  return next;
 }
 
 /** Return a copy of `route` on another dataset, with loop and sub reset to defaults. */

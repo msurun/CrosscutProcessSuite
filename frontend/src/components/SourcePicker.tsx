@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "../api";
 import type { Translate } from "../findings";
 import { fetchSiteTags, listSources, loadHistory } from "../sourcesApi";
-import type { CatalogueTag, HistoryResult, SiteSource } from "../sourcesApi";
+import type { CatalogueTag, HistoryRequest, HistoryResult, SiteSource } from "../sourcesApi";
 import { NS_PER_MS, resolveWindow } from "../trendWindow";
 import type { TrendWindow } from "../trendWindow";
 import { TrendWindowBar } from "./TrendWindowBar";
@@ -14,7 +14,8 @@ import { TrendWindowBar } from "./TrendWindowBar";
 /** Props of {@link SourcePicker}. */
 export interface SourcePickerProps {
   t: Translate;
-  onLoaded: (result: HistoryResult) => void;
+  /** Called with the cached dataset and the request that produced it (the URL repeats the request). */
+  onLoaded: (result: HistoryResult, request: HistoryRequest) => void;
 }
 
 /** Default window: the last 24 hours. */
@@ -104,7 +105,7 @@ function periodLabel(t: Translate, p: number): string {
 }
 
 /** Runs the history load and tracks busy / cached / error state. */
-function useHistoryLoader(onLoaded: (r: HistoryResult) => void) {
+function useHistoryLoader(onLoaded: SourcePickerProps["onLoaded"]) {
   const [busy, setBusy] = useState(false);
   const [cached, setCached] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,9 +114,10 @@ function useHistoryLoader(onLoaded: (r: HistoryResult) => void) {
     setBusy(true);
     setError(null);
     try {
-      const result = await loadHistory(sourceId, tags, { start_utc: start, end_utc: end }, periodS || undefined);
+      const request: HistoryRequest = { source: sourceId, tags, start_utc: start, end_utc: end, period_s: periodS || undefined };
+      const result = await loadHistory(sourceId, tags, { start_utc: start, end_utc: end }, request.period_s);
       setCached(result.cached);
-      onLoaded(result);
+      onLoaded(result, request);
     } catch (e) {
       setCached(false);
       setError(messageOf(e));

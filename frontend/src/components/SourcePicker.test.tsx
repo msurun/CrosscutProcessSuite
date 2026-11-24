@@ -46,7 +46,7 @@ describe("SourcePicker", () => {
     fireEvent.change(screen.getByLabelText("sourcePicker.source"), { target: { value: "pi" } });
     fireEvent.click(screen.getByRole("button", { name: "sourcePicker.selectAll" }));
     fireEvent.click(load);
-    await waitFor(() => expect(onLoaded).toHaveBeenCalledWith(RESULT));
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledWith(RESULT, expect.objectContaining({ source: "pi", tags: ["A1", "B2"] })));
     expect(vi.mocked(api.loadHistory).mock.calls[0][0]).toBe("pi");
     expect(vi.mocked(api.loadHistory).mock.calls[0][1]).toEqual(["A1", "B2"]);
     expect(screen.getAllByRole("status").some((el) => el.textContent === "sourcePicker.cached")).toBe(true);

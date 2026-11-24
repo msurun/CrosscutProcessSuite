@@ -2,7 +2,7 @@
 // fetch is stubbed per test, like in trendChartsApi.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, API_PREFIX } from "./api";
-import { fetchSiteTags, listSources, loadHistory } from "./sourcesApi";
+import { fetchSiteTags, historyQuery, listSources, loadHistory, parseHistoryQuery } from "./sourcesApi";
 
 /** Stub fetch to answer with the given status and JSON body. */
 function stubFetch(ok: boolean, status: number, body: unknown) {
@@ -67,5 +67,22 @@ describe("loadHistory", () => {
   it("throws ApiError with the server detail", async () => {
     stubFetch(false, 502, { detail: "source down" });
     await expect(loadHistory("pi", ["T1"], { start_utc: "s", end_utc: "e" })).rejects.toThrow("source down");
+  });
+});
+
+describe("history query", () => {
+  const request = { source: "pi", tags: ["A.PV", "B.PV"], start_utc: "2026-01-01T00:00:00Z", end_utc: "2026-01-02T00:00:00Z", period_s: 60 };
+
+  it("round-trips a request through the route query", () => {
+    expect(parseHistoryQuery(historyQuery(request))).toEqual(request);
+  });
+
+  it("omits the period for raw samples", () => {
+    expect(historyQuery({ ...request, period_s: undefined })).not.toHaveProperty("period");
+  });
+
+  it("returns null when the query lacks the plant window", () => {
+    expect(parseHistoryQuery(undefined)).toBeNull();
+    expect(parseHistoryQuery({ src: "pi", tags: "A" })).toBeNull();
   });
 });

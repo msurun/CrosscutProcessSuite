@@ -3,6 +3,8 @@
 import tseslint from "typescript-eslint";
 
 const TOUCHED = [
+  "src/loopTrendChart.ts",
+  "src/useSourceReload.ts",
   "src/liveLoopsApi.ts",
   "src/components/LiveLoops.tsx",
   "src/components/SavedChartView.tsx",

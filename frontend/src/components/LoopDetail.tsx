@@ -394,6 +394,21 @@ function ActionButtons({
   );
 }
 
+/** Runs the caller's "Open in Trends" action (saves the loop chart, then navigates); a failure shows next to the button. */
+function OpenInTrendsButton(props: { t: Translate; onOpen: () => Promise<void> }) {
+  const [error, setError] = useState("");
+  const run = () => {
+    setError("");
+    props.onOpen().catch((e: unknown) => setError(props.t("trendCharts.openInTrendsError", { reason: e instanceof Error ? e.message : String(e) })));
+  };
+  return (
+    <p>
+      <button type="button" className="filter-chip" onClick={run}>{props.t("trendCharts.openInTrends")}</button>
+      {error && <span className="status status-error" role="alert"> {error}</span>}
+    </p>
+  );
+}
+
 type DetailGridProps = NextActionProps & { onShow: (window: [number, number] | undefined) => void };
 
 /** Two-column body: next action, findings and steps beside the key numbers. */
@@ -440,6 +455,7 @@ export function LoopDetail(props: LoopDetailProps) {
       </button>
       <LoopHeader loop={loop} t={t} />
       <ActionButtons t={t} onOpenTuning={onOpenTuning} onOpenBenefit={onOpenBenefit} onOpenValve={onOpenValve} />
+      {props.onOpenInTrends && <OpenInTrendsButton t={t} onOpen={props.onOpenInTrends} />}
       <NotAssessedNotice loop={loop} t={t} />
       <DetailGrid loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} onShow={setShownWindow} />
       <KnowledgeEditor datasetId={datasetId} loop={loop} t={t} onSaved={onKnowledgeSaved ?? noop} />
@@ -469,4 +485,6 @@ type LoopDetailProps = {
   onOpenLoop?: (loopName: string) => void;
   /** Called after the loop data was saved, so the caller can fetch the analysis again. */
   onKnowledgeSaved?: () => void;
+  /** Saves the loop's PV/SP/OUT chart and opens it in Trends; the button is hidden when absent. */
+  onOpenInTrends?: () => Promise<void>;
 };

@@ -6,9 +6,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { fetchLoops, type LoopSummary } from "../api";
+import { fetchLoops, type LoopSummary, type TagInfo } from "../api";
 import type { Translate } from "../findings";
-import { withLoop, type Route } from "../route";
+import { withLoop, withQueryParams, withView, type Route } from "../route";
+import { openLoopChart } from "../loopTrendChart";
 import { LiveLoops, useLiveLoops } from "./LiveLoops";
 import { BenefitPage } from "./BenefitPage";
 import { LoopDetail } from "./LoopDetail";
@@ -124,6 +125,8 @@ interface LoopsPageProps {
   navigate: (route: Route) => void;
   t: Translate;
   onAnalysed: (info: AnalysisInfo | null) => void;
+  /** Dataset tags: units of the chart that "Open in Trends" builds. */
+  tags?: TagInfo[];
 }
 
 /**
@@ -133,7 +136,7 @@ interface LoopsPageProps {
  * failed. The selected loop and page are part of the route, so the browser's back button and a
  * reload return to the same screen.
  */
-function DatasetLoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPageProps) {
+function DatasetLoopsPage({ datasetId, route, navigate, t, onAnalysed, tags }: LoopsPageProps) {
   const { loops, status, errorReason, reload } = useLoops(datasetId, onAnalysed);
 
   if (status === "loading") {
@@ -158,7 +161,7 @@ function DatasetLoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPa
   const loop = loops.find((one) => one.name === route.loop);
   const toList = () => navigate(withLoop(route, null));
   if (loop === undefined) return <LoopNotFound name={route.loop} onBack={toList} t={t} />;
-  return <LoopView {...{ datasetId, route, navigate, t, loop, reload }} />;
+  return <LoopView {...{ datasetId, route, navigate, t, loop, reload, tags }} />;
 }
 
 /** Props of the view of one loop: the page props plus the selected loop and the list reload. */
@@ -184,7 +187,7 @@ function buildCrumbs({ route, navigate, t, loop }: LoopViewProps): Crumb[] {
 
 /** The breadcrumb and the detail, tuning, benefit or valve page of one loop. */
 function LoopView(props: LoopViewProps) {
-  const { datasetId, route, navigate, t, loop, reload } = props;
+  const { datasetId, route, navigate, t, loop, reload, tags } = props;
   const toList = () => navigate(withLoop(route, null));
   const toDetail = () => navigate(withLoop(route, loop.name, "detail"));
 
@@ -209,6 +212,9 @@ function LoopView(props: LoopViewProps) {
           onOpenValve={() => navigate(withLoop(route, loop.name, "valve"))}
           onOpenLoop={(name) => navigate(withLoop(route, name))}
           onKnowledgeSaved={reload}
+          onOpenInTrends={() =>
+            openLoopChart(datasetId, loop, tags ?? []).then((chart) => navigate(withQueryParams(withView(route, "trends"), { chart })))
+          }
         />
       )}
     </>
