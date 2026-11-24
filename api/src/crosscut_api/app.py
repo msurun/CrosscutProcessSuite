@@ -51,6 +51,7 @@ from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_api.intake_routes import build_intake_router
+from crosscut_api.live_loops_routes import build_live_loops_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.runtime_routes import build_runtime_router
@@ -720,6 +721,7 @@ def _mount_data_routers(
     app.include_router(build_catalogue_source_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_trend_chart_router(store.root))
 

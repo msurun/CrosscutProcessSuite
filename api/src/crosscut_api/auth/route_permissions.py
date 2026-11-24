@@ -34,6 +34,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
 
 # Mapping from (HTTP method, path) to the required permission.
 ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
+    ("GET", "/live/loops"): "data.view",
+    ("GET", "/live/loops/{loop_id}"): "data.view",
     # data.view (GET unless stated)
     ("GET", "/datasets"): "data.view",
     ("GET", "/datasets/{dataset_id}/tags"): "data.view",
