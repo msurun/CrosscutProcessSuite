@@ -42,9 +42,17 @@ def _keyword_kind(text: str) -> str | None:
     # Boundaries avoid interpreting IT inside an unrelated word such as QUALITY.
     words = re.findall(r"[A-Z]+", text)
     for kind, keywords in KEYWORD_KINDS.items():
-        if any(word.startswith(keyword) for word in words for keyword in keywords):
+        if any(_hits(word, keyword) for word in words for keyword in keywords):
             return kind
     return None
+
+
+def _hits(word: str, keyword: str) -> bool:
+    """A word starts with a keyword; two-letter instrument codes (ST, IT, TT) must be the word.
+
+    Otherwise STEAM would read as a speed signal and ITEM as a current.
+    """
+    return word == keyword if len(keyword) <= 2 else word.startswith(keyword)
 
 
 def propose_running(signals: list[dict]) -> dict | None:
