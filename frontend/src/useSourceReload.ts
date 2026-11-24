@@ -12,11 +12,19 @@ function isHistoryCache(dataset: DatasetSummary | undefined): boolean {
   return dataset?.source.kind === "history";
 }
 
+/** The dataset catalogue as the shell holds it: the list, whether it has loaded, and its reload. */
+export interface Catalogue {
+  datasets: DatasetSummary[];
+  loaded: boolean;
+  refresh: () => void;
+}
+
 /**
  * Loads the history named by the route query when the route's dataset is missing or not a history cache.
  * Each distinct link is tried once, so a failing source does not loop.
  */
-export function useSourceReload(route: Route, datasets: DatasetSummary[], loaded: boolean, navigate: Navigate, refresh: () => void): void {
+export function useSourceReload(route: Route, catalogue: Catalogue, navigate: Navigate): void {
+  const { datasets, loaded, refresh } = catalogue;
   const tried = useRef<string | null>(null);
   useEffect(() => {
     const request = parseHistoryQuery(route.query);

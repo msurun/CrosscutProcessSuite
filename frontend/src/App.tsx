@@ -287,7 +287,7 @@ function AppShell({ lang }: ShellProps) {
   const [analysis, setAnalysis] = useState<AnalysisInfo | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   useDefaultDataset(datasets, route, navigate);
-  useSourceReload(route, datasets, loaded, navigate, refresh);
+  useSourceReload(route, { datasets, loaded, refresh }, navigate);
   useFocusOnNavigate(route, mainRef);
   const tags = useTags(route.dataset);
   const loops = useLoops(route.dataset);

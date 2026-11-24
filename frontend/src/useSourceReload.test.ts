@@ -21,19 +21,19 @@ describe("useSourceReload", () => {
     mocks.loadHistory.mockResolvedValue({ dataset_id: "fresh" });
     const navigate = vi.fn();
     const refresh = vi.fn();
-    renderHook(() => useSourceReload(route, [], true, navigate, refresh));
+    renderHook(() => useSourceReload(route, { datasets: [], loaded: true, refresh: refresh }, navigate));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ ...route, dataset: "fresh" }, true));
     expect(mocks.loadHistory).toHaveBeenCalledWith("pi", ["A", "B"], { start_utc: query.start, end_utc: query.end }, 60);
     expect(refresh).toHaveBeenCalled();
   });
 
   it("does nothing while the history cache still exists", () => {
-    renderHook(() => useSourceReload(route, [cache], true, vi.fn(), vi.fn()));
+    renderHook(() => useSourceReload(route, { datasets: [cache], loaded: true, refresh: vi.fn() }, vi.fn()));
     expect(mocks.loadHistory).not.toHaveBeenCalled();
   });
 
   it("does nothing before the dataset list has loaded", () => {
-    renderHook(() => useSourceReload(route, [], false, vi.fn(), vi.fn()));
+    renderHook(() => useSourceReload(route, { datasets: [], loaded: false, refresh: vi.fn() }, vi.fn()));
     expect(mocks.loadHistory).not.toHaveBeenCalled();
   });
 });
