@@ -3,6 +3,8 @@
 import tseslint from "typescript-eslint";
 
 const TOUCHED = [
+  "src/liveLoopsApi.ts",
+  "src/components/LiveLoops.tsx",
   "src/components/SavedChartView.tsx",
   "src/components/SavedChartsWorkspace.tsx",
   "src/trendChartsApi.ts",

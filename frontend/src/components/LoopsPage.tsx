@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchLoops, type LoopSummary } from "../api";
 import type { Translate } from "../findings";
 import { withLoop, type Route } from "../route";
+import { LiveLoops, useLiveLoops } from "./LiveLoops";
 import { BenefitPage } from "./BenefitPage";
 import { LoopDetail } from "./LoopDetail";
 import { LoopsOverview } from "./LoopsOverview";
@@ -132,7 +133,7 @@ interface LoopsPageProps {
  * failed. The selected loop and page are part of the route, so the browser's back button and a
  * reload return to the same screen.
  */
-export function LoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPageProps) {
+function DatasetLoopsPage({ datasetId, route, navigate, t, onAnalysed }: LoopsPageProps) {
   const { loops, status, errorReason, reload } = useLoops(datasetId, onAnalysed);
 
   if (status === "loading") {
@@ -210,6 +211,41 @@ function LoopView(props: LoopViewProps) {
           onKnowledgeSaved={reload}
         />
       )}
+    </>
+  );
+}
+
+/** Which loops view is shown: the runtime's live loops or the loops of the open dataset. */
+type LoopsMode = "live" | "dataset";
+
+/** The two-button switch "Live | Dataset" above the loops view. */
+function ModeToggle({ mode, onChange, t }: { mode: LoopsMode; onChange: (mode: LoopsMode) => void; t: Translate }) {
+  return (
+    <div className="filter-chips" role="group" aria-label={t("liveLoops.mode")}>
+      {(["live", "dataset"] as const).map((one) => (
+        <button key={one} type="button" className="filter-chip" aria-pressed={mode === one} onClick={() => onChange(one)}>
+          {t(`liveLoops.mode.${one}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The loops page with the "Live | Dataset" switch. Live is the default when the runtime analyses at
+ * least one loop (a loop with a job); until the user picks, the mode follows that answer. A loop
+ * opened from the dataset list always shows the dataset pages.
+ */
+export function LoopsPage(props: LoopsPageProps) {
+  const live = useLiveLoops();
+  const [picked, setPicked] = useState<LoopsMode | null>(null);
+  const hasLive = (live.loops ?? []).some((loop) => loop.job !== null);
+  const mode = picked ?? (hasLive ? "live" : "dataset");
+  if (props.route.loop !== null) return <DatasetLoopsPage {...props} />;
+  return (
+    <>
+      <ModeToggle mode={mode} onChange={setPicked} t={props.t} />
+      {mode === "live" ? <LiveLoops loops={live.loops ?? []} t={props.t} /> : <DatasetLoopsPage {...props} />}
     </>
   );
 }
