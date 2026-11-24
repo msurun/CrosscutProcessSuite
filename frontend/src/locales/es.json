@@ -575,7 +575,7 @@
   "knowledge.howToDelay": "Ponga el controlador en manual y dé un pequeño escalón a la salida (2-5 %). Lea el tiempo desde el escalón hasta el primer movimiento claro de la medición, fuera del ruido. Repita en ambos sentidos y tome el valor mayor.",
   "knowledge.howToRanges": "Use el rango calibrado del transmisor (0 % y 100 % de la señal) y del elemento final. Los valores pueden ser cero o negativos, por ejemplo de -50 a 150 degC o una presión de vacío.",
   "knowledge.howToUltimate": "Con el controlador en automático y sin acción integral, aumente la ganancia hasta que la medición oscile de forma sostenida, o tome el período de una oscilación sostenida existente en la tendencia (tiempo entre picos). Mida varios ciclos y promedie.",
-  "knowledge.intro": "El análisis necesita algunos datos sobre este lazo de control. Sin ellos omite las verificaciones que dependen de ellos. Los valores se guardan en el archivo del proyecto (project.json) de este conjunto de datos en este computador; nada se envía a la planta.",
+  "knowledge.intro": "El análisis necesita algunos datos sobre este lazo de control. Sin ellos omite las verificaciones que dependen de ellos. Los valores se guardan en el catálogo del sitio (Site) en este computador; nada se envía a la planta.",
   "knowledge.invalid": "Ingrese un número positivo.",
   "knowledge.invalidRange": "Ingrese un número (se permiten cero y valores negativos).",
   "knowledge.kind.integrating": "Integrador (nivel)",

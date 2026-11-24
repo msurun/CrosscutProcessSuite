@@ -119,6 +119,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/config/{kind}/{config_id}"): "config.edit",
     ("PUT", "/datasets/{dataset_id}/loops/{loop_name}/knowledge"): "config.edit",
+    ("POST", "/datasets/{dataset_id}/loops/migrate-knowledge"): "config.edit",
 
     # data.import (POST/DELETE)
     ("POST", "/intake/dataset"): "data.import",

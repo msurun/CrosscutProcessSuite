@@ -575,7 +575,7 @@
   "knowledge.howToDelay": "Przełącz regulator na ręczny i wykonaj niewielki skok sterowania (2-5 %). Odczytaj czas od skoku do pierwszej wyraźnej zmiany pomiaru, poza szumem. Powtórz w obu kierunkach i weź większą wartość.",
   "knowledge.howToRanges": "Użyj skalibrowanego zakresu przetwornika (0 % i 100 % sygnału) oraz elementu wykonawczego. Wartości mogą być zerowe lub ujemne, np. od -50 do 150 degC albo ciśnienie podciśnienia.",
   "knowledge.howToUltimate": "Przy regulatorze w automacie i wyłączonym członie całkującym zwiększaj wzmocnienie, aż pomiar zacznie stale oscylować, albo odczytaj okres z trendu istniejących, trwałych oscylacji (czas między szczytami). Zmierz kilka cykli i uśrednij.",
-  "knowledge.intro": "Analiza potrzebuje kilku faktów o tej pętli. Bez nich pomija kontrole zależne od nich. Wartości są zapisywane w pliku projektu (project.json) tego zestawu danych na tym komputerze; nic nie jest wysyłane do zakładu.",
+  "knowledge.intro": "Analiza potrzebuje kilku faktów o tej pętli. Bez nich pomija kontrole zależne od nich. Wartości są zapisywane w katalogu zakładu (Site) na tym komputerze; nic nie jest wysyłane do zakładu.",
   "knowledge.invalid": "Wprowadź liczbę dodatnią.",
   "knowledge.invalidRange": "Wprowadź liczbę (zero i wartości ujemne są dozwolone).",
   "knowledge.kind.integrating": "Całkujący (poziom)",

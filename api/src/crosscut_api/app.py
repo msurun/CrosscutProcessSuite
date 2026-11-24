@@ -1,12 +1,7 @@
-"""HTTP API over Crosscut datasets (the backend of the trend viewer).
+"""HTTP API over Crosscut datasets and local configuration.
 
-Datasets and loops are read-only. A client can write only configuration kept under the data
-root: a fuzzy rule base (see fuzzy_routes) and the per-loop knowledge in a dataset's
-project.json (see _KnowledgeEndpoints), and intake_routes creates one new dataset folder from
-an uploaded step-test CSV. The valve stroke test (valve_routes) only reads a
-record. Nothing here writes to a plant. Routes are default-deny via ROUTE_PERMISSIONS
-(crosscut_api.auth.route_permissions); auth_enabled=False exists only for tests and the
-e2e launcher.
+Loop knowledge is saved in the site catalogue; legacy projects remain readable.
+Routes require mapped permissions, and nothing here writes to a plant.
 """
 
 from __future__ import annotations
@@ -19,16 +14,16 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import numpy as np
-from crosscut_connectors.site import SiteError, load_site, save_site
+from crosscut_connectors.site import SiteError, load_site
 from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_edit import (
     KnowledgeError,
     apply_knowledge,
+    find_entry,
     loop_knowledge,
     project_from_loops,
     tag_range_defaults,
-    write_project_atomic,
 )
 from crosscut_loops.project_loops import loops_from_project
 from crosscut_loops.tuning_payload import tuning_payload
@@ -51,6 +46,12 @@ from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
 from crosscut_api.intake_routes import build_intake_router
+from crosscut_api.knowledge_catalogue import (
+    catalogue_of,
+    migration_reason,
+    promote_loop,
+    save_catalogue,
+)
 from crosscut_api.live_loops_routes import build_live_loops_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
@@ -257,13 +258,14 @@ class DatasetStore:
         return _tags_from_document(_read_json(dataset_dir / "tags.json"))
 
     def loops_of(self, dataset_id: str) -> list[LoopTags]:
-        """The control loops of a dataset (its project.json, else site.json, else naming)."""
+        """Catalogue loops plus unpromoted project or discovered dataset loops."""
         dataset_dir = _dataset_dir(self.root, dataset_id)
         tags = self.tags_of(dataset_dir)
         site_loops = site_loops_of(self.root, tags)
-        if site_loops:
-            return site_loops
-        return _loops_of(dataset_dir, tags)
+        site_names = {loop.name for loop in site_loops}
+        # Promotion is incremental: unpromoted dataset loops must remain discoverable.
+        dataset_loops = _loops_of(dataset_dir, tags)
+        return site_loops + [loop for loop in dataset_loops if loop.name not in site_names]
 
     def find_loop(self, dataset_dir: Path, loop_name: str) -> Any:
         """Return the loop named ``loop_name``, or raise a 404 if the dataset has no such loop.
@@ -521,9 +523,8 @@ def _driver_record_loader(store: DatasetStore) -> Callable[[str, str, str], Step
 class _KnowledgeEndpoints:
     """Handlers that read and edit the per-loop knowledge of a dataset's loops.
 
-    A loop of the site catalogue keeps its knowledge in the site.json entry; any other loop
-    keeps it in the dataset's project.json. The same file is read by the analysis, so a write
-    never lands in a file the analysis ignores (ADR 015).
+    Saves promote dataset loops into site.json. Reads keep the legacy project fallback
+    until promotion, so old datasets retain their knowledge.
     """
 
     def __init__(self, store: DatasetStore) -> None:
@@ -540,16 +541,53 @@ class _KnowledgeEndpoints:
     ) -> dict[str, Any]:
         """Change some of a loop's knowledge; None clears a value."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
-        document, in_site = self._source(dataset_dir, loop_name)
-        tags = self._range_tags(dataset_dir, in_site)
         try:
+            document = self._catalogue_for(dataset_dir, loop_name)
+            tags = self._range_tags(dataset_dir, True)
             edited = apply_knowledge(document, loop_name, update, tags)
-        except KnowledgeError as error:
+        except (KnowledgeError, SiteError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
-        self._save(dataset_dir, edited, in_site)
+        self._save(edited)
         return self._document(dataset_dir, edited, loop_name)
+
+    def _catalogue_for(self, dataset_dir: Path, loop_name: str) -> dict[str, Any]:
+        """Return the catalogue with the requested loop ready for its first edit."""
+        document, in_site = self._source(dataset_dir, loop_name)
+        if in_site:
+            return document
+        entry = find_entry(document, loop_name)
+        return promote_loop(catalogue_of(self.store.root), entry, self.store.tags_of(dataset_dir))
+
+    def migrate_knowledge(self, dataset_id: str) -> dict[str, Any]:
+        """Copy legacy loop knowledge into the catalogue, reporting untouched entries."""
+        dataset_dir = _dataset_dir(self.store.root, dataset_id)
+        path = dataset_dir / PROJECT_FILE
+        result: dict[str, Any] = {"moved": [], "skipped": []}
+        if not path.exists():
+            return result
+        for entry in _read_json(path).get("loops", []):
+            name = str(entry.get("name") or entry.get("id", ""))
+            reason = self._migrate_entry(dataset_dir, entry)
+            if reason:
+                result["skipped"].append({"loop": name, "reason": reason})
+            else:
+                result["moved"].append(name)
+        return result
+
+    def _migrate_entry(self, dataset_dir: Path, entry: dict[str, Any]) -> str:
+        """Move one valid entry, or explain why it could not be moved."""
+        try:
+            catalogue = catalogue_of(self.store.root)
+            reason = migration_reason(catalogue, entry)
+            if reason:
+                return reason
+            edited = promote_loop(catalogue, entry, self._range_tags(dataset_dir, True))
+            save_catalogue(self.store.root, edited)
+        except (KnowledgeError, SiteError) as error:
+            return str(error)
+        return ""
 
     def _source(self, dataset_dir: Path, loop_name: str) -> tuple[dict[str, Any], bool]:
         """The document that holds the loop's knowledge, and whether it is the site file."""
@@ -563,13 +601,10 @@ class _KnowledgeEndpoints:
         tags = self.store.tags_of(dataset_dir)
         return flat_tag_rows(self.store.root, tags) if in_site else tags
 
-    def _save(self, dataset_dir: Path, document: dict[str, Any], in_site: bool) -> None:
-        """Write the edited document to the file it came from."""
-        if not in_site:
-            write_project_atomic(dataset_dir / PROJECT_FILE, document)
-            return
+    def _save(self, document: dict[str, Any]) -> None:
+        """Validate and write knowledge into its single catalogue home."""
         try:
-            save_site(self.store.root, document)
+            save_catalogue(self.store.root, document)
         except SiteError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -636,6 +671,10 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     path = "/datasets/{dataset_id}/loops/{loop_name}/knowledge"
     router.add_api_route(path, knowledge.get_knowledge, methods=["GET"])
     router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
+    router.add_api_route(
+        "/datasets/{dataset_id}/loops/migrate-knowledge",
+        knowledge.migrate_knowledge, methods=["POST"],
+    )
     router.include_router(build_valve_router(_loop_record_loader(store)))
     router.include_router(
         build_step_analyzer_router(_step_record_loader(store), _driver_record_loader(store))
