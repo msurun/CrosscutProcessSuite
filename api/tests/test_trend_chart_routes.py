@@ -241,3 +241,15 @@ def test_without_the_route_table_the_handler_still_serves_the_caller(
     saved = client.post("/trends/charts", json=CHART).json()
     stored = tmp_path / "_trends" / "charts" / f"{saved['id']}.json"
     assert json.loads(stored.read_text(encoding="utf-8"))["owner"] == "view1"
+
+
+def test_an_all_digit_chart_id_is_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """token_hex can return only digits; such an id must still be found (Windows CI flake)."""
+    import crosscut_api.trend_chart_routes as routes
+    from crosscut_api.app import create_app
+
+    monkeypatch.setattr(routes.secrets, "token_hex", lambda _n: "123456789012")
+    client = TestClient(create_app(tmp_path, auth_enabled=False))
+    created = client.post("/trends/charts", json=_chart())
+    assert created.json()["id"] == "123456789012"
+    assert client.get("/trends/charts/123456789012").status_code == 200
