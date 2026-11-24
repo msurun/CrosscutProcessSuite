@@ -26,6 +26,7 @@ def reference_problems(document: Document) -> list[str]:
     conversions = document.get("units", {}).get("conversions", [])
     problems = [line for name in SECTIONS for line in _duplicate_ids(document, name)]
     problems += _equipment_problems(document.get("equipment", []), tags)
+    problems += _equipment_condition_problems(document.get("equipment", []), tags, loop_ids)
     problems += _loop_problems(document.get("loops", []), tags, loop_ids, conversions)
     problems += _signal_problems(document, tags, loop_ids)
     problems += _lab_problems(document.get("labs", []), tags, conversions)
@@ -79,6 +80,40 @@ def _equipment_problems(entries: list[Document], tags: dict[str, Document]) -> l
                     f"{where}.tags: tag {tag_id!r} is already attached to {owner[tag_id]!r}"
                 )
             owner.setdefault(tag_id, entry["id"])
+    return problems
+
+
+def _equipment_condition_problems(
+    entries: list[Document], tags: dict[str, Document], loop_ids: set[str]
+) -> list[str]:
+    """Check condition tag references and unique primary ownership of loops."""
+    problems: list[str] = []
+    owners: dict[str, str] = {}
+    for index, entry in enumerate(entries):
+        where = f"equipment.{index}"
+        problems += _equipment_loop_problems(where, entry, loop_ids, owners)
+        for number, signal in enumerate(entry.get("signals", [])):
+            problems += _unknown(f"{where}.signals.{number}.tag", [signal["tag"]], tags)
+        if "running" in entry:
+            problems += _unknown(f"{where}.running.tag", [entry["running"]["tag"]], tags)
+    return problems
+
+
+def _equipment_loop_problems(
+    where: str, entry: Document, loop_ids: set[str], owners: dict[str, str]
+) -> list[str]:
+    """Allow shared references while recording only primary loop owners."""
+    problems: list[str] = []
+    for field in ("loops", "loop_refs"):
+        for loop_id in entry.get(field, []):
+            if loop_id not in loop_ids:
+                problems.append(f"{where}.{field}: unknown loop {loop_id!r}")
+    for loop_id in entry.get("loops", []):
+        if loop_id in owners and owners[loop_id] != entry["id"]:
+            problems.append(
+                f"{where}.loops: loop {loop_id!r} already has primary owner {owners[loop_id]!r}"
+            )
+        owners.setdefault(loop_id, entry["id"])
     return problems
 
 
