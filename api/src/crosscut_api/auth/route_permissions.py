@@ -87,7 +87,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/controllers/{controller_id}/command"): "ctl.operate",
     ("PUT", "/controllers/{controller_id}/variables/{variable_id}"): "ctl.operate",
 
-    # analysis.run (POST)
+    # analysis.run (history proposals are read-only but still perform identification)
+    ("GET", "/datasets/{dataset_id}/loops/{loop_name}/knowledge/proposal"): "analysis.run",
     ("POST", "/fuzzy/diff"): "analysis.run",
     ("POST", "/fuzzy/infer"): "analysis.run",
     ("POST", "/fuzzy/matrix"): "analysis.run",
