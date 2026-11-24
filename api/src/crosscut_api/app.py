@@ -42,6 +42,7 @@ from crosscut_api.catalogue_source_routes import build_catalogue_source_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.controller_routes import build_controller_router
 from crosscut_api.downsample import Envelope, downsample_minmax
+from crosscut_api.equipment_anomaly_routes import build_equipment_anomaly_router
 from crosscut_api.fuzzy_routes import build_fuzzy_router
 from crosscut_api.gateway_client import FileGatewayClient, gateway_provider
 from crosscut_api.gateway_routes import build_gateway_router
@@ -748,6 +749,9 @@ def _mount_data_routers(
         build_supervisor_router(store.root, store.load_seconds, store.loops_of, provider)
     )
     app.include_router(build_anomaly_router(store.root, store.load_seconds, store.load_quality))
+    app.include_router(
+        build_equipment_anomaly_router(store.root, store.load_wide, store.load_quality)
+    )
     app.include_router(build_softsensor_router(store.root, store.load_seconds, store.load_quality))
     app.include_router(build_intake_router(store.root, store.loops_of))
     app.include_router(build_onboarding_router(store))
