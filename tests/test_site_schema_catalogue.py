@@ -53,6 +53,25 @@ def test_minimal_doc_valid() -> None:
     assert load_validator().is_valid(minimal)
 
 
+def test_equipment_condition_fields_are_valid() -> None:
+    """Equipment accepts primary loops, shared loops and condition proposals."""
+    equipment = {
+        "id": "200-PP-101", "level": "equipment", "loops": ["200-FIC-101"],
+        "loop_refs": ["200-FIC-102"],
+        "signals": [{"tag": "200-PP-101-MOTOR-CURRENT", "kind": "current", "confirmed": False}],
+        "running": {"tag": "200-PP-101-MOTOR-CURRENT", "above": 1.0, "confirmed": True},
+    }
+    document = mutated(SITE_DOC, ["equipment", 0], equipment)
+    assert load_validator().is_valid(document)
+
+
+def test_unknown_equipment_condition_kind_is_rejected() -> None:
+    """Condition kinds must use the catalogue vocabulary."""
+    signal = {"tag": "200-PP-101-MOTOR-CURRENT", "kind": "pressure", "confirmed": False}
+    document = mutated(SITE_DOC, ["equipment", 0, "signals"], [signal])
+    assert not load_validator().is_valid(document)
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
