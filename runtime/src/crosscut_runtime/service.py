@@ -34,6 +34,7 @@ from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.anomaly_scan import ANOMALY_DIR, AnomalyScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob
+from crosscut_runtime.kpi_history import record_kpi_run
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore, controller_period, controller_period_problem
 
@@ -359,6 +360,8 @@ class RuntimeService:
                     st["kpi"] = run.result.get("kpi")
                     st["scan"] = run.result.get("scan")
                     st["controller"] = run.result.get("controller")
+                    if job["kind"] == "loop_kpi":
+                        record_kpi_run(self._store, job, st, now_utc)
                 else:
                     st.update({"status": "error", "error": run.error})
                     self._store.append_log("error", run.error, job_id)
