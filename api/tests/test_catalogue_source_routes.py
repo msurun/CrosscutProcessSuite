@@ -97,7 +97,8 @@ def test_import_adds_tags_loop_and_equipment(tmp_path: Path) -> None:
     body = _import_body(_preview(client, rules), rules)
     response = client.post("/sources/s1/catalogue-import", json=body)
     assert response.status_code == 200, response.text
-    assert response.json()["added"] == {"tags": 4, "loops": 1, "equipment": 3}
+    # site, area 200, equipment PP-101, and FIC-101 as a one-loop equipment (#214).
+    assert response.json()["added"] == {"tags": 4, "loops": 1, "equipment": 4}
     site = _site_json(tmp_path)
     assert site["loops"] == [
         {"id": "FIC-101", "pv": "FIC-101.PV", "sp": "FIC-101.SP", "out": "FIC-101.OP"}
@@ -106,6 +107,11 @@ def test_import_adds_tags_loop_and_equipment(tmp_path: Path) -> None:
     assert equipment["200"]["parent"] == "site"
     assert equipment["PP-101"]["parent"] == "200"
     assert "200-PP-101-CURRENT" in equipment["PP-101"]["tags"]
+    assert equipment["PP-101"]["signals"] == [
+        {"tag": "200-PP-101-CURRENT", "kind": "current", "confirmed": False}
+    ]
+    assert equipment["PP-101"]["running"]["tag"] == "200-PP-101-CURRENT"
+    assert equipment["FIC-101"]["loops"] == ["FIC-101"]
 
 
 def test_reimport_of_the_same_preview_adds_nothing(tmp_path: Path) -> None:

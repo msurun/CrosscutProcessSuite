@@ -11,11 +11,12 @@ from __future__ import annotations
 import copy
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
 from crosscut_connectors.base import CAP_BROWSE, CAP_METADATA, ConnectorError, NodeInfo
+from crosscut_connectors.condition_signals import propose_kind, propose_running
 from crosscut_connectors.naming_rules import PRESETS, NamingResult, apply_rules, compile_rules
 from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import save_site, validate_site
@@ -136,26 +137,61 @@ def _site_root(existing: list[Doc]) -> tuple[str, list[Doc]]:
     return "site", [{"id": "site", "level": "site"}]
 
 
+@dataclass(frozen=True)
+class _EquipmentInput:
+    """What the equipment builder needs besides the rule tree."""
+
+    loop_tags: dict[str, list[str]]  # loop id -> its tags (PV, SP, OUT, MODE)
+    created: set[str]  # loop ids that exist in the catalogue after this import
+    units: dict[str, str]  # tag id -> engineering unit, for the signal kind proposal
+
+
+def _signals(tags: list[str], units: dict[str, str]) -> list[Doc]:
+    """Condition signals with a proposed kind (unconfirmed) for tags that have one (#214)."""
+    found = [(tag, propose_kind(tag, units.get(tag), None)) for tag in tags]
+    return [{"tag": tag, "kind": kind, "confirmed": False} for tag, kind in found if kind]
+
+
+def _equipment(eq_id: str, parent: str, content: Doc, given: _EquipmentInput) -> Doc:
+    """One equipment entry: owned loops, all their tags plus signals, signals and running state."""
+    loops = [loop for loop in content["loops"] if loop in given.created]
+    loop_tags = [t for loop in loops for t in given.loop_tags.get(loop, [])]
+    entry: Doc = {
+        "id": eq_id,
+        "level": "equipment",
+        "parent": parent,
+        "tags": list(dict.fromkeys(loop_tags + content["signals"])),
+    }
+    if loops:
+        entry["loops"] = loops
+    if signals := _signals(content["signals"], given.units):
+        entry["signals"] = signals
+        if running := propose_running(signals):
+            entry["running"] = running
+    return entry
+
+
 def _equipment_entries(
-    result: NamingResult, loop_tags: dict[str, list[str]], existing: list[Doc]
+    result: NamingResult, given: _EquipmentInput, existing: list[Doc]
 ) -> list[Doc]:
-    """ISA-95 entries from the rule tree: site > area > equipment; tags = loop tags + signals.
+    """ISA-95 entries from the rule tree: site > area > equipment (#209, #214).
 
     Every entry below the site needs a parent (catalogue rule), so areas hang under the site
-    entry and equipment found without an area hangs directly under it.
+    entry and equipment found without an area hangs directly under it. A created loop that no
+    equipment owns becomes a one-loop equipment (owner decision 2026-11-20).
     """
     root, entries = _site_root(existing)
+    owned: set[str] = set()
     for area, equipment in result.tree.items():
         if area:
             entries.append({"id": area, "level": "area", "parent": root})
         for eq_id, content in equipment.items():
-            if not eq_id:
-                continue
-            loops = [t for loop in content["loops"] for t in loop_tags.get(loop, [])]
-            tags = list(dict.fromkeys(loops + content["signals"]))
-            entries.append(
-                {"id": eq_id, "level": "equipment", "parent": area or root, "tags": tags}
-            )
+            if eq_id:
+                entries.append(_equipment(eq_id, area or root, content, given))
+                owned.update(content["loops"])
+    for loop in sorted(given.created - owned):
+        lone = _equipment(loop, root, {"loops": [loop], "signals": []}, given)
+        entries.append(lone)
     return entries
 
 
@@ -175,9 +211,13 @@ def merged_site(site: Doc, source_id: str, body: ImportBody) -> tuple[Doc, Doc]:
     if body.loops:
         out["loops"] = _merge(out.get("loops", []), _loop_entries(result))
     if body.equipment:
-        loop_tags = {loop: list(roles.values()) for loop, roles in result.loops.items()}
+        given = _EquipmentInput(
+            loop_tags={loop: list(roles.values()) for loop, roles in result.loops.items()},
+            created={loop["id"] for loop in out.get("loops", [])},
+            units={t["id"]: t.get("unit", "") for t in out["tags"]},
+        )
         existing = out.get("equipment", [])
-        out["equipment"] = _merge(existing, _equipment_entries(result, loop_tags, existing))
+        out["equipment"] = _merge(existing, _equipment_entries(result, given, existing))
     if body.rules:
         out.setdefault("naming", {})["rules"] = body.rules
     added = {k: len(out.get(k, [])) - before[k] for k in before}
