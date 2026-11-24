@@ -53,6 +53,8 @@ const TOUCHED = [
   "src/components/FuzzyTabs.tsx",
   "src/components/KnowledgeEditor.tsx",
   "src/components/KnowledgeFields.tsx",
+  "src/components/KnowledgeProposals.tsx",
+  "src/knowledgeProposalApi.ts",
   "src/components/LoopDetail.tsx",
   "src/components/LoopsOverview.tsx",
   "src/components/LoopsPage.tsx",

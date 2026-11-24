@@ -211,6 +211,7 @@ function LoopView(props: LoopViewProps) {
           onOpenBenefit={() => navigate(withLoop(route, loop.name, "benefit"))}
           onOpenValve={() => navigate(withLoop(route, loop.name, "valve"))}
           onOpenLoop={(name) => navigate(withLoop(route, name))}
+          onOpenSteps={() => navigate(withView(route, "steps"))}
           onKnowledgeSaved={reload}
           onOpenInTrends={() =>
             openLoopChart(datasetId, loop, tags ?? []).then((chart) => navigate(withQueryParams(withView(route, "trends"), { chart })))

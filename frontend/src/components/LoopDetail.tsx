@@ -458,7 +458,7 @@ export function LoopDetail(props: LoopDetailProps) {
       {props.onOpenInTrends && <OpenInTrendsButton t={t} onOpen={props.onOpenInTrends} />}
       <NotAssessedNotice loop={loop} t={t} />
       <DetailGrid loop={loop} t={t} onOpenLoop={onOpenLoop} onOpenValve={onOpenValve} onShow={setShownWindow} />
-      <KnowledgeEditor datasetId={datasetId} loop={loop} t={t} onSaved={onKnowledgeSaved ?? noop} />
+      <KnowledgeEditor datasetId={datasetId} loop={loop} t={t} onSaved={onKnowledgeSaved ?? noop} onOpenSteps={props.onOpenSteps} />
 
       <section>
         {shownWindow !== undefined && (
@@ -481,6 +481,8 @@ type LoopDetailProps = {
   onOpenBenefit: () => void;
   /** Opens the guided valve stroke test; the button is hidden when absent. */
   onOpenValve?: () => void;
+  /** Opens the Steps view (step tests) for this loop. */
+  onOpenSteps?: () => void;
   /** Opens another loop (used by the "same period" links); the links are plain text when absent. */
   onOpenLoop?: (loopName: string) => void;
   /** Called after the loop data was saved, so the caller can fetch the analysis again. */

@@ -9,6 +9,7 @@ import type { LoopKnowledge, LoopSummary } from "../api";
 import { fetchKnowledge, saveKnowledge } from "../api";
 import type { Translate } from "../findings";
 import { isPartiallyAssessed } from "../worklist";
+import type { KnowledgeProposalResponse } from "../knowledgeProposalApi";
 import { HowTo, NumberInput, ProcessKindField, RangeGroup, SaveDiff, VendorField } from "./KnowledgeFields";
 import type { DraftFieldName, FieldChange, KnowledgeDraft } from "./knowledgeDraft";
 import {
@@ -21,6 +22,7 @@ import {
   isDraftValid,
   parseNumberField,
 } from "./knowledgeDraft";
+import { acceptAllHighPatch, FieldProposal, OtherProposals, ProposalBar, useProposal } from "./KnowledgeProposals";
 
 export { buildUpdate, parseNumberField };
 export type { NumberField } from "./knowledgeDraft";
@@ -122,18 +124,20 @@ function useKnowledgeForm(datasetId: string, loopName: string, knowledge: LoopKn
 }
 
 /** The three positive-number fields and the process kind, each with a how-to text. */
-function BasicFields({ draft, unit, t, edit }: {
+function BasicFields({ draft, unit, t, edit, proposal }: {
   draft: KnowledgeDraft;
   unit: string;
   t: Translate;
   edit: (patch: Partial<KnowledgeDraft>) => void;
+  proposal: KnowledgeProposalResponse | null;
 }) {
+  const hint = (name: string) => <FieldProposal name={name} response={proposal} t={t} onAccept={edit} />;
   const field = (name: DraftFieldName, id: string, label: string, [help, how]: [string, string]) => (
     <NumberInput
       id={id}
       label={label}
       help={t(help)}
-      howTo={<HowTo summary={t("knowledge.howTo")} body={t(how)} />}
+      howTo={<><HowTo summary={t("knowledge.howTo")} body={t(how)} />{hint(name)}</>}
       text={draft[name]}
       placeholder={t("knowledge.leaveBlank")}
       isValid={isDraftFieldValid(draft, name)}
@@ -147,6 +151,7 @@ function BasicFields({ draft, unit, t, edit }: {
       {field("ultimate_period_s", "knowledge-ultimate", t("knowledge.ultimate"), ["knowledge.ultimateHelp", "knowledge.howToUltimate"])}
       {field("amplitude_limit", "knowledge-amplitude", t("knowledge.amplitude", { unit }), ["knowledge.amplitudeHelp", "knowledge.howToAmplitude"])}
       <ProcessKindField value={draft.process_kind} t={t} onChange={(kind) => edit({ process_kind: kind })} />
+      {hint("process_kind")}
       <VendorField value={draft.vendor} t={t} onChange={(vendor) => edit({ vendor })} />
     </div>
   );
@@ -172,15 +177,35 @@ function SaveStatus({ changes, error, unit, t, onDismiss }: {
   );
 }
 
+/** The Save and Undo buttons. */
+function FormActions({ canSave, isSaving, onReset, t }: {
+  canSave: boolean;
+  isSaving: boolean;
+  onReset: () => void;
+  t: Translate;
+}) {
+  return (
+    <p className="form-actions">
+      <button type="submit" className="filter-chip" disabled={!canSave}>
+        {isSaving ? t("knowledge.saving") : t("knowledge.save")}
+      </button>{" "}
+      <button type="button" className="filter-chip" onClick={onReset}>{t("knowledge.reset")}</button>
+    </p>
+  );
+}
+
 /** The form plus Save/Undo buttons, shown once the knowledge is loaded. */
-function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved }: {
+function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved, onOpenSteps }: {
   datasetId: string;
   loop: LoopSummary;
   knowledge: LoopKnowledge;
   t: Translate;
   onSaved: () => void;
+  onOpenSteps?: () => void;
 }) {
   const form = useKnowledgeForm(datasetId, loop.name, knowledge, onSaved);
+  const { state, load } = useProposal(datasetId, loop.name);
+  const response = state.status === "ready" ? state.response : null;
   const { loaded, draft } = form;
   const inverted = invertedRanges(draft);
   const canSave =
@@ -188,7 +213,13 @@ function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved }: {
 
   return (
     <form onSubmit={form.submit}>
-      <BasicFields draft={draft} unit={loop.unit} t={t} edit={form.edit} />
+      <ProposalBar
+        state={state}
+        t={t}
+        onLoad={load} onOpenSteps={onOpenSteps}
+        onAcceptHigh={() => response && form.edit(acceptAllHighPatch(response.proposals))}
+      />
+      <BasicFields draft={draft} unit={loop.unit} t={t} edit={form.edit} proposal={response} />
       <RangeGroup
         draft={draft}
         pvDefault={loaded.pv_eng_default}
@@ -197,14 +228,10 @@ function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved }: {
         t={t}
         onChange={(name, text) => form.edit({ [name]: text })}
       />
+      <OtherProposals response={response} t={t} onAccept={form.edit} />
       <RangeInfo range={loaded.ranges.out} presentKey="knowledge.rangeOut" missingKey="knowledge.rangeOutMissing" t={t} />
       <RangeInfo range={loaded.ranges.pv} presentKey="knowledge.rangePv" missingKey="knowledge.rangePvMissing" t={t} />
-      <p className="form-actions">
-        <button type="submit" className="filter-chip" disabled={!canSave}>
-          {form.isSaving ? t("knowledge.saving") : t("knowledge.save")}
-        </button>{" "}
-        <button type="button" className="filter-chip" onClick={form.reset}>{t("knowledge.reset")}</button>
-      </p>
+      <FormActions canSave={canSave} isSaving={form.isSaving} onReset={form.reset} t={t} />
       <SaveStatus changes={form.changes} error={form.saveError} unit={loop.unit} t={t} onDismiss={form.dismiss} />
     </form>
   );
@@ -217,11 +244,12 @@ function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved }: {
  * site catalogue (Site) on this computer. On success it calls `onSaved` so the caller can
  * refetch the loops.
  */
-export function KnowledgeEditor({ datasetId, loop, t, onSaved }: {
+export function KnowledgeEditor({ datasetId, loop, t, onSaved, onOpenSteps }: {
   datasetId: string;
   loop: LoopSummary;
   t: Translate;
   onSaved: () => void;
+  onOpenSteps?: () => void;
 }) {
   const state = useKnowledge(datasetId, loop.name);
 
@@ -234,7 +262,7 @@ export function KnowledgeEditor({ datasetId, loop, t, onSaved }: {
         <p className="status status-error">{t("knowledge.error", { reason: state.reason })}</p>
       )}
       {state.status === "ready" && (
-        <KnowledgeForm datasetId={datasetId} loop={loop} knowledge={state.knowledge} t={t} onSaved={onSaved} />
+        <KnowledgeForm datasetId={datasetId} loop={loop} knowledge={state.knowledge} t={t} onSaved={onSaved} onOpenSteps={onOpenSteps} />
       )}
     </details>
   );
