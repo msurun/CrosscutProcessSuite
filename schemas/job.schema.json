@@ -48,9 +48,10 @@
             "loop_kpi",
             "anomaly_scan",
             "tuning_review",
-            "controller"
+            "controller",
+            "equipment_scan"
           ],
-          "description": "What the job computes. loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'. controller: runs the site controllers[] entry named in 'controller' one cycle per run (APC core); it proposes writes through the gateway only."
+          "description": "What the job computes. equipment_scan: live learned equipment anomalies with persistence and clear hysteresis; loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'. controller: runs the site controllers[] entry named in 'controller' one cycle per run (APC core); it proposes writes through the gateway only."
         },
         "source": {
           "$ref": "#/$defs/identifier",
@@ -93,6 +94,27 @@
         "controller": {
           "$ref": "#/$defs/identifier",
           "description": "Id of an entry in the site's controllers; required for controller jobs."
+        },
+        "equipment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Catalogue equipment ids with saved normal-operation models."
+        },
+        "persistence": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Consecutive abnormal cycles needed to open an equipment event."
+        },
+        "clear": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Consecutive normal cycles needed to close an equipment event."
         }
       },
       "allOf": [
@@ -152,6 +174,23 @@
           "else": {
             "required": [
               "period_s"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "equipment_scan"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "equipment"
             ]
           }
         }

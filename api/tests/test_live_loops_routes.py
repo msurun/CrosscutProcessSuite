@@ -76,3 +76,30 @@ def test_no_site_has_an_empty_worklist(tmp_path: Path) -> None:
     """An unconfigured site is a valid empty worklist."""
     client = TestClient(create_app(tmp_path, auth_enabled=False))
     assert client.get("/live/loops").json() == {"loops": []}
+
+
+def test_open_equipment_event_adds_a_loop_finding(client: TestClient, tmp_path: Path) -> None:
+    """An affected loop links to the equipment event's original opening time."""
+    event = {"equipment": "pump", "opened_utc": "2026-11-23T10:00:00Z",
+             "closed_utc": None, "loops_affected": ["a"]}
+    tmp_path.joinpath("_runtime/equipment_events.jsonl").write_text(json.dumps(event) + "\n")
+
+    row = client.get("/live/loops/a").json()
+
+    assert row["findings"] == [{"code": "equipment_anomaly",
+                                "since_utc": event["opened_utc"]}]
+
+
+def test_closed_equipment_event_removes_the_loop_finding(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """The closing journal record supersedes its earlier opening record."""
+    event = {"equipment": "pump", "opened_utc": "2026-11-23T10:00:00Z",
+             "closed_utc": None, "loops_affected": ["a"]}
+    closed = {**event, "closed_utc": "2026-11-23T10:05:00Z"}
+    tmp_path.joinpath("_runtime/equipment_events.jsonl").write_text(
+        json.dumps(event) + "\n" + json.dumps(closed) + "\n")
+
+    row = client.get("/live/loops/a").json()
+
+    assert row["findings"] == []

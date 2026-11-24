@@ -32,7 +32,7 @@ LOG_LIMIT_MAX = 2000
 _SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "job.schema.json"
 _JOB_FIELDS = frozenset(
     {"id", "kind", "source", "loops", "tags", "controller", "period_s", "window_s", "enabled",
-     "anomaly_id"}
+     "anomaly_id", "equipment", "persistence", "clear"}
 )
 
 
@@ -120,10 +120,32 @@ def _check_duplicate_id(job: dict[str, Any], existing_ids: set[str]) -> list[str
     return []
 
 
+def _check_equipment(job: dict, site: dict, root: Path | None) -> list[str]:
+    """Require catalogue equipment and a saved model before deploying a scan."""
+    if job.get("kind") != "equipment_scan":
+        return []
+    known = {entry["id"] for entry in site.get("equipment", [])}
+    problems = []
+    equipment_ids = job.get("equipment", [])
+    if not isinstance(equipment_ids, list) or any(
+        not isinstance(identifier, str) for identifier in equipment_ids
+    ):
+        return ["job.equipment: provide an array of equipment identifiers"]
+    for equipment_id in equipment_ids:
+        if equipment_id not in known or equipment_id in {".", ".."}:
+            problems.append(f"job.equipment: unknown equipment {equipment_id!r}")
+        elif root is None or not (
+            root / "_anomaly" / "equipment" / f"{equipment_id}.model.json"
+        ).is_file():
+            problems.append(f"job.equipment: learn and save a model for {equipment_id!r}")
+    return problems
+
+
 def job_problems(
     job: dict[str, Any],
     site_doc: dict[str, Any] | None,
     existing_ids: set[str],
+    root: Path | None = None,
 ) -> list[str]:
     """Problems of one job: schema problems first, then cross-checks.
 
@@ -134,6 +156,7 @@ def job_problems(
     if site_doc is None:
         return problems + ["no site catalogue: create it first"]
     problems += _cross_check_problems(job, site_doc, existing_ids)
+    problems += _check_equipment(job, site_doc, root)
     return problems
 
 
@@ -164,6 +187,7 @@ def _job_summary(job: dict[str, Any], state_entry: dict[str, Any] | None) -> dic
         "samples": entry.get("samples", 0),
         "kpi": entry.get("kpi"),
         "scan": entry.get("scan"),
+        "equipment": entry.get("equipment"),
     }
 
 
@@ -225,7 +249,7 @@ class _RuntimeEndpoints:
         existing_ids = _job_ids(document)
         if job.get("id") in existing_ids:
             raise HTTPException(status_code=409, detail=f"duplicate job {job.get('id')!r}")
-        problems = job_problems(job, _load_site_document(self._root), existing_ids)
+        problems = job_problems(job, _load_site_document(self._root), existing_ids, self._root)
         if problems:
             raise HTTPException(status_code=422, detail=problems)
         document.setdefault("jobs", []).append(job)
@@ -241,7 +265,7 @@ class _RuntimeEndpoints:
         document = self._load_jobs()
         existing = self._find_job(document, job_id)
         merged = self._merge(existing, body)
-        problems = job_problems(merged, _load_site_document(self._root), set())
+        problems = job_problems(merged, _load_site_document(self._root), set(), self._root)
         if problems:
             raise HTTPException(status_code=422, detail=problems)
         document["jobs"] = [merged if job.get("id") == job_id else job for job in document["jobs"]]

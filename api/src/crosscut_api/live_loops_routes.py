@@ -13,6 +13,7 @@ from typing import Annotated, Any
 from crosscut_runtime.kpi_history import finding_codes
 from fastapi import APIRouter, HTTPException, Query
 
+from crosscut_api.equipment_live_routes import read_equipment_events
 from crosscut_api.runtime_routes import (
     SERVICE_FRESHNESS_S,
     _is_fresh,
@@ -73,6 +74,19 @@ def _read_history(path: Path, limit: int) -> list[dict[str, Any]]:
     return observations
 
 
+def _add_equipment_findings(rows: list[dict[str, Any]], root: Path) -> None:
+    """Attach open equipment events to affected loops without changing KPI findings."""
+    # Journal replay replaces opening snapshots with closing records, so a closed
+    # equipment alarm cannot leave a stale action in the operator's worklist.
+    events = read_equipment_events(root)
+    for row in rows:
+        opened = [event["opened_utc"] for event in events
+                  if event.get("closed_utc") is None
+                  and row["id"] in event.get("loops_affected", [])]
+        if opened:
+            row["findings"].append({"code": "equipment_anomaly", "since_utc": min(opened)})
+
+
 class _LiveLoopsEndpoints(_RuntimeEndpoints):
     """Read the same runtime documents as the existing runtime endpoints."""
 
@@ -86,6 +100,7 @@ class _LiveLoopsEndpoints(_RuntimeEndpoints):
             job = next((job for job in jobs if job.get("kind") == "loop_kpi"
                         and job.get("enabled") and loop["id"] in job.get("loops", [])), {})
             rows.append(_loop_row(loop, job, states.get(job.get("id"), {})))
+        _add_equipment_findings(rows, self._root)
         return {"loops": sorted(rows, key=lambda row: (-len(row["findings"]), row["id"]))}
 
     def detail(
