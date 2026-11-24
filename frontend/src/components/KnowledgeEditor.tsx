@@ -214,7 +214,8 @@ function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved }: {
  * Collapsible editor for the per-loop knowledge.
  *
  * Loads the current values, lets the user fill or clear them and saves the changes to the
- * dataset's project.json. On success it calls `onSaved` so the caller can refetch the loops.
+ * site catalogue (Site) on this computer. On success it calls `onSaved` so the caller can
+ * refetch the loops.
  */
 export function KnowledgeEditor({ datasetId, loop, t, onSaved }: {
   datasetId: string;

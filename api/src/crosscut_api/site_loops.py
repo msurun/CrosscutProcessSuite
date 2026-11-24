@@ -1,10 +1,6 @@
-"""Loops of the site catalogue as LoopTags, including the per-loop tuning knowledge.
+"""Adapt site catalogue loops and their tuning knowledge into LoopTags.
 
-One variable model (ADR 015): when a loop exists in ``<root>/_site/site.json`` that entry is
-the single home of its knowledge (delay, ultimate period, amplitude limit, process kind,
-vendor and engineering-range overrides). The adapter below carries that knowledge into
-``LoopTags``, and the knowledge editor writes into the same entry. A dataset's
-``project.json`` serves only datasets without a site catalogue loop.
+The editor promotes dataset loops into site.json; project.json is a legacy read fallback.
 """
 
 from __future__ import annotations
