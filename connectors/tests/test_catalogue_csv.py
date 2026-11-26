@@ -5,7 +5,6 @@ import csv
 import io
 
 import pytest
-
 from crosscut_connectors.catalogue_csv import (
     CsvImport,
     RowError,
@@ -38,15 +37,18 @@ def _site() -> dict:
                 "dtype": "float",
                 "missing_codes": [1, -1],
                 "missing_text_codes": ["NoData"],
-                "range": [40.0, 200.0],
-                "eng_limits": {"high": 150.0, "critical_high": 190.0},
+                "range": {"min": 40.0, "max": 200.0},
+                "eng_limits": {"min": 0.0, "max": 150.0},
                 "quality_map": {
-                    "good": [0, 16],
-                    "bad": [-1, 1],
-                    "uncertain": [2, 17],
+                    "0": "good",
+                    "16": "good",
+                    "-1": "bad",
+                    "1": "bad",
+                    "2": "uncertain",
+                    "17": "uncertain",
                 },
-                "sampling": {"seconds": 5, "deadband_value": 0.05},
-                "compression": {"enabled": True, "algorithm": "fast"},
+                "sampling": {"period_s": 5, "on_change": True},
+                "compression": {"deadband": 0.5, "deadband_unit": "engineering"},
             },
             {"id": "ti_102"},
         ],
@@ -69,8 +71,8 @@ def _read(text: str) -> list:
 
 def _cell(row: int, column: str, text: str) -> str:
     """Cell value in `row` (0 = header) for `column`."""
-    header, = _read(text)
-    return _read(text)[row][header.index(column)]
+    rows = _read(text)
+    return rows[row][rows[0].index(column)]
 
 
 def test_header_lists_id_first_then_remaining_fields_sorted():
@@ -85,8 +87,8 @@ def test_export_writes_one_row_per_tag_in_site_order():
 def test_export_json_encodes_structured_fields_in_cells():
     text = _export()
     assert _cell(1, "missing_codes", text) == "[1, -1]"
-    assert _cell(1, "eng_limits", text) == '{"high": 150.0, "critical_high": 190.0}'
-    assert '"algorithm": "fast"' in _cell(1, "compression", text)
+    assert _cell(1, "eng_limits", text) == '{"min": 0.0, "max": 150.0}'
+    assert '"deadband_unit": "engineering"' in _cell(1, "compression", text)
 
 
 def test_export_leaves_unstated_optional_fields_as_empty_cells():
@@ -112,7 +114,7 @@ def test_apply_returns_a_new_document_and_leaves_the_input_untouched():
 def test_apply_updates_existing_ids_in_place_and_appends_new_tags_in_file_order():
     site = _site()
     text = _export().replace('"ti_102"', '"ti_102",,unit', 1)
-    text += "\nti_300,,,,,,float,,,,,,\n"
+    text += "\nti_300,,,,,float,,,,,,\n"
     result = _csv(text)
     assert [tag["id"] for tag in apply_tags_import(site, result)["tags"]] == [
         "ti_101",
@@ -149,7 +151,7 @@ def test_parse_refuses_values_that_violate_the_schema():
         RowError(
             1,
             "dtype",
-            "must be one of float/int/bool/string for schema property dtype",
+            "must be one of float/int/bool/string",
         )
     ]
 
@@ -161,7 +163,7 @@ def test_parse_refuses_list_fields_holding_non_numeric_members():
         RowError(
             1,
             "missing_codes",
-            "must be a JSON list of numbers for schema property missing_codes",
+            "must be a JSON list of numbers",
         )
     ]
 
