@@ -37,8 +37,8 @@ describe("navGroups", () => {
 const menu = (role: string) => visibleGroups(visibleViews("authenticated", DEFAULT_ROLE_PERMISSIONS[role])).map((g) => g.id);
 
 describe("role-based menu (#175)", () => {
-  it("shows an operator Trends, Loops, Controllers and the approval queue only", () => {
-    expect(menu("operator")).toEqual(["trends", "loops", "controllers", "admin"]);
+  it("shows an operator Overview, Trends, Loops, Controllers and the approval queue only", () => {
+    expect(menu("operator")).toEqual(["overview", "trends", "loops", "controllers", "admin"]);
     const groups = visibleGroups(visibleViews("authenticated", DEFAULT_ROLE_PERMISSIONS.operator));
     expect(groupLabelKey(groupOf("gateway", groups)!)).toBe("nav.gateway");
     expect(canOpenView("catalogue", "authenticated", DEFAULT_ROLE_PERMISSIONS.operator)).toBe(false);
