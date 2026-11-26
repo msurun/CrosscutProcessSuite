@@ -8,3 +8,8 @@ export function isStatusBarProbe(url: string): boolean {
   const path = new URL(url).pathname;
   return STATUS_BAR_PROBES.some((probe) => path === probe);
 }
+
+/** True for the browser's console line about a failed status-bar probe ("Failed to load resource"). */
+export function isStatusBarConsoleNoise(text: string, locationUrl: string): boolean {
+  return text.startsWith("Failed to load resource") && locationUrl !== "" && isStatusBarProbe(locationUrl);
+}
