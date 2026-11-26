@@ -41,9 +41,17 @@ test.afterAll(() => {
   rmSync(configPath("softsensor"), { force: true });
 });
 
+/** The free-tag anomaly config lives under the Advanced tab of the equipment Anomalies view (#216). */
+async function openAdvancedIfAnomalies(page: Page, view: string): Promise<void> {
+  if (view === "anomalies") {
+    await page.getByRole("button", { name: /^(Advanced|Zaawansowane|Avanzado)$/ }).click();
+  }
+}
+
 /** Exercise persistence through the real module API, then check the rendered form with axe. */
 async function editSaveReload(page: Page, view: string, route: string): Promise<void> {
   await page.goto(`/#/d/${DATASET}/${view}`);
+  await openAdvancedIfAnomalies(page, view);
   await page.locator(`select:has(option[value="${CONFIG_ID}"])`).selectOption(CONFIG_ID);
   const editor = page.getByRole("region", { name: /Configuration|Konfiguracja/ });
   const description = editor.locator("#schema-field-description");
@@ -57,12 +65,13 @@ async function editSaveReload(page: Page, view: string, route: string): Promise<
   await description.fill("Unsaved change");
   await editor.getByRole("button", { name: /Reload|Wczytaj ponownie/ }).click();
   await expect(description).toHaveValue(`Saved ${view} description`);
-  await checkAccessibility(page, `Saved ${view} description`);
+  await checkAccessibility(page, view, `Saved ${view} description`);
 }
 
 /** Check the persisted document after a full page load, then inspect accessibility. */
-async function checkAccessibility(page: Page, expectedDescription: string): Promise<void> {
+async function checkAccessibility(page: Page, view: string, expectedDescription: string): Promise<void> {
   await page.reload();
+  await openAdvancedIfAnomalies(page, view);
   await page.locator(`select:has(option[value="${CONFIG_ID}"])`).selectOption(CONFIG_ID);
   await expect(page.locator("#schema-field-description")).toHaveValue(expectedDescription);
   const results = await new AxeBuilder({ page }).analyze();
