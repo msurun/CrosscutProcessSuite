@@ -1,0 +1,30 @@
+{
+  "key": "level_tight",
+  "label": "Level, tight",
+  "description": "Level held close to setpoint in an integrating vessel. The level must not drift, so the closed-loop time constant is short relative to the vessel time constant.",
+  "process_kind": "integrating",
+  "dynamics": {
+    "gain_min": 0.01,
+    "gain_max": 0.5,
+    "time_constant_s_min": 60.0,
+    "time_constant_s_max": 1800.0,
+    "dead_time_s_min": 5.0,
+    "dead_time_s_max": 120.0
+  },
+  "kpi_thresholds": {
+    "service_factor_min": 0.95,
+    "saturation_share_max": 0.02,
+    "oscillation_index_max": 0.25,
+    "noise_ratio_max": 0.15
+  },
+  "diagnosis_rules": ["instrument", "valve", "external", "design_or_mode", "tuning"],
+  "tuning": {
+    "rule": "simc",
+    "target_closed_loop_time_constant_ratio": 2.0,
+    "robustness": 0.5
+  },
+  "tests": {
+    "allowed": ["step", "stroke"],
+    "default_step_pct": 3.0
+  }
+}

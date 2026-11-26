@@ -1,0 +1,30 @@
+{
+  "key": "flow",
+  "label": "Flow",
+  "description": "Flow control. Tune fast and tight: the closed-loop time constant should stay near the dead time. The PV is often noisy and valve problems show here first.",
+  "process_kind": "self_regulating",
+  "dynamics": {
+    "gain_min": 0.5,
+    "gain_max": 5.0,
+    "time_constant_s_min": 5.0,
+    "time_constant_s_max": 120.0,
+    "dead_time_s_min": 1.0,
+    "dead_time_s_max": 30.0
+  },
+  "kpi_thresholds": {
+    "service_factor_min": 0.9,
+    "saturation_share_max": 0.05,
+    "oscillation_index_max": 0.3,
+    "noise_ratio_max": 0.2
+  },
+  "diagnosis_rules": ["instrument", "valve", "external", "design_or_mode", "tuning"],
+  "tuning": {
+    "rule": "simc",
+    "target_closed_loop_time_constant_ratio": 1.0,
+    "robustness": 0.3
+  },
+  "tests": {
+    "allowed": ["step", "stroke"],
+    "default_step_pct": 5.0
+  }
+}

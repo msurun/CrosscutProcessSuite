@@ -13,9 +13,9 @@ function Host() {
 }
 
 describe("FuzzyTabList", () => {
-  it("exposes a tablist with four tabs and one selected", () => {
+  it("exposes a tablist with five tabs and one selected", () => {
     render(<Host />);
-    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(screen.getByRole("tab", { name: "fuzzy.tab.variables" })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -42,6 +42,6 @@ describe("FuzzyTabList", () => {
 
   it("ignores other keys", () => {
     expect(nextTabIndex("a", 1, 4)).toBeNull();
-    expect(nextTabIndex("End", 0, 4)).toBe(3);
+    expect(nextTabIndex("End", 0, 5)).toBe(4);
   });
 });

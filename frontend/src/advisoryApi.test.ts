@@ -6,6 +6,9 @@ import {
   adviseNow,
   ApiError,
   fetchAdvisoryLog,
+  fetchFuzzyMatrix,
+  fetchImportSettings,
+  proposeAdvice,
   fetchSupervisorConfig,
   fetchSupervisors,
   replaySupervisor,
@@ -87,6 +90,37 @@ describe("advice calls", () => {
     await ackAdvice("sv", "ab12", { decision: "accepted", reasonCode: "other", who: "Ola" });
     expect(mock.mock.calls[0][0]).toBe("/api/supervisors/sv/log/ab12/ack");
     expect(sentBody(mock)).toEqual({ decision: "accepted", reason_code: "other", who: "Ola", note: "" });
+  });
+
+  it("propose posts the advice id to the supervisor's propose route", async () => {
+    const result = { proposal: { target_tag: "FIC1.SP", value: 51, proposer: "supervisor:sv", t_ns: 1, reason: "r" }, decision: { accepted: true }, advice_id: "ab12", mode: "confirm", queues_for_approval: true };
+    const mock = stubFetch(respond(result));
+    expect(await proposeAdvice("sv x", "ab12")).toEqual(result);
+    expect(mock.mock.calls[0][0]).toBe("/api/supervisors/sv%20x/propose");
+    expect((mock.mock.calls[0][1] as { method: string }).method).toBe("POST");
+    expect(sentBody(mock)).toEqual({ advice_id: "ab12" });
+  });
+
+  it("propose surfaces a refusal code as an ApiError", async () => {
+    stubFetch(respond({ detail: "already_proposed" }, false, 409));
+    await expect(proposeAdvice("sv", "ab")).rejects.toMatchObject({ status: 409, message: "already_proposed" });
+  });
+
+  it("fuzzy matrix posts the document and the three variable ids", async () => {
+    const mock = stubFetch(respond({ rows: [], columns: [], cells: [], unplaced: [] }));
+    const document = { schema_version: "1", name: "n", inputs: [], outputs: [], rules: [] };
+    await fetchFuzzyMatrix(document, "a", "b", "o");
+    expect(mock.mock.calls[0][0]).toBe("/api/fuzzy/matrix");
+    expect(sentBody(mock)).toEqual({ document, row_id: "a", column_id: "b", output_id: "o" });
+  });
+
+  it("import settings are read with GET and a 404 becomes an ApiError", async () => {
+    const settings = { missing_codes: [-9999], decimal_comma: true, delimiter: ";", time_names: ["time"] };
+    const mock = stubFetch(respond(settings));
+    expect(await fetchImportSettings()).toEqual(settings);
+    expect(mock.mock.calls[0][0]).toBe("/api/site/import-settings");
+    stubFetch(respond({ detail: "no site file" }, false, 404));
+    await expect(fetchImportSettings()).rejects.toMatchObject({ status: 404 });
   });
 
   it("maps a 422 detail to an ApiError", async () => {
