@@ -33,17 +33,25 @@ def test_lines_go_to_the_component_file_with_a_utc_stamp(tmp_path: Path) -> None
     assert line[:4].isdigit() and "Z WARNING x hello world" in line
 
 
+def _own_handlers(root: Path) -> list[RotatingFileHandler]:
+    """Rotating handlers writing under this test's root (other tests may leave theirs on the root logger)."""
+    return [
+        h for h in logging.getLogger().handlers
+        if isinstance(h, RotatingFileHandler) and Path(h.baseFilename).is_relative_to(root)
+    ]
+
+
 def test_defaults_and_environment_overrides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     setup_file_logging("a", tmp_path)
-    handler = next(h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler))
+    handler = next(h for h in _own_handlers(tmp_path))
     assert (handler.maxBytes, handler.backupCount) == (5_000_000, 5)
     monkeypatch.setenv("CROSSCUT_LOG_MAX_BYTES", "1000")
     monkeypatch.setenv("CROSSCUT_LOG_BACKUPS", "2")
     monkeypatch.setenv("CROSSCUT_LOG_LEVEL", "debug")
     setup_file_logging("a", tmp_path)
-    handlers = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+    handlers = _own_handlers(tmp_path)
     assert len(handlers) == 1  # idempotent: replaced, not stacked
     assert (handlers[0].maxBytes, handlers[0].backupCount) == (1000, 2)
     assert logging.getLogger().level == logging.DEBUG
