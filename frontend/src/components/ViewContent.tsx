@@ -7,6 +7,7 @@ import { canOpenView } from "../navGroups";
 import type { DatasetSummary, LoopSummary, TagInfo } from "../api";
 import { recordHours } from "../anomaly";
 import type { Translate } from "../findings";
+import { OverviewPage } from "../OverviewPage";
 import { GatewayPage } from "../GatewayPage";
 import { withQueryParams, type Route } from "../route";
 import { RuntimePage } from "../RuntimePage";
@@ -41,7 +42,7 @@ function datasetViews(p: ViewContentProps, id: string) {
   const hours = p.dataset ? recordHours(p.dataset.time_range.start_utc, p.dataset.time_range.end_utc) : null;
   const start = p.dataset ? p.dataset.time_range.start_utc : "";
   const views = {
-    loops: id && <LoopsPage datasetId={id} route={p.route} navigate={p.navigate} t={p.t} onAnalysed={p.onAnalysed} tags={p.tags} />,
+    loops: <LoopsPage datasetId={id} route={p.route} navigate={p.navigate} t={p.t} onAnalysed={p.onAnalysed} tags={p.tags} />,
     advisory: <AdvisoryPage datasetId={id} t={p.t} />,
     anomalies: <EquipmentAnomaliesPage datasetId={id} recordHours={hours} t={p.t} />,
     softsensor: <SoftSensorPage datasetId={id} recordHours={hours} startUtc={start} t={p.t} />,
@@ -70,6 +71,7 @@ export function ViewContent(props: ViewContentProps) {
   if (!canOpenView(route.view, status, permissions)) return <NoAccess view={route.view} t={t} />;
   const open = (id: string, loop: string) => navigate({ dataset: id, view: "loops", loop, sub: "tuning" });
   const global: Record<string, ReactNode> = {
+    overview: <OverviewPage t={t} />,
     import: <ImportPage onCreated={props.onDatasetCreated} onOpen={open} t={t} />,
     catalogue: <SitePage t={t} />,
     runtime: <RuntimePage t={t} />,

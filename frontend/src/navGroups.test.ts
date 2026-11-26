@@ -6,11 +6,15 @@ import { canOpenView, groupLabelKey, groupOf, NAV_GROUPS, visibleGroups, visible
 import type { View } from "./route";
 
 const ALL: View[] = [
-  "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import",
+  "overview", "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import",
   "catalogue", "onboarding", "runtime", "controllers", "gateway", "tuning", "users",
 ];
 
 describe("navGroups", () => {
+  it("offers Overview first and keeps Trends reachable", () => {
+    expect(NAV_GROUPS[0]).toEqual({ id: "overview", views: ["overview"] });
+    expect(groupOf("trends", NAV_GROUPS)?.id).toBe("trends");
+  });
   it("puts every view in exactly one group", () => {
     for (const view of ALL) {
       expect(NAV_GROUPS.filter((g) => g.views.includes(view))).toHaveLength(1);

@@ -14,6 +14,7 @@ export interface NavGroup {
 }
 
 export const NAV_GROUPS: readonly NavGroup[] = [
+  { id: "overview", views: ["overview"] },
   { id: "trends", views: ["trends"] },
   { id: "loops", views: ["loops", "steps", "tuning"] },
   { id: "anomalies", views: ["anomalies"] },
@@ -46,6 +47,7 @@ export function groupLabelKey(group: NavGroup): string {
  * (config.edit, data.import, job.manage, users.manage) so an operator's menu stays short. No permission is changed.
  */
 export const VIEW_PERMISSIONS: Readonly<Record<View, readonly string[]>> = {
+  overview: ["data.view"],
   trends: ["data.view"],
   loops: ["data.view"],
   steps: ["data.view"],

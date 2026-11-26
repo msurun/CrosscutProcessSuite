@@ -135,7 +135,7 @@ describe("parseHash", () => {
 
 describe("formatHash", () => {
   it("formats the default route", () => {
-    expect(formatHash(DEFAULT_ROUTE)).toBe("#/d//trends");
+    expect(formatHash(DEFAULT_ROUTE)).toBe("#/d//overview");
   });
 
   it("formats a loops route with a sub", () => {
@@ -257,5 +257,26 @@ describe("route query part", () => {
     expect(parseHash("#/d/sales/trends?")).not.toHaveProperty("query");
     const route = parseHash("#/d/sales/trends?chart=x");
     expect(withQueryParams(route, {})).not.toHaveProperty("query");
+  });
+});
+
+// The start view remains independent of dataset selection.
+describe("Overview start route", () => {
+  it("opens Overview without a hash", () => {
+    expect(parseHash("").view).toBe("overview");
+  });
+
+  it("round trips an explicit Overview bookmark", () => {
+    expect(parseHash(formatHash(DEFAULT_ROUTE))).toEqual(DEFAULT_ROUTE);
+  });
+
+  it("keeps the previous Trends start bookmark reachable", () => {
+    expect(parseHash("#/d//trends").view).toBe("trends");
+  });
+
+  it("keeps the mode query on a Loops link", () => {
+    const route = parseHash("#/d//loops?mode=live");
+    expect(route.view).toBe("loops");
+    expect(route.query).toEqual({ mode: "live" });
   });
 });
