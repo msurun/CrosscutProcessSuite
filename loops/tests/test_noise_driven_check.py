@@ -19,10 +19,8 @@ from crosscut_loops.overview import (
     status_level,
 )
 from crosscut_loops.worklist import (
-    ASK_WHY_MANUAL,
     CHECK_MEASUREMENT,
     REVIEW_NOISE_RESPONSE,
-    VALVE_TEST,
     next_action,
 )
 
@@ -156,9 +154,10 @@ def test_a_noise_driven_row_asks_to_review_the_noise_response():
     }
 
 
-def test_a_manual_row_still_asks_why_manual_first():
+def test_a_noise_finding_precedes_manual_mode():
+    """Instrument checks come before design-or-mode checks (PRODUCT 4.1 order, #149)."""
     row = _row_with_noise_finding(classification="manual")
-    assert next_action(row)["code"] == ASK_WHY_MANUAL
+    assert next_action(row)["code"] == REVIEW_NOISE_RESPONSE
 
 
 def test_a_flatlined_row_still_checks_the_measurement_first():
@@ -166,13 +165,14 @@ def test_a_flatlined_row_still_checks_the_measurement_first():
     assert next_action(row)["code"] == CHECK_MEASUREMENT
 
 
-def test_an_oscillating_row_with_stiction_still_tests_the_valve_first():
+def test_a_noise_finding_precedes_a_suspected_valve_test():
+    """Instrument checks come before valve checks (PRODUCT 4.1 order, #149)."""
     row = _row_with_noise_finding(
         classification="oscillating",
         stiction_advice="test_valve",
         same_period_as=[],
     )
-    assert next_action(row)["code"] == VALVE_TEST
+    assert next_action(row)["code"] == REVIEW_NOISE_RESPONSE
 
 
 def test_a_poor_performance_row_with_noise_finding_checks_the_noise_before_retuning():

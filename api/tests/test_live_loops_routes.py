@@ -103,3 +103,62 @@ def test_closed_equipment_event_removes_the_loop_finding(
     row = client.get("/live/loops/a").json()
 
     assert row["findings"] == []
+
+
+def _write_ranked_runtime(tmp_path: Path) -> None:
+    """Replace fixture observations with equally severe loops of different consequence."""
+    site = {"loops": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "equipment": [{"id": "pump", "level": "equipment", "loops": ["a"],
+                           "criticality": "critical"}]}
+    tmp_path.joinpath("_site/site.json").write_text(json.dumps(site))
+    observation = {"status": "warning", "health_percent": 50, "classification": "oscillating",
+                   "same_period_as": ["source"], "stiction_advice": "test_valve",
+                   "findings": ["external_disturbance"], "benefit": 2}
+    jobs = {"fresh": {"status": "ok", "kpi": {"a": observation}},
+            "stale": {"status": "ok", "kpi": {"b": observation}}}
+    tmp_path.joinpath("_runtime/state.json").write_text(json.dumps({"jobs": jobs}))
+
+
+def test_live_worklist_uses_catalogue_criticality_and_exposes_rank_factors(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """A critical owner raises rank while preserving the runtime observation."""
+    _write_ranked_runtime(tmp_path)
+
+    rows = client.get("/live/loops").json()["loops"]
+
+    assert rows[0]["id"] == "a"
+    assert rows[0]["rank_factors"]["criticality"] == 4
+    assert rows[0]["rank_factors"]["benefit"] == 2
+    assert rows[0]["rank_score"] == rows[1]["rank_score"] * 4
+    assert rows[0]["kpi"]["classification"] == "oscillating"
+
+
+def test_live_detail_recommends_external_source_before_a_suspected_valve_test(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """The exp37 disturbance case retains the first supported diagnosis in detail."""
+    _write_ranked_runtime(tmp_path)
+
+    row = client.get("/live/loops/a").json()
+
+    assert row["diagnosis_step"] == "external_cause"
+    assert row["next_action"]["code"] == "find_common_source"
+    assert row["priority_rank"] == 1
+
+
+def test_live_worklist_preserves_structured_valve_evidence(
+    client: TestClient, tmp_path: Path,
+) -> None:
+    """Direct evidence metadata reaches the shared diagnosis rules unchanged."""
+    _write_ranked_runtime(tmp_path)
+    path = tmp_path / "_runtime/state.json"
+    state = json.loads(path.read_text())
+    state["jobs"]["fresh"]["kpi"]["a"]["findings"] = [
+        {"code": "stiction", "evidence": "direct", "params": {"measured": True}}]
+    path.write_text(json.dumps(state))
+
+    row = client.get("/live/loops/a").json()
+
+    assert row["findings"][0]["evidence"] == "direct"
+    assert row["findings"][0]["params"] == {"measured": True}

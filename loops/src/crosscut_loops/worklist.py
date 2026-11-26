@@ -73,22 +73,26 @@ def _finding_codes(row: Row) -> set[str]:
     return {
         str(finding.get("code")) if isinstance(finding, dict) else str(finding)
         for finding in findings
+        if not isinstance(finding, dict) or finding.get("outcome") not in {"fixed", "not_a_problem"}
     }
 
 
 def _is_manual(row: Row) -> bool:
     """True when the loop is classified as run by hand."""
-    return row.get("classification") == MANUAL_CLASSIFICATION
+    return (row.get("classification") == MANUAL_CLASSIFICATION
+            or MANUAL_CLASSIFICATION in _finding_codes(row))
 
 
 def _is_saturated(row: Row) -> bool:
     """True when the controller output sat at a limit."""
-    return row.get("classification") == SATURATED_CLASSIFICATION
+    return (row.get("classification") == SATURATED_CLASSIFICATION
+            or SATURATED_CLASSIFICATION in _finding_codes(row))
 
 
 def _is_oscillating(row: Row) -> bool:
     """True when the loop cycles around its setpoint."""
-    return row.get("classification") == OSCILLATING_CLASSIFICATION
+    return (row.get("classification") == OSCILLATING_CLASSIFICATION
+            or OSCILLATING_CLASSIFICATION in _finding_codes(row))
 
 
 def _is_flatlined(row: Row) -> bool:
@@ -120,7 +124,7 @@ def _manual_params(row: Row) -> dict[str, Any]:
 
 def _number_or_none(value: Any) -> float | None:
     """The value as a float, or None when it is missing, not a number or NaN."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or math.isnan(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return None
     return float(value)
 
@@ -179,41 +183,78 @@ def _needs_knowledge(row: Row) -> bool:
 # One rule: (applies?, action code, builder of the action parameters or None for no parameters).
 Rule = tuple[Callable[[Row], bool], str, Callable[[Row], dict[str, Any]] | None]
 
-# Rules in the order they are tried; the first match wins. The order is the only place that
-# decides which advice outranks which, so each rule's comment says why it sits where it does.
+def _has_direct_valve_evidence(row: Row) -> bool:
+    """Separate measured valve faults from oscillation-based suspicions."""
+    if row.get("valve_evidence") == "direct":
+        return True
+    return any(
+        isinstance(finding, dict) and finding.get("code") in {"stiction", "deadband"}
+        and finding.get("evidence") == "direct"
+        and finding.get("outcome") not in {"fixed", "not_a_problem"}
+        for finding in row.get("findings") or []
+    )
+
+
+# First unresolved cause wins: instrument, direct valve evidence, external cause,
+# design/mode, then tuning. Oscillation alone does not prove a sticking valve.
 RULES: tuple[Rule, ...] = (
-    # A manual loop is not controlled at all: nothing else can be judged until someone says why.
-    (_is_manual, ASK_WHY_MANUAL, _manual_params),
-    # A frozen reading makes every other finding untrustworthy, so it is checked before them.
     (_is_flatlined, CHECK_MEASUREMENT, None),
-    # The output pinned at a limit may be the real cause of a flatline or a cycle elsewhere.
-    (_is_saturated, CHECK_OUTPUT_LIMIT, None),
-    # A sticking valve must be fixed before any retuning, and before blaming a shared source.
-    (lambda row: _is_oscillating(row) and _stiction_doubted(row), VALVE_TEST, None),
-    # One disturbance driving several loops is found before retuning any single one of them.
-    (
-        lambda row: _is_oscillating(row) and bool(_shared_period_loops(row)),
-        FIND_COMMON_SOURCE,
-        _common_source_params,
-    ),
-    # A cycle nobody else sees is caused by the loop or by its process: bump the loop and see
-    # whether the period changes (inside cause) or not (outside cause).
-    (_is_oscillating, TEST_CYCLE_CAUSE, None),
-    # Coarse output steps explain a small cycle, so they are checked before calling it poor tuning.
-    (_has_coarse_output, CHECK_OUTPUT_RESOLUTION, _resolution_params),
-    # A valve moved by noise is checked before retuning: filtering or detuning may be all it needs.
     (_is_noise_driven, REVIEW_NOISE_RESPONSE, _noise_params),
-    # Poor performance is the retuning case; every mechanical cause above is already excluded.
-    (
-        lambda row: row.get("classification") == POOR_PERFORMANCE_CLASSIFICATION,
-        BUMP_TEST_AND_RETUNE,
-        None,
-    ),
-    # A valve that is too big or too small limits control whatever the tuning: review it first.
+    (_is_saturated, CHECK_OUTPUT_LIMIT, None),
+    (lambda row: bool(_finding_codes(row) & {"valve_stiction", "deadband"})
+     or _has_direct_valve_evidence(row), VALVE_TEST, None),
+    (_has_coarse_output, CHECK_OUTPUT_RESOLUTION, _resolution_params),
     (_has_sizing_hint, REVIEW_VALVE_SIZING, _sizing_params),
-    # Only when nothing is wrong: give the missing knowledge so the checks can run at all.
+    (lambda row: bool(_shared_period_loops(row)) or bool(
+        _finding_codes(row) & {"external_disturbance", "external_cause", "equipment_anomaly"}
+    ), FIND_COMMON_SOURCE, _common_source_params),
+    (_is_manual, ASK_WHY_MANUAL, _manual_params),
+    (lambda row: _is_oscillating(row) and _stiction_doubted(row), VALVE_TEST, None),
+    (_is_oscillating, TEST_CYCLE_CAUSE, None),
     (_needs_knowledge, CONFIGURE_KNOWLEDGE, _configure_params),
+    (lambda row: row.get("classification") == POOR_PERFORMANCE_CLASSIFICATION,
+     BUMP_TEST_AND_RETUNE, None),
 )
+
+ACTION_STEPS = {
+    CHECK_MEASUREMENT: "instrument", REVIEW_NOISE_RESPONSE: "instrument",
+    CHECK_OUTPUT_LIMIT: "valve", VALVE_TEST: "valve",
+    CHECK_OUTPUT_RESOLUTION: "valve", REVIEW_VALVE_SIZING: "valve",
+    FIND_COMMON_SOURCE: "external_cause", TEST_CYCLE_CAUSE: "external_cause",
+    ASK_WHY_MANUAL: "design_or_mode", CONFIGURE_KNOWLEDGE: "design_or_mode",
+    BUMP_TEST_AND_RETUNE: "tuning", NO_ACTION: "none",
+}
+CRITICALITY_WEIGHTS = {"low": 1.0, "medium": 2.0, "high": 3.0, "critical": 4.0}
+NEUTRAL_FACTOR = 1.0  # dimensionless fallback when site knowledge is absent
+STATUS_SEVERITY = {"problem": 3.0, "warning": 2.0}  # dimensionless ordinal weights
+HEALTH_SPAN = 100.0  # percentage points in a completely healthy loop
+
+
+def _positive_factor(value: Any) -> float:
+    """Use nonnegative finite factors; missing inputs remain neutral."""
+    number = _number_or_none(value)
+    return NEUTRAL_FACTOR if number is None else max(0.0, number)
+
+
+def _rank_factors(row: Row) -> dict[str, float]:
+    """Read severity, catalogue consequence and the existing economic estimate."""
+    knowledge = row.get("knowledge") or {}
+    criticality = row.get("criticality", knowledge.get(
+        "criticality", row.get("equipment_criticality")))
+    benefit = row.get("benefit") or {}
+    estimate = benefit.get("estimate", benefit) if isinstance(benefit, dict) else {}
+    health = _number_or_none(row.get("health_percent"))
+    severity = STATUS_SEVERITY.get(row.get("status"), NEUTRAL_FACTOR)
+    if health is not None:
+        severity += max(0.0, HEALTH_SPAN - health) / HEALTH_SPAN
+    if row["next_action"]["code"] == NO_ACTION and not _finding_codes(row):
+        severity = 0.0
+    return {
+        "severity": _positive_factor(row.get("severity", severity)),
+        "criticality": CRITICALITY_WEIGHTS.get(criticality, _positive_factor(criticality)),
+        "benefit": _positive_factor(estimate.get("value_per_h", row.get("value_per_h",
+            benefit if not isinstance(benefit, dict) else None))),
+    }
 
 
 def next_action(row: Row) -> dict[str, Any]:
@@ -245,25 +286,22 @@ def _health(row: Row) -> int:
     return UNKNOWN_HEALTH if health is None else int(health)
 
 
-def priority_key(row: Row) -> tuple[int, int]:
-    """Sort key of one row; smaller comes first.
-
-    Expects ``row["next_action"]`` to be set already, which ``add_worklist`` guarantees.
-
-    Returns:
-        (urgency, health): the band first, then the worst health within that band.
-    """
-    return (_urgency(row), _health(row))
+def priority_key(row: Row) -> tuple[float, str, str]:
+    """Rank descending product, then ascending catalogue id and loop name."""
+    return (-row["rank_score"], str(row.get("id", row.get("name", ""))),
+            str(row.get("name", "")))
 
 
 def add_worklist(rows: list[Row]) -> None:
-    """Set ``next_action`` and ``priority_rank`` (1 = look first) on every row, in place.
-
-    The sort is stable, so rows of equal priority keep their input order and equal rows do not
-    swap places between two exports.
-    """
+    """Attach rank factors, diagnosis step, next action and a one-based priority."""
     for row in rows:
         row["next_action"] = next_action(row)
-    ordered = sorted(rows, key=priority_key)
-    for rank, row in enumerate(ordered, start=1):
+        row["diagnosis_step"] = ACTION_STEPS[row["next_action"]["code"]]
+        factors = _rank_factors(row)
+        row["rank_factors"] = factors
+        # Model: score = severity ? criticality ? benefit. Rows are JSON dictionaries;
+        # severity/consequence are dimensionless and benefit is site currency/hour
+        # when priced, otherwise neutral 1. Scores are comparable within one site.
+        row["rank_score"] = math.prod(factors.values())
+    for rank, row in enumerate(sorted(rows, key=priority_key), start=1):
         row["priority_rank"] = rank

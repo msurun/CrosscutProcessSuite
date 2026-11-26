@@ -10,6 +10,7 @@ from collections import deque
 from pathlib import Path
 from typing import Annotated, Any
 
+from crosscut_loops.worklist import add_worklist
 from crosscut_runtime.kpi_history import finding_codes
 from fastapi import APIRouter, HTTPException, Query
 
@@ -38,7 +39,10 @@ def _is_loop_fresh(job: dict[str, Any], entry: dict[str, Any]) -> bool:
 def _loop_findings(kpi: dict[str, Any] | None, since: dict[str, str]) -> list[dict[str, Any]]:
     """Use observed findings, preserving known findings during missing measurements."""
     codes = finding_codes(kpi) if kpi is not None else set(since)
-    return [{"code": code, "since_utc": since.get(code)} for code in sorted(codes)]
+    details = {finding["code"]: finding for finding in (kpi or {}).get("findings", [])
+               if isinstance(finding, dict) and "code" in finding}
+    return [{**details.get(code, {}), "code": code, "since_utc": since.get(code)}
+            for code in sorted(codes)]
 
 
 def _loop_row(
@@ -49,12 +53,27 @@ def _loop_row(
     kpi = (entry.get("kpi") or {}).get(loop_id)
     since = entry.get("findings_since", {}).get(loop_id, {})
     return {
+        **(kpi or {}),
+        "knowledge": loop,
         "id": loop_id, "name": loop.get("name", loop_id), "type": loop.get("type"),
         "job": job.get("id"), "job_status": entry.get("status", "idle") if job else None,
         "last_run_utc": entry.get("last_run_utc"),
         "fresh": bool(job) and _is_loop_fresh(job, entry), "kpi": kpi,
         "findings": _loop_findings(kpi, since),
     }
+
+
+def _add_catalogue_criticality(rows: list[dict[str, Any]], site: dict[str, Any]) -> None:
+    """Use primary owning equipment's consequence rating as the ranking input."""
+    # Ratings are ordinal, dimensionless multipliers, not failure probabilities.
+    # Multiple primary owners use the worst consequence; references are not ownership.
+    ratings = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+    for row in rows:
+        owners = [equipment.get("criticality") for equipment in site.get("equipment", [])
+                  if row["id"] in equipment.get("loops", [])]
+        known = [rating for rating in owners if rating in ratings]
+        if known:
+            row["criticality"] = max(known, key=ratings.__getitem__)
 
 
 def _read_history(path: Path, limit: int) -> list[dict[str, Any]]:
@@ -91,7 +110,7 @@ class _LiveLoopsEndpoints(_RuntimeEndpoints):
     """Read the same runtime documents as the existing runtime endpoints."""
 
     def loops(self) -> dict[str, Any]:
-        """Return catalogue loops sorted by finding count, then catalogue id."""
+        """Return catalogue loops ranked by severity, consequence and benefit."""
         site = _load_site_document(self._root) or {}
         jobs = self._load_jobs().get("jobs", [])
         states = self._load_state().get("jobs", {})
@@ -101,7 +120,9 @@ class _LiveLoopsEndpoints(_RuntimeEndpoints):
                         and job.get("enabled") and loop["id"] in job.get("loops", [])), {})
             rows.append(_loop_row(loop, job, states.get(job.get("id"), {})))
         _add_equipment_findings(rows, self._root)
-        return {"loops": sorted(rows, key=lambda row: (-len(row["findings"]), row["id"]))}
+        _add_catalogue_criticality(rows, site)
+        add_worklist(rows)
+        return {"loops": sorted(rows, key=lambda row: row["priority_rank"])}
 
     def detail(
         self, loop_id: str,
