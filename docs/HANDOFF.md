@@ -1,6 +1,25 @@
-# Handoff (updated 2026-11-19): plan accepted - PG navigation first, then P3, PL, MPC, P8.1
+# Handoff (updated 2026-11-26): unattended plan, parallel lanes
 
-> **Next session:** order of work is in `docs/PRODUCT.md` section 7 ("Order of work"). Start with milestone PG (#172-#177, grouped navigation first, target in `docs/design/screens.md`), then P3 (#147-#152, #151 is the no-code acceptance test), then PL (#165-#170), then P7 MPC (#178-#186, design `docs/design/mpc-design-note.md` sections 7-8) and P8.1 (#187). Phase 4a presets wait for #154 and RougherSim M8. Nightly L5 (`nightly-l5.yml`) runs; the older note that L5 rows skip in CI is history.
+> **Next session:** work the lanes below top to bottom. Owner rule 2026-11-26: one branch and PR per closed item, CI green (pytest, ruff, vitest, typecheck, e2e), then `gh pr merge N --merge --admin`; tests are part of every item. Code goes to foremankit agent-run (Codex/opencode, own worktrees) and delegate; the lead reviews, integrates and merges. Lanes touch disjoint files and run in parallel.
+
+## State 2026-11-26
+
+Stack #218-#223 merged (main 3ad4af0): saved trend charts, source history and picker, source form with OS secret store, runtime backfill, catalogue from source, live loops, loop knowledge, equipment, per-equipment anomaly backend. Closed: #172, #176, #201-#209, #212-#214.
+
+## Plan 2026-11-26 (everything that needs no owner)
+
+| Lane | Items, in order | Files (mostly) |
+|---|---|---|
+| A console | #216/#215 Anomalies view -> #173 Overview -> #174 status bar -> #175 role menu -> #177 API without GUI | frontend/, api/ |
+| B loops | #148 vendor profiles as data -> #147 loop templates as data -> #149 worklist ranking -> #150 finding outcomes -> #152 ISDB benchmark (frozen protocol) -> #151 no-code browser e2e | loops/, schemas/, frontend loop pages |
+| C RougherSim | M9 #22 grinding MIMO -> #23 gain matrix export -> #24 multi-MV step test; M8 #15 -> #16 -> #17 -> #18 -> #19; tag rs-v0.14.x, pin in Crosscut | RougherSim repo |
+| D platform | #144 catalogue CSV -> #145/#146 operating modes -> #165 versioned catalogue -> #166 dependency tracking -> #167 backup/restore -> #170 observability -> #169 Docker Compose -> #168 Windows installer (build only) -> #153 bumpless init | connectors/, runtime/, gateway/, deploy/ |
+| E MPC | #178 Wood-Berry -> #182 reference engine (OSQP) -> #180 MIMO identification -> #179 step-test planner -> #183 simulator -> #184 controller type -> #181 model editor -> #185 C++ core -> #186 experiment -> #187 economic layer | new mpc package, core/ |
+| F soft sensor | #154 diagnose exp39 -> #159 bias config -> #155 presets -> #156 structures -> #157 runtime job -> #158 wizard | softsensor/ |
+| G research | #160 public dataset with long regimes + gate, #84 valve stiction public data, #188-#190 after E | experiments/ |
+| later | #161 P4b, #162 P6 canvas, #191 RTO | |
+
+Owner only (skipped): UAT #194-#200, #210 iFIX VM, #32, L5-P1-dq precision decision, #58 (opencode quota).
 
 Written for the next session (Claude or the owner). Start with `docs/PRODUCT.md`, then this file, then `docs/IMPLEMENTATION_LOG.md` (entries 2026-11-17..18).
 
