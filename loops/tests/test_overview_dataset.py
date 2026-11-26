@@ -135,6 +135,9 @@ def _make_report_input_columns():
 # Keys every analysis report must expose.
 EXPECTED_REPORT_KEYS = {
     "name",
+    "diagnosis_step",
+    "rank_factors",
+    "rank_score",
     "pv",
     "sp",
     "out",
