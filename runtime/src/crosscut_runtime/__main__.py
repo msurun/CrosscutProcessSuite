@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType
 
+from crosscut_runtime.logsetup import setup_file_logging
 from crosscut_runtime.service import serve
 
 
@@ -39,6 +40,7 @@ def _install_stop_handlers(stop_event: threading.Event) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse arguments, install the stop handlers and run the service."""
     args = build_parser().parse_args(argv)
+    setup_file_logging("runtime", args.root)
     stop_event = threading.Event()
     _install_stop_handlers(stop_event)
     serve(args.root, args.interval, stop_event)

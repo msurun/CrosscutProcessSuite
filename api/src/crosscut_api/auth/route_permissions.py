@@ -87,6 +87,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/runtime/log"): "data.view",
     ("GET", "/runtime/variables"): "data.view",
     ("GET", "/runtime/jobs"): "data.view",
+    # Observability (#170): health is read-only like the runtime page; the log export is admin.
+    ("GET", "/admin/health"): "data.view",
+    ("GET", "/admin/logs/export"): "users.manage",
 
     # APC core operator console (ADR 013): view for every role, operate for operator and up;
     # switch_off needs ctl.operate only, never a step-up

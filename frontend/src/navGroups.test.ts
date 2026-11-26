@@ -6,7 +6,7 @@ import type { View } from "./route";
 
 const ALL: View[] = [
   "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import",
-  "catalogue", "onboarding", "runtime", "controllers", "gateway", "tuning", "users",
+  "catalogue", "onboarding", "runtime", "controllers", "gateway", "health", "tuning", "users",
 ];
 
 describe("navGroups", () => {
@@ -19,7 +19,7 @@ describe("navGroups", () => {
   it("drops hidden views and empty groups", () => {
     const groups = visibleGroups(ALL.filter((v) => v !== "controllers" && v !== "users"));
     expect(groups.map((g) => g.id)).not.toContain("controllers");
-    expect(groupOf("gateway", groups)?.views).toEqual(["gateway", "runtime"]);
+    expect(groupOf("gateway", groups)?.views).toEqual(["gateway", "runtime", "health"]);
   });
 
   it("labels a single-view group by its view and a multi-view group by its id", () => {

@@ -9,7 +9,7 @@ import type { View } from "../route";
 
 const BASE_VIEWS = [
   "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor",
-  "steps", "import", "catalogue", "onboarding", "runtime", "gateway",
+  "steps", "import", "catalogue", "onboarding", "runtime", "gateway", "health",
 ] as const satisfies readonly View[];
 
 export interface ViewTabsProps {

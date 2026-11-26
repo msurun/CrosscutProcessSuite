@@ -7,6 +7,7 @@ import { recordHours } from "../anomaly";
 import type { Translate } from "../findings";
 import { GatewayPage } from "../GatewayPage";
 import { withQueryParams, type Route } from "../route";
+import { HealthPage } from "./HealthPage";
 import { RuntimePage } from "../RuntimePage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
@@ -61,6 +62,7 @@ export function ViewContent(props: ViewContentProps) {
     runtime: <RuntimePage t={t} />,
     controllers: <ControllersPage t={t} />,
     gateway: <GatewayPage t={t} />,
+    health: <HealthPage t={t} />,
     tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
   };
