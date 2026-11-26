@@ -62,6 +62,12 @@ Citations are given from memory and must be verified against the originals befor
 
 | MetroPT-3 per-equipment frozen validation (issue #160) | Davari, Veloso, Ribeiro and Gama (2021), UCI 791, https://doi.org/10.24432/C5VW3R, CC BY 4.0; Data Description_Metro.pdf failure table; first-month split per UCI. Reuses equipment PCA method above; original event-window evaluation policy. | 2026-11-26, protocol only; no scoring run | `experiments/exp42_metropt3_equipment/` |
 
+## MPC reference engine
+
+| Method | Public source | Status | Implementation |
+|---|---|---|---|
+| MPC reference engine: OSQP quadratic programming, FOPDT exact ZOH prediction, offset correction and receding-horizon quadratic tracking | OSQP, Stellato et al., Mathematical Programming Computation 12 (2020), 637–672, https://doi.org/10.1007/s12532-020-00179-2; https://osqp.org/ (Apache-2.0). Standard linear MPC formulation: Rawlings, Mayne and Diehl, Model Predictive Control: Theory, Computation, and Design (2017). Priority relaxation and three-cycle shed policy: accepted `docs/design/mpc-design-note.md`, sections 3 and 7. | 2026-11-26, Codex; synthetic L1 reference only | `mpc/src/crosscut_mpc/` |
+
 ## Rules
 
 1. Add a row (source, date, author of the implementation) before implementing a method.
