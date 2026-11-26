@@ -153,7 +153,7 @@ def test_put_site_writes_file_and_get_returns_it(
     response = client.put("/config/site/site", json=base_site_doc)
 
     assert response.status_code == 200
-    assert (tmp_path / "_site" / "site.json").is_file()
+    assert (tmp_path / "_site" / "draft.json").is_file()  # saved as a draft (#165)
     stored = client.get("/config/site/site")
     assert stored.status_code == 200
     assert stored.json() == base_site_doc

@@ -20,6 +20,7 @@ from crosscut_anomaly.config import AnomalyConfig, AnomalyConfigError, load_conf
 from crosscut_anomaly.detect import AnomalyEvent, scan
 from crosscut_anomaly.pca_model import PcaModel, PcaModelError, fit_pca
 from crosscut_anomaly.ramp_detect import unreliable_tags
+from crosscut_connectors.site_versions import current_version
 from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
@@ -90,6 +91,7 @@ class _AnomalyEndpoints:
         window = {"start_s": float(t_s[0]), "end_s": float(t_s[-1])}
         self._write(self._path(aid, ".model.json"), model.to_dict())
         manifest = _manifest(config, model, dataset_id, window)
+        manifest["catalogue_version"] = current_version(self.folder.parent)
         self._write(self._path(aid, ".manifest.json"), manifest)
         return {**_summary(model, manifest), "unreliable_tags": _ramp_tags(x, config)}
 

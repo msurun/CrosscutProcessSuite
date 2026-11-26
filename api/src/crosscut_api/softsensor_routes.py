@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
+from crosscut_connectors.site_versions import current_version
 from crosscut_softsensor.alignment import AlignmentError, scan_alignment
 from crosscut_softsensor.backup import backup_columns, run_backup
 from crosscut_softsensor.bias import BiasTrackerError
@@ -230,6 +231,7 @@ class _SoftSensorEndpoints:
         window = {"start_s": float(t_s[0]), "end_s": end}
         manifest = _manifest(config, model, dataset_id, window)
         manifest["r2_train"] = _r2(model, x[before], y)
+        manifest["catalogue_version"] = current_version(self.folder.parent)
         return self._save_fit(sid, model, manifest)
 
     def _save_fit(self, sid: str, model: PlsModel, manifest: dict[str, Any]) -> dict[str, Any]:

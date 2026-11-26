@@ -14,6 +14,7 @@ import { SourcesPanel } from "./SourcesPanel";
 import { CatalogueFromSource } from "./CatalogueFromSource";
 import { SourceAdminPanel } from "./SourceAdminPanel";
 import { EquipmentEditor } from "./EquipmentEditor";
+import { SiteVersions } from "./SiteVersions";
 
 export interface SitePageProps {
   /** Translation function for localized UI strings. */
@@ -29,7 +30,7 @@ export interface SitePageProps {
  * JSON schema form, walk through the mapping wizard, or test connector sources.
  */
 export function SitePage({ t }: SitePageProps): ReactElement {
-  const [mode, setMode] = useState<"editor" | "wizard" | "sources" | "fromSource" | "equipment">("editor");
+  const [mode, setMode] = useState<"editor" | "wizard" | "sources" | "fromSource" | "equipment" | "versions">("editor");
 
   return (
     <section className="site-page" aria-label={t("nav.catalogue")}>
@@ -74,6 +75,14 @@ export function SitePage({ t }: SitePageProps): ReactElement {
         >
           {t("equipment.tab")}
         </button>
+        <button
+          type="button"
+          className={`filter-chip ${mode === "versions" ? "filter-chip-active" : ""}`}
+          data-testid="mode-versions"
+          onClick={() => setMode("versions")}
+        >
+          {t("versions.tab")}
+        </button>
       </div>
 
       {mode === "wizard" && <CatalogueWizard t={t} onClose={() => setMode("editor")} />}
@@ -84,6 +93,7 @@ export function SitePage({ t }: SitePageProps): ReactElement {
         </>
       )}
       {mode === "equipment" && <EquipmentEditor t={t} />}
+      {mode === "versions" && <SiteVersions t={t} />}
       {mode === "fromSource" && <CatalogueFromSource t={t} />}
       {mode === "editor" && <ConfigEditorPage kind="site" configId="site" t={t} />}
     </section>
