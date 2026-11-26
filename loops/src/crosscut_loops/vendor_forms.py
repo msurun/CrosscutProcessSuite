@@ -13,6 +13,7 @@ from typing import Literal, TypedDict
 
 from crosscut_loops.tuning_pid import PidSettings
 from crosscut_loops.tuning_rules import ConversionForm, PiSettings
+from crosscut_loops.vendor_profiles import load_vendor_profiles
 
 Evidence = Literal["verified", "partly_verified", "unverified"]
 
@@ -52,48 +53,8 @@ class VendorSummary(TypedDict):
 
 
 VENDOR_FORMS: dict[str, VendorForm] = {
-    "siemens_pid_compact": VendorForm(
-        key="siemens_pid_compact",
-        block="PID_Compact V2.x (S7-1200 FW>=4.0, S7-1500)",
-        form="gain_seconds",
-        evidence="verified",
-        source=(
-            "Siemens FAQ 109481448 V1.0 (01/2016) p.3-5: all times in seconds, no negative Gain; "
-            "app. example 79047707 V3.0.0 (03/2017) p.14-15: y = Kp[(b w - x) + 1/(TI s)(w - x) "
-            "+ TD s/(a TD s + 1)(c w - x)]; S7-1500 PID Control manual A5E35300227-AA 12/2014 "
-            "p.90-91"
-        ),
-        caveats=(
-            "Set PWeighting = 1.0 (b = 1), otherwise the setpoint is weighted and a step reacts "
-            "slower than the textbook PI that SIMC and AMIGO assume",
-            "TI = 0 switches the integral action OFF",
-            "Gain must be positive; reverse action is Config.InvertControl",
-            "Gain is entered in output units per PV engineering unit (raw, not normalised): the "
-            "identified kc goes in as it is, but the same Gain on another range is another loop",
-        ),
-    ),
-    "abb_pidcc": VendorForm(
-        key="abb_pidcc",
-        block="PidCC (AC 800M), documented through the Pid01A unit",
-        form="gain_seconds",
-        evidence="partly_verified",
-        source=(
-            "ABB 3AST001596D013 rev D (Pid01A, 2009) p.9-10, p.23: ideal PID, deviation in percent "
-            "of range; ABB 3BSE041488-600 A (Binary and Analog Handling, 05/2016) p.120-124: "
-            "G = Gain x OutRange / PvRange with Gain normalised and dimensionless, setpoint weight "
-            "beta editable in PidCC; neither document states the unit of TI"
-        ),
-        caveats=(
-            "Unit of TI and TD NOT confirmed by a document: check the PidCC page of the Control "
-            "Builder library manual (3BSE035982) or the block's parameter help before use",
-            "Pid01A is the ControlIT unit around PidCC, not the AC 800M library manual itself",
-            "Gain is entered normalised (G = Gain x OutRange / PvRange is applied inside), "
-            "so kc is used as it is, with no range scaling",
-            "Reverse action is a selectable setting, not a negative Gain",
-            "Setpoint weight beta is 0 for a discontinuous setpoint by default: set it to 1 "
-            "(editable in PidCC) when an externally calculated tuning is applied",
-        ),
-    ),
+    key: VendorForm(**{**record, "caveats": tuple(record["caveats"])})
+    for key, record in load_vendor_profiles().items()
 }
 
 

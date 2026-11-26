@@ -1,0 +1,13 @@
+{
+  "key": "siemens_pid_compact",
+  "block": "PID_Compact V2.x (S7-1200 FW>=4.0, S7-1500)",
+  "form": "gain_seconds",
+  "evidence": "verified",
+  "source": "Siemens FAQ 109481448 V1.0 (01/2016) p.3-5: all times in seconds, no negative Gain; app. example 79047707 V3.0.0 (03/2017) p.14-15: y = Kp[(b w - x) + 1/(TI s)(w - x) + TD s/(a TD s + 1)(c w - x)]; S7-1500 PID Control manual A5E35300227-AA 12/2014 p.90-91",
+  "caveats": [
+    "Set PWeighting = 1.0 (b = 1), otherwise the setpoint is weighted and a step reacts slower than the textbook PI that SIMC and AMIGO assume",
+    "TI = 0 switches the integral action OFF",
+    "Gain must be positive; reverse action is Config.InvertControl",
+    "Gain is entered in output units per PV engineering unit (raw, not normalised): the identified kc goes in as it is, but the same Gain on another range is another loop"
+  ]
+}
