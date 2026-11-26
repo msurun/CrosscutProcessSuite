@@ -111,6 +111,17 @@ class LivenessMonitor:
         """Remember a beat; a new beat clears an earlier loss."""
         self._entries[(beat.kind, beat.sender)] = _Entry(beat, now_ns)
 
+    def starts_session(self, beat: Beat, now_ns: int) -> bool:
+        """Identify controller starts, restarted cycle counts and returns after silence."""
+        if beat.kind != KIND_CONTROLLER:
+            return False
+        previous = self._entries.get((beat.kind, beat.sender))
+        return previous is None or (
+            previous.beat.state != ON_STATE and beat.state == ON_STATE
+            or beat.cycles < previous.beat.cycles
+            or self._expired(previous, now_ns)
+        )
+
     def newly_lost(self, now_ns: int, holds: Holds) -> list[tuple[str, str]]:
         """Senders to treat as lost now; each loss is reported once until the next beat.
 

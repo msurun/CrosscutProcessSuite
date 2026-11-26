@@ -3,6 +3,9 @@
 
 import type { View } from "./route";
 
+/** The existing Anomalies entry opens equipment first; free-tag PCA remains advanced. */
+export const ANOMALY_TABS = ["equipment", "advanced"] as const;
+
 /** A top-level menu entry and the views it holds, in display order. */
 export interface NavGroup {
   id: string;

@@ -36,6 +36,10 @@ The commercial licence is offered by the copyright holder, who wrote all code in
 
 ## Third-party data and dependencies
 
+| Dependency | Licence | Use |
+|---|---|---|
+| OSQP (https://osqp.org/, Python `osqp>=1.0`) | Apache-2.0 | Steady-state and dynamic MPC quadratic programs; permissive, AGPL-3.0 compatible. Retain upstream copyright and licence notices when distributing OSQP. |
+
 Third-party datasets (SACAC, ISDB) are not part of this repository and are not covered by either licence; see
 [docs/PROVENANCE.md](docs/PROVENANCE.md). Dependencies keep their own licences and must be AGPL-compatible
 (permissive licences are fine).
