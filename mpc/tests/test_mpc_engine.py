@@ -10,7 +10,7 @@ import pytest
 from crosscut_mpc import CycleInputs, cycle, initialise, steady_target
 from crosscut_mpc.planning import rate_limited_target
 from crosscut_mpc.qp import QuadraticProgram, solve
-from helpers import make_controller, simulate
+from mpc_helpers import make_controller, simulate
 
 
 def test_siso_tracks_a_target_without_offset_under_unmeasured_load() -> None:

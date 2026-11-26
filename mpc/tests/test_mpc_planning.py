@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from crosscut_mpc import Controller, CycleInputs, FopdtModel, cycle, initialise, steady_target
 from crosscut_mpc.planning import Prediction, cv_bands
-from helpers import make_controller
+from mpc_helpers import make_controller
 
 
 def test_cv_funnels_narrow_linearly_and_intersect_operator_limits() -> None:
