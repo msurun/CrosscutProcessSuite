@@ -58,6 +58,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/equipment/{equipment_id}/shelve"): "ctl.operate",
     ("DELETE", "/equipment/{equipment_id}/shelve"): "ctl.operate",
     ("PUT", "/equipment/events/{opened_utc}/{equipment_id}/outcome"): "ctl.operate",
+    ("PUT", "/live/loops/{loop_id}/findings/{code}/outcome"): "ctl.operate",
+    ("GET", "/live/finding-outcomes"): "data.view",
+    ("GET", "/live/finding-outcomes/usefulness"): "data.view",
     ("GET", "/anomaly/{aid}"): "data.view",
     ("GET", "/anomaly/{aid}/model"): "data.view",
     ("GET", "/softsensor"): "data.view",
@@ -225,6 +228,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/auth/stepup"): AUTHENTICATED,
 
     # auth (users.manage)
+    # Backup and restore of configuration without history (#167): administrators only.
+    ("GET", "/admin/backup"): "users.manage",
+    ("POST", "/admin/backup/inspect"): "users.manage",
+    ("POST", "/admin/backup/restore"): "users.manage",
     ("GET", "/auth/users"): "users.manage",
     ("GET", "/auth/users/{username}"): "users.manage",
     ("POST", "/auth/users"): "users.manage",
