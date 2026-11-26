@@ -57,6 +57,7 @@ from crosscut_api.knowledge_catalogue import (
 )
 from crosscut_api.knowledge_proposal_routes import build_knowledge_proposal_router
 from crosscut_api.live_loops_routes import build_live_loops_router
+from crosscut_api.loop_template_routes import build_loop_template_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.runtime_routes import build_runtime_router
@@ -763,6 +764,7 @@ def _mount_data_routers(
     app.include_router(build_site_router(store.root))
     app.include_router(build_catalogue_csv_router(store.root))
     app.include_router(build_catalogue_router(store.root, store.tags_of))
+    app.include_router(build_loop_template_router(store.root))
     app.include_router(build_connector_router(store.root))
     app.include_router(build_source_history_router(store.root))
     app.include_router(build_source_admin_router(store.root))
