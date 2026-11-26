@@ -10,15 +10,40 @@ import {
   applyQuery,
   ariaSort,
   DEFAULT_QUERY,
+  diagnosisText,
   isPartiallyAssessed,
   nextSort,
+  rankFactorsText,
   withheldText,
   worklistCsv,
   type OverviewQuery,
+  type WorklistDetails,
 } from "./worklist";
 
 /** Echoes the key and its params, so a test can read back what the translator received. */
 const t: Translate = (key, params) => key + JSON.stringify(params ?? {});
+
+describe("worklist diagnosis and rank mapping", () => {
+  it("shows external cause for a disturbed oscillating loop", () => {
+    expect(diagnosisText(t, "external_cause")).toBe("worklist.diagnosis.external_cause{}");
+  });
+
+  it("passes every score factor through without replacing zero benefit", () => {
+    const details: WorklistDetails = {
+      rank_score: 0,
+      rank_factors: { severity: 0.8, criticality: 3, benefit: 0 },
+      diagnosis_step: "external_cause",
+      next_action: { code: "find_common_source", params: { loops: ["upstream"] } },
+    };
+
+    expect(rankFactorsText(t, details)).toBe(
+      'worklist.rankFactors{"severity":0.8,"criticality":3,"benefit":0,"score":0}',
+    );
+    expect(actionText(t, details.next_action)).toBe(
+      'action.find_common_source{"loops":"upstream"}',
+    );
+  });
+});
 
 /** A query with only the given fields changed from the default. */
 function makeQuery(overrides: Partial<OverviewQuery> = {}): OverviewQuery {
