@@ -82,7 +82,7 @@ function SiteTile({ t }: { t: Translate }) {
       </p>}</SourceContent>
       <h4><a href={LINKS.runtime}>{t("overview.runtime")}</a></h4>
       <SourceContent source={runtime} t={t}>{(value) => <p>
-        {value.service.running ? "● " : "■ "}{t(`runtime.service.${value.service.running ? "running" : "stopped"}`)}
+        {value.service.running ? "● " : "■ "}<span>{t(`runtime.service.${value.service.running ? "running" : "stopped"}`)}</span>
         {value.service.updated_at_utc && <small> · {value.service.updated_at_utc}</small>}
       </p>}</SourceContent>
     </Tile>;
