@@ -32,7 +32,15 @@ async function openTemplateEditor(page: Page): Promise<void> {
   await expect(page.locator("nav.view-tabs").getByRole("button", { name: "Pętle" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("button", { name: TEMPLATES_BUTTON }).click();
   await expect(page.getByRole("heading", { name: TITLE_TEXT })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("loop-template-select")).toHaveValue("flow");
+  await selectFlow(page);
+}
+
+/** The library opens on its first template (sorted by key); pick the flow one. */
+async function selectFlow(page: Page): Promise<void> {
+  const select = page.getByTestId("loop-template-select");
+  await expect(select).toBeVisible({ timeout: 30_000 });
+  await select.selectOption("flow");
+  await expect(select).toHaveValue("flow");
 }
 
 test("edit the flow template, save a site copy and keep it after a reload", async ({ page }) => {
@@ -44,7 +52,7 @@ test("edit the flow template, save a site copy and keep it after a reload", asyn
 
   await page.reload();
   await page.getByRole("button", { name: TEMPLATES_BUTTON }).click();
-  await expect(page.getByTestId("loop-template-select")).toHaveValue("flow", { timeout: 30_000 });
+  await selectFlow(page);
   await expect(page.getByLabel(STEP_LABEL)).toHaveValue("4");
 });
 
