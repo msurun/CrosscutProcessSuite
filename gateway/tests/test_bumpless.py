@@ -120,7 +120,7 @@ def test_an_ordinary_beat_does_not_restart_initialisation() -> None:
     assert plant.writes[-1][2] == 55
 
 
-def test_confirm_cannot_write_after_controller_liveness_expires() -> None:
+def test_confirm_refuses_a_short_controller_watchdog_at_approval() -> None:
     gateway, plant = _gateway("confirm")
     proposal = _proposal(52)
     gateway.propose(proposal)
@@ -128,3 +128,51 @@ def test_confirm_cannot_write_after_controller_liveness_expires() -> None:
     decision = gateway.approve(proposal_key(proposal))
     assert decision.reason_code == "liveness_watchdog_short"
     assert plant.writes == []
+
+
+def test_confirm_approval_after_controller_beat_expires_is_refused_as_missing() -> None:
+    clock = {"ns": 0}
+    plant = SimPlant(60)
+    gateway = WriteGateway(
+        plant,
+        {TAG: replace(POLICY, watchdog_s=60)},
+        "confirm",
+        monotonic_ns=lambda: clock["ns"],
+    )
+    gateway.tick(0)
+    gateway.record_beat(runtime_beat())
+    gateway.record_beat(beat())
+    proposal = _proposal(52)
+    gateway.propose(proposal)
+    clock["ns"] = plant.now_ns = 120 * S
+    gateway.tick(plant.now_ns)
+    decision = gateway.approve(proposal_key(proposal))
+    assert decision.reason_code == "liveness_missing"
+    assert plant.writes == []
+
+
+def _scripted_reads(monkeypatch: pytest.MonkeyPatch, plant: SimPlant, *values: float) -> None:
+    """Serve plant reads in order, then keep returning the last value."""
+    queue = list(values)
+    monkeypatch.setattr(plant, "read", lambda tag: queue.pop(0) if len(queue) > 1 else queue[0])
+
+
+def test_refused_bump_limit_leaves_target_uninitialised(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway, plant = _gateway()
+    _scripted_reads(monkeypatch, plant, 50.0, 35.0, 40.0)
+    assert gateway.propose(_proposal(58)).reason_code == "bumpless_bump_limit"
+    decision = gateway.propose(_proposal(55, 2))
+    assert decision.reason_code == "bumpless_initialisation"
+    assert plant.writes[-1][2] == 40.0
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1.0, 101.0])
+def test_refused_readback_leaves_target_uninitialised(
+    value: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gateway, plant = _gateway()
+    _scripted_reads(monkeypatch, plant, 50.0, value, 40.0)
+    assert gateway.propose(_proposal(58)).reason_code == "bumpless_readback_invalid"
+    decision = gateway.propose(_proposal(55, 2))
+    assert decision.reason_code == "bumpless_initialisation"
+    assert plant.writes[-1][2] == 40.0
