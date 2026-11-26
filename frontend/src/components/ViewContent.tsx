@@ -10,7 +10,7 @@ import { withQueryParams, type Route } from "../route";
 import { RuntimePage } from "../RuntimePage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
-import { AnomalyPage } from "./AnomalyPage";
+import { EquipmentAnomaliesPage } from "./EquipmentAnomaliesPage";
 import { ControllersPage } from "./ControllersPage";
 import { FuzzyPage } from "./FuzzyPage";
 import { ImportPage } from "./ImportPage";
@@ -41,7 +41,7 @@ function datasetViews(p: ViewContentProps, id: string) {
   const views = {
     loops: id && <LoopsPage datasetId={id} route={p.route} navigate={p.navigate} t={p.t} onAnalysed={p.onAnalysed} tags={p.tags} />,
     advisory: <AdvisoryPage datasetId={id} t={p.t} />,
-    anomalies: <AnomalyPage datasetId={id} recordHours={hours} t={p.t} />,
+    anomalies: <EquipmentAnomaliesPage datasetId={id} recordHours={hours} t={p.t} />,
     softsensor: <SoftSensorPage datasetId={id} recordHours={hours} startUtc={start} t={p.t} />,
     steps: <StepsPage datasetId={id} loopNames={p.loops.map((loop) => loop.name)} initialLoop={p.route.loop} t={p.t} />,
     onboarding: <OnboardingPage datasetId={id} t={p.t} />,
