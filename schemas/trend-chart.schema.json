@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/trend-chart.schema.json",
+  "title": "Saved trend chart",
+  "description": "One saved chart of the Trends view: <data root>/_trends/charts/<id>.json. The owner is the signed-in user (local-dev when auth is off). A shared chart is visible to every user of the site; only its owner changes or deletes it, everyone may copy it. Axis ids are unique, every series names an existing axis, and a pane holds at most three axes (checked by the API, not expressible here).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "owner", "shared", "series", "axes", "window"],
+  "properties": {
+    "schema_version": {"const": 1, "description": "Version of this file layout."},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]{12}$",
+      "description": "Chart id given by the API; also the file name."
+    },
+    "name": {"type": "string", "minLength": 1, "maxLength": 120},
+    "owner": {"type": "string", "minLength": 1, "description": "Username of the chart owner."},
+    "shared": {"type": "boolean", "description": "True when shared to the site (needs config.edit)."},
+    "created_utc": {"type": "string", "format": "date-time"},
+    "updated_utc": {"type": "string", "format": "date-time"},
+    "series": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 24,
+      "items": {"$ref": "#/$defs/series"}
+    },
+    "axes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/axis"}
+    },
+    "window": {"$ref": "#/$defs/window"},
+    "aggregation": {
+      "enum": ["raw", "mean", "minmax"],
+      "default": "minmax",
+      "description": "How samples are reduced to the chart width: raw points, bucket mean, or bucket min and max."
+    }
+  },
+  "$defs": {
+    "series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "tag", "axis"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the tag is read: a catalogue source id or a dataset id."
+        },
+        "tag": {"type": "string", "minLength": 1, "description": "Tag name in that source."},
+        "label": {"type": "string", "maxLength": 80},
+        "colour": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "axis": {"type": "string", "description": "Id of the y-axis the series is drawn on."},
+        "style": {"enum": ["line", "step", "points"], "default": "line"}
+      }
+    },
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "side"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_]{1,16}$"},
+        "side": {"enum": ["left", "right"]},
+        "pane": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0,
+          "description": "Stacked chart pane, 0 at the top; panes share the time cursor."
+        },
+        "unit": {"type": "string", "maxLength": 24},
+        "min": {"type": ["number", "null"], "description": "Fixed lower limit; null or absent = auto."},
+        "max": {"type": ["number", "null"], "description": "Fixed upper limit; null or absent = auto."}
+      }
+    },
+    "window": {
+      "description": "Time window: the last N seconds (optionally following live data) or a fixed start and end.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "last_s"],
+          "properties": {
+            "kind": {"const": "relative"},
+            "last_s": {"type": "integer", "minimum": 60, "maximum": 31622400},
+            "live": {"type": "boolean", "default": false},
+            "refresh_s": {"type": "integer", "minimum": 1, "maximum": 3600, "default": 10}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "start_utc", "end_utc"],
+          "properties": {
+            "kind": {"const": "absolute"},
+            "start_utc": {"type": "string", "format": "date-time"},
+            "end_utc": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    }
+  }
+}

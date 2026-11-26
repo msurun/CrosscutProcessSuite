@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Series, TagInfo } from "../api";
 
 const mocks = vi.hoisted(() => ({ fetchSeries: vi.fn() }));
-vi.mock("../api", () => ({ fetchSeries: mocks.fetchSeries }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), fetchSeries: mocks.fetchSeries }));
 vi.mock("./TrendPane", () => ({
   TrendPane: (props: { unit: string; onCursor: (s: number | null) => void; t?: unknown }) => (
     <div data-testid="pane" data-has-t={props.t ? "yes" : "no"}>

@@ -3,6 +3,15 @@
 import tseslint from "typescript-eslint";
 
 const TOUCHED = [
+  "src/components/SavedChartView.tsx",
+  "src/components/SavedChartsWorkspace.tsx",
+  "src/trendChartsApi.ts",
+  "src/trendWindow.ts",
+  "src/trendChartModel.ts",
+  "src/trendChartData.ts",
+  "src/components/SavedChartsPanel.tsx",
+  "src/components/ChartBuilder.tsx",
+  "src/components/TrendWindowBar.tsx",
   "src/App.tsx",
   "src/AuthContext.tsx",
   "src/ChangePasswordPage.tsx",

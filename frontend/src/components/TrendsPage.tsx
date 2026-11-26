@@ -3,10 +3,11 @@
 // (the rest behind a button) and a shared cursor readout with the value of every plotted series.
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { fetchSeries, type Series, type TagInfo } from "../api";
+import { fetchSeries, type DatasetSummary, type Series, type TagInfo } from "../api";
 import type { Translate } from "../findings";
 import { formatFixed } from "../format";
 import { anyDownsampled, buildUnitGroups, nearestIndex, NS_PER_SECOND, toUplotData, type UnitGroup } from "../trendData";
+import { SavedChartsWorkspace } from "./SavedChartsWorkspace";
 import { TrendPane } from "./TrendPane";
 
 /** Maximum number of points the backend may return per series. */
@@ -23,6 +24,8 @@ type Status = "idle" | "loading" | "error";
 
 interface TrendsPageProps {
   datasetId: string;
+  /** The open dataset; its end time anchors relative windows of saved charts. */
+  dataset?: DatasetSummary;
   tags: TagInfo[];
   selectedTags: readonly string[];
   t: Translate;
@@ -121,8 +124,8 @@ function PaneList(props: { groups: UnitGroup[]; t: Translate; onCursor: (seconds
   );
 }
 
-/** Picks between the loading, error, empty and chart states of the trends view. */
-export function TrendsPage({ datasetId, tags, selectedTags, t }: TrendsPageProps) {
+/** The quick view: the tags picked in the sidebar, one pane per unit. */
+function QuickTrends({ datasetId, tags, selectedTags, t }: TrendsPageProps) {
   const { series, status, errorReason } = useSeries(datasetId, selectedTags);
   const [cursor, setCursor] = useState<number | null>(null);
   const groups = useMemo(() => buildUnitGroups(series, tags), [series, tags]);
@@ -136,6 +139,31 @@ export function TrendsPage({ datasetId, tags, selectedTags, t }: TrendsPageProps
       {anyDownsampled(series) && <span className="badge">{t("trends.downsampled")}</span>}
       <CursorReadout groups={groups} seconds={cursor} t={t} />
       <PaneList key={datasetId} groups={groups} t={t} onCursor={onCursor} />
+    </>
+  );
+}
+
+/** Which side of the Trends view is shown. */
+type TrendsMode = "quick" | "saved";
+
+/** The Trends view: the quick view of the sidebar tags, or the saved charts (#204-#207). */
+export function TrendsPage(props: TrendsPageProps) {
+  const [mode, setMode] = useState<TrendsMode>("quick");
+  const { t } = props;
+  return (
+    <>
+      <div className="trend-toolbar" role="group" aria-label={t("trendCharts.modes")}>
+        {(["quick", "saved"] as const).map((m) => (
+          <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
+            {t(`trendCharts.${m}`)}
+          </button>
+        ))}
+      </div>
+      {mode === "quick" ? (
+        <QuickTrends {...props} />
+      ) : (
+        <SavedChartsWorkspace datasetId={props.datasetId} dataset={props.dataset} tags={props.tags} t={t} />
+      )}
     </>
   );
 }

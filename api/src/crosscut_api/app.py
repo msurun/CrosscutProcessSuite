@@ -59,6 +59,7 @@ from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
 from crosscut_api.supervisor_routes import build_supervisor_router
+from crosscut_api.trend_chart_routes import build_trend_chart_router
 from crosscut_api.tuning_build import Sources
 from crosscut_api.tuning_proposal_routes import TuningDeps, build_tuning_proposal_router
 from crosscut_api.valve_routes import LoopRecordLoader, build_valve_router
@@ -712,6 +713,7 @@ def _mount_data_routers(
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
     app.include_router(build_controller_router(store.root))
+    app.include_router(build_trend_chart_router(store.root))
 
 
 def _register_health_route(app: FastAPI) -> None:

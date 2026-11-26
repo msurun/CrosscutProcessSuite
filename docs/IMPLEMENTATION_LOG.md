@@ -1136,3 +1136,11 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 
 - Owner review of Trends, Loops and Anomalies. Decisions in PRODUCT section 10 (2026-11-20): analysis on catalogue sources and live loops instead of dataset copies; loop knowledge proposed from metadata and history; regex naming rules for loop discovery (#209 comment); anomaly detection per equipment (loops and condition signals grouped by regex) with learned normal operation (PRODUCT 4.3).
 - New issues: #201-#209 (sources, history, trend chart builder), #212 live loops, #213 automatic loop knowledge, #214-#216 per-equipment anomaly. Trends crosshair fix in PR #211.
+
+## 2026-11-23 - Saved trend charts (#204-#207)
+
+- Merged #193 (grouped menu), #211 (trends crosshair) and #217 (decisions 2026-11-20).
+- `schemas/trend-chart.schema.json` and `/trends/charts` CRUD + copy (`trend_chart_routes.py`): one file per chart under `<root>/_trends/charts/`, owner from the session, sharing needs `config.edit`, only the owner changes a chart; at most 3 y-axes per pane, every series on a known axis (API check).
+- Trends view: "Quick view | Saved charts". Saved charts: list of my and shared charts (rename, duplicate, delete, share, copy), builder (tag search, series per axis, axis side and fixed/auto range), time window (relative/absolute, presets, custom width, pan, live follow with refresh), multi-axis `TrendPane`.
+- Sources are dataset ids for now; catalogue sources (PI Web API, SQL, OPC UA) come with #201/#208. Relative windows anchor at the dataset end time.
+- E2E `frontend/e2e/trend-charts.spec.ts` with axe.
