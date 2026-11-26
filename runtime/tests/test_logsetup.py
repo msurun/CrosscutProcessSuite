@@ -34,7 +34,7 @@ def test_lines_go_to_the_component_file_with_a_utc_stamp(tmp_path: Path) -> None
 
 
 def _own_handlers(root: Path) -> list[RotatingFileHandler]:
-    """Rotating handlers writing under this test's root (other tests may leave theirs on the root logger)."""
+    """Rotating handlers under this test's root; other tests may leave theirs on the root logger."""
     return [
         h for h in logging.getLogger().handlers
         if isinstance(h, RotatingFileHandler) and Path(h.baseFilename).is_relative_to(root)
