@@ -10,6 +10,28 @@ import type { Translate } from "./findings";
 export type SortKey = "priority" | "status" | "loop" | "health" | "inUse";
 export type SortDirection = "asc" | "desc";
 
+/** Fixed cause order selected by the backend, with none for a healthy loop. */
+export type DiagnosisStep =
+  | "instrument" | "valve" | "external_cause" | "design_or_mode" | "tuning" | "none";
+
+/** Worklist fields shared by historical and live API rows. */
+export interface WorklistDetails {
+  rank_score: number;
+  rank_factors: { severity: number; criticality: number; benefit: number };
+  diagnosis_step: DiagnosisStep;
+  next_action: NextAction;
+}
+
+/** Maps the backend's chosen cause to its translated label without re-diagnosing it. */
+export function diagnosisText(t: Translate, step: DiagnosisStep): string {
+  return t(`worklist.diagnosis.${step}`);
+}
+
+/** Shows score = severity × catalogue criticality × estimated benefit in backend units. */
+export function rankFactorsText(t: Translate, details: WorklistDetails): string {
+  return t("worklist.rankFactors", { ...details.rank_factors, score: details.rank_score });
+}
+
 /** Everything the user can change on the overview toolbar. */
 export interface OverviewQuery {
   status: LoopStatus | "all";
