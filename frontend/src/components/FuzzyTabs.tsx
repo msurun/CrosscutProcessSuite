@@ -7,7 +7,7 @@ import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { Translate } from "../findings";
 
 /** The tabs of the studio, in display order. */
-export const FUZZY_TABS = ["variables", "rules", "replay", "backtest"] as const;
+export const FUZZY_TABS = ["variables", "rules", "matrix", "replay", "backtest"] as const;
 
 export type FuzzyTab = (typeof FUZZY_TABS)[number];
 

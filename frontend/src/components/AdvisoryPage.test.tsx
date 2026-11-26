@@ -6,6 +6,7 @@ import type { AdviceRecord, AdvisoryLog as AdvisoryLogData } from "../api";
 import { translate } from "../i18n";
 import { AckForm } from "./AckForm";
 import { AdviceCard } from "./AdviceCard";
+import { ProposeAction } from "./AdvicePropose";
 import { AdvisoryLog } from "./AdvisoryLog";
 import { AdvisoryBanner, AdvisoryPage } from "./AdvisoryPage";
 
@@ -118,5 +119,49 @@ describe("AdvisoryPage", () => {
     expect(screen.getByRole("note")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Load example" })).toBeInTheDocument();
     expect(screen.getByText(/configuration is a JSON file/)).toBeInTheDocument();
+  });
+});
+
+describe("ProposeAction", () => {
+  const RESULT = {
+    proposal: { target_tag: "FIC1.SP", value: 51.25, proposer: "supervisor:sv", t_ns: 1, reason: "Mill power is low" },
+    decision: { accepted: true, reason_code: "queued" }, advice_id: SHA, mode: "confirm", queues_for_approval: true,
+  };
+
+  it("asks for confirmation first and sends nothing before it", () => {
+    const onPropose = vi.fn();
+    render(<ProposeAction onPropose={onPropose} t={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "Propose setpoint change" }));
+    expect(screen.getByText(/this page writes nothing to the plant/)).toBeInTheDocument();
+    expect(onPropose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Propose setpoint change" })).toBeInTheDocument();
+  });
+
+  it("shows the proposal and that it is queued for approval", async () => {
+    const onPropose = vi.fn().mockResolvedValue(RESULT);
+    render(<ProposeAction onPropose={onPropose} t={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "Propose setpoint change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send proposal" }));
+    const shown = await screen.findByTestId("propose-result");
+    expect(shown).toHaveTextContent("set FIC1.SP to 51.25");
+    expect(shown).toHaveTextContent("needs a human approval");
+    expect(onPropose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the server's refusal code as an alert", async () => {
+    const onPropose = vi.fn().mockRejectedValue(new Error("already_proposed"));
+    render(<ProposeAction onPropose={onPropose} t={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "Propose setpoint change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send proposal" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("already_proposed");
+  });
+
+  it("is offered on logged advice that moves the setpoint, not on hold", () => {
+    const onPropose = vi.fn();
+    const { rerender } = render(<ul><AdviceCard advice={advice()} t={t} onPropose={onPropose} /></ul>);
+    expect(screen.getByRole("button", { name: "Propose setpoint change" })).toBeInTheDocument();
+    rerender(<ul><AdviceCard advice={advice({ direction: "hold", magnitude: null })} t={t} onPropose={onPropose} /></ul>);
+    expect(screen.queryByRole("button", { name: "Propose setpoint change" })).toBeNull();
   });
 });
