@@ -73,6 +73,16 @@ def _check_ranges(record: dict[str, Any]) -> None:
             )
 
 
+def _validated(path: Any) -> dict[str, Any]:
+    """Read and validate one template file; every error names the file it came from."""
+    try:
+        return validate_loop_template(_read_json(path))
+    except LoopTemplateError as error:
+        if path.name in str(error):
+            raise
+        raise LoopTemplateError(f"{path.name}: {error}") from error
+
+
 def load_loop_templates(directory: Path | None = None) -> dict[str, dict[str, Any]]:
     """Return validated templates keyed by ``key``.
 
@@ -83,7 +93,7 @@ def load_loop_templates(directory: Path | None = None) -> dict[str, dict[str, An
     folder = packaged if directory is None else directory
     records: dict[str, dict[str, Any]] = {}
     for path in _template_paths(folder):
-        record = validate_loop_template(_read_json(path))
+        record = _validated(path)
         if record["key"] in records:
             raise LoopTemplateError(f"Duplicate loop template key in {path}: {record['key']}")
         records[record["key"]] = record
