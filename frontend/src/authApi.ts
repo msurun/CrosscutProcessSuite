@@ -410,3 +410,33 @@ export async function deleteUser(username: string): Promise<OkResponse> {
   const encoded = encodeURIComponent(username);
   return requestAuth<OkResponse>(`/auth/users/${encoded}`, { method: "DELETE" });
 }
+
+/** The change of a password reset that waits for a second administrator (HTTP 202). */
+export interface PendingChange {
+  id: string;
+  kind: string;
+  target: string;
+  requested_by: string;
+  created: number | string;
+}
+
+/** Outcome of an administrative reset: applied at once, or queued for a second administrator. */
+export type PasswordResetResult =
+  | { status: "applied"; user: UserRecord }
+  | { status: "pending"; pending: PendingChange };
+
+/**
+ * Resets another user's password (`POST /auth/users/{username}/password-reset`). With the default
+ * two-administrator rule the server answers 202 with a pending change; otherwise the user record.
+ */
+export async function resetUserPassword(username: string, password: string): Promise<PasswordResetResult> {
+  const encoded = encodeURIComponent(username);
+  const body = await requestAuth<Record<string, unknown>>(`/auth/users/${encoded}/password-reset`, {
+    method: "POST",
+    body: { password },
+  });
+  if (typeof body.id === "string" && typeof body.kind === "string") {
+    return { status: "pending", pending: body as unknown as PendingChange };
+  }
+  return { status: "applied", user: body as unknown as UserRecord };
+}
