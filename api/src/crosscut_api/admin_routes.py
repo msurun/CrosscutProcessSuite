@@ -127,7 +127,11 @@ class _AdminEndpoints:
         start: Annotated[str | None, Query()] = None,
         end: Annotated[str | None, Query()] = None,
     ) -> Response:
-        """GET /admin/logs/export: zip of the scrubbed log lines of the range; audited."""
+        """GET /admin/logs/export: zip of the scrubbed log lines of the range; audited.
+
+        Needs a fresh step-up (428 otherwise), like any download of site data.
+        """
+        actor.require_stepup()
         try:
             begin, stop = _range(start, end)
             payload, names = build_export(self._root, begin, stop)

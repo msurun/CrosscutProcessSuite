@@ -12,7 +12,7 @@ import io
 import json
 import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 LOG_FOLDER = "_logs"
@@ -22,21 +22,34 @@ _SECRET_WORDS = (
     r"(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|hmac[_-]?key|private[_-]?key"
     r"|credential)"
 )
-# name = value / name: value / "name": "value" ; the value stops at whitespace, quote, comma or }.
-_ASSIGNMENT = re.compile(
-    rf"(?i)(?P<name>[\w.-]*{_SECRET_WORDS}[\w.-]*[\"']?\s*[:=]\s*[\"']?)(?P<value>[^\s\"',;}}&]+)"
-)
+_NAME = rf"[\w.-]*{_SECRET_WORDS}[\w.-]*\\*[\"']?\s*[:=]\s*"
+# "name": "va\"lue" (also inside a JSON-escaped message: \"name\": \"value\"): the value runs to
+# the first unescaped quote and may hold spaces and escapes, so a secret is never cut in the middle.
+_QUOTED = re.compile(rf"(?i)(?P<name>{_NAME}\\*[\"'])(?P<value>(?:\\.|[^\"'\\])*)")
+# ODBC / SQL style PWD={a;b}; the braces may hold semicolons.
+_BRACED = re.compile(rf"(?i)(?P<name>{_NAME}\{{)(?P<value>[^}}]*)")
+# name = value / name: value; the value stops at whitespace, quote, comma, semicolon or }.
+_ASSIGNMENT = re.compile(rf"(?i)(?P<name>{_NAME})(?P<value>[^\s\"',;}}&]+)")
+# .netrc: machine host login user password secret
+_NETRC = re.compile(r"(?i)(?P<name>\bmachine\s+\S+\s+login\s+\S+\s+password\s+)(?P<value>\S+)")
 _AUTH_HEADER = re.compile(
     r"(?i)(?P<name>\bauthorization\s*[:=]\s*(?:bearer|basic)?\s*)(?P<value>[^\s\"',;]+)"
 )
 _COOKIE = re.compile(
     r"(?i)(?P<name>\b(?:cc_session|session|set-cookie|cookie)\s*[:=]\s*)(?P<value>[^\s\"',;]+)"
 )
-_URL_CREDENTIALS = re.compile(r"(?P<name>[a-z][a-z0-9+.-]*://[^\s/:@]+:)(?P<value>[^\s/@]+)(?=@)")
+# scheme://user:pass@host for any scheme (opc.tcp, https, postgresql); the password may hold "@".
+_URL_CREDENTIALS = re.compile(
+    r"(?P<name>[a-z][a-z0-9+.-]*://[^\s/:@]+:)(?P<value>[^\s/]+)(?=@)", re.I
+)
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S
 )
-_PATTERNS = (_PRIVATE_KEY, _URL_CREDENTIALS, _AUTH_HEADER, _COOKIE, _ASSIGNMENT)
+_PATTERNS = (
+    _PRIVATE_KEY, _URL_CREDENTIALS, _NETRC, _AUTH_HEADER, _COOKIE, _QUOTED, _BRACED, _ASSIGNMENT,
+)
+MAX_SPAN = timedelta(days=31)
+MAX_BYTES = 100 * 2**20  # scrubbed text of all files together, before compression
 _STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})")
 
 
@@ -107,12 +120,21 @@ def build_export(root: Path, start: datetime, end: datetime) -> tuple[bytes, lis
     """A zip with the scrubbed lines of every log file in the range; also the member names."""
     if end < start:
         raise LogRangeError("the end of the range is before its start")
+    if end - start > MAX_SPAN:
+        raise LogRangeError(f"the range is longer than {MAX_SPAN.days} days; narrow it")
     buffer = io.BytesIO()
     names: list[str] = []
+    total = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in log_files(root):
             text = path.read_text(encoding="utf-8", errors="replace")
-            archive.writestr(_archive_name(root, path), scrub(select_lines(text, start, end)))
+            cleaned = scrub(select_lines(text, start, end))
+            total += len(cleaned.encode("utf-8"))
+            if total > MAX_BYTES:
+                raise LogRangeError(
+                    f"the logs of this range exceed {MAX_BYTES // 2**20} MB; narrow the range"
+                )
+            archive.writestr(_archive_name(root, path), cleaned)
             names.append(_archive_name(root, path))
         archive.writestr("README.txt", _readme(start, end, names))
     return buffer.getvalue(), names

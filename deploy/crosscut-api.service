@@ -15,7 +15,7 @@ Group=crosscut
 WorkingDirectory=/opt/crosscut
 Environment=CROSSCUT_ROOT=/var/lib/crosscut
 # Logs go to $CROSSCUT_ROOT/_logs/api.log (rotating) as well as to the journal.
-ExecStart=/opt/crosscut/.venv/bin/python -m crosscut_api --root ${CROSSCUT_ROOT}
+ExecStart=/opt/crosscut/.venv/bin/python -m crosscut_api --root "${CROSSCUT_ROOT}"
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

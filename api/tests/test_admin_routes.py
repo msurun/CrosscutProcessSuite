@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from auth_support import DEFAULT_USERS, TEST_CONFIG, login, seed_users
+from auth_support import DEFAULT_USERS, TEST_CONFIG, login, seed_users, stepup
 from crosscut_api.app import create_app
 from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.auth.deps import AUDIT_FILE
@@ -28,9 +28,11 @@ def root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _client(root: Path, user: str) -> TestClient:
+def _client(root: Path, user: str, step_up: bool = True) -> TestClient:
     client = TestClient(create_app(root, auth_config=TEST_CONFIG))
-    login(client, user)
+    payload = login(client, user)
+    if step_up:
+        stepup(client, payload)
     return client
 
 
@@ -81,3 +83,15 @@ def test_bad_range_is_422_and_leaves_no_audit_entry(root: Path) -> None:
 
 def test_default_range_is_the_last_day(root: Path) -> None:
     assert _client(root, "admin1").get("/admin/logs/export").status_code == 200
+
+
+def test_export_without_step_up_is_428_and_not_audited(root: Path) -> None:
+    client = _client(root, "admin1", step_up=False)
+    response = client.get("/admin/logs/export", params=RANGE)
+    assert response.status_code == 428
+    assert _export_records(root) == []
+
+
+def test_range_over_the_cap_is_422(root: Path) -> None:
+    params = {"start": "2026-01-01T00:00:00Z", "end": "2026-11-01T00:00:00Z"}
+    assert _client(root, "admin1").get("/admin/logs/export", params=params).status_code == 422

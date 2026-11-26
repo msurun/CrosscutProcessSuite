@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -37,12 +37,23 @@ def _members(payload: bytes) -> dict[str, str]:
         "opc.tcp://user:hunter2@host:4840/path",
         "client_secret = hunter2",
         "access_token=hunter2&x=1",
+        "Driver={SQL Server};Server=db1;Uid=svc;PWD=hunter2;Database=pi;",
+        "Server=db1;User Id=svc;Password=hunter2;Encrypt=yes",
+        "PWD={hunt;er2};Database=pi",
+        "machine pi.plant.local login svc password hunter2",
+        '{"token": "hun\\"ter2 x", "n": 1}',
+        '{"secret":"hunter2"}',
+        "opc.tcp://svc:hunter2@10.0.0.5:4840",
+        "postgresql://svc:hun@ter2@db1/pi",
+        "https://svc:hunter2@pi.example/piwebapi",
+        '{"ts": "2026-11-26T10:20:00+00:00", "level": "error", "message": "connect failed: password=\\"hunter2\\" host=db1"}',  # noqa: E501
     ],
 )
 def test_scrub_hides_secret_values(line: str) -> None:
     cleaned = scrub(line)
     assert "hunter2" not in cleaned and "abc.def.ghi" not in cleaned
     assert "abcdef123456" not in cleaned
+    assert not any(part in cleaned for part in ("hun;er2", "er2 x", "ter2"))
     assert "[redacted]" in cleaned
 
 
@@ -84,3 +95,24 @@ def test_reversed_range_and_bad_time_are_refused(tmp_path: Path) -> None:
     with pytest.raises(LogRangeError):
         parse_instant("yesterday")
     assert parse_instant("2026-11-26T10:00:00") == START
+
+
+def test_scrub_keeps_the_rest_of_a_jsonl_line_readable() -> None:
+    line = json.dumps({"ts": "2026-11-26T10:20:00+00:00", "message": "pwd=hunter2; host=db1"})
+    cleaned = scrub(line)
+    assert "hunter2" not in cleaned and "2026-11-26T10:20:00" in cleaned
+
+
+def test_range_over_31_days_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(LogRangeError, match="31 days"):
+        build_export(tmp_path, START, START + timedelta(days=32))
+    build_export(tmp_path, START, START + timedelta(days=31))
+
+
+def test_export_over_the_size_cap_is_refused_with_a_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(tmp_path, "_logs/api.log", "2026-11-26T10:30:00Z INFO a " + "x" * 200 + "\n")
+    monkeypatch.setattr("crosscut_api.log_export.MAX_BYTES", 100)
+    with pytest.raises(LogRangeError, match="narrow the range"):
+        build_export(tmp_path, START, END)
