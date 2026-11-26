@@ -244,7 +244,21 @@
           "type": "string",
           "description": "Name of a loop's output tag; {loop} stands for the loop name."
         },
-        "mode_suffix": {"type": "string", "description": "Suffix of a loop's mode tag."}
+        "mode_suffix": {"type": "string", "description": "Suffix of a loop's mode tag."},
+        "rules": {
+          "type": "array",
+          "description": "Ordered regex naming rules (#209); the first rule whose pattern matches the whole tag name wins. Named groups: loop, role, area, equipment, signal.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["pattern"],
+            "properties": {
+              "name": {"type": "string"},
+              "pattern": {"type": "string", "minLength": 1},
+              "roles": {"type": "object", "description": "Value of the role group (any case) -> canonical role (pv, sp, out, mode, fb, dv).", "additionalProperties": {"type": "string"}}
+            }
+          }
+        }
       }
     },
     "source": {

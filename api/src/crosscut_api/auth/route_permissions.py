@@ -136,6 +136,11 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/sources/{source_id}/secret"): "config.edit",
     ("PUT", "/sources/{source_id}/secret"): "config.edit",
     ("DELETE", "/sources/{source_id}/secret"): "config.edit",
+    # Catalogue from a source (#209): rule tester, browse preview, import into site.json.
+    ("GET", "/catalogue/naming/presets"): "data.view",
+    ("POST", "/catalogue/naming/test"): "data.view",
+    ("POST", "/sources/{source_id}/catalogue-preview"): "connector.use",
+    ("POST", "/sources/{source_id}/catalogue-import"): "config.edit",
 
     # job.manage (POST/PATCH/DELETE)
     ("POST", "/runtime/jobs"): "job.manage",
