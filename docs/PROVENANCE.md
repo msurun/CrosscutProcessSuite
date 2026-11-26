@@ -67,6 +67,7 @@ Citations are given from memory and must be verified against the originals befor
 | Method | Public source | Status | Implementation |
 |---|---|---|---|
 | MPC reference engine: OSQP quadratic programming, FOPDT exact ZOH prediction, offset correction and receding-horizon quadratic tracking | OSQP, Stellato et al., Mathematical Programming Computation 12 (2020), 637–672, https://doi.org/10.1007/s12532-020-00179-2; https://osqp.org/ (Apache-2.0). Standard linear MPC formulation: Rawlings, Mayne and Diehl, Model Predictive Control: Theory, Computation, and Design (2017). Priority relaxation and three-cycle shed policy: accepted `docs/design/mpc-design-note.md`, sections 3 and 7. | 2026-11-26, Codex; synthetic L1 reference only | `mpc/src/crosscut_mpc/` |
+| Multi-MV step-test design: sequential bounded steps and generalised binary noise (GBN) with switching probability and fixed seed | Ljung, System Identification: Theory for the User (2nd ed., 1999), section 13.3 (input design, binary and pseudo-random signals); Tulleken, Generalized binary noise test-signal concept for improved identification-experiment design, Automatica 26 (1990), 37-49. Bounds from the site variable model and the gateway write policy; accepted `docs/design/mpc-design-note.md`, section 8. | 2026-11-26, Claude; synthetic planner only | `mpc/src/crosscut_mpc/step_planner.py` |
 
 ## Rules
 

@@ -244,6 +244,12 @@ function ModeToggle({ mode, onChange, t }: { mode: LoopsMode; onChange: (mode: L
   );
 }
 
+/** The mode named by the route's `mode` query ("live" or "dataset"), or null when absent or unknown. */
+export function requestedMode(route: Route): LoopsMode | null {
+  const value = route.query?.mode;
+  return value === "live" || value === "dataset" ? value : null;
+}
+
 /**
  * The loops page with the "Live | Dataset" switch. Live is the default when the runtime analyses at
  * least one loop (a loop with a job); until the user picks, the mode follows that answer. A loop
@@ -251,7 +257,7 @@ function ModeToggle({ mode, onChange, t }: { mode: LoopsMode; onChange: (mode: L
  */
 export function LoopsPage(props: LoopsPageProps) {
   const live = useLiveLoops();
-  const [picked, setPicked] = useState<LoopsMode | null>(null);
+  const [picked, setPicked] = useState<LoopsMode | null>(requestedMode(props.route));
   const hasLive = (live.loops ?? []).some((loop) => loop.job !== null);
   const mode = picked ?? (hasLive ? "live" : "dataset");
   if (props.route.loop !== null) return <DatasetLoopsPage {...props} />;
