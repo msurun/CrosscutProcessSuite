@@ -212,6 +212,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/auth/stepup"): AUTHENTICATED,
 
     # auth (users.manage)
+    # Backup and restore of configuration without history (#167): administrators only.
+    ("GET", "/admin/backup"): "users.manage",
+    ("POST", "/admin/backup/inspect"): "users.manage",
+    ("POST", "/admin/backup/restore"): "users.manage",
     ("GET", "/auth/users"): "users.manage",
     ("GET", "/auth/users/{username}"): "users.manage",
     ("POST", "/auth/users"): "users.manage",

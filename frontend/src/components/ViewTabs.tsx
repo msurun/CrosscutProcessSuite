@@ -26,7 +26,8 @@ function useVisibleViews(): readonly View[] {
   const tuning: readonly View[] = canView ? ["tuning"] : [];
   const controllers: readonly View[] = useCan("ctl.view").allowed ? ["controllers"] : [];
   const users: readonly View[] = status === "authenticated" && canManage ? ["users"] : [];
-  return [...BASE_VIEWS, ...controllers, ...tuning, ...users];
+  const backup: readonly View[] = canManage ? ["backup"] : [];
+  return [...BASE_VIEWS, ...controllers, ...tuning, ...users, ...backup];
 }
 
 /** Main menu: one entry per group; selecting a group opens its first view. */

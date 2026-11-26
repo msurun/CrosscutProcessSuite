@@ -20,7 +20,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: "fuzzy", views: ["fuzzy", "advisory"] },
   { id: "controllers", views: ["controllers"] },
   { id: "site", views: ["catalogue", "import", "onboarding"] },
-  { id: "admin", views: ["gateway", "runtime", "users"] },
+  { id: "admin", views: ["gateway", "runtime", "users", "backup"] },
 ];
 
 /** The groups with at least one visible view, each reduced to its visible views. */

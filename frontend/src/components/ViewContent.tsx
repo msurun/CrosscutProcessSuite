@@ -8,6 +8,7 @@ import type { Translate } from "../findings";
 import { GatewayPage } from "../GatewayPage";
 import { withQueryParams, type Route } from "../route";
 import { RuntimePage } from "../RuntimePage";
+import { BackupPage } from "../BackupPage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
 import { EquipmentAnomaliesPage } from "./EquipmentAnomaliesPage";
@@ -63,6 +64,7 @@ export function ViewContent(props: ViewContentProps) {
     gateway: <GatewayPage t={t} />,
     tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
+    backup: <BackupPage t={t} />,
   };
   return <>{global[route.view] ?? (props.datasetMissing ? null : datasetViews(props, route.dataset)[route.view])}</>;
 }
