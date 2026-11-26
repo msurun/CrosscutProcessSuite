@@ -57,7 +57,8 @@ async function runCheck(page: Page): Promise<void> {
 
 test("upload, preview, check, create and open the tuning view", async ({ page }, info) => {
   const errors: string[] = [];
-  page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+  // The read-only import settings answer 404 when the data root has no site file: expected, not an error.
+  page.on("response", (r) => { if (r.status() >= 400 && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`); });
   await chooseFile(page);
   await expect(page.locator("nav.view-tabs").getByRole("button", { name: "Import danych" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByLabel("Separator kolumn")).toHaveValue(";");
@@ -87,6 +88,15 @@ test("upload, preview, check, create and open the tuning view", async ({ page },
   await expect(page.getByText("Nachylenie rampy").first()).toBeVisible();
   await expect(page.getByText(/Propozycja \(reguła SIMC dla procesu całkującego\)/)).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("the import settings of the site are shown read-only", async ({ page }) => {
+  await page.goto(START_URL);
+  const settings = page.getByTestId("import-settings");
+  await expect(settings).toBeVisible({ timeout: 30_000 });
+  await expect(settings.getByRole("heading", { name: "Ustawienia importu tej instalacji" })).toBeVisible();
+  await expect(settings.getByRole("textbox")).toHaveCount(0);
+  await expect(settings.getByRole("button")).toHaveCount(0);
 });
 
 test("an existing dataset id is refused with a plain message", async ({ page }) => {

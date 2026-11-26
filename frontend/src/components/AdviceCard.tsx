@@ -11,7 +11,8 @@ import {
   gateChipClass,
   type AckDraft,
 } from "../advisory";
-import type { AckDecision, AckRecord, AdviceRecord } from "../api";
+import type { AckDecision, AckRecord, AdviceRecord, SupervisorProposeResult } from "../api";
+import { ProposeAction } from "./AdvicePropose";
 import { AckForm } from "./AckForm";
 
 interface AdviceCardProps {
@@ -21,6 +22,8 @@ interface AdviceCardProps {
   ack?: AckRecord;
   /** When given, the card offers the three "Record decision" buttons (only for logged advice). */
   onDecide?: (decision: AckDecision, draft: AckDraft) => Promise<void>;
+  /** When given (logged advice only), the card offers "Propose": an advisory proposal, confirmed first. */
+  onPropose?: () => Promise<SupervisorProposeResult>;
 }
 
 /** Direction as icon plus word. */
@@ -97,7 +100,7 @@ function Decisions({ onDecide, t }: { onDecide: NonNullable<AdviceCardProps["onD
 }
 
 /** The card of one advice. */
-export function AdviceCard({ advice, t, ack, onDecide }: AdviceCardProps) {
+export function AdviceCard({ advice, t, ack, onDecide, onPropose }: AdviceCardProps) {
   return (
     <li className="advice-card">
       <Direction advice={advice} t={t} />
@@ -112,6 +115,7 @@ export function AdviceCard({ advice, t, ack, onDecide }: AdviceCardProps) {
       )}
       {(ack !== undefined || onDecide !== undefined) && <AckState ack={ack} t={t} />}
       {onDecide !== undefined && <Decisions onDecide={onDecide} t={t} />}
+      {onPropose !== undefined && advice.direction !== "hold" && <ProposeAction onPropose={onPropose} t={t} />}
     </li>
   );
 }
