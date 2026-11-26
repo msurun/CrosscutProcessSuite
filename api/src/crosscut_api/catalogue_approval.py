@@ -65,9 +65,11 @@ def _record_state(root: Path, controller_id: str) -> str:
     ``on`` into ``standby``, which is right after a restart but hides a running controller)."""
     try:
         data = json.loads(record_path(root, controller_id).read_text(encoding="utf-8"))
-        return str(data.get("state", ""))
-    except (OSError, ValueError, AttributeError):
-        return ""
+        return str(data["state"])
+    except FileNotFoundError:
+        return ""  # never started: off
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return ON  # a record that exists but cannot be read counts as running (fail closed)
 
 
 def active_writes(root: Path, published: Doc) -> ActiveWrites:
@@ -89,13 +91,65 @@ def _changed_ids(section: Doc | None) -> set[str]:
     return set(section.get("removed", [])) | {c["id"] for c in section.get("changed", [])}
 
 
-def approval_reasons(diff: Doc, active: ActiveWrites) -> list[str]:
-    """``loop:<id>`` / ``controller:<id>`` for every active entry the diff changes or removes."""
+LOOP_TAG_FIELDS = ("pv", "sp", "out", "mode")
+
+
+def _entries(docs: list[Doc], section: str, ids: set[str]) -> list[Doc]:
+    """The entries of a section with one of the ids, from every document (old and new)."""
+    return [e for d in docs for e in d.get(section, []) if str(e.get("id")) in ids]
+
+
+def _loops_of_tags(docs: list[Doc], tags: set[str]) -> set[str]:
+    """Loops whose pv/sp/out/mode tag is one of ``tags``: a tag change is a change of the loop."""
+    return {
+        loop["id"]
+        for d in docs
+        for loop in d.get("loops", [])
+        if any(loop.get(field) in tags for field in LOOP_TAG_FIELDS)
+    }
+
+
+def _controllers_of_tags(docs: list[Doc], tags: set[str]) -> set[str]:
+    """Controllers with a variable bound to one of ``tags`` (CV, DV, ICV)."""
+    return {
+        c["id"]
+        for d in docs
+        for c in d.get("controllers", [])
+        if any(v.get("binding", {}).get("tag") in tags for v in c.get("variables", []))
+    }
+
+
+def _equipment_reach(docs: list[Doc], equipment: set[str]) -> tuple[set[str], set[str]]:
+    """Loops and tags a changed equipment entry owns or refers to (old and new membership)."""
+    loops: set[str] = set()
+    tags: set[str] = set()
+    for entry in _entries(docs, "equipment", equipment):
+        loops |= set(entry.get("loops", [])) | set(entry.get("loop_refs", []))
+        tags |= set(entry.get("tags", []))
+    return loops, tags
+
+
+def _touched(diff: Doc, docs: list[Doc]) -> tuple[set[str], set[str]]:
+    """Loop and controller ids a diff changes, directly or through tags and equipment."""
     sections = diff["sections"]
     loops = _changed_ids(sections.get("loops"))
     controllers = _changed_ids(sections.get("controllers"))
-    if active.unknown:
-        return sorted(f"loop:{i}" for i in loops) + sorted(f"controller:{i}" for i in controllers)
-    return sorted(f"loop:{i}" for i in loops & active.loops) + sorted(
-        f"controller:{i}" for i in controllers & active.controllers
-    )
+    tags = _changed_ids(sections.get("tags"))
+    equip_loops, equip_tags = _equipment_reach(docs, _changed_ids(sections.get("equipment")))
+    tags |= equip_tags
+    loops |= equip_loops | _loops_of_tags(docs, tags)
+    controllers |= _controllers_of_tags(docs, tags)
+    return loops, controllers
+
+
+def approval_reasons(diff: Doc, active: ActiveWrites, old: Doc, new: Doc) -> list[str]:
+    """``loop:<id>`` / ``controller:<id>`` for every active entry the diff changes or removes.
+
+    A changed or removed tag, or changed equipment membership, counts as a change of every loop
+    (and controller variable) that uses it, even when the loop entry itself is unchanged.
+    """
+    loops, controllers = _touched(diff, [old, new])
+    if not active.unknown:
+        loops &= active.loops
+        controllers &= active.controllers
+    return sorted(f"loop:{i}" for i in loops) + sorted(f"controller:{i}" for i in controllers)

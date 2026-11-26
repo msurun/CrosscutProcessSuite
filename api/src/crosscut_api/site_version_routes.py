@@ -12,6 +12,8 @@ is appended to the hash-chained audit ``_site/versions/audit.jsonl``.
 from __future__ import annotations
 
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -19,6 +21,9 @@ from typing import Annotated, Any
 from crosscut_connectors.site import SiteError, load_site, site_path, validate_site
 from crosscut_connectors.site_diff import diff_sites
 from crosscut_connectors.site_versions import (
+    SiteBusyError,
+    VersionCorruptError,
+    VersionMissingError,
     current_version,
     discard_draft,
     document_sha256,
@@ -30,6 +35,7 @@ from crosscut_connectors.site_versions import (
     read_json,
     save_draft,
     site_dir,
+    site_lock,
     versions_dir,
     write_json,
 )
@@ -53,12 +59,29 @@ def _conflict(code: str) -> HTTPException:
     return HTTPException(status_code=409, detail=code)
 
 
+@contextmanager
+def locked(root: Path) -> Iterator[None]:
+    """The catalogue lock; a second holder is answered with 409 ``busy``."""
+    try:
+        with site_lock(root):
+            yield
+    except SiteBusyError as error:
+        raise _conflict("busy") from error
+
+
 def store_draft(root: Path, document: Doc, actor: str) -> None:
-    """Save an already validated document as the draft and audit it (shared with /config/site)."""
-    save_draft(root, document)
-    AuthAudit(versions_dir(root) / "audit.jsonl").append(
-        "draft_save", actor=actor, sha256=document_sha256(document)
-    )
+    """Save an already validated document as the draft and audit it (shared with /config/site).
+
+    Refused (409 ``pending_exists``) while a publish request waits: the approver is judging a
+    fixed document, and the draft must not drift under it.
+    """
+    with locked(root):
+        if read_json(site_dir(root) / PENDING_FILE) is not None:
+            raise _conflict("pending_exists")
+        save_draft(root, document)
+        AuthAudit(versions_dir(root) / "audit.jsonl").append(
+            "draft_save", actor=actor, sha256=document_sha256(document)
+        )
 
 
 def working_site(root: Path) -> Doc | None:
@@ -111,8 +134,10 @@ class _VersionEndpoints:
         """One version: its metadata and stored document."""
         try:
             meta, document = get_version(self.root, number)
-        except SiteError as error:
+        except VersionMissingError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except VersionCorruptError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return {"meta": meta, "document": document}
 
     def get_diff(self, a: str, b: str) -> Doc:
@@ -130,9 +155,12 @@ class _VersionEndpoints:
         return document
 
     def delete_draft(self, actor: ActorDep) -> Doc:
-        """Throw the draft away."""
-        discard_draft(self.root)
-        self.audit.append("draft_discard", actor=actor.actor)
+        """Throw the draft away (refused while a publish request waits)."""
+        with locked(self.root):
+            if self._pending() is not None:
+                raise _conflict("pending_exists")
+            discard_draft(self.root)
+            self.audit.append("draft_discard", actor=actor.actor)
         return {"discarded": True}
 
     # --- publishing ------------------------------------------------------------------------
@@ -140,6 +168,11 @@ class _VersionEndpoints:
     def publish(self, actor: ActorDep, body: BodyDoc = None) -> Any:
         """Publish the draft, or create the pending request when a second engineer must approve."""
         note = self._note(body)
+        with locked(self.root):
+            return self._publish_locked(actor, note)
+
+    def _publish_locked(self, actor: ActorContext, note: str) -> Any:
+        """The body of ``publish``, run while the catalogue lock is held."""
         draft = load_draft(self.root)
         if draft is None:
             raise _conflict("no_draft")
@@ -149,7 +182,7 @@ class _VersionEndpoints:
         diff = diff_sites(published, draft)
         if diff["empty"]:
             raise _conflict("no_changes")
-        reasons = approval_reasons(diff, active_writes(self.root, published))
+        reasons = approval_reasons(diff, active_writes(self.root, published), published, draft)
         if not reasons:
             return self._publish(draft, actor.actor, note, None)
         pending = self._store_pending(draft, actor.actor, note, reasons)
@@ -166,10 +199,19 @@ class _VersionEndpoints:
         return self._pending_view(pending)
 
     def approve(self, actor: ActorDep) -> Doc:
-        """Publish the pending request; the approver must differ from the requester."""
+        """Publish the pending request; the approver must be another user than the requester."""
+        actor.require("config.edit")
+        with locked(self.root):
+            return self._approve_locked(actor)
+
+    def _approve_locked(self, actor: ActorContext) -> Doc:
+        """The body of ``approve``, run while the catalogue lock is held."""
         pending = self._require_pending()
         if same_actor(pending["requested_by"], actor.actor):
             raise HTTPException(status_code=403, detail="self_approval")
+        if document_sha256(pending["document"]) != pending.get("document_sha256"):
+            self.audit.append("publish_tampered", actor=actor.actor, pending=pending["id"])
+            raise _conflict("pending_modified")
         if pending["base_sha256"] != published_sha256(self.root):
             self._clear_pending()
             self.audit.append("publish_stale", actor=actor.actor, pending=pending["id"])
@@ -185,8 +227,9 @@ class _VersionEndpoints:
 
     def reject(self, actor: ActorDep, body: BodyDoc = None) -> Doc:
         """Reject (or, by the requester, withdraw) the pending request; the draft is kept."""
-        pending = self._require_pending()
-        self._clear_pending()
+        with locked(self.root):
+            pending = self._require_pending()
+            self._clear_pending()
         reason = str((body or {}).get("reason", ""))[:MAX_NOTE]
         self.audit.append(
             "publish_rejected", actor=actor.actor, pending=pending["id"], reason=reason
@@ -200,6 +243,7 @@ class _VersionEndpoints:
         try:
             meta = publish_document(self.root, document, author, note, approver)
         except SiteError as error:
+            self.audit.append("publish_failed", actor=approver or author, reason=str(error))
             raise HTTPException(status_code=409, detail=str(error)) from error
         self.audit.append(
             "publish",
@@ -258,8 +302,10 @@ class _VersionEndpoints:
             return self._published() or {}
         try:
             return get_version(self.root, int(name))[1]
-        except (ValueError, SiteError) as error:
+        except (ValueError, VersionMissingError) as error:
             raise HTTPException(status_code=404, detail=f"unknown version {name}") from error
+        except VersionCorruptError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     def _pending(self) -> Doc | None:
         """The pending request, None when there is none."""
@@ -281,6 +327,7 @@ class _VersionEndpoints:
             "note": note,
             "reasons": reasons,
             "base_sha256": published_sha256(self.root),
+            "document_sha256": document_sha256(draft),
             "document": draft,
         }
         write_json(site_dir(self.root) / PENDING_FILE, pending)

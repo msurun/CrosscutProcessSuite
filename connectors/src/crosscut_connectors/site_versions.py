@@ -15,6 +15,9 @@ import json
 import os
 import re
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,21 @@ DRAFT_FILE = "draft.json"
 DRAFT_META_FILE = "draft.meta.json"
 VERSIONS_FOLDER = "versions"
 _META = re.compile(r"^v(\d{4,})\.meta\.json$")
+_ANY_VERSION_FILE = re.compile(r"^v(\d{4,})\.(meta\.)?json$")
+LOCK_FILE = ".lock"
+LOCK_STALE_S = 120.0
+
+
+class SiteBusyError(SiteError):
+    """Another publish, approval or draft write holds the catalogue lock."""
+
+
+class VersionMissingError(SiteError):
+    """The asked version does not exist."""
+
+
+class VersionCorruptError(SiteError):
+    """A stored version no longer matches its recorded sha256 (or lost its document)."""
 
 
 def site_dir(root: Path) -> Path:
@@ -49,6 +67,31 @@ def document_sha256(document: Doc) -> str:
     """sha256 of the canonical JSON form (sorted keys, no whitespace) of a document."""
     text = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@contextmanager
+def site_lock(root: Path) -> Iterator[None]:
+    """Exclusive lock on the catalogue (``_site/.lock``, created exclusively).
+
+    Not re-entrant and not waiting: a second holder gets SiteBusyError at once. A lock older than
+    LOCK_STALE_S is a crashed holder's and is taken over.
+    """
+    path = site_dir(root) / LOCK_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if time.time() - path.stat().st_mtime > LOCK_STALE_S:
+            path.unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
+    try:
+        handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SiteBusyError("the catalogue is being changed by someone else") from None
+    os.close(handle)
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def write_json(path: Path, document: Doc, exclusive: bool = False) -> None:
@@ -114,10 +157,10 @@ def discard_draft(root: Path) -> None:
 
 
 def _read_meta(root: Path, number: int) -> Doc:
-    """The metadata of one version; SiteError when it does not exist."""
+    """The metadata of one version; VersionMissingError when it does not exist."""
     meta = read_json(versions_dir(root) / f"v{number:04d}.meta.json")
     if meta is None:
-        raise SiteError(f"version {number} does not exist")
+        raise VersionMissingError(f"version {number} does not exist")
     return meta
 
 
@@ -130,6 +173,15 @@ def list_versions(root: Path) -> list[Doc]:
     return [_read_meta(root, number) for number in numbers]
 
 
+def _next_number(root: Path) -> int:
+    """One above the highest version number on disk, counting orphan files of a crashed publish."""
+    folder = versions_dir(root)
+    if not folder.is_dir():
+        return 1
+    found = [int(m.group(1)) for p in folder.iterdir() if (m := _ANY_VERSION_FILE.match(p.name))]
+    return max(found, default=0) + 1
+
+
 def current_version(root: Path) -> int | None:
     """Number of the newest published version, None while nothing was published."""
     versions = list_versions(root)
@@ -137,11 +189,11 @@ def current_version(root: Path) -> int | None:
 
 
 def get_version(root: Path, number: int) -> tuple[Doc, Doc]:
-    """``(meta, document)`` of a version; SiteError when missing or when the copy was altered."""
+    """``(meta, document)`` of a version; VersionMissingError, VersionCorruptError if altered."""
     meta = _read_meta(root, number)
     document = read_json(versions_dir(root) / f"v{number:04d}.json")
     if document is None or document_sha256(document) != meta["sha256"]:
-        raise SiteError(f"version {number} is missing or does not match its sha256")
+        raise VersionCorruptError(f"version {number} is missing or does not match its sha256")
     return meta, document
 
 
@@ -155,7 +207,7 @@ def publish_document(
     if load_draft(root) is not None and draft_base_sha256(root) != published_sha256(root):
         raise SiteError("the published catalogue changed since this draft began")
     _validate(document)
-    number = (current_version(root) or 0) + 1
+    number = _next_number(root)
     meta = {
         "version": number,
         "sha256": document_sha256(document),
