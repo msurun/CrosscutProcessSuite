@@ -1,0 +1,21 @@
+﻿{
+  "protocol": "exp42_v1",
+  "equipment_id": "metropt3_compressor",
+  "train_start": "2020-02-01",
+  "score_start": "2020-03-01",
+  "sample_period_s": 10,
+  "persistence": 3,
+  "clear": 5,
+  "lead_hours": 2,
+  "targets": {"false_alarms_per_normal_day": 3, "event_detection": 0.7, "coverage": 0.8},
+  "learning": {"dynamic_lags": 1, "variance_fraction": 0.9, "alpha": 0.99,
+               "exclusions": [], "running_filter": null, "loops": []},
+  "measurements": ["Motor_current", "TP2", "TP3", "H1", "DV_pressure", "Reservoirs", "Oil_temperature"],
+  "state_columns": ["COMP", "DV_eletric", "Towers", "MPG", "LPS", "Pressure_switch", "Oil_level", "Caudal_impulses"],
+  "failures": [
+    ["2020-04-18 00:00", "2020-04-18 23:59"],
+    ["2020-05-29 23:30", "2020-05-30 06:00"],
+    ["2020-06-05 10:00", "2020-06-07 14:30"],
+    ["2020-07-15 14:30", "2020-07-15 19:00"]
+  ]
+}

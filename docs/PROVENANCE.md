@@ -59,6 +59,8 @@ Citations are given from memory and must be verified against the originals befor
 | History knowledge proposals: percentile range padding, ramp screening and model-derived ultimate period | Original advisory policies (Codex, 2026-11-23): 1st/99th percentiles padded by 10% of their span; amplitude starting value 2% of PV span. Ramp screening uses linear least squares. FOPDT phase crossover solves atan(omega*tau)+omega*theta=pi; IPDT gives Tu=4*theta. Reuses the identification and ACF methods cited above. Observed cycles are candidates, not proof of ultimate stability. | implemented, synthetic tests | `loops/src/crosscut_loops/knowledge_proposal.py` |
 | Equipment normal-operation learning: lagged PCA T2/SPE, operating-point least-squares residuals and EWMA | MacGregor & Kourti (1995), Statistical process control of multivariate processes, Control Engineering Practice 3, 403–414; Montgomery, Introduction to Statistical Quality Control (EWMA); US DOE, Improving Pumping System Performance (pump affinity law, power proportional to speed cubed). Public methods, synthetic tests only | 2026-11-23, Codex | `anomaly/src/crosscut_anomaly/equipment_learning.py` |
 
+| MetroPT-3 per-equipment frozen validation (issue #160) | Davari, Veloso, Ribeiro and Gama (2021), UCI 791, https://doi.org/10.24432/C5VW3R, CC BY 4.0; Data Description_Metro.pdf failure table; first-month split per UCI. Reuses equipment PCA method above; original event-window evaluation policy. | 2026-11-26, protocol only; no scoring run | `experiments/exp42_metropt3_equipment/` |
+
 ## Rules
 
 1. Add a row (source, date, author of the implementation) before implementing a method.
