@@ -26,6 +26,8 @@ test.setTimeout(120_000);
 /** Opens the page, loads the example, fits on the default first hours and scans the whole record. */
 async function loadFitAndScan(page: Page): Promise<void> {
   await page.goto(URL);
+  // The free-tag PCA detector lives under the Advanced tab of the equipment Anomalies view (#216).
+  await page.getByRole("button", { name: "Zaawansowane", exact: true }).click();
   await page.getByRole("button", { name: "Wczytaj przykład" }).click();
   await expect(page.getByLabel("Detektor")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("note").first()).toContainText("Tylko doradztwo");
