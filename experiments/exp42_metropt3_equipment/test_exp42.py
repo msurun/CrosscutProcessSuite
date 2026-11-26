@@ -5,10 +5,11 @@ No test reads the external dataset or evaluates the real scoring period.
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from experiments.exp42_metropt3_equipment.exp42 import (
+pd = pytest.importorskip("pandas")  # CI has no pandas; the experiment runs locally
+
+from experiments.exp42_metropt3_equipment.exp42 import (  # noqa: E402
     CONFIG,
     MEASUREMENTS,
     STATE_COLUMNS,
