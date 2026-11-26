@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vendor PID profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key",
+    "block",
+    "form",
+    "evidence",
+    "source",
+    "caveats"
+  ],
+  "properties": {
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "block": {
+      "type": "string",
+      "minLength": 1
+    },
+    "form": {
+      "enum": [
+        "gain_seconds",
+        "gain_minutes",
+        "proportional_band_minutes",
+        "gain_repeats_per_minute"
+      ]
+    },
+    "evidence": {
+      "enum": [
+        "verified",
+        "partly_verified",
+        "unverified"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "caveats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

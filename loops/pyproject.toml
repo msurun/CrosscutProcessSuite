@@ -8,10 +8,10 @@ version = "0.0.1"
 description = "Control loop performance monitoring for the Crosscut Process Suite"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy>=1.26", "jsonschema>=4.21"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-crosscut_loops = ["py.typed"]
+crosscut_loops = ["py.typed", "vendor_profiles/*.json"]
