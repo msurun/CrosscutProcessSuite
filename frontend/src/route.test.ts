@@ -273,4 +273,10 @@ describe("Overview start route", () => {
   it("keeps the previous Trends start bookmark reachable", () => {
     expect(parseHash("#/d//trends").view).toBe("trends");
   });
+
+  it("keeps the mode query on a Loops link", () => {
+    const route = parseHash("#/d//loops?mode=live");
+    expect(route.view).toBe("loops");
+    expect(route.query).toEqual({ mode: "live" });
+  });
 });

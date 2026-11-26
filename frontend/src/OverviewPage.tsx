@@ -13,7 +13,7 @@ import { activeAnomalies, activeEquipmentAlarms, topLoopFindings, type OverviewS
 
 /** Refresh interval in milliseconds, matching the live loop worklist. */
 const REFRESH_INTERVAL_MS = 30_000;
-const LINKS = { loops: "#/d//loops", anomalies: "#/d//anomalies", controllers: "#/controllers",
+const LINKS = { loops: "#/d//loops?mode=live", anomalies: "#/d//anomalies", controllers: "#/controllers",
   gateway: "#/d//gateway", runtime: "#/d//runtime" };
 
 /** Read and periodically refresh one source, ignoring responses after unmount. */

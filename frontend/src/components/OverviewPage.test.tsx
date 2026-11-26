@@ -48,7 +48,7 @@ describe("OverviewPage", () => {
       job: "kpi", job_status: "ok", last_run_utc: null, fresh: false, kpi: {},
       findings: [{ code: "stiction", since_utc: null }] }]);
     render(<OverviewPage t={t} />);
-    expect(await screen.findByRole("link", { name: "Flow loop" })).toHaveAttribute("href", "#/d//loops");
+    expect(await screen.findByRole("link", { name: "Flow loop" })).toHaveAttribute("href", "#/d//loops?mode=live");
     expect(screen.getByText(/finding.stiction/)).toHaveTextContent("overview.stale");
   });
   it("retains shelved anomaly evidence without showing an active alarm", async () => {
