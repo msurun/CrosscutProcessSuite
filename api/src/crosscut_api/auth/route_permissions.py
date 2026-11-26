@@ -197,6 +197,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/gateway/policy/pin"): "policy.pin",
     ("POST", "/gateway/policy/reload"): "policy.reload",
 
+    # multi-MV step-test planner (MPC 7.1a): proposals only, through the gateway confirm path
+    ("POST", "/mpc/step-plans/preview"): "gw.propose",
+    ("POST", "/mpc/step-plans"): "gw.propose",
+    ("GET", "/mpc/step-plans"): "gw.view",
+    ("GET", "/mpc/step-plans/{plan_id}"): "gw.view",
+    ("POST", "/mpc/step-plans/{plan_id}/advance"): "gw.propose",
+    ("POST", "/mpc/step-plans/{plan_id}/abort"): "gw.reject",
     # supervisor proposals (ADR 014 section 7, #51): proposing setpoint advice needs gw.propose
     ("POST", "/supervisors/{sid}/propose"): "gw.propose",
 

@@ -13,6 +13,7 @@ export interface NavGroup {
 }
 
 export const NAV_GROUPS: readonly NavGroup[] = [
+  { id: "overview", views: ["overview"] },
   { id: "trends", views: ["trends"] },
   { id: "loops", views: ["loops", "steps", "tuning"] },
   { id: "anomalies", views: ["anomalies"] },

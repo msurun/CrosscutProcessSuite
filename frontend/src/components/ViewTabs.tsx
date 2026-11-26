@@ -8,7 +8,7 @@ import { groupLabelKey, groupOf, visibleGroups, type NavGroup } from "../navGrou
 import type { View } from "../route";
 
 const BASE_VIEWS = [
-  "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor",
+  "overview", "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor",
   "steps", "import", "catalogue", "onboarding", "runtime", "gateway", "health",
 ] as const satisfies readonly View[];
 
