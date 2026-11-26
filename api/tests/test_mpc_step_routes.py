@@ -259,7 +259,10 @@ def test_gateway_leaving_confirm_mode_aborts_and_proposes_nothing(world: World) 
     world.approve_pending()
     step(world, 0)
     world.gateway.mode_value = "supervised"
-    record = step(world, 130)
+    plan_id = world.client.get("/mpc/step-plans").json()["plans"][0]["id"]
+    world.now += 130 * NS
+    assert world.post(f"/{plan_id}/advance").status_code == 409
+    record = world.client.get(f"/mpc/step-plans/{plan_id}").json()
     assert record["abort_reason"] == "gateway_mode_changed" and len(world.gateway.calls) == 1
 
 
@@ -292,3 +295,77 @@ def test_permissions_per_role(world: World) -> None:
 
 def test_unknown_plan_is_404(world: World) -> None:
     assert world.client.get("/mpc/step-plans/nope").status_code == 404
+
+
+class FlippingGateway(FakeGateway):
+    """Leaves confirm mode after a number of mode reads (mode flips between two due steps)."""
+
+    def __init__(self, flip_after: int) -> None:
+        super().__init__()
+        self.reads, self.flip_after = 0, flip_after
+
+    def mode(self) -> str:
+        self.reads += 1
+        return "confirm" if self.reads <= self.flip_after else "supervised"
+
+
+GBN_TWO: dict[str, Any] = {
+    "plan_type": "gbn", "duration_s": 600, "sample_s": 60, "switch_probability": 1.0, "seed": 3,
+    "mvs": [{"controller_id": "C1", "variable_id": "mva", "amplitude": 2},
+            {"controller_id": "C1", "variable_id": "mvb", "amplitude": 2}],
+}
+
+
+def test_mode_is_reread_before_each_propose(world: World) -> None:
+    # confirm() reads the mode in preview, confirm and advance; the 4th read is before step 1,
+    # the 5th (before the second simultaneous step) sees supervised.
+    world.gateway = FlippingGateway(flip_after=4)
+    record = confirm(world, GBN_TWO).json()
+    assert len(world.gateway.calls) == 1  # type: ignore[attr-defined]
+    stored = world.client.get(f"/mpc/step-plans/{record['id']}").json()
+    assert stored["status"] == "aborted" and stored["abort_reason"] == "gateway_mode_changed"
+    assert {s["status"] for s in stored["steps"]} <= {"queued", "rejected", "skipped",
+                                                       "unresolved_check_dcs"}
+
+
+def test_an_mv_cannot_be_in_two_running_plans_across_routers(world: World) -> None:
+    other = World(world.root)
+    other.gateway, other.live = world.gateway, world.live
+    other.as_user("eng1")
+    assert confirm(world).status_code == 200
+    # a second process: the in-memory lock and the running-plan scan are not shared state
+    from crosscut_api import mpc_step_routes
+    from crosscut_api.mpc_step_exec import claim_tags
+    assert claim_tags(world.root, "other", ["a.sp"]) == ["a.sp"]
+    body = {**SEQUENTIAL, "mvs": SEQUENTIAL["mvs"][:1]}
+    assert mpc_step_routes.build_step_plan_router  # router instances share only the disk
+    preview = other.post("/preview", body).json()
+    refused = other.post("", {**body, "digest": preview["digest"]})
+    assert refused.status_code == 409
+
+
+def test_claims_are_released_on_abort_and_stale_claims_are_taken_over(world: World) -> None:
+    from crosscut_api.mpc_step_exec import claim_tags
+    plan_id = confirm(world).json()["id"]
+    assert claim_tags(world.root, "x", ["a.sp", "b.sp"]) == ["a.sp", "b.sp"]
+    world.post(f"/{plan_id}/abort")
+    assert claim_tags(world.root, "y", ["a.sp", "b.sp"]) == []  # released
+    world.post("/preview", SEQUENTIAL)
+    # plan "y" has no record and the claim is fresh: held; backdate it and it is stale
+    assert claim_tags(world.root, "z", ["a.sp"]) == ["a.sp"]
+    import os
+    for claim in (world.root / "_mpc" / "claims").iterdir():
+        os.utime(claim, (1, 1))
+    assert claim_tags(world.root, "z", ["a.sp"]) == []
+
+
+def test_future_sent_time_aborts_with_clock_skew(world: World) -> None:
+    confirm(world)
+    world.now -= 100 * NS  # the clock jumped backwards after the step was sent
+    assert step(world, 0)["abort_reason"] == "clock_skew"
+
+
+def test_small_negative_age_is_clamped_not_an_error(world: World) -> None:
+    confirm(world)
+    world.now -= 2 * NS
+    assert step(world, 0)["status"] == "running"

@@ -11,9 +11,11 @@ lists the displaced MVs and the operator decides.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +28,8 @@ from crosscut_api.auth.actor import ActorContext
 NS = 1_000_000_000
 PENDING_GRACE_S = 15.0  # a queued step may be missing from state.json this long after the send
 APPROVAL_WINDOW_S = 600.0  # an unapproved step older than this stops the plan
+CLAIM_GRACE_S = 60.0  # a claim without a plan record is a crash leftover after this long
+CLOCK_SKEW_S = 5.0  # a step stamped further in the future than this means the clock moved
 SP_TOLERANCE = 1e-6  # relative tolerance when comparing a live setpoint with an expected value
 Doc = dict[str, Any]
 
@@ -71,10 +75,84 @@ def same_value(live: float, expected: float) -> bool:
     return math.isclose(live, expected, rel_tol=SP_TOLERANCE, abs_tol=SP_TOLERANCE)
 
 
+def claims_dir(root: Path) -> Path:
+    """Folder of the per-MV claims that keep two plans off the same setpoint."""
+    return root / "_mpc" / "claims"
+
+
+def _claim_path(root: Path, tag: str) -> Path:
+    """Claim file of one MV tag (hash of the tag, so any tag text is a safe file name)."""
+    return claims_dir(root) / (hashlib.sha256(tag.encode()).hexdigest() + ".claim")
+
+
+def _claim_is_stale(root: Path, path: Path) -> bool:
+    """A claim is stale when its plan is no longer running (finished, aborted or crash leftover).
+
+    A claim whose record does not exist yet is only stale after ``CLAIM_GRACE_S``: the owner
+    claims first and saves the record a moment later.
+    """
+    try:
+        plan = load_plan(root, path.read_text(encoding="utf-8").strip())
+        age_s = time.time() - path.stat().st_mtime
+    except OSError:
+        return True
+    if plan is None:
+        return age_s > CLAIM_GRACE_S
+    return plan["status"] != "running"
+
+
+def claim_tags(root: Path, plan_id: str, tags: list[str]) -> list[str]:
+    """Atomically claim every tag (O_CREAT|O_EXCL file per tag); return the tags held by others.
+
+    Works across processes. A claim whose plan is not running is stale and is taken over. When
+    any tag is held by another running plan, nothing stays claimed and the held tags are returned.
+    """
+    claims_dir(root).mkdir(parents=True, exist_ok=True)
+    taken: list[str] = []
+    held: list[str] = []
+    for tag in sorted(set(tags)):
+        path = _claim_path(root, tag)
+        if _try_claim(root, path, plan_id):
+            taken.append(tag)
+        else:
+            held.append(tag)
+    if held:
+        release_tags(root, plan_id, taken)
+    return held
+
+
+def _try_claim(root: Path, path: Path, plan_id: str) -> bool:
+    """Create the claim file exclusively; replace a stale one once."""
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if not _claim_is_stale(root, path):
+                return False
+            path.unlink(missing_ok=True)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(plan_id)
+        return True
+    return False
+
+
+def release_tags(root: Path, plan_id: str, tags: list[str]) -> None:
+    """Remove the claims this plan holds (a claim owned by another plan is left alone)."""
+    for tag in set(tags):
+        path = _claim_path(root, tag)
+        try:
+            if path.read_text(encoding="utf-8").strip() == plan_id:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
 @dataclass
 class Runner:
-    """What ``advance`` needs: gateway client, actor, live-SP reader, clock and audit hook."""
+    """What ``advance`` needs: root, gateway client, actor, live-SP reader, clock, audit hook."""
 
+    root: Path
     client: Any
     actor: ActorContext
     read_sp: Callable[[str], float]
@@ -93,6 +171,7 @@ def advance(plan: Doc, run: Runner) -> Doc:
         return abort(plan, run, reason)
     if all(s["status"] == "applied" for s in plan["steps"]):
         plan["status"] = "completed"
+        release_tags(run.root, plan["id"], list(plan["baselines"]))
         run.audit("mpc_step_plan_completed", plan=plan["id"])
     return plan
 
@@ -128,6 +207,9 @@ def _resolve_queued(plan: Doc, run: Runner) -> str:
 def _resolve_one(plan: Doc, run: Runner, step: Doc) -> str:
     """Abort reason for one queued step, or '' when it is pending or has just been applied."""
     age_s = (run.now_ns() - step["sent_ns"]) / NS
+    if age_s < -CLOCK_SKEW_S:
+        return "clock_skew"
+    age_s = max(age_s, 0.0)
     if _pending_for(run, step) is not None:
         step["seen_pending"] = True
         return "approval_timeout" if age_s > APPROVAL_WINDOW_S else ""
@@ -178,7 +260,7 @@ def _send_due(plan: Doc, run: Runner) -> str:
     for step in plan["steps"]:
         if step["status"] != "planned" or plan["anchor_ns"] + int(step["at_s"] * NS) > now:
             continue
-        reason = _send_step(plan, run, step, now)
+        reason = _gateway_reason(run) or _send_step(plan, run, step, now)  # mode, right now
         if reason:
             return reason
     return ""
@@ -230,6 +312,7 @@ def abort(plan: Doc, run: Runner, reason: str) -> Doc:
             step["status"] = "skipped"
     plan["status"], plan["abort_reason"] = "aborted", reason
     plan["displaced"] = _displaced(plan)
+    release_tags(run.root, plan["id"], list(plan["baselines"]))
     run.audit("mpc_step_plan_aborted", plan=plan["id"], reason=reason)
     return plan
 

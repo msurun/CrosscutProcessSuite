@@ -97,3 +97,9 @@ def test_no_mv_and_too_many_steps_are_refused() -> None:
     assert codes(build_plan([], SEQ)) == {"no_mv"}
     many = replace(GBN, duration_s=60.0 * (MAX_STEPS + 50), switch_probability=1.0)
     assert codes(build_plan([mv(amplitude=2.0, max_step=5.0)], many)) == {"too_many_steps"}
+
+
+def test_gbn_return_to_baseline_is_not_after_the_duration() -> None:
+    for duration in (1200.0, 1230.0, 1259.0):
+        plan = build_plan([mv("a")], replace(GBN, duration_s=duration))
+        assert plan.ok and plan.steps[-1].at_s <= duration and plan.steps[-1].value == 50.0

@@ -177,7 +177,8 @@ def _gbn_values(mvs: list[MvSpec], settings: PlanSettings) -> list[tuple[float, 
             if value != previous:
                 rows.append((slot * settings.sample_s, mv, value))
                 previous = value
-        rows.append((len(levels) * settings.sample_s, mv, mv.baseline))
+        end_s = min(len(levels) * settings.sample_s, settings.duration_s)  # never past the plan end
+        rows.append((end_s, mv, mv.baseline))
     return rows
 
 

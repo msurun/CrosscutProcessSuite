@@ -34,6 +34,7 @@ from crosscut_api.mpc_step_exec import (
     abort,
     advance,
     all_plans,
+    claim_tags,
     load_plan,
     running_plan,
     save_plan,
@@ -207,6 +208,9 @@ class _Endpoints:
             if plan_digest(plan) != body.digest:
                 raise refuse(409, "plan_changed")
             record = self._record(plan, baselines, body, actor)
+            held = claim_tags(self._root, record["id"], list(baselines))
+            if held:
+                raise refuse(409, {"code": "mv_claimed", "tags": held})
             self._audit("mpc_step_plan_confirmed", actor, plan=record["id"], digest=body.digest)
             return self._run(record, actor, client)
 
@@ -221,7 +225,7 @@ class _Endpoints:
 
     def _run(self, record: Doc, actor: ActorContext, client: FileGatewayClient) -> Doc:
         """Advance a record once and save it, whatever the outcome."""
-        runner = Runner(client, actor, self._read_sp, self._now_ns,
+        runner = Runner(self._root, client, actor, self._read_sp, self._now_ns,
                         lambda event, **f: self._audit(event, actor, **f))
         try:
             advance(record, runner)
@@ -244,7 +248,10 @@ class _Endpoints:
         actor.require("gw.propose")
         client = self._client()
         with self._lock:
-            return self._run(self._load(plan_id), actor, client)
+            record = self._run(self._load(plan_id), actor, client)  # aborts on a mode change
+            if record["abort_reason"] == "gateway_mode_changed":
+                raise refuse(409, "gateway_not_confirm")
+            return record
 
     def abort(self, plan_id: str, actor: ActorDep) -> Doc:
         """POST /mpc/step-plans/{plan_id}/abort: stop the plan; queued steps are rejected."""
@@ -252,7 +259,7 @@ class _Endpoints:
         client = self._client()
         with self._lock:
             record = self._load(plan_id)
-            runner = Runner(client, actor, self._read_sp, self._now_ns,
+            runner = Runner(self._root, client, actor, self._read_sp, self._now_ns,
                             lambda event, **f: self._audit(event, actor, **f))
             try:
                 abort(record, runner, "operator_abort")
