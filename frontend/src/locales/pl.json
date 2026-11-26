@@ -2281,6 +2281,8 @@
   "stepPlan.status.running": "trwa",
   "stepPlan.status.completed": "zakończony",
   "stepPlan.status.aborted": "przerwany",
+  "access.denied.title": "Brak dostępu",
+  "access.denied.body": "Nie masz uprawnień do widoku {view}. Poproś inżyniera lub administratora, jeśli go potrzebujesz.",
   "nav.health": "Stan systemu",
   "health.title": "Stan systemu",
   "health.subtitle": "Runtime, zadania, bramka, sygnały życia, audyt i dysk w jednym miejscu. Tylko odczyt.",

@@ -2270,6 +2270,8 @@
   "stepPlan.status.running": "running",
   "stepPlan.status.completed": "completed",
   "stepPlan.status.aborted": "aborted",
+  "access.denied.title": "No access",
+  "access.denied.body": "You do not have permission to open {view}. Ask an engineer or administrator if you need it.",
   "nav.health": "Health",
   "health.title": "System health",
   "health.subtitle": "Runtime, jobs, gateway, liveness, audit and disk at a glance. Read-only.",

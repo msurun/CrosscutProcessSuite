@@ -66,6 +66,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/softsensor/{sid}/model"): "data.view",
     ("GET", "/site"): "data.view",
     ("GET", "/site/import-settings"): "data.view",
+    ("GET", "/site/tags.csv"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
     # Loop templates (4.1): the library is readable, a site copy is a catalogue edit.
     ("GET", "/loop-templates"): "data.view",
@@ -129,6 +130,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/softsensor/{sid}/lab"): "config.edit",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/fit"): "config.edit",
     ("PUT", "/site"): "config.edit",
+    ("POST", "/site/tags.csv"): "config.edit",
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/loop-templates/{key}"): "config.edit",
     ("PUT", "/config/{kind}/{config_id}"): "config.edit",

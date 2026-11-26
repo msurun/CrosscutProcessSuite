@@ -2281,6 +2281,8 @@
   "stepPlan.status.running": "en curso",
   "stepPlan.status.completed": "completado",
   "stepPlan.status.aborted": "abortado",
+  "access.denied.title": "Sin acceso",
+  "access.denied.body": "No tienes permiso para abrir {view}. Pídelo a un ingeniero o administrador si lo necesitas.",
   "nav.health": "Estado del sistema",
   "health.title": "Estado del sistema",
   "health.subtitle": "Runtime, tareas, pasarela, señales de vida, auditoría y disco de un vistazo. Solo lectura.",

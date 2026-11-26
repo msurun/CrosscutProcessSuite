@@ -40,9 +40,14 @@ tabs that mixed analysis modules, configuration steps and infrastructure. The sk
 
 - **Global status bar** on every page: gateway mode, kill switch state, number of write proposals waiting for
   approval (opens the approval queue), runtime state, active alarms.
-- **Role-based menu** following the existing permissions (ADR 013): an operator sees Overview, Trends, Loops,
+- **Role-based menu** following the existing permissions (ADR 013, #175): an operator sees Overview, Trends, Loops,
   Controllers and the approval queue by default; Site and Administration are for engineers and controls
-  engineers.
+  engineers. Each view declares the permission that opens it (`VIEW_PERMISSIONS` in `frontend/src/navGroups.ts`);
+  engineering views ask for the permission of their main action (config.edit, data.import, job.manage,
+  users.manage), the others for their read permission (data.view, ctl.view, gw.view). For an operator the
+  Administration group reduces to its one visible view and shows as "Gateway", the approval queue. A hidden
+  view opened by its URL shows a "no access" message. With auth off everything shows except Users. No
+  permission changes; the backend still enforces every route.
 - The menu looks like navigation, nothing is clipped at 1280 px and it works at 390 px. Old hash routes redirect
   to the new ones, so bookmarks and e2e specs keep working.
 - The start page is Overview, never an empty Trends view.
