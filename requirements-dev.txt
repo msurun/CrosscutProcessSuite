@@ -8,6 +8,8 @@ mypy>=1.10
 types-jsonschema
 types-PyYAML
 numpy>=1.26
+osqp>=1.0
+-e ./mpc
 -e ./sim
 -e ./artifacts
 asyncua>=1.1
