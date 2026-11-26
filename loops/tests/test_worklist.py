@@ -205,3 +205,16 @@ def test_direct_stiction_finding_precedes_the_external_cause():
     row = _row(same_period_as=["source"], findings=[{"code": "stiction", "evidence": "direct"}])
     wl.add_worklist([row])
     assert row["diagnosis_step"] == "valve"
+
+
+def test_active_deferral_ranks_a_row_last_but_a_mixed_row_keeps_its_rank():
+    """Deferral zeroes the score only when every remaining finding is answered."""
+    deferred = _row(id="a", status="problem",
+                    findings=[{"code": "saturated", "outcome": "deferred"}])
+    mixed = _row(id="b", status="problem", findings=[
+        {"code": "saturated", "outcome": "deferred"}, {"code": "flatline"}])
+    open_row = _row(id="c", status="problem", findings=[{"code": "saturated"}])
+    rows = [deferred, mixed, open_row]
+    wl.add_worklist(rows)
+    assert deferred["rank_score"] == 0.0 and deferred["priority_rank"] == 3
+    assert mixed["rank_score"] > 0
