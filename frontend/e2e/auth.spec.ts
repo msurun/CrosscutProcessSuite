@@ -110,6 +110,21 @@ test("viewer: the API refuses an approval", async ({ page }) => {
   expect(status).toBe(403);
 });
 
+test("admin resets the password through the reset route and sees the server's answer", async ({ page }) => {
+  await signIn(page, ADMIN_USER, ADMIN_PASSWORD, URL_USERS);
+  await expectSignedIn(page, ADMIN_USER);
+  await page.getByTestId(`reset-pwd-${VIEWER.name}`).click();
+  const dialog = page.getByTestId("reset-password-dialog");
+  await dialog.locator("#reset-pwd-input").fill(VIEWER.password);
+  await dialog.getByTestId("save-reset-pwd-button").click();
+  const outcome = dialog.getByTestId("reset-outcome");
+  const stepUp = page.getByTestId("stepup-dialog");
+  await expect(outcome.or(stepUp)).toBeVisible({ timeout: 30_000 });
+  if (await stepUp.isVisible()) await confirmStepUp(page);
+  // Under the default two-admin rule the reset waits for a second administrator (no PATCH 409 any more).
+  await expect(outcome).toContainText(/czeka na zatwierdzenie|zostało zresetowane/, { timeout: 30_000 });
+});
+
 test("an ended session returns to the login", async ({ page }) => {
   await signIn(page, OPERATOR.name, OPERATOR.password);
   await expectSignedIn(page, OPERATOR.name);

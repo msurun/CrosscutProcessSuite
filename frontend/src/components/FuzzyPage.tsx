@@ -1,5 +1,5 @@
 /**
- * Fuzzy Studio page: pick a system, then work in tabs (Variables, Rules, Replay, Backtest).
+ * Fuzzy Studio page: pick a system, then work in tabs (Variables, Rules, Matrix, Replay, Backtest).
  *
  * The page owns the edited document and the what-if values; the backend recomputes the
  * inference (debounced) so the panels only have to draw the result.
@@ -14,6 +14,7 @@ import { FuzzyTabList, FuzzyTabPanel, type FuzzyTab } from "./FuzzyTabs";
 import { useFuzzyLibrary, useWhatIf, type LibraryState, type WhatIfState } from "./FuzzyState";
 import { SystemBar } from "./FuzzySystemBar";
 import { InferencePanel } from "./InferencePanel";
+import { MatrixPanel } from "./MatrixPanel";
 import { ReplayPanel } from "./ReplayPanel";
 import { RulesEditor } from "./RulesEditor";
 import { VariableEditor } from "./VariableEditor";
@@ -52,6 +53,7 @@ function TabContent({ tab, datasetId, document, library, whatIf, t }: TabContent
   if (tab === "rules") {
     return <RulesEditor document={document} onChange={library.setDocument} firing={whatIf.inference?.firing} t={t} />;
   }
+  if (tab === "matrix") return <MatrixPanel document={document} onChange={library.setDocument} t={t} />;
   if (tab === "replay") return <ReplayTab datasetId={datasetId} document={document} t={t} />;
   return <BacktestPanel key={document.name} datasetId={datasetId} document={document} t={t} />;
 }

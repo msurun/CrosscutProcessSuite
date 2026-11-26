@@ -6,14 +6,14 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, createUser, deleteUser, fetchUsers, patchUser } from "../authApi";
+import { ApiError, createUser, deleteUser, fetchUsers, patchUser, resetUserPassword } from "../authApi";
 import type { UserRecord } from "../authApi";
 import { useAuth, useCan } from "../AuthContext";
 import { UsersPage } from "../UsersPage";
 
 vi.mock("../authApi", async () => {
   const actual = await vi.importActual<typeof import("../authApi")>("../authApi");
-  return { ...actual, fetchUsers: vi.fn(), createUser: vi.fn(), patchUser: vi.fn(), deleteUser: vi.fn() };
+  return { ...actual, fetchUsers: vi.fn(), createUser: vi.fn(), patchUser: vi.fn(), deleteUser: vi.fn(), resetUserPassword: vi.fn() };
 });
 vi.mock("../AuthContext", () => ({ useAuth: vi.fn(), useCan: vi.fn() }));
 
@@ -174,18 +174,42 @@ describe("UsersPage create validation", () => {
 });
 
 describe("UsersPage reset password", () => {
-  it("blocks a short password and keeps the dialog open on server error", async () => {
-    vi.mocked(patchUser).mockRejectedValue(new ApiError(422, "unknown role"));
-    await renderPage();
+  function submitReset(password: string): void {
     fireEvent.click(screen.getByTestId("reset-pwd-alice"));
-    fireEvent.change(screen.getByLabelText("auth.users.password"), { target: { value: "short" } });
+    fireEvent.change(screen.getByLabelText("auth.users.password"), { target: { value: password } });
     fireEvent.click(screen.getByTestId("save-reset-pwd-button"));
+  }
+
+  it("blocks a short password and keeps the dialog open on server error", async () => {
+    vi.mocked(resetUserPassword).mockRejectedValue(new ApiError(422, "password too weak"));
+    await renderPage();
+    submitReset("short");
     expect(screen.getByText('auth.users.passwordTooShort {"min":12}')).toBeInTheDocument();
-    expect(patchUser).not.toHaveBeenCalled();
+    expect(resetUserPassword).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("auth.users.password"), { target: { value: "long-enough-pass1" } });
     fireEvent.click(screen.getByTestId("save-reset-pwd-button"));
-    await waitFor(() => expect(within(screen.getByRole("dialog")).getByTestId("modal-error")).toHaveTextContent("unknown role"));
-    expect(patchUser).toHaveBeenCalledWith("alice", { password: "long-enough-pass1", must_change_password: true });
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByTestId("modal-error")).toHaveTextContent("password too weak"));
+    expect(resetUserPassword).toHaveBeenCalledWith("alice", "long-enough-pass1");
+    expect(patchUser).not.toHaveBeenCalled();
+  });
+
+  it("shows the pending second approval returned by the server (202)", async () => {
+    const pending = { id: "p1", kind: "password_reset", target: "alice", requested_by: "admin", created: 1 };
+    vi.mocked(resetUserPassword).mockResolvedValue({ status: "pending", pending });
+    await renderPage();
+    submitReset("long-enough-pass1");
+    const outcome = await screen.findByTestId("reset-outcome");
+    expect(outcome).toHaveTextContent("auth.users.resetPending");
+    fireEvent.click(screen.getByTestId("reset-close-button"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchUsers).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows that the reset was applied when no second admin is required", async () => {
+    vi.mocked(resetUserPassword).mockResolvedValue({ status: "applied", user: makeUser("alice") });
+    await renderPage();
+    submitReset("long-enough-pass1");
+    expect(await screen.findByTestId("reset-outcome")).toHaveTextContent("auth.users.resetApplied");
   });
 });
 

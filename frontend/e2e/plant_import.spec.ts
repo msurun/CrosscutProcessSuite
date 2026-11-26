@@ -67,7 +67,8 @@ async function runPreview(page: Page): Promise<void> {
 test("preview, loops, test window, import and open the LIC-20103 loop", async ({ page }, info) => {
   const errors: string[] = [];
   page.on("response", (r) => {
-    if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`);
+    // 404 of the read-only import settings (no site file in the data root) is expected.
+    if (r.status() >= 400 && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`);
   });
   await chooseFiles(page);
   await runPreview(page);

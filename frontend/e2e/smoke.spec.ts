@@ -27,7 +27,7 @@ const VIEWS: View[] = [
   { name: "valve-test", hash: `#/d/${STICTION}/loops/${LOOP}/valve`, heading: /Test skokowy zaworu/ },
   { name: "benefit", hash: `#/d/${STICTION}/loops/${LOOP}/benefit`, heading: /Raport korzyści/ },
   { name: "fuzzy-variables", hash: `#/d/${STICTION}/fuzzy`, heading: /Fuzzy Studio/ },
-  ...["Reguły", "Odtworzenie", "Test wsteczny"].map((tab): View => ({
+  ...["Reguły", "Macierz", "Odtworzenie", "Test wsteczny"].map((tab): View => ({
     name: `fuzzy-${tab.replace(/\s/g, "-")}`, hash: `#/d/${STICTION}/fuzzy`, heading: /Fuzzy Studio/,
     prepare: async (page) => { await page.getByRole("tab", { name: tab }).click(); },
   })),

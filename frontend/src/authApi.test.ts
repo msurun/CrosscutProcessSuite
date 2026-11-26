@@ -17,6 +17,7 @@ import {
   login,
   logout,
   patchUser,
+  resetUserPassword,
   setCsrfToken,
   setStepUpHandler,
   stepUp,
@@ -251,6 +252,29 @@ describe("authApi", () => {
       expect(req.init.method).toBe("POST");
       expect(req.parsedBody).toEqual(payload);
       expect(req.headers["x-crosscut-csrf"]).toBe(TEST_CSRF_TOKEN);
+    });
+
+    it("resetUserPassword POSTs to the password-reset route and returns the applied user", async () => {
+      setCsrfToken(TEST_CSRF_TOKEN);
+      const user = { username: "a/b", display_name: "A", roles: ["viewer"], disabled: false, must_change_password: true };
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(createJsonResponse(user));
+
+      const res = await resetUserPassword("a/b", "long-enough-pass1");
+
+      expect(res).toEqual({ status: "applied", user });
+      const req = getCapturedRequest(fetchSpy);
+      expect(req.url).toBe("/api/auth/users/a%2Fb/password-reset");
+      expect(req.init.method).toBe("POST");
+      expect(req.parsedBody).toEqual({ password: "long-enough-pass1" });
+      expect(req.headers["x-crosscut-csrf"]).toBe(TEST_CSRF_TOKEN);
+    });
+
+    it("resetUserPassword reports the pending second approval on 202", async () => {
+      setCsrfToken(TEST_CSRF_TOKEN);
+      const pending = { id: "p1", kind: "password_reset", target: "alice", requested_by: "admin", created: 1 };
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(createJsonResponse(pending, 202));
+
+      expect(await resetUserPassword("alice", "long-enough-pass1")).toEqual({ status: "pending", pending });
     });
 
     it("patchUser sends PATCH with CSRF to the encoded username path", async () => {
