@@ -2269,5 +2269,7 @@
   "stepPlan.status.reject_failed_check_gateway": "reject failed, check the gateway",
   "stepPlan.status.running": "running",
   "stepPlan.status.completed": "completed",
-  "stepPlan.status.aborted": "aborted"
+  "stepPlan.status.aborted": "aborted",
+  "access.denied.title": "No access",
+  "access.denied.body": "You do not have permission to open {view}. Ask an engineer or administrator if you need it."
 }

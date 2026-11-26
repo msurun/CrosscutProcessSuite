@@ -2280,5 +2280,7 @@
   "stepPlan.status.reject_failed_check_gateway": "falló el descarte, revise la pasarela",
   "stepPlan.status.running": "en curso",
   "stepPlan.status.completed": "completado",
-  "stepPlan.status.aborted": "abortado"
+  "stepPlan.status.aborted": "abortado",
+  "access.denied.title": "Sin acceso",
+  "access.denied.body": "No tienes permiso para abrir {view}. Pídelo a un ingeniero o administrador si lo necesitas."
 }

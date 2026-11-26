@@ -2280,5 +2280,7 @@
   "stepPlan.status.reject_failed_check_gateway": "odrzucenie nie powiodło się, sprawdź bramę",
   "stepPlan.status.running": "trwa",
   "stepPlan.status.completed": "zakończony",
-  "stepPlan.status.aborted": "przerwany"
+  "stepPlan.status.aborted": "przerwany",
+  "access.denied.title": "Brak dostępu",
+  "access.denied.body": "Nie masz uprawnień do widoku {view}. Poproś inżyniera lub administratora, jeśli go potrzebujesz."
 }

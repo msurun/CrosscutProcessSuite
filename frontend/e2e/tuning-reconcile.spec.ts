@@ -26,7 +26,7 @@ const INTENT = {
 const SESSION = {
   user: { username: "bob", display_name: "Bob" },
   roles: ["operator"],
-  permissions: ["gw.approve.tuning"],
+  permissions: ["gw.view", "gw.approve.tuning"],
   csrf: "csrf-token",
   must_change_password: false,
   stepup_valid: false,
