@@ -11,6 +11,7 @@ import type { Translate } from "../findings";
 import { withLoop, withQueryParams, withView, type Route } from "../route";
 import { openLoopChart } from "../loopTrendChart";
 import { LiveLoops, useLiveLoops } from "./LiveLoops";
+import { LoopTemplateEditor } from "./LoopTemplateEditor";
 import { BenefitPage } from "./BenefitPage";
 import { LoopDetail } from "./LoopDetail";
 import { LoopsOverview } from "./LoopsOverview";
@@ -222,16 +223,21 @@ function LoopView(props: LoopViewProps) {
   );
 }
 
-/** Which loops view is shown: the runtime's live loops or the loops of the open dataset. */
-type LoopsMode = "live" | "dataset";
+/** Which loops view is shown: live loops, the loops of the open dataset, or the loop templates (#147). */
+type LoopsMode = "live" | "dataset" | "templates";
 
-/** The two-button switch "Live | Dataset" above the loops view. */
+/** Label of one switch button; the templates button reuses the editor's own label. */
+function modeLabel(mode: LoopsMode, t: Translate): string {
+  return mode === "templates" ? t("loopTemplates.openEditor") : t(`liveLoops.mode.${mode}`);
+}
+
+/** The switch "Live | Dataset | Templates" above the loops view. */
 function ModeToggle({ mode, onChange, t }: { mode: LoopsMode; onChange: (mode: LoopsMode) => void; t: Translate }) {
   return (
     <div className="filter-chips" role="group" aria-label={t("liveLoops.mode")}>
-      {(["live", "dataset"] as const).map((one) => (
+      {(["live", "dataset", "templates"] as const).map((one) => (
         <button key={one} type="button" className="filter-chip" aria-pressed={mode === one} onClick={() => onChange(one)}>
-          {t(`liveLoops.mode.${one}`)}
+          {modeLabel(one, t)}
         </button>
       ))}
     </div>
@@ -252,7 +258,9 @@ export function LoopsPage(props: LoopsPageProps) {
   return (
     <>
       <ModeToggle mode={mode} onChange={setPicked} t={props.t} />
-      {mode === "live" ? <LiveLoops loops={live.loops ?? []} t={props.t} /> : <DatasetLoopsPage {...props} />}
+      {mode === "live" && <LiveLoops loops={live.loops ?? []} t={props.t} />}
+      {mode === "dataset" && <DatasetLoopsPage {...props} />}
+      {mode === "templates" && <LoopTemplateEditor t={props.t} />}
     </>
   );
 }

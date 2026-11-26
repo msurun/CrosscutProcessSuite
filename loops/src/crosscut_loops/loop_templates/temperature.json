@@ -1,0 +1,30 @@
+{
+  "key": "temperature",
+  "label": "Temperature",
+  "description": "Temperature control with long lags, often the outer loop of a cascade. Tune robust and slow; derivative action only where the measurement noise allows it.",
+  "process_kind": "self_regulating",
+  "dynamics": {
+    "gain_min": 0.1,
+    "gain_max": 3.0,
+    "time_constant_s_min": 120.0,
+    "time_constant_s_max": 3600.0,
+    "dead_time_s_min": 10.0,
+    "dead_time_s_max": 300.0
+  },
+  "kpi_thresholds": {
+    "service_factor_min": 0.9,
+    "saturation_share_max": 0.05,
+    "oscillation_index_max": 0.3,
+    "noise_ratio_max": 0.2
+  },
+  "diagnosis_rules": ["instrument", "valve", "external", "design_or_mode", "tuning"],
+  "tuning": {
+    "rule": "simc",
+    "target_closed_loop_time_constant_ratio": 2.0,
+    "robustness": 0.6
+  },
+  "tests": {
+    "allowed": ["step", "stroke"],
+    "default_step_pct": 5.0
+  }
+}

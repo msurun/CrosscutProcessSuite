@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { createUser, deleteUser, fetchUsers, patchUser, type UserRecord } from "./authApi";
+import { createUser, deleteUser, fetchUsers, patchUser, resetUserPassword, type UserRecord } from "./authApi";
 import { useAuth, useCan } from "./AuthContext";
 import { DisabledReason } from "./components/DisabledReason";
 import type { Translate } from "./findings";
@@ -200,7 +200,7 @@ function UsersPageModals({ modal, onClose, mutate, t }: UsersPageModalsProps) {
     return <EditRolesModal user={modal.user} onSave={(u, r) => mutate(() => patchUser(u, { roles: r }))} onClose={onClose} t={t} />;
   }
   if (modal.kind === "reset") {
-    return <ResetPasswordModal user={modal.user} onSave={(u, p) => mutate(() => patchUser(u, { password: p, must_change_password: true }))} onClose={onClose} t={t} />;
+    return <ResetPasswordModal user={modal.user} onSave={(u, p) => resetUserPassword(u, p)} onDone={() => void mutate(async () => undefined)} onClose={onClose} t={t} />;
   }
   return <DeleteConfirmModal username={modal.username} onConfirm={(u) => mutate(() => deleteUser(u))} onClose={onClose} t={t} />;
 }
