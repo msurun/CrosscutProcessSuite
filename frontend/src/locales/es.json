@@ -2326,5 +2326,21 @@
   "backup.action.keep_evidence": "Conservar el registro de auditoría actual",
   "backup.reenter.title": "Introduzca de nuevo estos secretos",
   "backup.reenter.source": "Fuente {source}: contraseña o token de la referencia {ref}",
-  "backup.reenter.gatewayKey": "Archivo de clave de la pasarela (_secrets/gateway-hmac.key): cópielo a mano y, si hace falta, vuelva a fijar la política"
+  "backup.reenter.gatewayKey": "Archivo de clave de la pasarela (_secrets/gateway-hmac.key): cópielo a mano y, si hace falta, vuelva a fijar la política",
+  "statusBar.title": "Estado del sistema",
+  "statusBar.loading": "Cargando",
+  "statusBar.unavailable": "No disponible",
+  "statusBar.mode": "Modo de la pasarela",
+  "statusBar.kill": "Parada de emergencia",
+  "statusBar.queue": "Cola de aprobación",
+  "statusBar.runtime": "Ejecución",
+  "statusBar.alarms": "Alarmas",
+  "statusBar.mode.unknown": "Desconocido",
+  "statusBar.kill.active": "Activada",
+  "statusBar.kill.clear": "Inactiva",
+  "statusBar.queue.count": "{count} en espera",
+  "statusBar.queue.open": "Abrir la cola de aprobación",
+  "statusBar.runtime.running": "En marcha",
+  "statusBar.runtime.stopped": "Detenida",
+  "statusBar.alarms.count": "{count} activas"
 }

@@ -2315,5 +2315,21 @@
   "backup.action.keep_evidence": "Keep current audit log",
   "backup.reenter.title": "Enter these secrets again",
   "backup.reenter.source": "Source {source}: password or token for the reference {ref}",
-  "backup.reenter.gatewayKey": "Gateway key file (_secrets/gateway-hmac.key): copy it by hand, then pin the policy again if needed"
+  "backup.reenter.gatewayKey": "Gateway key file (_secrets/gateway-hmac.key): copy it by hand, then pin the policy again if needed",
+  "statusBar.title": "System status",
+  "statusBar.loading": "Loading",
+  "statusBar.unavailable": "Unavailable",
+  "statusBar.mode": "Gateway mode",
+  "statusBar.kill": "Kill switch",
+  "statusBar.queue": "Approval queue",
+  "statusBar.runtime": "Runtime",
+  "statusBar.alarms": "Alarms",
+  "statusBar.mode.unknown": "Unknown",
+  "statusBar.kill.active": "Killed",
+  "statusBar.kill.clear": "Clear",
+  "statusBar.queue.count": "{count} waiting",
+  "statusBar.queue.open": "Open the approval queue",
+  "statusBar.runtime.running": "Running",
+  "statusBar.runtime.stopped": "Stopped",
+  "statusBar.alarms.count": "{count} active"
 }

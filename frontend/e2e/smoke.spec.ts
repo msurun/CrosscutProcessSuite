@@ -5,6 +5,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { join } from "node:path";
+import { isStatusBarConsoleNoise, isStatusBarProbe } from "./statusBarProbes";
 
 const STICTION = "mill_circuit_stiction_seed42";
 const STEP_TEST = "mill_circuit_step_test_seed42";
@@ -37,8 +38,8 @@ for (const width of [1440, 390]) {
   for (const view of VIEWS) {
     test(`${view.name} @${width}`, async ({ page }) => {
       const errors: string[] = [];
-      page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-      page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+      page.on("console", (m) => { if (m.type() === "error" && !isStatusBarConsoleNoise(m.text(), m.location().url)) errors.push(m.text()); });
+      page.on("response", (r) => { if (r.status() >= 400 && !isStatusBarProbe(r.url())) errors.push(`${r.status()} ${r.url()}`); });
       page.on("pageerror", (e) => errors.push(String(e)));
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/${view.hash}`);

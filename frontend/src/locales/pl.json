@@ -2326,5 +2326,21 @@
   "backup.action.keep_evidence": "Zachowaj bieżący dziennik audytu",
   "backup.reenter.title": "Wpisz ponownie te sekrety",
   "backup.reenter.source": "Źródło {source}: hasło lub token dla odwołania {ref}",
-  "backup.reenter.gatewayKey": "Plik klucza bramki (_secrets/gateway-hmac.key): skopiuj go ręcznie, a w razie potrzeby zatwierdź politykę ponownie"
+  "backup.reenter.gatewayKey": "Plik klucza bramki (_secrets/gateway-hmac.key): skopiuj go ręcznie, a w razie potrzeby zatwierdź politykę ponownie",
+  "statusBar.title": "Stan systemu",
+  "statusBar.loading": "Ładowanie",
+  "statusBar.unavailable": "Niedostępne",
+  "statusBar.mode": "Tryb bramki",
+  "statusBar.kill": "Wyłącznik awaryjny",
+  "statusBar.queue": "Kolejka zatwierdzeń",
+  "statusBar.runtime": "Środowisko uruchomieniowe",
+  "statusBar.alarms": "Alarmy",
+  "statusBar.mode.unknown": "Nieznany",
+  "statusBar.kill.active": "Wyłączono",
+  "statusBar.kill.clear": "Nieaktywny",
+  "statusBar.queue.count": "oczekuje: {count}",
+  "statusBar.queue.open": "Otwórz kolejkę zatwierdzeń",
+  "statusBar.runtime.running": "Działa",
+  "statusBar.runtime.stopped": "Zatrzymane",
+  "statusBar.alarms.count": "aktywne: {count}"
 }

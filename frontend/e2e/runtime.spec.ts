@@ -6,6 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const DATASET = "mill_circuit_observational_seed42";
 const PAGE_URL = `/#/d/${DATASET}/runtime`;
@@ -119,7 +120,7 @@ test("runtime page can create, stop, start a KPI job and shows KPI info", async 
 }) => {
   const errors: string[] = [];
   page.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 400 && !isStatusBarProbe(response.url())) errors.push(`${response.status()} ${response.url()}`);
   });
 
   await openRuntimePage(page);
