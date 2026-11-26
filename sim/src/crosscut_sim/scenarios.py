@@ -20,7 +20,7 @@ from typing import Any
 
 import numpy as np
 
-from .core import Event, Scenario
+from .core import MAN, Event, Scenario
 from .plants.mill_circuit import DEFAULT_KC
 from .plants.mill_circuit import NOMINAL as MILL_NOMINAL
 from .plants.wood_berry import NOMINAL
@@ -138,6 +138,7 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
     * ``"noisy_feed"`` — a slowly wandering (Ornstein-Uhlenbeck) feed disturbance.
     * ``"feed_step"`` — one step change of the feed rate, for disturbance rejection.
     * ``"excited"`` — random binary setpoint moves on both compositions, for identification.
+    * ``"identification"`` — open-loop MV and DV steps, for MIMO identification.
 
     ``duration_s`` is the simulated time span in seconds. Every scenario uses the
     same sampling period ``dt`` (seconds) so they can be compared directly.
@@ -157,6 +158,8 @@ def _build_wood_berry_scenario(scenario_name: str, duration_s: float) -> Scenari
         return _build_wood_berry_feed_step(duration_s, dt)
     if scenario_name == "excited":
         return _build_wood_berry_excited(duration_s, dt)
+    if scenario_name == "identification":
+        return _build_wood_berry_identification(duration_s, dt)
     raise ValueError(f"unknown scenario for wood_berry: {scenario_name!r}")
 
 
@@ -314,6 +317,59 @@ def _build_wood_berry_excitation_events(duration_s: float) -> tuple[Event, ...]:
     # Merge the two event tuples and sort by simulation time so the simulator
     # can consume them in chronological order.
     return tuple(sorted(top_events + bot_events, key=lambda event: event.t_s))
+
+
+# Identification scenario timing and step size. Both loops go to MAN at 300 s, then each
+# input is stepped in turn. A 90 min hold is about 4.3 time constants of the slowest
+# channel (G12, tau = 21 min), so each response approaches its new steady state before
+# the next step; 10 min of settling separates consecutive steps.
+IDENTIFICATION_MAN_AT_S = 300.0
+IDENTIFICATION_FIRST_STEP_S = 600.0
+IDENTIFICATION_HOLD_S = 5400.0
+IDENTIFICATION_GAP_S = 600.0
+IDENTIFICATION_STEP_SIZE = 0.1  # lb/min, about 5 % of nominal reflux and steam
+
+
+def _build_wood_berry_identification(duration_s: float, dt: float) -> Scenario:
+    """Return an open-loop MV and DV step scenario for MIMO identification.
+
+    The controllers are switched to MAN so the inputs are exogenous, then reflux,
+    reboiler steam and feed rate are stepped one at a time. The feed is the DV
+    column of the published model. Sensor noise stays on, so the recorded dataset
+    is representative of a real identification test.
+    """
+    return Scenario(
+        name="identification",
+        duration_s=duration_s,
+        dt_s=dt,
+        measurement_noise=1.0,
+        events=_wood_berry_identification_events(),
+    )
+
+
+def _wood_berry_identification_events() -> tuple[Event, ...]:
+    """Return MAN switches and isolated +step/return pairs for reflux, steam and feed.
+
+    Only one input moves at a time, so each output response can be attributed to
+    that input: the per-pair step-response fit of stage 7.1 needs this. The step
+    returns to the nominal after the hold, leaving the plant at its operating
+    point before the next input moves.
+    """
+    events = [
+        Event(IDENTIFICATION_MAN_AT_S, "sim.wb.top_comp_mode", float(MAN)),
+        Event(IDENTIFICATION_MAN_AT_S, "sim.wb.bottom_comp_mode", float(MAN)),
+    ]
+    step_inputs = (
+        ("sim.wb.reflux", NOMINAL["reflux"]),
+        ("sim.wb.steam", NOMINAL["steam"]),
+        ("sim.wb.feed_rate", NOMINAL["feed_rate"]),
+    )
+    start_s = IDENTIFICATION_FIRST_STEP_S
+    for tag_id, nominal_value in step_inputs:
+        events.append(Event(start_s, tag_id, nominal_value + IDENTIFICATION_STEP_SIZE))
+        events.append(Event(start_s + IDENTIFICATION_HOLD_S, tag_id, nominal_value))
+        start_s += IDENTIFICATION_HOLD_S + IDENTIFICATION_GAP_S
+    return tuple(sorted(events, key=lambda event: event.t_s))
 
 
 def _mill_scenario(scenario_name: str, duration_s: float, **overrides: Any) -> Scenario:
@@ -498,7 +554,7 @@ def available_scenarios(plant_name: str) -> tuple[str, ...]:
     if plant_name not in _PLANT_BUILDERS:
         raise ValueError(f"unknown plant: {plant_name!r}")
     if plant_name == "wood_berry":
-        return ("nominal", "noisy_feed", "feed_step", "excited")
+        return ("nominal", "noisy_feed", "feed_step", "excited", "identification")
     if plant_name == "mill_circuit":
         return (
             "nominal", "observational", "excited", "quiet",

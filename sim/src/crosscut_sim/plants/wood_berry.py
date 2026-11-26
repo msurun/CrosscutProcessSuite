@@ -23,6 +23,33 @@ NOMINAL: dict[str, float] = {
     "feed_rate": 2.45,
 }
 
+# The published Wood-Berry model (Wood & Berry, 1973) in deviation variables, time in minutes:
+#
+#   [top_comp]    [12.8 e^-1.0s/(16.7s+1)  -18.9 e^-3.0s/(21.0s+1)] [reflux]
+#   [bottom_comp] = [ 6.6 e^-7.0s/(10.9s+1) -19.4 e^-3.0s/(14.4s+1)] [steam]
+#
+# plus the feed-rate disturbance (DV) column:
+#   top_comp:    3.8 e^-8.1s/(14.9s+1)
+#   bottom_comp: 4.9 e^-3.4s/(13.2s+1)
+# Gains are wt% per lb/min; time constants and dead times are minutes.
+MV_NAMES: tuple[str, str] = ("reflux", "steam")
+CV_NAMES: tuple[str, str] = ("top_comp", "bottom_comp")
+GAIN_MATRIX: tuple[tuple[float, float], tuple[float, float]] = (
+    (12.8, -18.9),
+    (6.6, -19.4),
+)
+TIME_CONSTANT_MATRIX_MIN: tuple[tuple[float, float], tuple[float, float]] = (
+    (16.7, 21.0),
+    (10.9, 14.4),
+)
+DEAD_TIME_MATRIX_MIN: tuple[tuple[float, float], tuple[float, float]] = (
+    (1.0, 3.0),
+    (7.0, 3.0),
+)
+DISTURBANCE_GAINS: tuple[float, float] = (3.8, 4.9)
+DISTURBANCE_TIME_CONSTANTS_MIN: tuple[float, float] = (14.9, 13.2)
+DISTURBANCE_DEAD_TIMES_MIN: tuple[float, float] = (8.1, 3.4)
+
 TOP = "sim.wb.top_comp"
 TOP_SP = "sim.wb.top_comp_sp"
 TOP_RSP = "sim.wb.top_comp_rsp"
@@ -47,6 +74,18 @@ BOT_PID_TI_S = 23.6 * 60.0
 
 TOP_NOISE_STD = 0.03
 BOT_NOISE_STD = 0.01
+
+
+def _channel_model(gain: float, tau_min: float, delay_min: float, dt_s: float) -> Fopdt:
+    """Return the exact zero-order-hold model of one FOPDT channel.
+
+    The published coefficients use minutes, while the simulator steps in seconds,
+    so both times are converted. ``Fopdt`` implements the exact ZOH recurrence
+    ``y[k] = a*y[k-1] + K*(1-a)*u[k-n]`` with ``a = exp(-dt/tau)`` and
+    ``n = round(theta/dt)``, so a step response matches the analytic curve at
+    every sample.
+    """
+    return Fopdt(gain=gain, tau_s=tau_min * 60.0, delay_s=delay_min * 60.0, dt_s=dt_s)
 
 
 def _build_tag_catalog() -> TagCatalog:
@@ -399,14 +438,55 @@ class WoodBerryPlant:
         )
 
     def _init_process_models(self, dt_s: float) -> None:
-        """Build the six Wood-Berry transfer functions (gain, tau, dead time given in minutes)."""
-        self._g11 = Fopdt(gain=12.8, tau_s=16.7 * 60.0, delay_s=1.0 * 60.0, dt_s=dt_s)
-        self._g12 = Fopdt(gain=-18.9, tau_s=21.0 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
-        self._gd1 = Fopdt(gain=3.8, tau_s=14.9 * 60.0, delay_s=8.1 * 60.0, dt_s=dt_s)
+        """Build the six transfer functions from the published matrix (times in minutes)."""
+        self._g11 = self._mv_channel(0, 0, dt_s)
+        self._g12 = self._mv_channel(0, 1, dt_s)
+        self._gd1 = self._dv_channel(0, dt_s)
 
-        self._g21 = Fopdt(gain=6.6, tau_s=10.9 * 60.0, delay_s=7.0 * 60.0, dt_s=dt_s)
-        self._g22 = Fopdt(gain=-19.4, tau_s=14.4 * 60.0, delay_s=3.0 * 60.0, dt_s=dt_s)
-        self._gd2 = Fopdt(gain=4.9, tau_s=13.2 * 60.0, delay_s=3.4 * 60.0, dt_s=dt_s)
+        self._g21 = self._mv_channel(1, 0, dt_s)
+        self._g22 = self._mv_channel(1, 1, dt_s)
+        self._gd2 = self._dv_channel(1, dt_s)
+
+    def _mv_channel(self, output_index: int, input_index: int, dt_s: float) -> Fopdt:
+        """Return one manipulated-variable channel of the 2x2 matrix.
+
+        ``output_index`` selects the CV row (0 = top, 1 = bottom) and
+        ``input_index`` the MV column (0 = reflux, 1 = steam).
+        """
+        return _channel_model(
+            GAIN_MATRIX[output_index][input_index],
+            TIME_CONSTANT_MATRIX_MIN[output_index][input_index],
+            DEAD_TIME_MATRIX_MIN[output_index][input_index],
+            dt_s,
+        )
+
+    def _dv_channel(self, output_index: int, dt_s: float) -> Fopdt:
+        """Return the feed-rate disturbance channel for one CV row."""
+        return _channel_model(
+            DISTURBANCE_GAINS[output_index],
+            DISTURBANCE_TIME_CONSTANTS_MIN[output_index],
+            DISTURBANCE_DEAD_TIMES_MIN[output_index],
+            dt_s,
+        )
+
+    def model_coefficients(self) -> dict[str, object]:
+        """Return the published coefficients this plant simulates.
+
+        This is the reference model for the MPC test bed, not a tag: gains are
+        wt% per lb/min, time constants and dead times are minutes. The MV matrix
+        rows follow ``CV_NAMES`` and columns follow ``MV_NAMES``. The name avoids
+        ``ground_truth``, which the dataset recorder reserves for injected faults.
+        """
+        return {
+            "mv_names": MV_NAMES,
+            "cv_names": CV_NAMES,
+            "gain_matrix": GAIN_MATRIX,
+            "time_constant_matrix_min": TIME_CONSTANT_MATRIX_MIN,
+            "dead_time_matrix_min": DEAD_TIME_MATRIX_MIN,
+            "disturbance_gains": DISTURBANCE_GAINS,
+            "disturbance_time_constants_min": DISTURBANCE_TIME_CONSTANTS_MIN,
+            "disturbance_dead_times_min": DISTURBANCE_DEAD_TIMES_MIN,
+        }
 
     def _init_nominal_signals(self) -> None:
         """Put both loops in auto with setpoints, outputs and measurements at the nominal."""
