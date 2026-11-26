@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import stat
 import zipfile
 from pathlib import Path
 
@@ -240,3 +242,86 @@ def test_failure_during_swap_rolls_back(root: Path, monkeypatch: pytest.MonkeyPa
             restore_backup(root, data, "2026-11-26T12:00:00Z")
     assert json.loads((root / "_fuzzy/f1.json").read_text()) == {"id": "changed"}
     assert json.loads((root / "_softsensor/s1.json").read_text()) == {"id": "changed"}
+
+
+def _bomb(root: Path) -> bytes:
+    """A backup with one 5 MiB all-zero member: tiny when compressed, a high ratio."""
+    data = build_backup(root, NOW)
+    out = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(data)) as source,
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as target,
+    ):
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+        target.writestr("_fuzzy/big.json", b"0" * (5 * 1024 * 1024))
+    return out.getvalue()
+
+
+def test_high_ratio_member_is_refused_before_reading(root: Path) -> None:
+    """A small deflate member that inflates 1000-fold is refused with a ratio reason."""
+    data = _bomb(root)
+    assert len(data) < 100_000
+    report, contents = inspect_backup(root, data)
+    assert not report.ok
+    assert "compression ratio" in report.problems[0]
+    assert contents == {}
+
+
+def test_total_unpacked_size_cap(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The sum of the declared sizes is capped."""
+    monkeypatch.setattr(backup, "MAX_UNPACKED_BYTES", 10)
+    report, _ = inspect_backup(root, build_backup(root, NOW))
+    assert not report.ok
+    assert "unpacked size" in report.problems[0]
+
+
+def test_path_guard_refuses_a_target_outside_the_base(tmp_path: Path) -> None:
+    """The write and swap guard refuses a name that resolves outside its folder."""
+    with pytest.raises(BackupError, match="leaves the target folder"):
+        backup._write_all(tmp_path / "stage", {"../escape.json": b"{}"})
+    assert not (tmp_path / "escape.json").exists()
+    with pytest.raises(BackupError):
+        backup._inside(tmp_path, "_site/../../x")
+
+
+def _fail_first_swap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """First swap fails, later swaps do nothing (a rollback that applies nothing)."""
+    calls: list[int] = []
+
+    def swap(root: Path, *_args: object) -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            (root / "_fuzzy" / "f1.json").write_text("half restored", encoding="utf-8")
+            raise OSError("disk full")
+
+    monkeypatch.setattr(backup, "_swap", swap)
+
+
+def test_rollback_that_applies_nothing_raises(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rollback that leaves files different from the safety copy is reported, not silent."""
+    data = build_backup(root, NOW)
+    _write(root, "_fuzzy/f1.json", '{"id": "changed"}')
+    _fail_first_swap(monkeypatch)
+    with pytest.raises(backup.RollbackError, match="different"):
+        restore_backup(root, data, "2026-11-26T12:00:00Z")
+
+
+def test_rollback_with_a_broken_safety_copy_raises(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A safety copy that fails inspection stops the rollback with a specific error."""
+    data = build_backup(root, NOW)
+    monkeypatch.setattr(backup, "build_backup", lambda *_a: b"junk")
+    _fail_first_swap(monkeypatch)
+    with pytest.raises(backup.RollbackError, match="failed inspection"):
+        restore_backup(root, data, "2026-11-26T12:00:00Z")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="file modes exist on POSIX only")
+def test_restored_auth_files_are_owner_only(root: Path) -> None:
+    """users.json and roles.json come back with mode 0600."""
+    data = build_backup(root, NOW)
+    (root / "_auth" / "users.json").unlink()
+    restore_backup(root, data, "2026-11-26T12:00:00Z")
+    assert stat.S_IMODE((root / "_auth" / "users.json").stat().st_mode) == 0o600

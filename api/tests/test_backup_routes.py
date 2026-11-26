@@ -159,3 +159,36 @@ def test_newer_backup_is_refused_by_inspect(world: tuple[FastAPI, Path]) -> None
     report = client.post("/admin/backup/inspect", content=out.getvalue(), headers=headers).json()
     assert not report["ok"]
     assert "newer" in report["problems"][0]
+
+
+def test_inspect_needs_step_up_and_is_audited(world: tuple[FastAPI, Path]) -> None:
+    """The dry run needs a fresh step-up and leaves a backup_inspected audit line."""
+    app, root = world
+    client, headers = as_user(app, "admin1", step_up=False)
+    assert client.post("/admin/backup/inspect", content=b"x", headers=headers).status_code == 428
+    client, headers = as_user(app, "admin1")
+    report = client.post("/admin/backup/inspect", content=b"x", headers=headers).json()
+    assert not report["ok"]
+    assert "backup_inspected" in _audit_events(root)
+
+
+def test_failed_rollback_is_audited_and_500(
+    world: tuple[FastAPI, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A RollbackError answers 500 rollback_failed and writes backup_rollback_failed."""
+    import crosscut_api.backup_routes as routes
+    from crosscut_api.backup import RollbackError
+
+    app, root = world
+    client, headers = as_user(app, "admin1")
+    data = _download(client)
+
+    def broken(*_args: object) -> None:
+        raise RollbackError("nothing applied")
+
+    monkeypatch.setattr(routes, "restore_backup", broken)
+    sha = routes.sha256_hex(data)
+    response = client.post(f"/admin/backup/restore?confirm={sha}", content=data, headers=headers)
+    assert response.status_code == 500
+    assert response.json()["detail"] == "rollback_failed"
+    assert "backup_rollback_failed" in _audit_events(root)

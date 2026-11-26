@@ -23,9 +23,11 @@ from crosscut_api.backup import (
     MAX_ARCHIVE_BYTES,
     BackupError,
     Report,
+    RollbackError,
     build_backup,
     inspect_backup,
     restore_backup,
+    restrict_permissions,
     sha256_hex,
 )
 
@@ -74,7 +76,11 @@ class _Endpoints:
     ) -> Doc:
         """Dry run of an uploaded archive: validation and the list of changes."""
         actor.require(PERMISSION)
+        actor.require_stepup()
         report, _ = inspect_backup(self.root, await _body(request))
+        self._audit(
+            "backup_inspected", actor, archive_sha256=report.archive_sha256, ok=str(report.ok)
+        )
         return report.as_dict()
 
     async def restore(
@@ -91,6 +97,9 @@ class _Endpoints:
             report = restore_backup(self.root, data, now, lambda r: self._audit_restore(actor, r))
         except BackupError as error:
             raise HTTPException(status_code=422, detail=error.problems) from error
+        except RollbackError as error:
+            self._audit_best_effort("backup_rollback_failed", actor, archive_sha256=confirm)
+            raise HTTPException(status_code=500, detail="rollback_failed") from error
         except OSError as error:
             self._audit_best_effort("backup_restore_failed", actor, archive_sha256=confirm)
             raise HTTPException(status_code=500, detail="restore_failed_rolled_back") from error
@@ -112,9 +121,11 @@ class _Endpoints:
 
     def _audit(self, event: str, actor: ActorContext, **fields: str) -> None:
         """Append to the API auth audit; no audit line, no change (503)."""
-        audit = AuthAudit(auth_dir(self.root) / AUDIT_FILE, self._clock)
+        audit_path = auth_dir(self.root) / AUDIT_FILE
+        audit = AuthAudit(audit_path, self._clock)
         try:
             audit.append(event, actor=actor.actor, source_ip=actor.source_ip, **fields)
+            restrict_permissions(audit_path)
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=503, detail="audit_unavailable") from error
 

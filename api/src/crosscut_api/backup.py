@@ -34,7 +34,11 @@ FORMAT_VERSION = 1
 MANIFEST = "manifest.json"
 BACKUP_DIR = "_backup"
 KEEP_SAFETY_COPIES = 5
-MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 256 * 1024 * 1024  # compressed size of the upload
+MAX_UNPACKED_BYTES = 512 * 1024 * 1024  # sum of the declared sizes of all members
+MAX_RATIO = 200  # declared size / compressed size of one member (zip bomb guard)
+RATIO_CHECK_FROM = 1024 * 1024  # smaller members cannot hurt, so the ratio is not checked
+PRIVATE_FOLDER = "_auth"  # users, roles and settings: owner-only files where the OS supports it
 # Versioned files: path or prefix -> (schema file, version key).
 SCHEMA_VERSIONED = (
     ("_site/site.json", "site.schema.json", "schema_version"),
@@ -44,6 +48,10 @@ SCHEMA_VERSIONED = (
 GATEWAY_KEY_NOTE = (
     "_secrets/gateway-hmac.key (or CROSSCUT_SECRETS_DIR): copy it by hand, see the runbook"
 )
+
+
+class RollbackError(Exception):
+    """The safety copy could not be put back; the data root may be half restored."""
 
 
 class BackupError(Exception):
@@ -254,6 +262,20 @@ def _plan(root: Path, contents: dict[str, bytes], kinds: dict[str, str]) -> list
     return changes + [{"path": path, "action": "remove"} for path in gone]
 
 
+def _size_problem(archive: zipfile.ZipFile) -> str | None:
+    """A reason to refuse the archive before any member is read (zip bomb guard), else None."""
+    infos = archive.infolist()
+    if sum(info.file_size for info in infos) > MAX_UNPACKED_BYTES:
+        return f"unpacked size exceeds the limit of {MAX_UNPACKED_BYTES} bytes"
+    for info in infos:
+        ratio = info.file_size / max(info.compress_size, 1)
+        if info.file_size >= RATIO_CHECK_FROM and ratio > MAX_RATIO:
+            return (
+                f"{info.filename}: compression ratio {ratio:.0f} exceeds the limit of {MAX_RATIO}"
+            )
+    return None
+
+
 def inspect_backup(root: Path, data: bytes) -> tuple[Report, dict[str, bytes]]:
     """Dry run: validate the archive and plan the restore. Nothing on disk changes."""
     report = Report(ok=False, archive_sha256=sha256_hex(data))
@@ -261,6 +283,10 @@ def inspect_backup(root: Path, data: bytes) -> tuple[Report, dict[str, bytes]]:
         report.problems.append("the file is not a zip archive or is too large")
         return report, {}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        size_problem = _size_problem(archive)
+        if size_problem:
+            report.problems.append(size_problem)
+            return report, {}
         manifest = _manifest_of(archive, report.problems)
         if manifest is None:
             return report, {}
@@ -276,10 +302,24 @@ def inspect_backup(root: Path, data: bytes) -> tuple[Report, dict[str, bytes]]:
     return report, contents
 
 
+def _inside(base: Path, relative: str) -> Path:
+    """``base / relative`` after resolving links; BackupError when it would leave ``base``."""
+    target = (base / relative).resolve()
+    if not target.is_relative_to(base.resolve()):
+        raise BackupError([f"{relative}: path leaves the target folder"])
+    return target
+
+
+def restrict_permissions(path: Path) -> None:
+    """Owner-only mode (0600) where the OS has modes; silently nothing on Windows (ACLs)."""
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
+
 def _write_all(base: Path, contents: dict[str, bytes]) -> None:
     """Write every file below ``base`` (the staging folder)."""
     for relative, data in contents.items():
-        target = base / relative
+        target = _inside(base, relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
 
@@ -288,10 +328,12 @@ def _swap(root: Path, staging: Path, contents: dict[str, bytes]) -> None:
     """Move staged files into place (atomic replace each); delete live config files not kept."""
     live = scope_files(root)
     for relative in contents:
-        destination = root / relative
+        destination = _inside(root, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             shutil.copymode(destination, staging / relative)
+        if relative.startswith(f"{PRIVATE_FOLDER}/"):
+            restrict_permissions(staging / relative)
         os.replace(staging / relative, destination)
     for relative, kind in live.items():
         if kind == KIND_CONFIG and relative not in contents:
@@ -320,8 +362,22 @@ def _apply(root: Path, files: dict[str, bytes], name: str) -> None:
 
 def _rollback(root: Path, safety: Path, now_utc: str) -> None:
     """Put the pre-restore state back from the safety copy."""
-    _, contents = inspect_backup(root, safety.read_bytes())
-    _apply(root, _config_only(contents), f"rollback-{_stamp(now_utc)}")
+    report, contents = inspect_backup(root, safety.read_bytes())
+    if not report.ok:
+        raise RollbackError(f"safety copy {safety.name} failed inspection: {report.problems}")
+    expected = _config_only(contents)
+    _apply(root, expected, f"rollback-{_stamp(now_utc)}")
+    wrong = [p for p, data in expected.items() if _live_bytes(root, p) != data]
+    if wrong:
+        raise RollbackError(f"rollback left {len(wrong)} file(s) different: {wrong[:3]}")
+
+
+def _live_bytes(root: Path, relative: str) -> bytes | None:
+    """The bytes of a live file, or None when it is missing."""
+    try:
+        return (root / relative).read_bytes()
+    except OSError:
+        return None
 
 
 def restore_backup(
@@ -345,8 +401,11 @@ def restore_backup(
     try:
         _write_all(staging, new_files)
         _swap(root, staging, new_files)
-    except BaseException:
-        _rollback(root, safety, now_utc)
+    except BaseException as error:
+        try:
+            _rollback(root, safety, now_utc)
+        except RollbackError as failed:
+            raise failed from error
         raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
