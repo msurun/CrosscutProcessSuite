@@ -14,8 +14,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from crosscut_api.auth.route_permissions import ROUTE_PERMISSIONS  # type: ignore[import-untyped,unused-ignore]
-from crosscut_api.catalogue_csv_routes import build_catalogue_csv_router  # type: ignore[import-untyped,unused-ignore]
+from crosscut_api.auth.route_permissions import (
+    ROUTE_PERMISSIONS,
+)
+from crosscut_api.catalogue_csv_routes import (
+    build_catalogue_csv_router,
+)
 from crosscut_api.site_routes import build_site_router  # type: ignore[import-untyped,unused-ignore]
 from crosscut_connectors.site import load_site  # type: ignore[import-untyped,unused-ignore]
 from fastapi import FastAPI
