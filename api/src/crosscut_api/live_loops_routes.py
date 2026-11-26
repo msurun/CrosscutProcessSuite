@@ -15,6 +15,11 @@ from crosscut_runtime.kpi_history import finding_codes
 from fastapi import APIRouter, HTTPException, Query
 
 from crosscut_api.equipment_live_routes import read_equipment_events
+from crosscut_api.finding_outcomes import (
+    attach_outcomes,
+    build_finding_outcome_router,
+    read_outcomes,
+)
 from crosscut_api.runtime_routes import (
     SERVICE_FRESHNESS_S,
     _is_fresh,
@@ -121,6 +126,7 @@ class _LiveLoopsEndpoints(_RuntimeEndpoints):
             rows.append(_loop_row(loop, job, states.get(job.get("id"), {})))
         _add_equipment_findings(rows, self._root)
         _add_catalogue_criticality(rows, site)
+        attach_outcomes(rows, read_outcomes(self._root), time.time())
         add_worklist(rows)
         return {"loops": sorted(rows, key=lambda row: row["priority_rank"])}
 
@@ -142,4 +148,5 @@ def build_live_loops_router(root: Path) -> APIRouter:
     router = APIRouter()
     router.add_api_route("/live/loops", endpoints.loops, methods=["GET"])
     router.add_api_route("/live/loops/{loop_id}", endpoints.detail, methods=["GET"])
+    router.include_router(build_finding_outcome_router(root, endpoints.loops))
     return router
