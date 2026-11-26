@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from crosscut_sim.core import Scenario
+from crosscut_sim.core import MAN, Scenario
 from crosscut_sim.plants.wood_berry import NOMINAL, WoodBerryPlant
 from crosscut_sim.scenarios import (
     BinarySignal,
@@ -14,12 +14,20 @@ from crosscut_sim.scenarios import (
 
 TOP_SP = "sim.wb.top_comp_sp"
 BOT_SP = "sim.wb.bottom_comp_sp"
+REFLUX = "sim.wb.reflux"
+STEAM = "sim.wb.steam"
 FEED = "sim.wb.feed_rate"
 DAY = 6 * 3600.0
 
 
 def test_available_scenarios() -> None:
-    assert available_scenarios("wood_berry") == ("nominal", "noisy_feed", "feed_step", "excited")
+    assert available_scenarios("wood_berry") == (
+        "nominal",
+        "noisy_feed",
+        "feed_step",
+        "excited",
+        "identification",
+    )
 
 
 def test_unknown_plant_or_scenario() -> None:
@@ -86,6 +94,36 @@ def test_excited_scenario_runs_and_moves_the_process() -> None:
     top_comp_trace = simulate_top_comp_trace(plant, steps=3600)
     assert max(top_comp_trace) - min(top_comp_trace) > 0.3
     assert max(abs(top_comp - NOMINAL["top_comp"]) for top_comp in top_comp_trace) < 5.0
+
+
+def test_identification_scenario_steps_each_input_open_loop() -> None:
+    """The scenario selects MAN, then steps reflux, steam and feed one at a time."""
+    scenario = build_scenario("wood_berry", "identification", duration_s=DAY)
+    mode_events = [event for event in scenario.events if event.tag_id.endswith("_mode")]
+    assert len(mode_events) == 2
+    assert all(event.value == MAN for event in mode_events)
+
+    flow_events = [event for event in scenario.events if event.tag_id in {REFLUX, STEAM, FEED}]
+    assert [event.tag_id for event in flow_events] == [
+        REFLUX,
+        REFLUX,
+        STEAM,
+        STEAM,
+        FEED,
+        FEED,
+    ]
+    assert [event.value for event in flow_events] == [
+        NOMINAL["reflux"] + 0.1,
+        NOMINAL["reflux"],
+        NOMINAL["steam"] + 0.1,
+        NOMINAL["steam"],
+        NOMINAL["feed_rate"] + 0.1,
+        NOMINAL["feed_rate"],
+    ]
+    assert [event.t_s for event in scenario.events] == sorted(
+        event.t_s for event in scenario.events
+    )
+    assert flow_events[0].t_s == pytest.approx(600.0)
 
 
 def simulate_top_comp_trace(plant: WoodBerryPlant, steps: int) -> list[float]:
