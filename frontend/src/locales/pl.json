@@ -2113,5 +2113,21 @@
   "equipmentAnomaly.trend.0": "Zerowy trend EWMA",
   "equipmentAnomaly.trend.1": "Dodatni trend EWMA",
   "equipmentAnomaly.live.shelved": "Wstrzymane (odłożony alarm)",
-  "equipmentAnomaly.live.unavailable": "Ocena niedostępna: brak danych dobrej jakości"
+  "equipmentAnomaly.live.unavailable": "Ocena niedostępna: brak danych dobrej jakości",
+  "statusBar.title": "Stan systemu",
+  "statusBar.loading": "Ładowanie",
+  "statusBar.unavailable": "Niedostępne",
+  "statusBar.mode": "Tryb bramki",
+  "statusBar.kill": "Wyłącznik awaryjny",
+  "statusBar.queue": "Kolejka zatwierdzeń",
+  "statusBar.runtime": "Środowisko uruchomieniowe",
+  "statusBar.alarms": "Alarmy",
+  "statusBar.mode.unknown": "Nieznany",
+  "statusBar.kill.active": "Wyłączono",
+  "statusBar.kill.clear": "Nieaktywny",
+  "statusBar.queue.count": "oczekuje: {count}",
+  "statusBar.queue.open": "Otwórz kolejkę zatwierdzeń",
+  "statusBar.runtime.running": "Działa",
+  "statusBar.runtime.stopped": "Zatrzymane",
+  "statusBar.alarms.count": "aktywne: {count}"
 }

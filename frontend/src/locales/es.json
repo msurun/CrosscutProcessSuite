@@ -2113,5 +2113,21 @@
   "equipmentAnomaly.trend.0": "Tendencia EWMA nula",
   "equipmentAnomaly.trend.1": "Tendencia EWMA positiva",
   "equipmentAnomaly.live.shelved": "Suspendida (alarma pospuesta)",
-  "equipmentAnomaly.live.unavailable": "Evaluación no disponible: faltan valores de buena calidad"
+  "equipmentAnomaly.live.unavailable": "Evaluación no disponible: faltan valores de buena calidad",
+  "statusBar.title": "Estado del sistema",
+  "statusBar.loading": "Cargando",
+  "statusBar.unavailable": "No disponible",
+  "statusBar.mode": "Modo de la pasarela",
+  "statusBar.kill": "Parada de emergencia",
+  "statusBar.queue": "Cola de aprobación",
+  "statusBar.runtime": "Ejecución",
+  "statusBar.alarms": "Alarmas",
+  "statusBar.mode.unknown": "Desconocido",
+  "statusBar.kill.active": "Activada",
+  "statusBar.kill.clear": "Inactiva",
+  "statusBar.queue.count": "{count} en espera",
+  "statusBar.queue.open": "Abrir la cola de aprobación",
+  "statusBar.runtime.running": "En marcha",
+  "statusBar.runtime.stopped": "Detenida",
+  "statusBar.alarms.count": "{count} activas"
 }

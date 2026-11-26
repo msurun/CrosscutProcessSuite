@@ -2102,5 +2102,21 @@
   "equipmentAnomaly.trend.0": "Zero EWMA trend",
   "equipmentAnomaly.trend.1": "Positive EWMA trend",
   "equipmentAnomaly.live.shelved": "Suppressed (shelved)",
-  "equipmentAnomaly.live.unavailable": "Scoring unavailable: missing good-quality values"
+  "equipmentAnomaly.live.unavailable": "Scoring unavailable: missing good-quality values",
+  "statusBar.title": "System status",
+  "statusBar.loading": "Loading",
+  "statusBar.unavailable": "Unavailable",
+  "statusBar.mode": "Gateway mode",
+  "statusBar.kill": "Kill switch",
+  "statusBar.queue": "Approval queue",
+  "statusBar.runtime": "Runtime",
+  "statusBar.alarms": "Alarms",
+  "statusBar.mode.unknown": "Unknown",
+  "statusBar.kill.active": "Killed",
+  "statusBar.kill.clear": "Clear",
+  "statusBar.queue.count": "{count} waiting",
+  "statusBar.queue.open": "Open the approval queue",
+  "statusBar.runtime.running": "Running",
+  "statusBar.runtime.stopped": "Stopped",
+  "statusBar.alarms.count": "{count} active"
 }
