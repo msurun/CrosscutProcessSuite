@@ -7,7 +7,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { ApiError, MIN_PASSWORD_LENGTH } from "./authApi";
-import type { CreateUserPayload, UserRecord } from "./authApi";
+import type { CreateUserPayload, PasswordResetResult, UserRecord } from "./authApi";
 import { ModalDialog } from "./components/ModalDialog";
 import type { Translate } from "./findings";
 
@@ -212,17 +212,30 @@ export function EditRolesModal({ user, onSave, onClose, t }: EditRolesModalProps
 
 export interface ResetPasswordModalProps {
   user: UserRecord;
-  onSave: (username: string, password: string) => Promise<void>;
+  onSave: (username: string, password: string) => Promise<PasswordResetResult>;
+  /** Called when the modal is closed after a reset, so the page reloads the list. */
+  onDone: () => void;
   onClose: () => void;
   t: Translate;
 }
 
-/** Modal letting an administrator set a new password for another user. */
-export function ResetPasswordModal({ user, onSave, onClose, t }: ResetPasswordModalProps) {
+/** The server's answer to a reset: applied now, or waiting for a second administrator. */
+function ResetOutcome({ result, username, t }: { result: PasswordResetResult; username: string; t: Translate }) {
+  const key = result.status === "pending" ? "auth.users.resetPending" : "auth.users.resetApplied";
+  return <p role="status" data-testid="reset-outcome">{t(key, { username })}</p>;
+}
+
+/** Modal letting an administrator set a new password for another user (POST password-reset). */
+export function ResetPasswordModal({ user, onSave, onDone, onClose, t }: ResetPasswordModalProps) {
   const [password, setPassword] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const { busy, error, run } = useModalAction(() => onSave(user.username, password), onClose);
+  const [result, setResult] = useState<PasswordResetResult | null>(null);
+  const { busy, error, run } = useModalAction(async () => setResult(await onSave(user.username, password)), () => undefined);
   const problem = submitted ? passwordProblem(password, t) : undefined;
+  const close = () => {
+    if (result !== null) onDone();
+    onClose();
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -231,12 +244,21 @@ export function ResetPasswordModal({ user, onSave, onClose, t }: ResetPasswordMo
   };
 
   return (
-    <ModalDialog title={`${t("auth.users.resetPassword")}: ${user.username}`} onClose={onClose} busy={busy} testId="reset-password-dialog">
-      <form onSubmit={handleSubmit} noValidate>
-        <TextField id="reset-pwd-input" type="password" label={t("auth.users.password")} value={password} onChange={setPassword} error={problem} />
-        <ModalError message={error} />
-        <ButtonRow onClose={onClose} busy={busy} t={t} submit={{ label: t("auth.users.save"), testId: "save-reset-pwd-button", type: "submit" }} />
-      </form>
+    <ModalDialog title={`${t("auth.users.resetPassword")}: ${user.username}`} onClose={close} busy={busy} testId="reset-password-dialog">
+      {result !== null ? (
+        <>
+          <ResetOutcome result={result} username={user.username} t={t} />
+          <div style={BUTTON_ROW_STYLE}>
+            <button type="button" onClick={close} data-testid="reset-close-button">{t("auth.users.close")}</button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={handleSubmit} noValidate>
+          <TextField id="reset-pwd-input" type="password" label={t("auth.users.password")} value={password} onChange={setPassword} error={problem} />
+          <ModalError message={error} />
+          <ButtonRow onClose={onClose} busy={busy} t={t} submit={{ label: t("auth.users.save"), testId: "save-reset-pwd-button", type: "submit" }} />
+        </form>
+      )}
     </ModalDialog>
   );
 }

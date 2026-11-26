@@ -2,6 +2,7 @@
 // uncertainties and verdicts, and a chart of the selected step's samples.
 // Historical analysis is read-only; live OUT tests use the separate gateway confirmation slice.
 import { OutputTest } from "./OutputTest";
+import { StepPlanPanel } from "./StepPlanPanel";
 import { useEffect, useRef, useState } from "react";
 import { fetchTags } from "../api";
 import type { Translate } from "../findings";
@@ -212,6 +213,7 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
       <header className="toolbar"><h2>{t("steps.title")}</h2></header>
       <p className="notice banner-warning" role="note">{t("steps.note")}</p>
       <OutputTest t={t} />
+      <StepPlanPanel t={t} />
       <StepsForm target={target} model={model} logbookText={logbookText}
         offsetHours={offsetHours} busy={busy} canRun={canRun} onRun={runAnalysis}
         onModel={setModel} onLogbook={setLogbookText} onOffset={setOffsetHours} t={t} />

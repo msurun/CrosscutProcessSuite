@@ -1,7 +1,7 @@
 // Log view of the Advisory page: the chain status ("chain verified" or a "chain broken" alert) and
 // the newest logged advices with the recorded decision of each. Decisions are made here and POSTed
 // as acknowledgements; after one the log is reloaded so the page shows what is really stored.
-import { ackAdvice, type AckDecision, type AdvisoryLog as AdvisoryLogData, type ChainReport } from "../api";
+import { ackAdvice, proposeAdvice, type AckDecision, type AdvisoryLog as AdvisoryLogData, type ChainReport } from "../api";
 import type { Translate } from "../findings";
 import { advicesNewestFirst, latestAcks, type AckDraft } from "../advisory";
 import { AdviceCard } from "./AdviceCard";
@@ -55,6 +55,7 @@ export function AdvisoryLog({ supervisorId, log, error, t, onChanged }: Advisory
             ack={acks.get(advice.advice_id)}
             t={t}
             onDecide={(decision, draft) => decide(advice.advice_id, decision, draft)}
+            onPropose={() => proposeAdvice(supervisorId, advice.advice_id)}
           />
         ))}
       </ul>

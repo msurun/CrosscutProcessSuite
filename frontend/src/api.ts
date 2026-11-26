@@ -941,6 +941,27 @@ export async function ackAdvice(supervisorId: string, adviceId: string, input: A
   return sendJson<AckRecord>("POST", `${supervisorUrl(supervisorId)}/log/${encodeURIComponent(adviceId)}/ack`, body);
 }
 
+/** The gateway's answer to a proposal: accepted or not, with a stable reason code. */
+export interface ProposeDecision {
+  accepted?: boolean;
+  reason_code?: string;
+  [key: string]: unknown;
+}
+
+/** Result of `POST /api/supervisors/{id}/propose`: the proposal and what the gateway decided. */
+export interface SupervisorProposeResult {
+  proposal: { target_tag: string; value: number; proposer: string; t_ns: number; reason: string };
+  decision: ProposeDecision;
+  advice_id: string;
+  mode: string;
+  queues_for_approval: boolean;
+}
+
+/** Propose one logged advice as a setpoint proposal; in confirm mode it queues for human approval. */
+export async function proposeAdvice(supervisorId: string, adviceId: string): Promise<SupervisorProposeResult> {
+  return sendJson<SupervisorProposeResult>("POST", `${supervisorUrl(supervisorId)}/propose`, { advice_id: adviceId });
+}
+
 // --- PCA anomaly detector (advisory only; routes in api/src/crosscut_api/anomaly_routes.py) ---
 
 /** Detector configuration (`schemas/anomaly.schema.json`); mode can only be "off" or "advisory". */
@@ -1678,3 +1699,49 @@ export async function stopRuntimeJob(jobId: string): Promise<RuntimeJobsDocument
 }
 
 
+
+/** The rule base laid out as a grid of two inputs and one output (`POST /api/fuzzy/matrix`). */
+export interface FuzzyMatrixEntry {
+  rule_id: string;
+  output_term: string;
+  weight: number;
+  enabled: boolean;
+}
+
+export interface FuzzyMatrix {
+  row_variable: string;
+  column_variable: string;
+  output: string;
+  rows: string[];
+  columns: string[];
+  cells: FuzzyMatrixEntry[][][];
+  unplaced: string[];
+}
+
+/** Lay the rule base out as a matrix; the rules that do not fit the grid are listed as `unplaced`. */
+export async function fetchFuzzyMatrix(
+  document: FuzzyDocument,
+  rowId: string,
+  columnId: string,
+  outputId: string,
+): Promise<FuzzyMatrix> {
+  return sendJson<FuzzyMatrix>("POST", "/api/fuzzy/matrix", {
+    document,
+    row_id: rowId,
+    column_id: columnId,
+    output_id: outputId,
+  });
+}
+
+/** The settings a wide-file import would use (`GET /api/site/import-settings`). */
+export interface ImportSettings {
+  missing_codes: number[];
+  decimal_comma: boolean;
+  delimiter: string;
+  time_names: string[];
+}
+
+/** Read-only import settings of the site (404 when there is no site file yet). */
+export async function fetchImportSettings(): Promise<ImportSettings> {
+  return getJson<ImportSettings>("/api/site/import-settings");
+}

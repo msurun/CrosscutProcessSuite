@@ -44,6 +44,19 @@ async function replayAndRecord(page: Page): Promise<void> {
   await expect(page.getByText(/zapisanych w dzienniku: [1-9]/)).toBeVisible({ timeout: 30_000 });
 }
 
+test("a logged advice can be proposed only after a confirmation step", async ({ page }) => {
+  await openAdvisory(page);
+  await replayAndRecord(page);
+  const log = page.getByRole("region", { name: "Dziennik" });
+  const propose = log.getByRole("button", { name: "Zaproponuj zmianę wartości zadanej" }).first();
+  // Advice that holds the setpoint has no Propose button, so a record of only holds skips the check.
+  if ((await propose.count()) === 0) return;
+  await propose.click();
+  await expect(log.getByText(/ta strona niczego nie zapisuje w instalacji/).first()).toBeVisible();
+  await log.getByRole("button", { name: "Anuluj" }).first().click();
+  await expect(propose).toBeVisible();
+});
+
 test("replay with record, decision and reload", async ({ page }) => {
   await openAdvisory(page);
   await expect(page.getByLabel("Zapisz w dzienniku")).not.toBeChecked();

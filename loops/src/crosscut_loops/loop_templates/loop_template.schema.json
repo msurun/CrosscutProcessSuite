@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Loop template",
+  "description": "One loop type of the catalogue (flow, level, temperature, ...). A template carries the generic engineering defaults a loop inherits from its type: expected dynamics, KPI limits, diagnosis rules, tuning rule and target, allowed tests and a safe default step. Templates are data, fully editable by the site; no plant-specific values belong here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key",
+    "label",
+    "process_kind",
+    "dynamics",
+    "kpi_thresholds",
+    "diagnosis_rules",
+    "tuning",
+    "tests"
+  ],
+  "properties": {
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable identifier used by the loop's type field."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name shown in the console."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the loop type is for and what an engineer must watch."
+    },
+    "process_kind": {
+      "enum": ["self_regulating", "integrating"],
+      "description": "Process kind assumed by the identification and tuning rules."
+    },
+    "dynamics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Expected range of the identified process dynamics (a FOPDT model for self-regulating loops; gain is the velocity gain in output units per PV unit per second for integrating loops).",
+      "required": [
+        "gain_min",
+        "gain_max",
+        "time_constant_s_min",
+        "time_constant_s_max",
+        "dead_time_s_min",
+        "dead_time_s_max"
+      ],
+      "properties": {
+        "gain_min": {"type": "number", "minimum": 0, "description": "Smallest expected process gain magnitude."},
+        "gain_max": {"type": "number", "exclusiveMinimum": 0, "description": "Largest expected process gain magnitude."},
+        "time_constant_s_min": {"type": "number", "exclusiveMinimum": 0, "description": "Shortest expected dominant time constant, seconds."},
+        "time_constant_s_max": {"type": "number", "exclusiveMinimum": 0, "description": "Longest expected dominant time constant, seconds."},
+        "dead_time_s_min": {"type": "number", "minimum": 0, "description": "Shortest expected dead time, seconds."},
+        "dead_time_s_max": {"type": "number", "exclusiveMinimum": 0, "description": "Longest expected dead time, seconds."}
+      }
+    },
+    "kpi_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Limits the monitoring KPIs are compared with; shares are fractions from 0 to 1.",
+      "required": [
+        "service_factor_min",
+        "saturation_share_max",
+        "oscillation_index_max",
+        "noise_ratio_max"
+      ],
+      "properties": {
+        "service_factor_min": {"type": "number", "minimum": 0, "maximum": 1, "description": "Minimum share of time in the intended mode (auto, cascade)."},
+        "saturation_share_max": {"type": "number", "minimum": 0, "maximum": 1, "description": "Maximum share of time at an output limit."},
+        "oscillation_index_max": {"type": "number", "minimum": 0, "maximum": 1, "description": "Maximum ACF oscillation index before the loop is flagged."},
+        "noise_ratio_max": {"type": "number", "minimum": 0, "description": "Maximum PV noise ratio (noise standard deviation over signal standard deviation)."}
+      }
+    },
+    "diagnosis_rules": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Cause classes checked for this loop type, in the fixed diagnosis order of PRODUCT 4.1.",
+      "items": {
+        "enum": ["instrument", "valve", "external", "design_or_mode", "tuning"]
+      }
+    },
+    "tuning": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Preferred tuning rule and closed-loop target for this loop type.",
+      "required": ["rule", "target_closed_loop_time_constant_ratio"],
+      "properties": {
+        "rule": {
+          "enum": ["simc", "amigo", "lambda"],
+          "description": "Tuning rule the assistant proposes first."
+        },
+        "target_closed_loop_time_constant_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Closed-loop time constant divided by the dead time; 1 is fast and tight, 4 is robust and slow."
+        },
+        "robustness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Default position of the speed/robustness slider, 0 fast to 1 robust."
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tests the assistant may propose for this loop type.",
+      "required": ["allowed", "default_step_pct"],
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["step", "stroke", "bump"]}
+        },
+        "default_step_pct": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "Safe default OUT step as a percentage of the output span."
+        }
+      }
+    }
+  }
+}
