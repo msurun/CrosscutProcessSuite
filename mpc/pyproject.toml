@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Deterministic Python reference for linear two-layer MPC"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
-dependencies = ["numpy>=1.26", "scipy>=1.11", "osqp>=1.0"]
+dependencies = ["numpy>=1.26", "scipy>=1.11", "osqp>=1.0", "crosscut-loops", "crosscut-artifacts"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

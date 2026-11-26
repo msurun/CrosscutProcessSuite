@@ -1,0 +1,30 @@
+{
+  "key": "feedforward",
+  "label": "Feedforward",
+  "description": "Feedforward compensation added to a feedback loop. Test it with a bump of the disturbance, not with a setpoint step, and keep the feedback loop responsible for the final error.",
+  "process_kind": "self_regulating",
+  "dynamics": {
+    "gain_min": 0.1,
+    "gain_max": 5.0,
+    "time_constant_s_min": 5.0,
+    "time_constant_s_max": 300.0,
+    "dead_time_s_min": 0.0,
+    "dead_time_s_max": 120.0
+  },
+  "kpi_thresholds": {
+    "service_factor_min": 0.9,
+    "saturation_share_max": 0.05,
+    "oscillation_index_max": 0.3,
+    "noise_ratio_max": 0.2
+  },
+  "diagnosis_rules": ["instrument", "valve", "external", "design_or_mode", "tuning"],
+  "tuning": {
+    "rule": "simc",
+    "target_closed_loop_time_constant_ratio": 1.5,
+    "robustness": 0.4
+  },
+  "tests": {
+    "allowed": ["bump"],
+    "default_step_pct": 3.0
+  }
+}
