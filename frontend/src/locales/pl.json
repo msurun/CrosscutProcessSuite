@@ -2281,6 +2281,8 @@
   "stepPlan.status.running": "trwa",
   "stepPlan.status.completed": "zakończony",
   "stepPlan.status.aborted": "przerwany",
+  "access.denied.title": "Brak dostępu",
+  "access.denied.body": "Nie masz uprawnień do widoku {view}. Poproś inżyniera lub administratora, jeśli go potrzebujesz.",
   "nav.backup": "Kopia zapasowa",
   "backup.title": "Kopia zapasowa i przywracanie",
   "backup.subtitle": "Zapisz konfigurację tej instalacji i przywróć ją później. Kopia nie zawiera historii procesu.",
