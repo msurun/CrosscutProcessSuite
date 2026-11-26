@@ -8,6 +8,7 @@ of the offline record of the same series are exactly equal (the property the tes
 
 from __future__ import annotations
 
+import time
 from bisect import bisect_left
 from collections.abc import Callable
 from datetime import datetime
@@ -22,6 +23,8 @@ from crosscut_loops.overview import (
     OUT_LOW,
     ULTIMATE_PERIOD_S,
 )
+
+from crosscut_runtime.jobs import backfill
 
 GOOD_QUALITY = 0  # connector quality code: 0 good, 1 uncertain, 2 bad; only GOOD is analysed
 
@@ -59,6 +62,11 @@ class RollingWindow:
         self._samples.setdefault(tag, []).append((float(ts), float(value)))
         if self._latest_ts is None or ts > self._latest_ts:
             self._latest_ts = float(ts)
+
+    @property
+    def latest(self) -> float | None:
+        """Newest sample time in epoch seconds, None while the window is empty."""
+        return self._latest_ts
 
     def rows(self, tag: str) -> list[tuple[float, float]]:
         """The kept samples of one tag as (ts, value), sorted by ts."""
@@ -208,6 +216,33 @@ class LoopKpiJob:
         self.connector = connector
         self.on_sample = on_sample
         self.window = RollingWindow(float(job_doc["window_s"]))
+        # Wall clock for the history backfill (#203); tests replace it.
+        self.clock: Callable[[], float] = time.time
+
+    def _all_tags(self) -> list[str]:
+        """Every channel tag of every loop of the job that names all four channels."""
+        docs = (self.loop_docs.get(loop_id) for loop_id in self.job_doc["loops"])
+        sets = (self._tag_ids(doc) for doc in docs if doc is not None)
+        return list(dict.fromkeys(tag for tags in sets if tags for tag in tags.values()))
+
+    def _accept(self, tag: str, ts: float, value: float) -> None:
+        """Add one good sample to the window and hand it to ``on_sample`` (history store)."""
+        self.window.add(tag, ts, value)
+        if self.on_sample is not None:
+            self.on_sample(tag, ts, value)
+
+    def _backfill(self) -> dict[str, Any] | None:
+        """Fill the window from history when it is empty or has a gap; None when not needed."""
+        if not backfill.has_history(self.connector):
+            return None
+        now = self.clock()
+        period = float(self.job_doc.get("period_s", 1.0))
+        start = backfill.plan(self.window.latest, now, self.window.window_s, period)
+        tags = self._all_tags()
+        if start is None or not tags:
+            return None
+        todo = backfill.BackfillPlan(tags, start, now, period)
+        return backfill.backfill(self.connector, todo, self._accept)
 
     def _tag_ids(self, loop_doc: dict[str, Any]) -> dict[str, str] | None:
         """The four tag ids of one loop doc, or None when a channel tag is not stated."""
@@ -258,6 +293,7 @@ class LoopKpiJob:
         map is None while no loop has enough samples yet, and lists loops still below the threshold
         (or with an incomplete tag set) as None inside the map.
         """
+        filled = self._backfill()
         # Pass 1: every loop pulls its own fresh samples, so all tags share one read_live tick.
         for loop_id in self.job_doc["loops"]:
             loop_doc = self.loop_docs.get(loop_id)
@@ -274,6 +310,8 @@ class LoopKpiJob:
                 continue
             tags = self._tag_ids(loop_doc)
             kpi[loop_id] = self._loop_kpi(loop_doc, tags) if tags is not None else None
-        if not any(value is not None for value in kpi.values()):
-            return {"samples": self.window.total(), "kpi": None}
-        return {"samples": self.window.total(), "kpi": kpi}
+        found = kpi if any(value is not None for value in kpi.values()) else None
+        result: dict[str, Any] = {"samples": self.window.total(), "kpi": found}
+        if filled is not None:
+            result["backfill"] = filled
+        return result

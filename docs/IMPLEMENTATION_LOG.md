@@ -1144,3 +1144,11 @@ The raw JSON field now keeps its own text buffer (JsonBufferEditor): incomplete 
 - Trends view: "Quick view | Saved charts". Saved charts: list of my and shared charts (rename, duplicate, delete, share, copy), builder (tag search, series per axis, axis side and fixed/auto range), time window (relative/absolute, presets, custom width, pan, live follow with refresh), multi-axis `TrendPane`.
 - Sources are dataset ids for now; catalogue sources (PI Web API, SQL, OPC UA) come with #201/#208. Relative windows anchor at the dataset end time.
 - E2E `frontend/e2e/trend-charts.spec.ts` with axe.
+
+## 2026-11-23 - Plant sources: history on demand, source picker, source form, runtime backfill (#201, #202, #203, #208)
+
+- #201: `GET /sources/{id}/history` reads a window through the connector once and caches it as an internal dataset `hist-<key>` (dataset source kind `history`); `history_table.py` normalises PI, SQL profile/table and CSV answers. Catalogue tags are read at their address and keep id and unit. At most 50 caches.
+- #202 (first slice): sidebar "Plant source | Files and simulations"; the source picker loads catalogue tags of a source for a time window into the cache and opens it in every view. Open: URL with source + window, browse-only sources, loops in the picker.
+- #208: source management routes and Site > Sources form; secrets in the OS secret store via `keyring` (new dependency), referenced by `auth.credential_ref`; storing a secret needs step-up; changes audited.
+- #203: runtime loop-KPI and anomaly scan jobs fill their window from source history on start and after a gap (`jobs/backfill.py`); OPC UA without HistoryRead stays live-only.
+- Delegation note: Python tests through foremankit worked (free/cheap models, sometimes after a retry); TypeScript and security tests went to Haiku/Sonnet agents.
