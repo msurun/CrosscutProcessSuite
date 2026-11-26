@@ -6,7 +6,7 @@ import type { DatasetSummary, LoopSummary, TagInfo } from "../api";
 import { recordHours } from "../anomaly";
 import type { Translate } from "../findings";
 import { GatewayPage } from "../GatewayPage";
-import type { Route } from "../route";
+import { withQueryParams, type Route } from "../route";
 import { RuntimePage } from "../RuntimePage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
@@ -39,14 +39,14 @@ function datasetViews(p: ViewContentProps, id: string) {
   const hours = p.dataset ? recordHours(p.dataset.time_range.start_utc, p.dataset.time_range.end_utc) : null;
   const start = p.dataset ? p.dataset.time_range.start_utc : "";
   const views = {
-    loops: id && <LoopsPage datasetId={id} route={p.route} navigate={p.navigate} t={p.t} onAnalysed={p.onAnalysed} />,
+    loops: id && <LoopsPage datasetId={id} route={p.route} navigate={p.navigate} t={p.t} onAnalysed={p.onAnalysed} tags={p.tags} />,
     advisory: <AdvisoryPage datasetId={id} t={p.t} />,
     anomalies: <AnomalyPage datasetId={id} recordHours={hours} t={p.t} />,
     softsensor: <SoftSensorPage datasetId={id} recordHours={hours} startUtc={start} t={p.t} />,
     steps: <StepsPage datasetId={id} loopNames={p.loops.map((loop) => loop.name)} initialLoop={p.route.loop} t={p.t} />,
     onboarding: <OnboardingPage datasetId={id} t={p.t} />,
     fuzzy: <FuzzyPage datasetId={id} t={p.t} />,
-    trends: <TrendsPage datasetId={id} dataset={p.dataset} tags={p.tags} selectedTags={p.selectedTags} t={p.t} />,
+    trends: <TrendsPage datasetId={id} dataset={p.dataset} tags={p.tags} selectedTags={p.selectedTags} t={p.t} chartId={p.route.query?.chart ?? null} onChartChange={(chart) => p.navigate(withQueryParams(p.route, { ...p.route.query, chart }), true)} />,
   };
   return views as Record<string, ReactNode>;
 }

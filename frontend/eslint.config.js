@@ -3,6 +3,15 @@
 import tseslint from "typescript-eslint";
 
 const TOUCHED = [
+  "src/components/equipmentModel.ts",
+  "src/components/EquipmentTree.tsx",
+  "src/components/EquipmentSignals.tsx",
+  "src/components/EquipmentDetail.tsx",
+  "src/components/EquipmentEditor.tsx",
+  "src/loopTrendChart.ts",
+  "src/useSourceReload.ts",
+  "src/liveLoopsApi.ts",
+  "src/components/LiveLoops.tsx",
   "src/components/SavedChartView.tsx",
   "src/components/SavedChartsWorkspace.tsx",
   "src/trendChartsApi.ts",
@@ -49,6 +58,8 @@ const TOUCHED = [
   "src/components/FuzzyTabs.tsx",
   "src/components/KnowledgeEditor.tsx",
   "src/components/KnowledgeFields.tsx",
+  "src/components/KnowledgeProposals.tsx",
+  "src/knowledgeProposalApi.ts",
   "src/components/LoopDetail.tsx",
   "src/components/LoopsOverview.tsx",
   "src/components/LoopsPage.tsx",

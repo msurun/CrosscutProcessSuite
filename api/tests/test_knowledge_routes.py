@@ -112,16 +112,14 @@ def test_put_marks_the_knowledge_as_saved(client: TestClient, loop_name: str) ->
     assert response.json()["saved"] is True
 
 
-def test_put_creates_a_project_file_holding_every_loop(
+def test_put_stores_the_loop_in_the_site_catalogue_not_a_project_file(
     client: TestClient, loop_name: str, data_root: Path
 ) -> None:
+    """#176: the catalogue is the single home of loop knowledge; no project.json is written."""
     client.put(_knowledge_url(loop_name), json={"delay_s": 4.0})
-    project = json.loads((data_root / DATASET / PROJECT_FILE).read_text())
-    stored_names = {loop["name"] for loop in project["loops"]}
-    discovered_names = {
-        loop["name"] for loop in client.get(f"/datasets/{DATASET}/loops").json()["loops"]
-    }
-    assert stored_names == discovered_names
+    site = json.loads((data_root / "_site" / "site.json").read_text())
+    assert loop_name in {loop["id"] for loop in site["loops"]}
+    assert not (data_root / DATASET / PROJECT_FILE).exists()
 
 
 def test_a_get_after_a_put_returns_the_saved_delay(client: TestClient, loop_name: str) -> None:

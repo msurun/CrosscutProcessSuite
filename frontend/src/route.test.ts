@@ -7,6 +7,7 @@ import {
   parseHash,
   withDataset,
   withLoop,
+  withQueryParams,
   withView,
   type Route,
 } from "./route";
@@ -231,5 +232,30 @@ describe("withLoop", () => {
   it("clears the loop when given null", () => {
     const start: Route = { dataset: "sales", view: "loops", loop: "checkout", sub: "tuning" };
     expect(withLoop(start, null).loop).toBeNull();
+  });
+});
+
+describe("route query part", () => {
+  it("parses and formats a chart query", () => {
+    const route = parseHash("#/d/sales/trends?chart=abc123");
+    expect(route).toEqual({ dataset: "sales", view: "trends", loop: null, sub: "detail", query: { chart: "abc123" } });
+    expect(formatHash(route)).toBe("#/d/sales/trends?chart=abc123");
+  });
+
+  it("round-trips values with reserved characters", () => {
+    const query = { src: "pi/main 1", tags: "A.PV,B&C=D", start: "2026-01-01T00:00:00+00:00" };
+    const route = withQueryParams({ ...DEFAULT_ROUTE, dataset: "ds?1" }, query);
+    expect(parseHash(formatHash(route))).toEqual(route);
+  });
+
+  it("keeps old hashes without a query unchanged", () => {
+    expect(parseHash("#/d/sales/loops/L1/tuning")).not.toHaveProperty("query");
+    expect(formatHash(parseHash("#/d/sales/trends"))).toBe("#/d/sales/trends");
+  });
+
+  it("drops an empty query and withQueryParams clears it", () => {
+    expect(parseHash("#/d/sales/trends?")).not.toHaveProperty("query");
+    const route = parseHash("#/d/sales/trends?chart=x");
+    expect(withQueryParams(route, {})).not.toHaveProperty("query");
   });
 });

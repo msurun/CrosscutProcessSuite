@@ -32,13 +32,15 @@ from crosscut_runtime.controllers.wiring import (
 )
 from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.anomaly_scan import ANOMALY_DIR, AnomalyScanJob
+from crosscut_runtime.jobs.equipment_scan import EquipmentScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob
+from crosscut_runtime.kpi_history import record_kpi_run
 from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore, controller_period, controller_period_problem
 
 _UNSET: Any = object()
-RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller")
+RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller", "equipment_scan")
 
 
 def _failing_run(message: str) -> Callable[[], Any]:
@@ -132,6 +134,7 @@ class RuntimeService:
         self._connectors: dict[str, Any] = {}
         self._kpi_jobs: dict[str, LoopKpiJob] = {}
         self._anomaly_jobs: dict[str, tuple[dict[str, Any], AnomalyScanJob]] = {}
+        self._equipment_jobs: dict[str, tuple[str, EquipmentScanJob]] = {}
         self._review_jobs: dict[str, TuningReviewJob] = {}
         self._history = HistoryStore(history_path(root))
         self._pending_samples: list[tuple[str, float, float, int]] = []
@@ -178,6 +181,8 @@ class RuntimeService:
                 self._sync_job(job, sources, addresses, lambda doc: self._loop_run(doc, loop_docs))
             elif job["kind"] == "anomaly_scan":
                 self._sync_job(job, sources, addresses, self._anomaly_run)
+            elif job["kind"] == "equipment_scan":
+                self._sync_job(job, sources, addresses, lambda doc: self._equipment_run(doc, site))
             elif job["kind"] == "controller":
                 self._sync_controller(job, site)
 
@@ -191,6 +196,7 @@ class RuntimeService:
         self._kpi_jobs.pop(job_id, None)
         self._anomaly_jobs.pop(job_id, None)
         self._review_jobs.pop(job_id, None)
+        self._equipment_jobs.pop(job_id, None)
         self._controller_jobs.pop(job_id, None)
 
     def _sync_controller(self, job: dict[str, Any], site: dict[str, Any]) -> None:
@@ -251,6 +257,7 @@ class RuntimeService:
             self._connectors[job_id] = AddressedConnector(connector, addresses)
             self._kpi_jobs.pop(job_id, None)
             self._anomaly_jobs.pop(job_id, None)
+            self._equipment_jobs.pop(job_id, None)
 
         run_fn = make_run(job)
         existing = self._scheduler.get(job_id)
@@ -265,6 +272,17 @@ class RuntimeService:
     ) -> Callable[[], Any]:
         """The run function of a loop_kpi job, bound to its cached LoopKpiJob."""
         return self._kpi_job_for(job, loop_docs).run
+
+    def _equipment_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
+        """Keep per-equipment hysteresis until the job or catalogue changes."""
+        key = json.dumps({"job": job, "site": site}, sort_keys=True)
+        cached = self._equipment_jobs.get(job["id"])
+        if cached is None or cached[0] != key:
+            scan = EquipmentScanJob(job, site, self._connectors[job["id"]], self._store.root)
+            scan.clock = self._clock
+            cached = (key, scan)
+            self._equipment_jobs[job["id"]] = cached
+        return cached[1].run
 
     def _anomaly_run(self, job: dict[str, Any]) -> Callable[[], Any]:
         """The run function of an anomaly_scan job; a job that cannot be built fails each pass."""
@@ -359,6 +377,9 @@ class RuntimeService:
                     st["kpi"] = run.result.get("kpi")
                     st["scan"] = run.result.get("scan")
                     st["controller"] = run.result.get("controller")
+                    st["equipment"] = run.result.get("equipment")
+                    if job["kind"] == "loop_kpi":
+                        record_kpi_run(self._store, job, st, now_utc)
                 else:
                     st.update({"status": "error", "error": run.error})
                     self._store.append_log("error", run.error, job_id)

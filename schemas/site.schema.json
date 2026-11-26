@@ -369,6 +369,42 @@
           "items": {"$ref": "#/$defs/identifier"},
           "uniqueItems": true
         },
+        "loops": {
+          "type": "array",
+          "description": "Loop ids primarily owned by this equipment.",
+          "items": {"$ref": "#/$defs/identifier"},
+          "uniqueItems": true
+        },
+        "loop_refs": {
+          "type": "array",
+          "description": "Relevant loop ids primarily owned by other equipment.",
+          "items": {"$ref": "#/$defs/identifier"},
+          "uniqueItems": true
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tag", "kind", "confirmed"],
+            "properties": {
+              "tag": {"$ref": "#/$defs/identifier"},
+              "kind": {"enum": ["temperature", "current", "power", "torque", "vibration", "speed", "ambient", "context"]},
+              "confirmed": {"type": "boolean", "description": "False for system proposals awaiting confirmation."}
+            }
+          }
+        },
+        "running": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tag", "above", "confirmed"],
+          "description": "Equipment runs while this current or speed tag exceeds above, in its engineering units.",
+          "properties": {
+            "tag": {"$ref": "#/$defs/identifier"},
+            "above": {"type": "number"},
+            "confirmed": {"type": "boolean"}
+          }
+        },
         "criticality": {
           "enum": ["low", "medium", "high", "critical"],
           "description": "Consequence of a failure of this equipment."

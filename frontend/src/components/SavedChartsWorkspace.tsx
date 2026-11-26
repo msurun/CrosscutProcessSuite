@@ -1,11 +1,12 @@
 // src/components/SavedChartsWorkspace.tsx
 // The "Saved charts" side of the Trends view (#204-#207): the list of my and shared charts, the open
 // chart with its time window, and the builder for a new or edited chart with a live preview.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DatasetSummary, TagInfo } from "../api";
 import { useAuth, useCan } from "../AuthContext";
 import type { Translate } from "../findings";
+import { formatHash } from "../route";
 import { draftProblems, emptyDraft } from "../trendChartModel";
 import { createChart, getChart, saveChart, type TrendChart, type TrendChartDraft } from "../trendChartsApi";
 import { ChartBuilder } from "./ChartBuilder";
@@ -21,6 +22,10 @@ interface WorkspaceProps {
   dataset: DatasetSummary | undefined;
   tags: TagInfo[];
   t: Translate;
+  /** Id of the chart named by the URL (`?chart=<id>`); it is opened when it differs from the open one. */
+  chartId?: string | null;
+  /** Called with the id of the chart that was opened or saved, so the URL can follow. */
+  onChartChange?: (id: string) => void;
 }
 
 /** What the workspace shows: nothing yet, an open chart, or the builder for a draft. */
@@ -36,20 +41,32 @@ async function persist(draft: TrendChartDraft, base: TrendChart | null): Promise
   return base ? saveChart({ ...base, ...draft }) : createChart(draft);
 }
 
-/** Workspace state and the actions of its buttons. */
-function useWorkspace(t: Translate) {
+/** Workspace state and the actions of its buttons; the open chart is mirrored to the URL through `onChartChange`. */
+function useWorkspace(t: Translate, chartId: string | null, onChartChange?: (id: string) => void) {
   const [mode, setMode] = useState<Mode>({ kind: "none" });
   const [reloadToken, setReloadToken] = useState(0);
   const [error, setError] = useState("");
+  const openedId = useRef<string | null>(null);
+  const changeRef = useRef(onChartChange);
+  changeRef.current = onChartChange;
+  openedId.current = mode.kind === "view" ? mode.chart.id : null;
   const fail = (e: unknown) => setError(t("trendCharts.saveError", { reason: e instanceof Error ? e.message : String(e) }));
+  const show = (chart: TrendChart) => {
+    setMode({ kind: "view", chart });
+    changeRef.current?.(chart.id);
+  };
   const open = useCallback((id: string) => {
     setError("");
-    getChart(id).then((chart) => setMode({ kind: "view", chart })).catch(fail);
+    getChart(id).then(show).catch(fail);
   }, []);
+  // A chart named by the URL (shared link, "Open in Trends") is opened once; clicks already set the URL.
+  useEffect(() => {
+    if (chartId && chartId !== openedId.current) open(chartId);
+  }, [chartId, open]);
   const save = (draft: TrendChartDraft, base: TrendChart | null) =>
     persist(draft, base)
       .then((chart) => {
-        setMode({ kind: "view", chart });
+        show(chart);
         setReloadToken((n) => n + 1);
       })
       .catch(fail);
@@ -75,6 +92,22 @@ function EditPanel(props: { draft: TrendChartDraft; base: TrendChart | null; ws:
   );
 }
 
+/** Copies the full URL of the open chart to the clipboard and confirms it. */
+function CopyLinkButton(props: { datasetId: string; chartId: string; t: Translate }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const hash = formatHash({ dataset: props.datasetId, view: "trends", loop: null, sub: "detail", query: { chart: props.chartId } });
+    const url = `${window.location.origin}${window.location.pathname}${window.location.search}${hash}`;
+    navigator.clipboard.writeText(url).then(() => setCopied(true)).catch(() => setCopied(false));
+  };
+  return (
+    <>
+      <button type="button" onClick={copy}>{props.t("trendCharts.copyLink")}</button>
+      {copied && <span role="status">{props.t("trendCharts.linkCopied")}</span>}
+    </>
+  );
+}
+
 /** An open chart: its name, Edit for the owner, the window bar (not saved) and the panes. */
 function ViewPanel(props: { chart: TrendChart; ws: WorkspaceProps; mine: boolean; onEdit: () => void; onWindow: (c: TrendChart) => void }) {
   const { chart, ws } = props;
@@ -83,6 +116,7 @@ function ViewPanel(props: { chart: TrendChart; ws: WorkspaceProps; mine: boolean
     <section aria-label={chart.name}>
       <h2>{chart.name}</h2>
       {props.mine && <button type="button" onClick={props.onEdit}>{ws.t("trendCharts.edit")}</button>}
+      <CopyLinkButton datasetId={ws.datasetId} chartId={chart.id} t={ws.t} />
       <TrendWindowBar t={ws.t} window={chart.window} nowMs={Date.now()} onChange={(window) => props.onWindow({ ...chart, window })} />
       <SavedChartView chart={chart} datasets={datasets} t={ws.t} />
     </section>
@@ -102,7 +136,7 @@ export function SavedChartsWorkspace(props: WorkspaceProps) {
   const auth = useAuth();
   // Without auth the API stamps every chart with the local actor, so the caller owns them all.
   const me = auth.status === "disabled" ? null : (auth.user?.username ?? null);
-  const ws = useWorkspace(t);
+  const ws = useWorkspace(t, props.chartId ?? null, props.onChartChange);
   const { mode, setMode } = ws;
   const activeId = mode.kind === "view" ? mode.chart.id : mode.kind === "edit" ? (mode.base?.id ?? null) : null;
   return (

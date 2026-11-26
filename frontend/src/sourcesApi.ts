@@ -62,3 +62,37 @@ export async function loadHistory(
   if (periodS !== undefined) query.set("period_s", String(periodS));
   return getJson<HistoryResult>(`${API_PREFIX}/sources/${encodeURIComponent(sourceId)}/history?${query.toString()}`);
 }
+
+/** What a history load asked for; carried in the URL so a shared link can repeat it (#202). */
+export interface HistoryRequest {
+  source: string;
+  tags: string[];
+  start_utc: string;
+  end_utc: string;
+  period_s?: number;
+}
+
+/** The route query of a request: `src`, `tags` (comma list), `start`, `end` and `period` when set. */
+export function historyQuery(request: HistoryRequest): Record<string, string> {
+  const query: Record<string, string> = {
+    src: request.source,
+    tags: request.tags.join(","),
+    start: request.start_utc,
+    end: request.end_utc,
+  };
+  if (request.period_s) query.period = String(request.period_s);
+  return query;
+}
+
+/** The request a route query describes, or null when `src`, `tags`, `start` or `end` is missing. */
+export function parseHistoryQuery(query: Record<string, string> | undefined): HistoryRequest | null {
+  if (!query?.src || !query.tags || !query.start || !query.end) return null;
+  const period = Number(query.period);
+  return {
+    source: query.src,
+    tags: query.tags.split(",").filter((tag) => tag !== ""),
+    start_utc: query.start,
+    end_utc: query.end,
+    period_s: period > 0 ? period : undefined,
+  };
+}

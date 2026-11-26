@@ -34,6 +34,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
 
 # Mapping from (HTTP method, path) to the required permission.
 ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
+    ("GET", "/live/loops"): "data.view",
+    ("GET", "/live/loops/{loop_id}"): "data.view",
     # data.view (GET unless stated)
     ("GET", "/datasets"): "data.view",
     ("GET", "/datasets/{dataset_id}/tags"): "data.view",
@@ -51,6 +53,11 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/supervisors/{sid}"): "data.view",
     ("GET", "/supervisors/{sid}/log"): "data.view",
     ("GET", "/anomaly"): "data.view",
+    ("GET", "/equipment/models"): "data.view",
+    ("GET", "/equipment/anomalies"): "data.view",
+    ("POST", "/equipment/{equipment_id}/shelve"): "ctl.operate",
+    ("DELETE", "/equipment/{equipment_id}/shelve"): "ctl.operate",
+    ("PUT", "/equipment/events/{opened_utc}/{equipment_id}/outcome"): "ctl.operate",
     ("GET", "/anomaly/{aid}"): "data.view",
     ("GET", "/anomaly/{aid}/model"): "data.view",
     ("GET", "/softsensor"): "data.view",
@@ -85,7 +92,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/controllers/{controller_id}/command"): "ctl.operate",
     ("PUT", "/controllers/{controller_id}/variables/{variable_id}"): "ctl.operate",
 
-    # analysis.run (POST)
+    # analysis.run (history proposals are read-only but still perform identification)
+    ("GET", "/datasets/{dataset_id}/loops/{loop_name}/knowledge/proposal"): "analysis.run",
     ("POST", "/fuzzy/diff"): "analysis.run",
     ("POST", "/fuzzy/infer"): "analysis.run",
     ("POST", "/fuzzy/matrix"): "analysis.run",
@@ -94,6 +102,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/datasets/{dataset_id}/supervisor/{sid}/advise"): "analysis.run",
     ("POST", "/supervisors/{sid}/log/{advice_id}/ack"): "analysis.run",
     ("POST", "/datasets/{dataset_id}/anomaly/{aid}/scan"): "analysis.run",
+    ("POST", "/datasets/{dataset_id}/equipment/{equipment_id}/learn"): "analysis.run",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/run"): "analysis.run",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/alignment-scan"): "analysis.run",
     ("POST", "/intake/preview"): "analysis.run",
@@ -117,6 +126,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/config/{kind}/{config_id}"): "config.edit",
     ("PUT", "/datasets/{dataset_id}/loops/{loop_name}/knowledge"): "config.edit",
+    ("POST", "/datasets/{dataset_id}/loops/migrate-knowledge"): "config.edit",
 
     # data.import (POST/DELETE)
     ("POST", "/intake/dataset"): "data.import",

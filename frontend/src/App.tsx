@@ -22,8 +22,10 @@ import { SourcePicker } from "./components/SourcePicker";
 import { TopBar } from "./components/TopBar";
 import { ViewContent } from "./components/ViewContent";
 import { ConsoleNav } from "./components/ViewTabs";
-import { formatHash, withDataset, withView, type Route } from "./route";
+import { formatHash, withDataset, withQueryParams, withView, type Route } from "./route";
+import { historyQuery, type HistoryRequest } from "./sourcesApi";
 import { useRoute } from "./useRoute";
+import { useSourceReload } from "./useSourceReload";
 import { useTheme, type ThemePreference } from "./useTheme";
 
 /** Language, its translator and the language setter, for the whole app. */
@@ -139,7 +141,8 @@ type Navigate = (route: Route, replace?: boolean) => void;
 /** Without a dataset in the URL the first dataset of the catalogue becomes the default. */
 function useDefaultDataset(datasets: DatasetSummary[], route: Route, navigate: Navigate): void {
   useEffect(() => {
-    if (route.dataset === "" && datasets.length > 0) {
+    // A link with a plant window (`src`) gets its own dataset from useSourceReload.
+    if (route.dataset === "" && datasets.length > 0 && !route.query?.src) {
       navigate({ ...route, dataset: datasets[0].id }, true);
     }
   }, [datasets, route, navigate]);
@@ -200,7 +203,7 @@ function ApiOffline({ retry, t }: { retry: () => void; t: LanguageState["t"] }) 
 interface SidebarProps {
   datasets: DatasetSummary[];
   /** Called with the cached dataset id after plant history was loaded from a source (#201, #202). */
-  onHistory: (datasetId: string) => void;
+  onHistory: (datasetId: string, request: HistoryRequest) => void;
   route: Route;
   tags: TagInfo[];
   loops: LoopSummary[];
@@ -250,7 +253,7 @@ function Sidebar(p: SidebarProps) {
           </button>
         ))}
       </div>
-      {mode === "source" ? <SourcePicker t={t} onLoaded={(result) => p.onHistory(result.dataset_id)} /> : <DatasetSelect {...p} />}
+      {mode === "source" ? <SourcePicker t={t} onLoaded={(result, request) => p.onHistory(result.dataset_id, request)} /> : <DatasetSelect {...p} />}
       {p.route.view === "trends" && (
         <TagList tags={p.tags} selected={p.selectedTags} onToggle={p.onToggleTag} searchLabel={t("trends.searchTags")} emptyLabel={t("trends.noTagsMatch")} loops={p.loops} otherLabel={t("trends.otherTags")} />
       )}
@@ -265,9 +268,11 @@ function useDataSelection(route: Route, navigate: Navigate, refresh: () => void)
     navigate(withDataset(route, id));
     setSelectedTags([]);
   };
-  const openHistory = (id: string) => {
+  const openHistory = (id: string, request: HistoryRequest) => {
     refresh(); // the new cache must be in the list, or the shell reports the dataset as missing
-    changeDataset(id);
+    // The query carries the plant window, so the address alone can reload it after the cache was evicted.
+    navigate(withQueryParams(withDataset(route, id), historyQuery(request)));
+    setSelectedTags([]);
   };
   const toggleTag = (id: string) =>
     setSelectedTags((prev) => (prev.includes(id) ? prev.filter((one) => one !== id) : [...prev, id]));
@@ -282,6 +287,7 @@ function AppShell({ lang }: ShellProps) {
   const [analysis, setAnalysis] = useState<AnalysisInfo | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   useDefaultDataset(datasets, route, navigate);
+  useSourceReload(route, { datasets, loaded, refresh }, navigate);
   useFocusOnNavigate(route, mainRef);
   const tags = useTags(route.dataset);
   const loops = useLoops(route.dataset);

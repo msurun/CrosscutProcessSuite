@@ -29,6 +29,10 @@ interface TrendsPageProps {
   tags: TagInfo[];
   selectedTags: readonly string[];
   t: Translate;
+  /** Chart named by the URL (`?chart=<id>`); it opens the Saved charts mode. */
+  chartId?: string | null;
+  /** Writes the open chart to the URL so the address can be copied. */
+  onChartChange?: (id: string) => void;
 }
 
 /** Loads the series of the selected tags, ignoring stale responses. */
@@ -148,8 +152,12 @@ type TrendsMode = "quick" | "saved";
 
 /** The Trends view: the quick view of the sidebar tags, or the saved charts (#204-#207). */
 export function TrendsPage(props: TrendsPageProps) {
-  const [mode, setMode] = useState<TrendsMode>("quick");
+  const [mode, setMode] = useState<TrendsMode>(props.chartId ? "saved" : "quick");
   const { t } = props;
+  // A link to a chart opened while the page is already showing must switch to the saved charts too.
+  useEffect(() => {
+    if (props.chartId) setMode("saved");
+  }, [props.chartId]);
   return (
     <>
       <div className="trend-toolbar" role="group" aria-label={t("trendCharts.modes")}>
@@ -162,7 +170,7 @@ export function TrendsPage(props: TrendsPageProps) {
       {mode === "quick" ? (
         <QuickTrends {...props} />
       ) : (
-        <SavedChartsWorkspace datasetId={props.datasetId} dataset={props.dataset} tags={props.tags} t={t} />
+        <SavedChartsWorkspace datasetId={props.datasetId} dataset={props.dataset} tags={props.tags} t={t} chartId={props.chartId} onChartChange={props.onChartChange} />
       )}
     </>
   );
