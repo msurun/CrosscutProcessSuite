@@ -202,7 +202,7 @@ export function LiveLoops({ loops, t }: { loops: LiveLoop[]; t: Translate }) {
   if (loops.length === 0) return <p className="status">{t("liveLoops.empty")}</p>;
   const selected = loops.find((loop) => loop.id === selectedId) ?? null;
   return (
-    <>
+    <div data-testid="live-loops">
       <div className="table-scroll">
         <table className="loops-table">
           <thead>
@@ -216,6 +216,6 @@ export function LiveLoops({ loops, t }: { loops: LiveLoop[]; t: Translate }) {
         </table>
       </div>
       {selected && <LiveDetail loop={selected} t={t} />}
-    </>
+    </div>
   );
 }
