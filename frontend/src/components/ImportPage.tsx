@@ -7,6 +7,7 @@ import { mappingComplete } from "../intake";
 import { ImportCheck } from "./ImportCheck";
 import { ImportCreate, ImportDone } from "./ImportCreate";
 import { ImportFile } from "./ImportFile";
+import { ImportSettings } from "./ImportSettings";
 import { ImportPlant } from "./ImportPlant";
 import { ImportPreview } from "./ImportPreview";
 import { useImport } from "./ImportState";
@@ -39,6 +40,7 @@ export function ImportPage({ onCreated, onOpen, t }: PageProps) {
         <button type="button" aria-pressed={tab === "plant"} onClick={() => setTab("plant")}>{t("plant.tab.plant")}</button>
       </div>
       {tab === "single" ? <ImportSingle onCreated={onCreated} onOpen={onOpen} t={t} /> : <ImportPlant onCreated={onCreated} onOpen={onOpen} t={t} />}
+      <ImportSettings t={t} />
     </section>
   );
 }
