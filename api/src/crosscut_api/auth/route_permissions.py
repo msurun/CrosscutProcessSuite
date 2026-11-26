@@ -69,6 +69,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/softsensor/{sid}/model"): "data.view",
     ("GET", "/site"): "data.view",
     ("GET", "/site/import-settings"): "data.view",
+    ("GET", "/site/tags.csv"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
     # Loop templates (4.1): the library is readable, a site copy is a catalogue edit.
     ("GET", "/loop-templates"): "data.view",
@@ -129,6 +130,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/softsensor/{sid}/lab"): "config.edit",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/fit"): "config.edit",
     ("PUT", "/site"): "config.edit",
+    ("POST", "/site/tags.csv"): "config.edit",
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/loop-templates/{key}"): "config.edit",
     ("PUT", "/config/{kind}/{config_id}"): "config.edit",
@@ -197,6 +199,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/gateway/policy/pin"): "policy.pin",
     ("POST", "/gateway/policy/reload"): "policy.reload",
 
+    # multi-MV step-test planner (MPC 7.1a): proposals only, through the gateway confirm path
+    ("POST", "/mpc/step-plans/preview"): "gw.propose",
+    ("POST", "/mpc/step-plans"): "gw.propose",
+    ("GET", "/mpc/step-plans"): "gw.view",
+    ("GET", "/mpc/step-plans/{plan_id}"): "gw.view",
+    ("POST", "/mpc/step-plans/{plan_id}/advance"): "gw.propose",
+    ("POST", "/mpc/step-plans/{plan_id}/abort"): "gw.reject",
     # supervisor proposals (ADR 014 section 7, #51): proposing setpoint advice needs gw.propose
     ("POST", "/supervisors/{sid}/propose"): "gw.propose",
 

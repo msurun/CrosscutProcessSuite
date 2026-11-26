@@ -5,6 +5,7 @@
 
 /** The top-level views the app can show. */
 export type View =
+  | "overview"
   | "trends"
   | "loops"
   | "fuzzy"
@@ -37,7 +38,7 @@ export interface Route {
 /** Where the app lands when the hash is empty or unparsable. */
 export const DEFAULT_ROUTE: Route = {
   dataset: "",
-  view: "trends",
+  view: "overview",
   loop: null,
   sub: "detail",
 };
@@ -45,6 +46,7 @@ export const DEFAULT_ROUTE: Route = {
 const PATH_PREFIX = "/d/";
 const HASH_PREFIX = `#${PATH_PREFIX}`;
 const KNOWN_VIEWS: readonly View[] = [
+  "overview",
   "trends",
   "loops",
   "fuzzy",
