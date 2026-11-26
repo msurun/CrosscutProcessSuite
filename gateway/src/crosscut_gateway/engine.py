@@ -50,6 +50,7 @@ from crosscut_gateway.out_steps import (
     OutputRequest,
     OutputSteps,
     check_output_wiring,
+    finite_number,
 )
 from crosscut_gateway.param_intent_store import ParamIntentRecord, ParamIntentStore
 from crosscut_gateway.policy import PolicyError, proposal_key, validate_proposal
@@ -614,6 +615,8 @@ class WriteGateway:
         """Return the recorded refusal when the target or proposal age blocks a queued write."""
         tag = proposal.target_tag
         refusal = self._refusal_reason(tag)
+        if refusal is None:
+            refusal = self._liveness_refusal(proposal)
         if refusal is None and self._now_ns - proposal.t_ns > (
             self._policies[tag].watchdog_s * 1_000_000_000
         ):
@@ -681,6 +684,7 @@ class WriteGateway:
         self._release_failures: dict[str, int] = {}
         self._release_alarms: dict[str, str] = {}
         self._liveness = LivenessMonitor()
+        self._bumpless_ready: set[tuple[str, str]] = set()
 
     def _validate_tag(self, tag: str) -> None:
         """Raise KeyError when a tag has no policy."""
@@ -812,6 +816,9 @@ class WriteGateway:
             self._liveness.forget(beat.kind, beat.sender)
             self._log("liveness_refused", "", f"{beat.sender}: {problems[0]}")
             raise LivenessError(f"liveness: {problems[0]}")
+        if self._liveness.starts_session(beat, self._mono()):
+            proposer = f"controller:{beat.sender}"
+            self._bumpless_ready = {pair for pair in self._bumpless_ready if pair[0] != proposer}
         self._liveness.record(beat, self._mono())
 
     def liveness_view(self) -> dict[str, Any]:
@@ -942,16 +949,48 @@ class WriteGateway:
         tag = proposal.target_tag
         policy = self._policies[tag]
         last_value = self._last_written.get(tag)
-        if last_value is None:
+        initialising = self._needs_bumpless(proposal)
+        if last_value is None or initialising:
             last_value = self._plant.read(tag)
         last_write_t_ns = self._last_write_t_ns.get(tag)
-        return validate_proposal(
+        decision = validate_proposal(
             policy,
             proposal,
             last_value,
             last_write_t_ns,
             self._plant.loop_mode(tag),
         )
+        if initialising and decision.reason_code == "no_change":
+            return WriteDecision(True, "bumpless_initialisation", last_value)
+        return decision
+
+    def _needs_bumpless(self, proposal: WriteProposal) -> bool:
+        """Require tracking on each controller session or acquisition after release."""
+        tag = proposal.target_tag
+        return proposal.proposer.startswith("controller:") and (
+            (proposal.proposer, tag) not in self._bumpless_ready
+            or not self._holding.get(tag, False)
+            or self._holder.get(tag) != proposal.proposer
+        )
+
+    def _initialise_write(
+        self, proposal: WriteProposal, decision: WriteDecision
+    ) -> WriteDecision:
+        """Re-read immediately before acquisition; refuse a candidate exceeding the bump limit."""
+        if not self._needs_bumpless(proposal):
+            return decision
+        tag = proposal.target_tag
+        actual = self._plant.read(tag)
+        policy = self._policies[tag]
+        if not finite_number(actual) or not policy.limits[0] <= actual <= policy.limits[1]:
+            return WriteDecision(False, "bumpless_readback_invalid")
+        # Scalar SP values and max_step share the target's engineering unit.
+        # The policy-screened candidate must satisfy |candidate - live SP| <= max_step.
+        # Then tracking sets the first physical write to live SP, giving a zero move.
+        if abs(self._effective_value(proposal, decision) - actual) > policy.max_step:
+            return WriteDecision(False, "bumpless_bump_limit")
+        self._log_proposal("bumpless_initialisation", proposal, "bumpless_initialisation", actual)
+        return WriteDecision(True, "bumpless_initialisation", actual)
 
     def _write(
         self,
@@ -964,6 +1003,19 @@ class WriteGateway:
         Returns the final cached decision. Side effects: plant write, heartbeat, audit,
         and possibly release + stop on failure.
         """
+        tag = proposal.target_tag
+        try:
+            decision = self._initialise_write(proposal, decision)
+        except Exception as exc:  # noqa: BLE001 - a failed live read must prevent the write
+            return self._handle_comm_loss(tag, proposal, key, proposal.value, exc)
+        if not decision.accepted:
+            return self._record(proposal, decision, key)
+        return self._write_live(proposal, decision, key)
+
+    def _write_live(
+        self, proposal: WriteProposal, decision: WriteDecision, key: str
+    ) -> WriteDecision:
+        """Execute a prepared write without bypassing adapter or heartbeat checks."""
         tag = proposal.target_tag
         value = self._effective_value(proposal, decision)
         self._log_proposal("write_intent", proposal, decision.reason_code, value)
@@ -1019,6 +1071,8 @@ class WriteGateway:
         self._holding[tag] = True
         self._holder[tag] = proposal.proposer
         self._held_at[tag] = self._mono()
+        if proposal.proposer.startswith("controller:"):
+            self._bumpless_ready.add((proposal.proposer, tag))
         self._seen_proposals[key] = WriteDecision(
             accepted=True,
             reason_code=decision.reason_code,

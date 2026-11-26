@@ -122,7 +122,7 @@ def test_controller_proposes_only_after_switch_on(tmp_path: Path) -> None:
     service.run_once()
     service.run_once()
     assert proposed and proposed[0].target_tag == "t.sp"
-    assert proposed[0].value == pytest.approx(52.0)  # move_max 2
+    assert proposed[0].value == pytest.approx(50.0)  # first move tracks the live SP
     assert _state(tmp_path)["controller"]["state"] == "on"
 
 
