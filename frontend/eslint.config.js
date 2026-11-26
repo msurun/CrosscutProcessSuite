@@ -12,6 +12,8 @@ const TOUCHED = [
   "src/components/SavedChartsPanel.tsx",
   "src/components/ChartBuilder.tsx",
   "src/components/TrendWindowBar.tsx",
+  "src/sourcesApi.ts",
+  "src/components/SourcePicker.tsx",
   "src/App.tsx",
   "src/AuthContext.tsx",
   "src/ChangePasswordPage.tsx",

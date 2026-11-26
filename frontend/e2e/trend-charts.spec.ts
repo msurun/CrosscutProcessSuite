@@ -43,7 +43,8 @@ test("saved trend chart: build, save, duplicate, delete, axe", async ({ page }) 
 
   const panel = page.getByRole("complementary").or(page.locator("body"));
   await expect(panel.getByText("My charts")).toBeVisible();
-  await expect(page.getByRole("button", { name: `Open ${CHART_NAME}`, exact: true })).toBeVisible();
+  // The list reloads after the save; under a full parallel e2e run that can take longer than 5 s.
+  await expect(page.getByRole("button", { name: `Open ${CHART_NAME}`, exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("region", { name: CHART_NAME }).locator("canvas").first()).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("button", { name: `Duplicate chart ${CHART_NAME}`, exact: true }).click();

@@ -57,6 +57,7 @@ from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_loops import flat_tag_rows, site_entry_names, site_loops_of
 from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
+from crosscut_api.source_history import build_source_history_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
 from crosscut_api.supervisor_routes import build_supervisor_router
 from crosscut_api.trend_chart_routes import build_trend_chart_router
@@ -369,6 +370,8 @@ class _DatasetEndpoints:
         """Return a summary of every dataset found on disk, sorted by dataset id."""
         # Every dataset lives in its own sub-directory of the root and carries a
         # ``dataset.json`` with its metadata; the glob finds those files only.
+        # History caches of catalogue sources (source kind "history", #201) are listed too, so a
+        # link to one keeps working; the console hides them from its dataset picker.
         documents = [_read_json(path) for path in self.store.root.glob("*/dataset.json")]
         summaries = (_summary(document) for document in documents)
         # Sorted by string id so paging and diffing clients see a stable order.
@@ -710,6 +713,7 @@ def _mount_data_routers(
     app.include_router(build_site_router(store.root))
     app.include_router(build_catalogue_router(store.root, store.tags_of))
     app.include_router(build_connector_router(store.root))
+    app.include_router(build_source_history_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
     app.include_router(build_controller_router(store.root))
