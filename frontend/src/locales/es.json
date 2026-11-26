@@ -2113,5 +2113,7 @@
   "equipmentAnomaly.trend.0": "Tendencia EWMA nula",
   "equipmentAnomaly.trend.1": "Tendencia EWMA positiva",
   "equipmentAnomaly.live.shelved": "Suspendida (alarma pospuesta)",
-  "equipmentAnomaly.live.unavailable": "Evaluación no disponible: faltan valores de buena calidad"
+  "equipmentAnomaly.live.unavailable": "Evaluación no disponible: faltan valores de buena calidad",
+  "access.denied.title": "Sin acceso",
+  "access.denied.body": "No tienes permiso para abrir {view}. Pídelo a un ingeniero o administrador si lo necesitas."
 }

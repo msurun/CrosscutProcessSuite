@@ -2102,5 +2102,7 @@
   "equipmentAnomaly.trend.0": "Zero EWMA trend",
   "equipmentAnomaly.trend.1": "Positive EWMA trend",
   "equipmentAnomaly.live.shelved": "Suppressed (shelved)",
-  "equipmentAnomaly.live.unavailable": "Scoring unavailable: missing good-quality values"
+  "equipmentAnomaly.live.unavailable": "Scoring unavailable: missing good-quality values",
+  "access.denied.title": "No access",
+  "access.denied.body": "You do not have permission to open {view}. Ask an engineer or administrator if you need it."
 }

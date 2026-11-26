@@ -93,6 +93,19 @@ test("operator: no Users tab, mode-up options disabled with a reason, kill enabl
   await page.goto(URL_USERS);
   await expect(page.getByRole("alert").filter({ hasText: /\S/ }).first()).toBeVisible();
   await expect(page.getByTestId("open-create-user")).toHaveCount(0);
+  await expect(page.getByTestId("no-access")).toBeVisible();
+});
+
+test("operator: the menu hides Site and Administration, a Site URL shows no access (#175)", async ({ page }) => {
+  await signIn(page, OPERATOR.name, OPERATOR.password);
+  await expectSignedIn(page, OPERATOR.name);
+  const menu = page.locator("nav.main-nav");
+  await expect(menu.getByRole("button", { name: /^(Trends|Trendy|Tendencias)$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(menu.getByRole("button", { name: /^(Site|Instalacja|Planta)$/ })).toHaveCount(0);
+  await expect(menu.getByRole("button", { name: /Administracja|Administration|Administración/ })).toHaveCount(0);
+  await page.goto(`/#/d/${DATASET}/catalogue`);
+  await expect(page.getByTestId("no-access")).toBeVisible();
+  await expectNoViolations(page, 1440);
 });
 
 test("viewer: the API refuses an approval", async ({ page }) => {

@@ -2113,5 +2113,7 @@
   "equipmentAnomaly.trend.0": "Zerowy trend EWMA",
   "equipmentAnomaly.trend.1": "Dodatni trend EWMA",
   "equipmentAnomaly.live.shelved": "Wstrzymane (odłożony alarm)",
-  "equipmentAnomaly.live.unavailable": "Ocena niedostępna: brak danych dobrej jakości"
+  "equipmentAnomaly.live.unavailable": "Ocena niedostępna: brak danych dobrej jakości",
+  "access.denied.title": "Brak dostępu",
+  "access.denied.body": "Nie masz uprawnień do widoku {view}. Poproś inżyniera lub administratora, jeśli go potrzebujesz."
 }
