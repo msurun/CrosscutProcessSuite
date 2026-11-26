@@ -85,6 +85,7 @@ class FuzzyController:
         if missing:
             raise ControllerBindingError(f"no gateway target for MV {missing[0]!r}")
         self.base_sp: dict[str, float] = {}
+        self._initialising = False
 
     def apply_limits(self, variables: Sequence[Mapping[str, Any]]) -> None:
         """Take the limits of the effective variables (catalogue plus operator overrides)."""
@@ -95,11 +96,14 @@ class FuzzyController:
         self.base_sp = {
             s.variable_id: s.sp_value
             for s in statuses
-            if s.variable_id in self._targets and s.sp_value is not None
+            if s.variable_id in self._targets and s.status != BAD and _finite(s.sp_value)
         }
+        self._initialising = True
 
     def step(self, statuses: Sequence[VariableStatus]) -> StepResult:
         """One cycle: infer on the usable inputs, then turn each output delta into a move."""
+        if self._initialising:
+            return self._initial_moves(statuses)
         by_id = {s.variable_id: s for s in statuses}
         usable = {
             i.id: by_id[i.id].value
@@ -112,6 +116,22 @@ class FuzzyController:
             return StepResult((), INSUFFICIENT)
         payload = infer_payload(system, {k: float(v) for k, v in usable.items() if v is not None})
         return self._result(system, payload, by_id)
+
+    def _initial_moves(self, statuses: Sequence[VariableStatus]) -> StepResult:
+        """Track fresh SP values before allowing fuzzy deltas on later cycles."""
+        self.initialise(statuses)
+        self._initialising = False
+        # This incremental controller has no integral term: SP_next = SP_read + delta.
+        # Track one scalar SP per MV in engineering units and force delta = 0 once.
+        # Refresh here because the operator may have changed SP since switch-on.
+        moves = tuple(
+            Move(status.variable_id, str(self._targets[status.variable_id]),
+                 float(status.sp_value), "bumpless_initialisation")
+            for status in statuses
+            if status.variable_id in self._targets and status.status != BAD
+            and _finite(status.sp_value)
+        )
+        return StepResult(moves, "bumpless_initialisation")
 
     def _result(
         self, system: FuzzySystem, payload: Mapping[str, Any], by_id: Mapping[str, VariableStatus]
