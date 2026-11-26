@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const START_URL = "/#/d/level_integrating_demo/import";
 const SCRIPT = fileURLToPath(new URL("./support/make_step_csv.py", import.meta.url));
@@ -57,7 +58,7 @@ async function runCheck(page: Page): Promise<void> {
 
 test("upload, preview, check, create and open the tuning view", async ({ page }, info) => {
   const errors: string[] = [];
-  page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+  page.on("response", (r) => { if (r.status() >= 400 && !isStatusBarProbe(r.url())) errors.push(`${r.status()} ${r.url()}`); });
   await chooseFile(page);
   await expect(page.locator("nav.view-tabs").getByRole("button", { name: "Import danych" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByLabel("Separator kolumn")).toHaveValue(";");

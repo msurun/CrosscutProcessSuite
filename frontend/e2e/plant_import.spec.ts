@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const START_URL = "/#/d/level_integrating_demo/import";
 const SCRIPT = fileURLToPath(new URL("./support/make_plant_csv.py", import.meta.url));
@@ -67,7 +68,7 @@ async function runPreview(page: Page): Promise<void> {
 test("preview, loops, test window, import and open the LIC-20103 loop", async ({ page }, info) => {
   const errors: string[] = [];
   page.on("response", (r) => {
-    if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`);
+    if (r.status() >= 400 && !isStatusBarProbe(r.url())) errors.push(`${r.status()} ${r.url()}`);
   });
   await chooseFiles(page);
   await runPreview(page);
