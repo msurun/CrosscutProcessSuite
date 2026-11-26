@@ -27,6 +27,7 @@ from crosscut_connectors.base import (
     SourceConnectionError,
     TagMetadata,
 )
+from crosscut_connectors.secret_store import SecretStoreError, default_store
 from crosscut_connectors.site import Limits, SiteImportSettings, TagSettings
 
 TIMEOUT_S = 30  # Seconds per HTTP request.
@@ -54,20 +55,36 @@ def _http_get(request: Request, timeout: float) -> Mapping[str, Any]:
         return json.load(response)
 
 
+def _credential(auth: Mapping[str, Any]) -> str:
+    """The secret named by ``credential_ref`` (OS store) or ``credential_env`` (environment)."""
+    if auth.get("credential_ref"):
+        try:
+            secret = default_store().get(str(auth["credential_ref"]))
+        except SecretStoreError as error:
+            raise SourceConnectionError(str(error)) from None
+        if not secret:
+            raise SourceConnectionError("No secret stored for the PI auth credential_ref")
+        return secret
+    credential = os.environ.get(str(auth.get("credential_env", "")))
+    if not credential:
+        raise SourceConnectionError("Set the PI auth credential_env environment variable")
+    return credential
+
+
 def _headers(auth: Mapping[str, Any]) -> dict[str, str]:
     """Resolve credentials at runtime without including their values in errors."""
     headers = {"Accept": "application/json"}
-    if set(auth) - {"kind", "credential_env"}:
-        raise ValueError("PI auth accepts only kind and credential_env; remove inline credentials")
+    if set(auth) - {"kind", "credential_env", "credential_ref"}:
+        raise ValueError(
+            "PI auth accepts only kind, credential_env and credential_ref; "
+            "remove inline credentials"
+        )
     kind = auth.get("kind")
     if kind is None or kind == "kerberos":
         return headers
     if kind not in {"basic", "bearer"}:
         raise ValueError("PI auth kind must be basic, kerberos or bearer")
-    variable = auth.get("credential_env", "")
-    credential = os.environ.get(variable)
-    if not credential:
-        raise SourceConnectionError("Set the PI auth credential_env environment variable")
+    credential = _credential(auth)
     if kind == "basic":
         credential = base64.b64encode(credential.encode()).decode("ascii")
     headers["Authorization"] = f"{'Basic' if kind == 'basic' else 'Bearer'} {credential}"

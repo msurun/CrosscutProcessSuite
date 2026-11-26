@@ -11,6 +11,7 @@ import type { Translate } from "../findings";
 import { ConfigEditorPage } from "../ConfigEditorPage";
 import { CatalogueWizard } from "./CatalogueWizard";
 import { SourcesPanel } from "./SourcesPanel";
+import { SourceAdminPanel } from "./SourceAdminPanel";
 
 export interface SitePageProps {
   /** Translation function for localized UI strings. */
@@ -58,7 +59,12 @@ export function SitePage({ t }: SitePageProps): ReactElement {
       </div>
 
       {mode === "wizard" && <CatalogueWizard t={t} onClose={() => setMode("editor")} />}
-      {mode === "sources" && <SourcesPanel t={t} />}
+      {mode === "sources" && (
+        <>
+          <SourceAdminPanel t={t} />
+          <SourcesPanel t={t} />
+        </>
+      )}
       {mode === "editor" && <ConfigEditorPage kind="site" configId="site" t={t} />}
     </section>
   );

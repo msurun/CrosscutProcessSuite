@@ -264,10 +264,11 @@
           "required": ["kind"],
           "properties": {
             "kind": {"enum": ["basic", "kerberos", "bearer"]},
-            "credential_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+            "credential_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+            "credential_ref": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$", "description": "Name of the secret in the operating-system secret store (#208); the value is never in this file."}
           },
           "if": {"properties": {"kind": {"enum": ["basic", "bearer"]}}},
-          "then": {"required": ["credential_env"]}
+          "then": {"anyOf": [{"required": ["credential_env"]}, {"required": ["credential_ref"]}]}
         },
         "profile": {
           "type": "string",
