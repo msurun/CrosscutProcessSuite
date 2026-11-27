@@ -38,12 +38,21 @@
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "hybrid",
       "pls"
     ],
-    "note": "Empirical classification model plus data-driven correction on lab (#156)."
+    "planned": [],
+    "note": "ASSUMPTION loading/sqrt(pressure) proxy with fitted gain and residual ridge; not the full Plitt correlation.",
+    "physics": {
+      "formula": "cyclone_loading_proxy",
+      "roles": [
+        "feed_flow",
+        "cyclones_open",
+        "cyclone_pressure"
+      ],
+      "unit": "m3/h/sqrt(kPa)"
+    }
   },
   "validity_checks": [
     {

@@ -4,6 +4,7 @@
 import { OutputTest } from "./OutputTest";
 import { StepPlanPanel } from "./StepPlanPanel";
 import { PrecommissionPanel } from "./PrecommissionPanel";
+import { ModelMatrixPanel } from "./ModelMatrixPanel";
 import { useEffect, useRef, useState } from "react";
 import { fetchTags } from "../api";
 import type { Translate } from "../findings";
@@ -215,6 +216,7 @@ export function StepsPage({ datasetId, loopNames, initialLoop, t }: PageProps) {
       <p className="notice banner-warning" role="note">{t("steps.note")}</p>
       <OutputTest t={t} />
       <StepPlanPanel t={t} />
+      <ModelMatrixPanel t={t} />
       <PrecommissionPanel t={t} />
       <StepsForm target={target} model={model} logbookText={logbookText}
         offsetHours={offsetHours} busy={busy} canRun={canRun} onRun={runAnalysis}
