@@ -395,3 +395,31 @@ def test_unapplied_proposals_do_not_accumulate(ctrl: MpcController) -> None:
         out = ctrl.step(rows)
         start = {"u1": 40.0, "u2": 60.0}
         assert all(abs(m.value - start[m.variable_id]) <= 5.0 + 1e-9 for m in out.moves)
+
+
+ECONOMICS = {"cv_value": {"y2": 2.0}, "mv_cost": {"u1": 0.1}, "soft_limits": {"y2": {"hi": 80.0}}}
+
+
+def test_economics_are_reported_with_where_and_why(ctrl: MpcController) -> None:
+    ctrl.apply_economics(ECONOMICS)
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    data = ctrl.step(statuses((40.0, 60.0), (20.0, 30.0))).diagnostics
+    assert data is not None and data["status"] in {"solved", "relaxed"}
+    economics = data["economics"]
+    assert economics["status"] == "optimal" and economics["benefit_rate"] >= 0
+    assert all({"kind", "variable", "side", "limit", "shadow_price"} <= b.keys()
+               for b in economics["binding"])
+    assert {b["variable"] for b in economics["binding"]} <= {"u1", "u2", "y1", "y2"}
+
+
+def test_no_objective_means_no_economics_report(ctrl: MpcController) -> None:
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    data = ctrl.step(statuses((40.0, 60.0), (20.0, 30.0))).diagnostics
+    assert data is not None and "economics" not in data
+
+
+def test_economics_cannot_move_an_mv_beyond_its_step_window(ctrl: MpcController) -> None:
+    ctrl.apply_economics(ECONOMICS)
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    result = ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    assert all(abs(m.value - s) <= 5.0 + 1e-6 for m, s in zip(result.moves, (40.0, 60.0), strict=True))

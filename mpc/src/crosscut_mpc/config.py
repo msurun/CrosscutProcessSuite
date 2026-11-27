@@ -4,10 +4,14 @@ Limits use signal engineering units; rates use engineering units per second.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .model import Array, FopdtModel
+
+if TYPE_CHECKING:
+    from .economics import Economics
 
 
 @dataclass(frozen=True)
@@ -79,12 +83,20 @@ class Controller:
     model: FopdtModel
     limits: Limits
     settings: Settings = Settings()
+    economics: "Economics | None" = None
 
     def __post_init__(self) -> None:
-        """Check that every CV and MV has a model path."""
+        """Check that every CV and MV has a model path and the economics match them."""
         outputs, inputs = self.model.gains.shape
         if outputs != len(self.limits.cv_lower) or inputs < len(self.limits.mv_lower):
             raise ValueError("Model dimensions must cover every declared CV and MV")
+        economics = self.economics
+        if economics is not None and (
+                economics.cv_value.shape != self.limits.cv_lower.shape or
+                economics.cv_soft_lower.shape != self.limits.cv_lower.shape or
+                economics.mv_cost.shape != self.limits.mv_lower.shape or
+                economics.mv_soft_lower.shape != self.limits.mv_lower.shape):
+            raise ValueError("Economics vectors must match the CV and MV dimensions")
 
 
 def priority_weights(priorities: Array) -> Array:

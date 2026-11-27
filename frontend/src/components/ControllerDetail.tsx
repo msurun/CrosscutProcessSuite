@@ -8,6 +8,9 @@ import type { ControllerCommand, ControllerDetail as Detail, VariableOverride } 
 import type { Translate } from "../findings";
 import { ControllerVariableRow } from "./ControllerVariableRow";
 import { ControllerStateChip } from "./ControllerStateChip";
+import { EconomicsBenefit } from "./EconomicsBenefit";
+import { EconomicsEditor } from "./EconomicsEditor";
+import { EconomicsWhy } from "./EconomicsWhy";
 import { MpcPanel } from "./MpcPanel";
 import { reasonText } from "./controllersFormat";
 
@@ -16,6 +19,10 @@ export interface ControllerDetailProps {
   canOperate: boolean;
   onCommand: (command: ControllerCommand) => void;
   onSave: (variableId: string, override: VariableOverride) => void;
+  /** config.edit: may change the economic objective (MPC only). */
+  canConfigure?: boolean;
+  /** Receives the refreshed detail after an economics save or reset. */
+  onDetail?: (detail: Detail) => void;
   t: Translate;
 }
 
@@ -42,7 +49,7 @@ function rowKey(variable: Detail["variables"][number]): string {
   return `${variable.id}:${operator?.lo}:${operator?.hi}:${variable.enabled}`;
 }
 
-export function ControllerDetail({ detail, canOperate, onCommand, onSave, t }: ControllerDetailProps) {
+export function ControllerDetail({ detail, canOperate, onCommand, onSave, canConfigure = false, onDetail = () => undefined, t }: ControllerDetailProps) {
   return (
     <section className="notice" data-testid="controllers-detail" aria-labelledby="controller-detail-title">
       <h2 id="controller-detail-title">{detail.id}</h2>
@@ -74,6 +81,13 @@ export function ControllerDetail({ detail, canOperate, onCommand, onSave, t }: C
         </table>
       </div>
       {detail.diagnostics?.kind === "mpc" && <MpcPanel diagnostics={detail.diagnostics} t={t} />}
+      {detail.diagnostics?.kind === "mpc" && (
+        <>
+          <EconomicsWhy economics={detail.diagnostics.economics} currency={detail.economics?.currency ?? "currency"} t={t} />
+          <EconomicsEditor key={JSON.stringify(detail.economics ?? null)} detail={detail} canEdit={canConfigure} onSaved={onDetail} t={t} />
+          <EconomicsBenefit key={detail.id} detail={detail} diagnostics={detail.diagnostics} t={t} />
+        </>
+      )}
     </section>
   );
 }

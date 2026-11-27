@@ -43,3 +43,52 @@ export async function simulateMpc(body: SimulationRequest): Promise<SimulationRe
   if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : JSON.stringify(result.detail));
   return result as SimulationResult;
 }
+
+/** Objective vectors in model order: value/cost per unit per hour, optional soft limits (null = none). */
+export interface BenefitEconomics {
+  cv_value: number[];
+  mv_cost: number[];
+  cv_soft_lower?: (number | null)[];
+  cv_soft_upper?: (number | null)[];
+  mv_soft_lower?: (number | null)[];
+  mv_soft_upper?: (number | null)[];
+}
+export interface BenefitRequest {
+  artifact_id: string;
+  controller_id: string;
+  limits: SimulationLimits;
+  settings: SimulationRequest["settings"];
+  steps?: number;
+  targets?: number[];
+  economics: BenefitEconomics;
+}
+export interface BenefitBranch {
+  cvs: number[][];
+  mvs: number[][];
+  rate: number[];
+  settled_rate: number;
+  violations: Record<string, number[]>;
+  binding?: { kind: string; index: number; side: string; limit: string; share: number; mean_shadow_price: number }[];
+  binding_over_time?: string[][];
+}
+export interface BenefitResult {
+  time_s: number[];
+  targets: number[];
+  unit: "currency/h";
+  benefit_rate: number;
+  value_gained: number;
+  cv_names: string[];
+  mv_names: string[];
+  tracking: BenefitBranch;
+  economic: BenefitBranch;
+}
+
+/** Run the deterministic tracking-versus-economic comparison (read-only, creates nothing). */
+export async function simulateBenefit(body: BenefitRequest): Promise<BenefitResult> {
+  const response = await apiFetch("/api/mpc/simulate/benefit", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : JSON.stringify(result.detail));
+  return result as BenefitResult;
+}

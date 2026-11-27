@@ -125,6 +125,26 @@
         "required": {"type": "boolean", "description": "MV only: the controller sheds when this MV is unavailable; false when omitted."}
       }
     },
+    "mpc_economics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Economic objective of the steady-state target (per-site configuration). Rates are per hour: value = sum(cv_value*CV) - sum(mv_cost*MV) in the currency named below. Constraint priority always wins: limits and priority relaxation are solved first and value is only maximised inside them. With no entry, or only zeros, the target is plain setpoint tracking. The operator can replace this block from the console.",
+      "properties": {
+        "currency": {"type": "string", "minLength": 1, "maxLength": 16, "description": "Label of the value unit, for example USD; shown next to every rate."},
+        "cv_value": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Per CV id: value per CV engineering unit per hour; positive means higher is better, negative lower is better."},
+        "mv_cost": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Per MV id: cost per MV engineering unit per hour of a higher value (energy, reagent)."},
+        "soft_limits": {
+          "type": "object",
+          "description": "Per CV or MV id: back-off limits inside the hard limits that only shape the economic optimum; dropped when they make the target infeasible.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {"lo": {"type": "number"}, "hi": {"type": "number"}}
+          }
+        }
+      }
+    },
     "controller": {
       "type": "object",
       "additionalProperties": false,
@@ -156,7 +176,8 @@
             },
             "prediction_horizon": {"type": "integer", "minimum": 1, "maximum": 120, "description": "Prediction horizon in cycles; 60 when omitted."},
             "move_horizon": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Move horizon in cycles; 8 when omitted."},
-            "move_suppression": {"type": "number", "exclusiveMinimum": 0, "description": "Move suppression weight; 1 when omitted."}
+            "move_suppression": {"type": "number", "exclusiveMinimum": 0, "description": "Move suppression weight; 1 when omitted."},
+            "economics": {"$ref": "#/$defs/mpc_economics"}
           }
         },
         "variables": {

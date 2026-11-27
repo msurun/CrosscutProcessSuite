@@ -55,6 +55,8 @@ def _kind_problems(where: str, controller: Document) -> list[str]:
     for index, var in enumerate(controller["variables"]):
         if "target" in var and not (mpc and var["role"] == "CV"):
             problems.append(f"{where}.variables.{index}.target: only a CV of an mpc controller")
+    if mpc and "economics" in controller.get("mpc", {}):
+        problems += economics_problems(f"{where}.mpc.economics", controller)
     return problems
 
 
@@ -96,4 +98,21 @@ def _limit_problems(where: str, limits: Document) -> list[str]:
     for outer, inner in zip(given, given[1:], strict=False):
         if limits[inner]["lo"] < limits[outer]["lo"] or limits[inner]["hi"] > limits[outer]["hi"]:
             problems.append(f"{where}.{inner}: must lie within {outer}")
+    return problems
+
+
+def economics_problems(where: str, controller: Document) -> list[str]:
+    """Economics keys name variables of the right role and soft limits are ordered."""
+    block = controller["mpc"]["economics"]
+    roles = {var["id"]: var["role"] for var in controller["variables"]}
+    problems = []
+    for section, allowed in (("cv_value", ("CV", "ICV")), ("mv_cost", ("MV",))):
+        for name in block.get(section, {}):
+            if roles.get(name) not in allowed:
+                problems.append(f"{where}.{section}.{name}: not a {'/'.join(allowed)} of this controller")
+    for name, bounds in block.get("soft_limits", {}).items():
+        if roles.get(name) not in ("CV", "ICV", "MV"):
+            problems.append(f"{where}.soft_limits.{name}: not an MV or CV of this controller")
+        elif "lo" in bounds and "hi" in bounds and bounds["lo"] >= bounds["hi"]:
+            problems.append(f"{where}.soft_limits.{name}: lo must be below hi")
     return problems

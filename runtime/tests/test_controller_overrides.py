@@ -34,3 +34,13 @@ def test_override_replaces_operator_limits_and_default(tmp_path: Path) -> None:
     assert out["variables"][1]["enabled_default"] is False
     assert DOC["variables"][0]["limits"]["operator"] == {"lo": 1, "hi": 9}
     assert DOC["variables"][1]["enabled_default"] is True
+
+
+def test_economics_override_round_trip_and_reset(tmp_path: Path) -> None:
+    from crosscut_runtime.controllers.overrides import read_economics, write_economics
+
+    assert read_economics(tmp_path, "c") is None
+    write_economics(tmp_path, "c", {"cv_value": {"y": 2.0}})
+    assert read_economics(tmp_path, "c") == {"cv_value": {"y": 2.0}}
+    write_economics(tmp_path, "c", None)
+    assert read_economics(tmp_path, "c") is None

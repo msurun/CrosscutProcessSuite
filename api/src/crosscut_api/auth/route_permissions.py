@@ -106,6 +106,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/controllers/{controller_id}"): "ctl.view",
     ("POST", "/controllers/{controller_id}/command"): "ctl.operate",
     ("PUT", "/controllers/{controller_id}/variables/{variable_id}"): "ctl.operate",
+    ("PUT", "/controllers/{controller_id}/economics"): "config.edit",
+    ("DELETE", "/controllers/{controller_id}/economics"): "config.edit",
 
     # analysis.run (history proposals are read-only but still perform identification)
     ("GET", "/datasets/{dataset_id}/loops/{loop_name}/knowledge/proposal"): "analysis.run",
@@ -214,6 +216,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
 
     # multi-MV step-test planner (MPC 7.1a): proposals only, through the gateway confirm path
     ("POST", "/mpc/simulate"): "gw.view",
+    ("POST", "/mpc/simulate/benefit"): "gw.view",
     ("GET", "/mpc/models/{model_id}"): "gw.view",
     ("POST", "/mpc/models/{model_id}/versions"): "config.edit",
     ("POST", "/mpc/step-plans/preview"): "gw.propose",

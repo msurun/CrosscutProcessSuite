@@ -23,7 +23,13 @@ from crosscut_mpc.engine import ControllerState, Result, cycle, initialise
 from crosscut_mpc.planning import CycleInputs
 
 from crosscut_runtime.controllers import mpc_report as report
-from crosscut_runtime.controllers.mpc_limits import LimitsError, build_limits, clamp_move, range_of
+from crosscut_runtime.controllers.mpc_limits import (
+    LimitsError,
+    build_economics,
+    build_limits,
+    clamp_move,
+    range_of,
+)
 from crosscut_runtime.controllers.mpc_model import BoundModel
 from crosscut_runtime.controllers.protocol import Move, StepResult
 from crosscut_runtime.variable_status import DEFAULT_CYCLE_S, GOOD, VariableStatus
@@ -69,6 +75,7 @@ class MpcController:
         if missing:
             raise MpcBindingError(f"no gateway target for MV {missing[0]!r}")
         self._vars = {v["id"]: v for v in controller_doc["variables"]}
+        self._economics: Mapping[str, Any] | None = config.get("economics")
         self._run: _Run | None = None
         self._last: dict[str, float] = {}  # last proposed setpoint of each MV
         self._recover = False  # the last cycle held: the next solved cycle restarts bumpless
@@ -77,6 +84,10 @@ class MpcController:
     def apply_limits(self, variables: Sequence[Mapping[str, Any]]) -> None:
         """Take the limits of the effective variables (catalogue plus operator overrides)."""
         self._vars = {v["id"]: v for v in variables}
+
+    def apply_economics(self, block: Mapping[str, Any] | None) -> None:
+        """Take the objective of this cycle (operator override or catalogue); ``None`` = none."""
+        self._economics = block
 
     def initialise(self, statuses: Sequence[VariableStatus]) -> None:
         """Forget the engine state; the next step starts bumpless at the live values."""
@@ -131,7 +142,12 @@ class MpcController:
             )
         except (LimitsError, ValueError) as error:
             raise MpcBindingError(str(error)) from error
-        return Controller(self._model.plant, limits, self._settings)
+        ids = (self._model.mv_ids, self._model.cv_ids)
+        try:
+            economics = build_economics(self._economics, self._vars, ids, (ref.sp, ref.cv))
+            return Controller(self._model.plant, limits, self._settings, economics)
+        except ValueError as error:
+            raise MpcBindingError(f"economics: {error}") from error
 
     def _inputs(self, live: Live, ref: Live) -> CycleInputs:
         """Engine inputs as deviations; a CV without a target is held where it is, in range."""
@@ -160,6 +176,7 @@ class MpcController:
         frame = replace(frame, invalid=invalid)
         codes = report.mv_codes(result, frame)
         data = report.diagnostics(result, frame, codes)
+        data.update(report.economics_report(result, frame))
         text = report.explanation(codes, data["why_no_move"], result.reason)
         if report.status_of(result) == report.SHED:
             return StepResult((), text, data, shed=True)

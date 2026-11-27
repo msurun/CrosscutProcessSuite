@@ -112,6 +112,7 @@ function ControllerTable({ rows, selected, onOpen, t }: TableProps) {
 
 export function ControllersPage({ t }: ControllersPageProps) {
   const canOperate = useCan("ctl.operate").allowed;
+  const canConfigure = useCan("config.edit").allowed;
   const [rows, setRows] = useState<ControllerSummary[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -163,7 +164,7 @@ export function ControllersPage({ t }: ControllersPageProps) {
       )}
       {rows !== null && rows.length === 0 && <p className="hint">{t("controllers.empty")}</p>}
       {rows !== null && rows.length > 0 && <ControllerTable rows={rows} selected={selected} onOpen={open} t={t} />}
-      {detail !== null && <ControllerDetail detail={detail} canOperate={canOperate} onCommand={command} onSave={save} t={t} />}
+      {detail !== null && <ControllerDetail detail={detail} canOperate={canOperate} onCommand={command} onSave={save} canConfigure={canConfigure} onDetail={setDetail} t={t} />}
     </div>
   );
 }

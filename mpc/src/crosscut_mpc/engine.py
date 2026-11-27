@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from .config import Controller
+from .economics import EconomicReport, steady_economic_target
 from .model import Array, ModelState, advance, initial_model_state
 from .planning import (
     CycleInputs,
@@ -15,7 +16,6 @@ from .planning import (
     build_prediction,
     dynamic_plan,
     rate_limited_target,
-    steady_target,
 )
 from .qp import ACCEPTANCE_TOLERANCE, Solution
 
@@ -53,6 +53,7 @@ class Result:
     reason: str
     iterations: int
     solve_time_s: float
+    economics: EconomicReport | None = None
 
 
 def validate_inputs(controller: Controller, inputs: CycleInputs) -> None:
@@ -127,7 +128,8 @@ def held_result(controller: Controller, state: ControllerState,
 def planned_result(controller: Controller, inputs: CycleInputs,
                    state: ControllerState, bias: Array) -> tuple[Result, Array]:
     """Solve both layers and return a hold when either layer cannot certify feasibility."""
-    target_solution = steady_target(controller, inputs, bias)
+    economic = steady_economic_target(controller, inputs, bias)
+    target_solution = economic.solution
     if target_solution.values is None:
         held = held_result(controller, state, inputs, target_solution.status)
         return replace(held, iterations=target_solution.iterations,
@@ -141,7 +143,7 @@ def planned_result(controller: Controller, inputs: CycleInputs,
         return replace(held, iterations=target_solution.iterations + plan.iterations,
                        solve_time_s=target_solution.solve_time_s + plan.solve_time_s), state.target
     result = successful_result(controller, inputs, (prediction, bias), (target_solution, plan))
-    return result, target
+    return replace(result, economics=economic.report), target
 
 
 def successful_result(controller: Controller, inputs: CycleInputs,

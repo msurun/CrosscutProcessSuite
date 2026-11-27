@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 from crosscut_mpc.config import Limits
+from crosscut_mpc.economics import Economics
 
 FUNNEL_END_SHARE = 0.1  # a CV with a target is pulled to within this share of its range
 
@@ -84,4 +85,36 @@ def build_limits(
         np.array([float(variables[i].get("priority", 1)) for i in cv_ids]),
         np.array([m for m, _ in steps]), np.array([r for _, r in steps]),
         span / (horizon * cycle_s), span, funnel_end,
+    )
+
+
+def build_economics(
+    block: Mapping[str, Any] | None,
+    variables: Mapping[str, Mapping[str, Any]],
+    ids: tuple[Sequence[str], Sequence[str]],
+    ref: tuple[np.ndarray, np.ndarray],
+) -> Economics | None:
+    """Engine economics of a catalogue ``economics`` block; ``None`` when there is none.
+
+    ``cv_value`` is [currency/(CV unit*h)], ``mv_cost`` [currency/(MV unit*h)], soft limits are
+    absolute engineering values and are shifted by ``ref`` like the other limits. A variable
+    without an entry has value 0 and no soft limit.
+    """
+    if not block:
+        return None
+    mv_ids, cv_ids = ids
+    mv_ref, cv_ref = ref
+    value, cost = block.get("cv_value", {}), block.get("mv_cost", {})
+    soft = block.get("soft_limits", {})
+
+    def bounds(names: Sequence[str], reference: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        lo = [float(soft.get(n, {}).get("lo", -np.inf)) for n in names]
+        hi = [float(soft.get(n, {}).get("hi", np.inf)) for n in names]
+        return np.array(lo) - reference, np.array(hi) - reference
+
+    cv_lo, cv_hi = bounds(cv_ids, cv_ref)
+    mv_lo, mv_hi = bounds(mv_ids, mv_ref)
+    return Economics(
+        np.array([float(value.get(i, 0.0)) for i in cv_ids]),
+        np.array([float(cost.get(i, 0.0)) for i in mv_ids]), cv_lo, cv_hi, mv_lo, mv_hi,
     )

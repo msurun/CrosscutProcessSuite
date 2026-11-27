@@ -21,6 +21,7 @@ from crosscut_connectors.base import Snapshot, SnapshotConnector
 from crosscut_runtime.controllers.overrides import (
     CONTROLLERS_FOLDER,
     apply_overrides,
+    read_economics,
     read_overrides,
 )
 from crosscut_runtime.controllers.protocol import Controller, Move
@@ -198,6 +199,10 @@ class ControllerHost:
         apply_limits = getattr(self._controller, "apply_limits", None)
         if apply_limits is not None:
             apply_limits(doc["variables"])
+        apply_economics = getattr(self._controller, "apply_economics", None)
+        if apply_economics is not None:
+            catalogue = doc.get("mpc", {}).get("economics")
+            apply_economics(read_economics(self._config.data_root, self._controller.id) or catalogue)
         return doc
 
     def _health(self, snapshot: Snapshot, statuses: list[VariableStatus]) -> Health:

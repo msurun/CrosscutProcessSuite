@@ -15,16 +15,19 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from crosscut_connectors.site import SiteError, load_site
+from crosscut_connectors.site_controllers import economics_problems
 from crosscut_runtime.controllers.commands import enqueue_command
 from crosscut_runtime.controllers.host import record_path
 from crosscut_runtime.controllers.overrides import (
     apply_overrides,
+    read_economics,
     read_overrides,
+    write_economics,
     write_overrides,
 )
 from crosscut_runtime.store import read_variable_status
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.audit import AuthAudit
@@ -67,6 +70,49 @@ class VariableBody(BaseModel):
 
     enabled: bool
     operator: Bounds | None = None
+
+
+Finite = Annotated[float, Field(allow_inf_nan=False)]
+
+
+class SoftBounds(BaseModel):
+    """Back-off limits of one variable for the economic optimum; at least one side."""
+
+    model_config = ConfigDict(extra="forbid")
+    lo: Finite | None = None
+    hi: Finite | None = None
+
+
+class EconomicsBody(BaseModel):
+    """Body of ``PUT /controllers/{id}/economics``: the objective, values per hour."""
+
+    model_config = ConfigDict(extra="forbid")
+    currency: str = Field(default="", max_length=16)
+    cv_value: dict[str, Finite] = Field(default_factory=dict, max_length=64)
+    mv_cost: dict[str, Finite] = Field(default_factory=dict, max_length=64)
+    soft_limits: dict[str, SoftBounds] = Field(default_factory=dict, max_length=64)
+
+    def block(self) -> Doc:
+        """The stored block: same shape as the catalogue's ``mpc.economics``."""
+        block: Doc = {
+            "cv_value": self.cv_value,
+            "mv_cost": self.mv_cost,
+            "soft_limits": {
+                k: v.model_dump(exclude_none=True) for k, v in self.soft_limits.items()
+            },
+        }
+        return {**block, "currency": self.currency} if self.currency else block
+
+
+def _effective_economics(root: Path, entry: Doc) -> Doc | None:
+    """The objective in force: the operator's block, else the catalogue's, else none."""
+    if entry.get("type") != "mpc":
+        return None
+    block = read_economics(root, entry["id"])
+    if block is not None:
+        return {**block, "source": "operator"}
+    catalogue = entry.get("mpc", {}).get("economics")
+    return None if catalogue is None else {**catalogue, "source": "catalogue"}
 
 
 def _read_record(root: Path, controller_id: str) -> Doc:
@@ -176,7 +222,12 @@ def _detail(root: Path, entry: Doc) -> Doc:
         for v in _effective(root, entry)["variables"]
     ]
     diagnostics = _read_record(root, entry["id"]).get("diagnostics")
-    return {**_summary(root, entry), "variables": rows, "diagnostics": diagnostics}
+    return {
+        **_summary(root, entry),
+        "variables": rows,
+        "diagnostics": diagnostics,
+        "economics": _effective_economics(root, entry),
+    }
 
 
 def _check_operator(var: Doc, bounds: Bounds) -> None:
@@ -278,6 +329,48 @@ class _Endpoints:
         write_overrides(self._root, controller_id, overrides)
         return _detail(self._root, entry)
 
+    def economics(
+        self,
+        controller_id: str,
+        body: EconomicsBody,
+        actor: Annotated[ActorContext, Depends(actor_of)],
+    ) -> Doc:
+        """Replace the economic objective of an MPC controller (a configuration change)."""
+        entry = _find(self._root, controller_id)
+        actor.require("config.edit")
+        block = self._checked_block(entry, body)
+        self._audit(
+            "controller_economics",
+            actor,
+            controller=controller_id,
+            economics=json.dumps(block, sort_keys=True),
+        )
+        write_economics(self._root, controller_id, block)
+        return _detail(self._root, entry)
+
+    def reset_economics(
+        self, controller_id: str, actor: Annotated[ActorContext, Depends(actor_of)]
+    ) -> Doc:
+        """Remove the operator objective: the catalogue's objective applies again."""
+        entry = _find(self._root, controller_id)
+        actor.require("config.edit")
+        self._audit("controller_economics_reset", actor, controller=controller_id)
+        write_economics(self._root, controller_id, None)
+        return _detail(self._root, entry)
+
+    @staticmethod
+    def _checked_block(entry: Doc, body: EconomicsBody) -> Doc:
+        """The block of a request, or 409 for a non-MPC controller and 422 for bad keys."""
+        if entry.get("type") != "mpc":
+            raise HTTPException(status_code=409, detail=["economics_need_mpc_controller"])
+        block = body.block()
+        problems = economics_problems(
+            "economics", {"variables": entry["variables"], "mpc": {"economics": block}}
+        )
+        if problems:
+            raise HTTPException(status_code=422, detail=problems)
+        return block
+
     def _audit(self, event: str, actor: ActorContext, **fields: str) -> None:
         """Append to the API auth audit; no audit line, no action (503)."""
         audit = AuthAudit(auth_dir(self._root) / AUDIT_FILE, self._clock)
@@ -300,5 +393,11 @@ def build_controller_router(root: Path, clock: Callable[[], float] = time.time) 
         "/controllers/{controller_id}/variables/{variable_id}",
         endpoints.variable,
         methods=["PUT"],
+    )
+    router.add_api_route(
+        "/controllers/{controller_id}/economics", endpoints.economics, methods=["PUT"]
+    )
+    router.add_api_route(
+        "/controllers/{controller_id}/economics", endpoints.reset_economics, methods=["DELETE"]
     )
     return router

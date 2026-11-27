@@ -114,11 +114,46 @@ export interface MpcDiagnostics {
   cvs: MpcCv[];
   mvs: MpcMv[];
   active_constraints: MpcConstraint[];
+  economics?: MpcEconomicsDiagnostics;
+}
+
+/** One limit the economic target rests on; shadow_price is currency/h per unit of relaxing it. */
+export interface EconomicsBinding {
+  kind: "MV" | "CV";
+  variable: string;
+  side: "lower" | "upper";
+  limit: "hard" | "soft";
+  shadow_price: number;
+}
+
+/** The "where and why" of the economic target; all rates are in currency/h. */
+export interface MpcEconomicsDiagnostics {
+  status: string;
+  value_rate: number;
+  tracking_rate: number;
+  benefit_rate: number;
+  soft_limits_applied: boolean;
+  binding: EconomicsBinding[];
+}
+
+/** Soft (back-off) limits of one variable, engineering units; an absent side is not set. */
+export interface SoftLimit {
+  lo?: number;
+  hi?: number;
+}
+
+/** Economic objective per hour: value per CV unit (signed, + = higher is better), cost per MV unit. */
+export interface Economics {
+  currency?: string;
+  cv_value: Record<string, number>;
+  mv_cost: Record<string, number>;
+  soft_limits: Record<string, SoftLimit>;
 }
 
 export interface ControllerDetail extends ControllerSummary {
   variables: ControllerVariable[];
   diagnostics?: MpcDiagnostics | null;
+  economics?: (Economics & { source: "operator" | "catalogue" }) | null;
 }
 
 /** An HTTP failure; `problems` holds the server's detail as one or more readable lines. */
@@ -190,4 +225,14 @@ export async function putControllerVariable(
 ): Promise<ControllerDetail> {
   const url = `${API_PREFIX}/${encodeURIComponent(id)}/variables/${encodeURIComponent(variableId)}`;
   return requestJson<ControllerDetail>(url, send("PUT", override));
+}
+
+/** PUT /controllers/{id}/economics (config.edit): answers the refreshed controller detail. */
+export async function putControllerEconomics(id: string, body: Economics): Promise<ControllerDetail> {
+  return requestJson<ControllerDetail>(`${API_PREFIX}/${encodeURIComponent(id)}/economics`, send("PUT", body));
+}
+
+/** DELETE /controllers/{id}/economics: back to the catalogue objective, answers the detail. */
+export async function deleteControllerEconomics(id: string): Promise<ControllerDetail> {
+  return requestJson<ControllerDetail>(`${API_PREFIX}/${encodeURIComponent(id)}/economics`, { method: "DELETE" });
 }

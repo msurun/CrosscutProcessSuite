@@ -508,3 +508,38 @@ def test_simulation_refuses_excessive_total_work(
     response = simulate_request(world, simulation)
     assert response.status_code == 422
     assert "experiment length" in response.json()["detail"]
+
+
+@pytest.fixture
+def benefit_request(simulation: dict[str, Any]) -> dict[str, Any]:
+    """A benefit report request: value on the CV, a cost on one MV, a CV soft limit."""
+    return {"artifact_id": simulation["artifact_id"], "controller_id": "C1",
+            "limits": simulation["limits"], "settings": simulation["settings"], "steps": 40,
+            "economics": {"cv_value": [2.0], "mv_cost": [0.0, 0.5], "cv_soft_upper": [4.0]}}
+
+
+def test_benefit_report_is_positive_read_only_and_for_viewers(
+    world: World, benefit_request: dict[str, Any],
+) -> None:
+    world.as_user("view1")
+    before = set(world.root.rglob("*"))
+    response = world.client.post("/mpc/simulate/benefit", json=benefit_request,
+                                 headers=world.headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["benefit_rate"] > 0 and body["unit"] == "currency/h"
+    assert body["economic"]["binding"] and body["cv_names"] == ["cv1"]
+    assert all(sum(v) == 0 for v in body["economic"]["violations"].values())
+    assert set(world.root.rglob("*")) == before
+    assert world.gateway.calls == []
+
+
+def test_benefit_report_refuses_zero_economics_and_anonymous(
+    world: World, benefit_request: dict[str, Any],
+) -> None:
+    benefit_request["economics"] = {"cv_value": [0.0], "mv_cost": [0.0, 0.0]}
+    response = world.client.post("/mpc/simulate/benefit", json=benefit_request,
+                                 headers=world.headers)
+    assert response.status_code == 422 and "active economics" in response.text
+    anonymous = TestClient(world.app)
+    assert anonymous.post("/mpc/simulate/benefit", json=benefit_request).status_code == 401

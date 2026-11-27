@@ -122,6 +122,28 @@ def diagnostics(result: Result, frame: Frame, codes: Mapping[str, str]) -> dict[
     }
 
 
+def economics_report(result: Result, frame: Frame) -> dict[str, Any]:
+    """The "where and why" of the economic target: value, benefit and the binding limits.
+
+    Empty when the cycle had no economic target. Rates are [currency/h] of deviations from
+    the operating point; ``shadow_price`` is the value of relaxing that limit by one unit.
+    """
+    item = result.economics
+    if item is None:
+        return {}
+    binding = []
+    for entry in item.binding:
+        names = frame.mv_ids if entry.kind == "mv" else frame.cv_ids
+        binding.append({"kind": entry.kind.upper(), "variable": names[entry.index],
+                        "side": entry.side, "limit": entry.limit,
+                        "shadow_price": entry.shadow_price})
+    return {"economics": {
+        "status": item.status, "value_rate": item.value_rate,
+        "tracking_rate": item.tracking_rate, "benefit_rate": item.benefit_rate,
+        "soft_limits_applied": item.soft_limits_applied, "binding": binding,
+    }}
+
+
 def _finite_path(values: np.ndarray) -> list[float]:
     """A predicted trajectory; empty when it holds a value that is not a finite number."""
     return [float(v) for v in values] if np.all(np.isfinite(values)) else []

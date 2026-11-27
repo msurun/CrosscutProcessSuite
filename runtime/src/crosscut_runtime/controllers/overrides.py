@@ -61,3 +61,27 @@ def _apply_one(variable: dict[str, Any], override: Mapping[str, Any]) -> None:
             "lo": operator["lo"],
             "hi": operator["hi"],
         }
+
+
+def economics_path(root: Path, controller_id: str) -> Path:
+    """Path of the operator objective of one controller (replaces the catalogue's economics)."""
+    return root / RUNTIME_FOLDER / CONTROLLERS_FOLDER / f"{controller_id}.economics.json"
+
+
+def read_economics(root: Path, controller_id: str) -> dict[str, Any] | None:
+    """The operator objective block, or ``None`` (missing or corrupt file: use the catalogue)."""
+    try:
+        data = json.loads(economics_path(root, controller_id).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    block = data.get("economics") if isinstance(data, dict) else None
+    return block if isinstance(block, dict) else None
+
+
+def write_economics(root: Path, controller_id: str, block: Mapping[str, Any] | None) -> None:
+    """Store the objective block atomically; ``None`` removes the override."""
+    path = economics_path(root, controller_id)
+    if block is None:
+        path.unlink(missing_ok=True)
+        return
+    write_json_atomic(path, {"economics": dict(block)})

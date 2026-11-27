@@ -3,6 +3,7 @@
 The endpoint reads catalogue bindings and verified artifacts; it has no gateway dependency.
 """
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -10,7 +11,9 @@ import numpy as np
 from crosscut_artifacts.manifest import ArtifactError
 from crosscut_connectors.site import SiteError, load_site
 from crosscut_mpc.artifact import load_ident_model
+from crosscut_mpc.benefit import BenefitScenario, simulate_benefit
 from crosscut_mpc.config import Controller, Limits, Settings
+from crosscut_mpc.economics import Economics
 from crosscut_mpc.simulator import PidTuning, Scenario, simulate
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -86,6 +89,48 @@ class SimulationInput(PreviewInput):
     settings: SettingInput = Field(default_factory=SettingInput)
     scenario: ScenarioInput = Field(default_factory=ScenarioInput)
     pid_tunings: list[PidInput] = Field(min_length=1, max_length=MAX_VARIABLES)
+
+
+def _soft(values: list[float | None] | None, size: int, default: float) -> list[float]:
+    """A soft-limit vector with null entries (and a missing vector) meaning no limit."""
+    if values is None:
+        return [default] * size
+    if len(values) != size:
+        raise ValueError("Soft limit vectors must match the CV or MV count")
+    return [default if value is None else value for value in values]
+
+
+class EconomicsInput(PreviewInput):
+    """Per-hour value of each CV unit and cost of each MV unit, in model order."""
+
+    cv_value: Vector
+    mv_cost: Vector
+    cv_soft_lower: list[Finite | None] | None = Field(default=None, max_length=MAX_VARIABLES)
+    cv_soft_upper: list[Finite | None] | None = Field(default=None, max_length=MAX_VARIABLES)
+    mv_soft_lower: list[Finite | None] | None = Field(default=None, max_length=MAX_VARIABLES)
+    mv_soft_upper: list[Finite | None] | None = Field(default=None, max_length=MAX_VARIABLES)
+
+    def build(self) -> Economics:
+        """The engine economics; null soft limits become infinite."""
+        cvs, mvs = len(self.cv_value), len(self.mv_cost)
+        return Economics(
+            np.array(self.cv_value), np.array(self.mv_cost),
+            np.array(_soft(self.cv_soft_lower, cvs, -np.inf)),
+            np.array(_soft(self.cv_soft_upper, cvs, np.inf)),
+            np.array(_soft(self.mv_soft_lower, mvs, -np.inf)),
+            np.array(_soft(self.mv_soft_upper, mvs, np.inf)))
+
+
+class BenefitInput(PreviewInput):
+    """Artifact, limits, settings and an economic objective for a benefit report."""
+
+    artifact_id: str = Field(min_length=1, max_length=128, pattern=ID_PATTERN)
+    controller_id: str = Field(min_length=1, max_length=128)
+    limits: LimitInput
+    settings: SettingInput = Field(default_factory=SettingInput)
+    economics: EconomicsInput
+    steps: int = Field(default=150, ge=10, le=300)
+    targets: list[Finite] = Field(default_factory=list, max_length=MAX_VARIABLES)
 
 
 def artifact_directory(root: Path, artifact_id: str) -> Path:
@@ -173,6 +218,24 @@ def run_preview(root: Path, body: SimulationInput) -> dict[str, Any]:
     return {**result, **names, "pid_source": "entered_snapshot"}
 
 
+def run_benefit(root: Path, body: BenefitInput) -> dict[str, Any]:
+    """Run the economic against the tracking MPC on a verified model; nothing is persisted."""
+    variables = catalogue_variables(root, body.controller_id)
+    outputs = sum(row["role"] in ("CV", "ICV") for row in variables)
+    movers = sum(row["role"] == "MV" for row in variables)
+    if outputs * body.settings.prediction_horizon > MAX_PREDICTED_VALUES or             movers * body.settings.move_horizon > MAX_MOVE_VALUES or             outputs * body.settings.prediction_horizon * body.steps * 2 > 2 * MAX_PREVIEW_VALUES:
+        raise ValueError("Reduce experiment length, horizons or variable count for a preview")
+    shell = SimulationInput(artifact_id=body.artifact_id, controller_id=body.controller_id,
+                            limits=body.limits, settings=body.settings,
+                            pid_tunings=[PidInput(loop_id="-", kp=1.0, ti_s=1.0)])
+    controller = load_preview_controller(root, shell, variables)
+    controller = replace(controller, economics=body.economics.build())
+    result = simulate_benefit(controller, BenefitScenario(body.steps, tuple(body.targets)))
+    names = {"cv_names": [row["id"] for row in variables if row["role"] in ("CV", "ICV")],
+             "mv_names": [row["id"] for row in variables if row["role"] == "MV"]}
+    return {**result, **names}
+
+
 def build_simulation_router(root: Path) -> APIRouter:
     """Build the read-only simulation preview endpoint, accessible with gw.view."""
     router = APIRouter()
@@ -183,6 +246,15 @@ def build_simulation_router(root: Path) -> APIRouter:
         actor.require("gw.view")
         try:
             return run_preview(root, body)
+        except (ArtifactError, ValueError, KeyError, TypeError, OSError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.post("/mpc/simulate/benefit")
+    def benefit(body: BenefitInput, actor: ActorDep) -> dict[str, Any]:
+        """Economic against setpoint-tracking MPC on the model: value per hour, binding limits."""
+        actor.require("gw.view")
+        try:
+            return run_benefit(root, body)
         except (ArtifactError, ValueError, KeyError, TypeError, OSError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 

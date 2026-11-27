@@ -81,3 +81,36 @@ def test_cv_target_is_accepted() -> None:
         cv["target"] = 12.5
 
     assert _problems(put) == []
+
+
+def _ids(doc: dict[str, Any], role: str) -> list[str]:
+    return [v["id"] for v in doc["controllers"][0]["variables"] if v["role"] == role]
+
+
+def test_economics_block_is_accepted() -> None:
+    def put(doc: dict[str, Any]) -> None:
+        cv, mv = _ids(doc, "CV")[0], _ids(doc, "MV")[0]
+        doc["controllers"][0]["mpc"]["economics"] = {
+            "currency": "USD", "cv_value": {cv: 12.5}, "mv_cost": {mv: 0.4},
+            "soft_limits": {cv: {"hi": 90.0}}}
+
+    assert _problems(put) == []
+
+
+def test_economics_keys_must_name_variables_of_the_right_role() -> None:
+    def put(doc: dict[str, Any]) -> None:
+        cv, mv = _ids(doc, "CV")[0], _ids(doc, "MV")[0]
+        doc["controllers"][0]["mpc"]["economics"] = {
+            "cv_value": {mv: 1.0}, "mv_cost": {cv: 1.0}, "soft_limits": {"nope": {"lo": 1.0}}}
+
+    lines = _problems(put)
+    assert len([line for line in lines if "mpc.economics" in line]) == 3, lines
+
+
+def test_economics_soft_limits_are_ordered_and_unknown_keys_refused() -> None:
+    def put(doc: dict[str, Any]) -> None:
+        cv = _ids(doc, "CV")[0]
+        doc["controllers"][0]["mpc"]["economics"] = {"soft_limits": {cv: {"lo": 5, "hi": 5}}}
+
+    assert any("lo must be below hi" in line for line in _problems(put))
+    assert _problems(lambda d: d["controllers"][0]["mpc"].update(economics={"profit": 1}))
