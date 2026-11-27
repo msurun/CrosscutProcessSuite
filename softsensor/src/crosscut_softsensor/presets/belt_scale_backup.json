@@ -41,12 +41,21 @@
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "physics_template",
       "hybrid"
     ],
-    "note": "Net power proportional to load times speed; calibrated against the scale while healthy (#156)."
+    "planned": [],
+    "note": "Net power proportional to load times speed; calibrated against the scale while healthy (#156).",
+    "physics": {
+      "formula": "belt_net_power",
+      "roles": [
+        "drive_power",
+        "empty_belt_power",
+        "belt_speed"
+      ],
+      "unit": "kW"
+    }
   },
   "validity_checks": [
     {

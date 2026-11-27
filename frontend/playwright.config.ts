@@ -28,7 +28,7 @@ export default defineConfig({
     locale: "pl-PL",
     launchOptions: { executablePath: findChromium() },
   },
-  // Specs share one data root (site.json): runtime.spec.ts runs alone, after all the others.
+  // Specs share one data root (site.json): runtime.spec.ts and catalogue-versions.spec.ts run alone, after all the others.
   // gateway-live.spec.ts and tuning-live.spec.ts need the real gateway stack (E2E_GATEWAY=1, started
   // by run_e2e.mjs): with that switch they are the only projects, so no other spec runs against a
   // live gateway. tuning-live runs after gateway-live (which leaves the stack re-enabled and in
@@ -43,8 +43,10 @@ export default defineConfig({
         { name: "tuning-live", testMatch: /tuning-live\.spec\.ts/, dependencies: ["gateway-live"] },
       ]
     : [
-        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live|l5-nocode|config-editor-modules)\.spec\.ts/ },
+        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live|l5-nocode|config-editor-modules|catalogue-versions)\.spec\.ts/ },
         { name: "config-editors", testMatch: /config-editor-modules\.spec\.ts/, dependencies: ["main"] },
-        { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["config-editors"] },
+        // catalogue-versions rewrites _site (draft, versions, pending), so it runs alone as well.
+        { name: "catalogue-versions", testMatch: /catalogue-versions\.spec\.ts/, dependencies: ["config-editors"] },
+        { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["catalogue-versions"] },
       ],
 });
