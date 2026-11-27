@@ -19,6 +19,7 @@ export type View =
   | "runtime"
   | "controllers"
   | "gateway"
+  | "health"
   | "tuning"
   | "users"
   | "backup";
@@ -61,6 +62,7 @@ const KNOWN_VIEWS: readonly View[] = [
   "runtime",
   "controllers",
   "gateway",
+  "health",
   "tuning",
   "users",
   "backup",

@@ -191,3 +191,18 @@ identify bad values when communication succeeds. Writes remain exclusively in th
 
 Protocol reference: [AVEVA PI Web API](https://docs.aveva.com/bundle/pi-web-api-reference/page/help/getting-started.html).
 Real-server authentication and performance checks remain owner tasks; tests use synthetic fixtures.
+
+## Health and log export (issue #170)
+
+**Administration > Health** shows one read-only table, refreshed every 10 s, each row ok, warning or error with a reason:
+
+- **Runtime:** running, stopped, never started or stale (its state file older than 30 s), with uptime. Jobs: one row per enabled job with last run, last success, last error, overrun count and lag. A job is *late* (warning) after 2 periods without a run, *overdue* (error) after 5, and an *overrun* is counted when a run starts more than 2 periods after the previous one.
+- **Gateway:** state file fresh (10 s), mode (mode `off` is a warning), and the beats of the runtime and of each controller as the gateway sees them (a lost beat is an error).
+- **Audit:** time of the last audit write (gateway chain and sign-in log) and the gateway chain check.
+- **System:** free space on the data root (warning below 10 % or 5 GiB, error below 5 % or 1 GiB) and the installed package versions (warning when they differ).
+
+Everyone who may open the Runtime page (`data.view`) may read it; the API route is `GET /admin/health`.
+
+**Log export** (`GET /admin/logs/export?start=<ISO>&end=<ISO>`, button on the Health page) needs `users.manage`. It returns a zip with the lines of the chosen range (default: the last 24 h) of every log file that exists, and writes a `log_export` record (who, range, files) to the sign-in audit chain. Passwords, tokens, API keys, cookies, `Authorization` headers, URL credentials and private key blocks are replaced by `[redacted]`; the scrubbing is pattern based, so still read an export before sending it outside the site.
+
+Where the logs are: each process writes `<root>/_logs/<api|runtime|gateway>.log` (rotating, UTC time stamps) when it is started with its entry point (`python -m crosscut_api --root <root>`, `python -m crosscut_runtime`, `python -m crosscut_gateway`; the Windows and systemd wrappers in `deploy/` already do). The runtime job log `<root>/_runtime/log.jsonl` is exported too. Defaults, changed by environment variables of the process: `CROSSCUT_LOG_LEVEL=INFO`, `CROSSCUT_LOG_MAX_BYTES=5000000` per file, `CROSSCUT_LOG_BACKUPS=5` rotated files. An API started another way (for example `uvicorn` directly) writes no `api.log`, and the export then holds only what the other processes wrote. Each component log file assumes **one writer process**: do not start the API with `uvicorn --workers` or `--reload` in production (rotation would corrupt the file). A plain `uvicorn` start writes no `api.log` at all. The export refuses a range longer than 31 days or more than 100 MB of log text (422 with the reason) and needs a fresh step-up (password re-entry). The systemd unit of the API needs write access to `_logs` and `_auth` (the unit in `deploy/` grants both).
