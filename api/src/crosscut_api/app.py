@@ -65,6 +65,7 @@ from crosscut_api.mpc_model_routes import build_model_router
 from crosscut_api.mpc_simulation_routes import build_simulation_router
 from crosscut_api.mpc_step_routes import build_step_plan_router
 from crosscut_api.onboarding_routes import build_onboarding_router
+from crosscut_api.operating_envelope_routes import build_operating_envelope_router
 from crosscut_api.plant_import_routes import build_plant_import_router
 from crosscut_api.runtime_routes import build_runtime_router
 from crosscut_api.schema_routes import build_schema_router
@@ -790,6 +791,8 @@ def _mount_data_routers(
     app.include_router(build_softsensor_runtime_router(
         store.root, store.load_seconds, store.load_quality))
     app.include_router(build_trend_chart_router(store.root))
+    app.include_router(
+        build_operating_envelope_router(store.root, store.load_wide, store.load_quality))
     app.include_router(build_backup_router(store.root))
 
 
