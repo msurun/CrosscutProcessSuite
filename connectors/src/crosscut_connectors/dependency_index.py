@@ -34,6 +34,8 @@ INDEX_FILE = "dependencies.json"
 LOCK_FILE = "dependencies.lock"
 LOCK_TRIES = 200
 LOCK_STALE_S = 60.0
+SHARE_TRIES = 40  # Windows: a file another process has open refuses rename/read for a moment
+SHARE_WAIT_S = 0.05
 UNREADABLE = "dependency_index_unreadable"
 LOCK_WAIT_S = 0.05
 MODEL_KINDS = ("anomaly", "softsensor", "ident_model")
@@ -57,6 +59,17 @@ def empty_index() -> Doc:
     return {"schema_version": 1, "items": {}, "stale": {}}
 
 
+def _retry_share(action: Callable[[], Any]) -> Any:
+    """Run ``action``, retrying a short time on PermissionError (Windows sharing violation)."""
+    for attempt in range(SHARE_TRIES):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == SHARE_TRIES - 1:
+                raise
+            time.sleep(SHARE_WAIT_S)
+
+
 def load_index(root: Path) -> Doc:
     """The stored index; only an absent file (first run) is an empty index.
 
@@ -64,7 +77,7 @@ def load_index(root: Path) -> Doc:
     (fail closed) instead of treating every dependent as unknown and therefore fine.
     """
     try:
-        text = index_path(root).read_text(encoding="utf-8")
+        text = _retry_share(lambda: index_path(root).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return empty_index()
     except OSError as error:
@@ -90,19 +103,19 @@ def _index_lock(root: Path) -> Iterator[None]:
         try:
             if time.time() - lock.stat().st_mtime > LOCK_STALE_S:
                 lock.unlink(missing_ok=True)
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError):
             pass
         try:
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # PermissionError: lock is being deleted
             if attempt == LOCK_TRIES - 1:
                 raise DependencyError("the dependency index is busy") from None
             time.sleep(LOCK_WAIT_S)
     try:
         yield
     finally:
-        lock.unlink(missing_ok=True)
+        _retry_share(lambda: lock.unlink(missing_ok=True))
 
 
 def _write(root: Path, index: Doc) -> None:
@@ -111,7 +124,7 @@ def _write(root: Path, index: Doc) -> None:
     with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
         json.dump(index, stream, indent=2, ensure_ascii=False)
         stream.write("\n")
-    os.replace(temp, index_path(root))
+    _retry_share(lambda: os.replace(temp, index_path(root)))
 
 
 def _update(root: Path, mutate: Callable[[Doc], Any]) -> Any:
