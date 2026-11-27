@@ -15,6 +15,7 @@ import {
 } from "../api";
 import type { Translate } from "../findings";
 import { Stepper, type StepInfo, type StepState } from "./Stepper";
+import { DraftNotice } from "./DraftNotice";
 
 export type WizardPhase = "source" | "tags" | "roles" | "loops" | "confirm";
 
@@ -470,6 +471,7 @@ function ConfirmStep(props: ConfirmStepProps) {
       {saved ? (
         <div className="notice banner-success" data-testid="wizard-success-notice">
           <p>{t("catalogue.wizard.saved")}</p>
+          <DraftNotice t={t} />
           {onClose && (
             <button type="button" className="button button-primary" onClick={onClose}>
               {t("catalogue.wizard.done")}

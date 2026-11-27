@@ -110,3 +110,12 @@ All v1 presets are `experimental` until the deployment gate passes on validation
 | Physics gain and offset | Conservation of mass and calibrated ratio templates; Felder and Rousseau, Elementary Principles of Chemical Processes; preset sources above | 2026-11-27 / Codex |
 | Hybrid residual ridge | Kadlec et al., Data-driven Soft Sensors, Computers and Chemical Engineering 33 (2009), doi:10.1016/j.compchemeng.2008.12.012 | 2026-11-27 / Codex |
 | Blocked validation and delayed-lab baselines | Roberts et al., Cross-validation strategies for data with temporal structure, Ecography 40 (2017), doi:10.1111/ecog.02881; exp39 diagnosis above. EWMA weight and formula proxies are ASSUMPTION defaults | 2026-11-27 / Codex |
+
+## Windows service installer (#168)
+
+| Method/component | Public source | Use |
+|---|---|---|
+| NSSM 2.24 | https://nssm.cc/usage ; https://nssm.cc/download | Public-domain native service wrapper; invokes embedded Python directly, forwards stop controls, captures output and supervises exits. |
+| Windows virtual service accounts and service recovery | https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-service-accounts ; https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/sc-failure | Passwordless per-service identities, dependency order and bounded restart delays. |
+| Inno Setup | https://jrsoftware.org/isinfo.php | Installer compiler; its own licence permits commercial installation packages. |
+| CPython embeddable distribution | https://docs.python.org/3.12/using/windows.html#the-embeddable-package | PSF-licensed isolated Python; build-time pip populates site-packages without bootstrapping pip at installation. |

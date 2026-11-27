@@ -10,6 +10,7 @@ import {
   testSavedSource,
   type SourceEntry,
 } from "../sourceAdminApi";
+import { DraftNotice } from "./DraftNotice";
 import { SourceForm } from "./SourceForm";
 
 export interface SourceAdminPanelProps {
@@ -39,6 +40,7 @@ function SourceRow({ t, source, onEdit, onDelete, onTest }: RowProps): ReactElem
 function useSources(t: Translate) {
   const [sources, setSources] = useState<SourceEntry[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [drafted, setDrafted] = useState(false);
   const reload = useCallback(
     () => listSourceEntries().then((r) => setSources(r.sources ?? []), () => setSources([])),
     [],
@@ -58,20 +60,22 @@ function useSources(t: Translate) {
   const remove = (id: string) =>
     report(async () => {
       await deleteSource(id);
+      setDrafted(true);
       await reload();
       return t("sources.deleted", { id });
     });
   const test = (id: string) =>
     report(async () => t("sources.testOk", { capabilities: (await testSavedSource(id)).capabilities.join(", ") }));
-  return { sources, message, reload, remove, test };
+  return { sources, message, reload, remove, test, drafted, markDrafted: () => setDrafted(true) };
 }
 
 /** Panel that manages the entries of `sources` in site.json. */
 export function SourceAdminPanel({ t }: SourceAdminPanelProps): ReactElement {
-  const { sources, message, reload, remove, test } = useSources(t);
+  const { sources, message, reload, remove, test, drafted, markDrafted } = useSources(t);
   const [editing, setEditing] = useState<SourceEntry | "new" | null>(null);
   const onSaved = () => {
     setEditing(null);
+    markDrafted();
     void reload();
   };
 
@@ -89,6 +93,7 @@ export function SourceAdminPanel({ t }: SourceAdminPanelProps): ReactElement {
           <SourceRow key={s.id} t={t} source={s} onEdit={() => setEditing(s)} onDelete={() => remove(s.id)} onTest={() => test(s.id)} />
         ))}
       </ul>
+      {drafted && <DraftNotice t={t} />}
       {message && <p role="alert">{message}</p>}
     </section>
   );

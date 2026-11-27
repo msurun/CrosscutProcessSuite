@@ -117,7 +117,7 @@ def test_put_stores_the_loop_in_the_site_catalogue_not_a_project_file(
 ) -> None:
     """#176: the catalogue is the single home of loop knowledge; no project.json is written."""
     client.put(_knowledge_url(loop_name), json={"delay_s": 4.0})
-    site = json.loads((data_root / "_site" / "site.json").read_text())
+    site = json.loads((data_root / "_site" / "draft.json").read_text())
     assert loop_name in {loop["id"] for loop in site["loops"]}
     assert not (data_root / DATASET / PROJECT_FILE).exists()
 

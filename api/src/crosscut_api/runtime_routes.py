@@ -34,7 +34,7 @@ LOG_LIMIT_MAX = 2000
 _SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "job.schema.json"
 _JOB_FIELDS = frozenset(
     {"id", "kind", "source", "loops", "tags", "controller", "period_s", "window_s", "enabled",
-     "anomaly_id", "equipment", "persistence", "clear"}
+     "anomaly_id", "equipment", "persistence", "clear", "softsensor_id", "stale_s"}
 )
 
 
@@ -151,6 +151,16 @@ def _check_stale_model(job: dict, root: Path | None) -> list[str]:
     if not problem:
         return []
     return [f"job.anomaly_id: model needs relearn or re-confirmation ({problem})"]
+def _check_softsensor(job: dict[str, Any], root: Path | None) -> list[str]:
+    """Require a configured and fitted soft sensor before deploying its online job."""
+    if job.get("kind") != "softsensor" or root is None:
+        return []
+    sid = str(job.get("softsensor_id", job.get("id")))
+    folder = root / "_softsensor"
+    if sid in {".", ".."} or not (folder / f"{sid}.json").is_file() \
+            or not (folder / f"{sid}.model.json").is_file():
+        return [f"job.softsensor_id: configure and fit soft sensor {sid!r} first"]
+    return []
 
 
 def job_problems(
@@ -170,6 +180,7 @@ def job_problems(
     problems += _cross_check_problems(job, site_doc, existing_ids)
     problems += _check_equipment(job, site_doc, root)
     problems += _check_stale_model(job, root)
+    problems += _check_softsensor(job, root)
     return problems
 
 
@@ -201,6 +212,7 @@ def _job_summary(job: dict[str, Any], state_entry: dict[str, Any] | None) -> dic
         "kpi": entry.get("kpi"),
         "scan": entry.get("scan"),
         "equipment": entry.get("equipment"),
+        "softsensor": entry.get("softsensor"),
     }
 
 

@@ -14,6 +14,7 @@ import {
 } from "../modeProposalApi";
 import { acceptEquipment, acceptMode, formatWindow, parseClauses } from "../modeProposalModel";
 import type { SiteDoc } from "./equipmentModel";
+import { DraftNotice } from "./DraftNotice";
 
 export interface ModeProposalsProps {
   t: Translate;
@@ -187,6 +188,7 @@ export function ModeProposals({ t }: ModeProposalsProps): ReactElement {
       </button>
       {status && <p className="status status-error" role="alert">{status}</p>}
       {saved && <p role="status">{saved}</p>}
+      {saved && <DraftNotice t={t} />}
       {p.result && modes.length === 0 && groups.length === 0 && <p>{t("modeProposal.none")}</p>}
       {groups.length > 0 && (
         <GroupList groups={groups} t={t} onReject={p.reject} onAccept={(g) => accept(g.id, (s) => acceptEquipment(s, g))} />

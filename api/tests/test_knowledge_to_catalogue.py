@@ -42,8 +42,8 @@ def _first_loop(client: TestClient) -> dict[str, Any]:
 
 
 def _site(root: Path) -> dict[str, Any]:
-    """Read the saved catalogue."""
-    return json.loads((root / "_site" / "site.json").read_text(encoding="utf-8"))
+    """Read the catalogue draft, where knowledge saves land (#247)."""
+    return json.loads((root / "_site" / "draft.json").read_text(encoding="utf-8"))
 
 
 def _legacy_project(root: Path, loop: dict[str, Any]) -> bytes:
@@ -115,6 +115,38 @@ def test_invalid_knowledge_does_not_create_a_catalogue(data_root: Path) -> None:
     )
     assert response.status_code == 422
     assert not (data_root / "_site" / "site.json").exists()
+    assert not (data_root / "_site" / "draft.json").exists()
+
+
+def test_knowledge_save_and_migration_land_in_the_draft_only(data_root: Path) -> None:
+    """The published site.json is not created or changed; a pending publish refuses (409)."""
+    client = TestClient(create_app_without_auth(data_root))
+    loop = _first_loop(client)
+    url = f"/datasets/{DATASET}/loops/{loop['name']}/knowledge"
+    assert client.put(url, json={"delay_s": 4.0}).status_code == 200
+    assert (data_root / "_site" / "draft.json").exists()
+    assert not (data_root / "_site" / "site.json").exists()
+    assert client.get(url).json()["knowledge"]["delay_s"] == 4.0  # the editor sees its draft
+    (data_root / "_site" / "pending_publish.json").write_text("{}", encoding="utf-8")
+    blocked = client.put(url, json={"delay_s": 9.0})
+    assert blocked.status_code == 409 and blocked.json()["detail"] == "pending_exists"
+    assert _site(data_root)["loops"][0]["delay_s"] == 4.0
+
+
+def test_migration_lands_in_the_draft_and_waits_for_a_pending_publish(data_root: Path) -> None:
+    """Bulk migration writes the draft; with a publish pending it is refused (409)."""
+    client = TestClient(create_app_without_auth(data_root))
+    loop = _first_loop(client)
+    _legacy_project(data_root, loop)
+    pending = data_root / "_site" / "pending_publish.json"
+    pending.parent.mkdir()
+    pending.write_text("{}", encoding="utf-8")
+    url = f"/datasets/{DATASET}/loops/migrate-knowledge"
+    assert client.post(url).status_code == 409
+    pending.unlink()
+    assert client.post(url).json()["moved"] == [loop["name"]]
+    assert not (data_root / "_site" / "site.json").exists()
+    assert _site(data_root)["loops"][0]["delay_s"] == 8.0
 
 
 def test_save_copies_tag_unit_and_description(data_root: Path) -> None:

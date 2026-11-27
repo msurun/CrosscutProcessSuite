@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import numpy as np
-from crosscut_connectors.site import SiteError, load_site
+from crosscut_connectors.site import SiteError
 from crosscut_loops.benefit_payload import BenefitRequest, benefit_payload
 from crosscut_loops.overview import LoopTags, analyze_dataset, discover_loops
 from crosscut_loops.project_edit import (
@@ -33,6 +33,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
 from crosscut_api.admin_routes import build_admin_router
 from crosscut_api.anomaly_routes import build_anomaly_router
+from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.deps import AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
 from crosscut_api.auth.sessions import AuthConfig
@@ -71,7 +72,9 @@ from crosscut_api.runtime_routes import build_runtime_router
 from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_loops import flat_tag_rows, site_entry_names, site_loops_of
 from crosscut_api.site_routes import build_site_router
+from crosscut_api.site_version_routes import working_site
 from crosscut_api.softsensor_routes import build_softsensor_router
+from crosscut_api.softsensor_runtime_routes import build_softsensor_runtime_router
 from crosscut_api.source_admin_routes import build_source_admin_router
 from crosscut_api.source_history import build_source_history_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
@@ -549,9 +552,13 @@ class _KnowledgeEndpoints:
         return self._document(dataset_dir, document, loop_name)
 
     def put_knowledge(
-        self, dataset_id: str, loop_name: str, update: Annotated[dict[str, Any], Body()]
+        self,
+        dataset_id: str,
+        loop_name: str,
+        update: Annotated[dict[str, Any], Body()],
+        actor: Annotated[ActorContext, Depends(actor_of)],
     ) -> dict[str, Any]:
-        """Change some of a loop's knowledge; None clears a value."""
+        """Change some of a loop's knowledge (saved to the site draft); None clears a value."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
         try:
             document = self._catalogue_for(dataset_dir, loop_name)
@@ -561,7 +568,7 @@ class _KnowledgeEndpoints:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"No loop named {loop_name!r}") from error
-        self._save(edited)
+        self._save(edited, actor.actor)
         return self._document(dataset_dir, edited, loop_name)
 
     def _catalogue_for(self, dataset_dir: Path, loop_name: str) -> dict[str, Any]:
@@ -572,8 +579,10 @@ class _KnowledgeEndpoints:
         entry = find_entry(document, loop_name)
         return promote_loop(catalogue_of(self.store.root), entry, self.store.tags_of(dataset_dir))
 
-    def migrate_knowledge(self, dataset_id: str) -> dict[str, Any]:
-        """Copy legacy loop knowledge into the catalogue, reporting untouched entries."""
+    def migrate_knowledge(
+        self, dataset_id: str, actor: Annotated[ActorContext, Depends(actor_of)]
+    ) -> dict[str, Any]:
+        """Copy legacy loop knowledge into the site draft, reporting untouched entries."""
         dataset_dir = _dataset_dir(self.store.root, dataset_id)
         path = dataset_dir / PROJECT_FILE
         result: dict[str, Any] = {"moved": [], "skipped": []}
@@ -581,14 +590,14 @@ class _KnowledgeEndpoints:
             return result
         for entry in _read_json(path).get("loops", []):
             name = str(entry.get("name") or entry.get("id", ""))
-            reason = self._migrate_entry(dataset_dir, entry)
+            reason = self._migrate_entry(dataset_dir, entry, actor.actor)
             if reason:
                 result["skipped"].append({"loop": name, "reason": reason})
             else:
                 result["moved"].append(name)
         return result
 
-    def _migrate_entry(self, dataset_dir: Path, entry: dict[str, Any]) -> str:
+    def _migrate_entry(self, dataset_dir: Path, entry: dict[str, Any], actor: str) -> str:
         """Move one valid entry, or explain why it could not be moved."""
         try:
             catalogue = catalogue_of(self.store.root)
@@ -596,7 +605,7 @@ class _KnowledgeEndpoints:
             if reason:
                 return reason
             edited = promote_loop(catalogue, entry, self._range_tags(dataset_dir, True))
-            save_catalogue(self.store.root, edited)
+            save_catalogue(self.store.root, edited, actor)
         except (KnowledgeError, SiteError) as error:
             return str(error)
         return ""
@@ -604,19 +613,19 @@ class _KnowledgeEndpoints:
     def _source(self, dataset_dir: Path, loop_name: str) -> tuple[dict[str, Any], bool]:
         """The document that holds the loop's knowledge, and whether it is the site file."""
         tags = self.store.tags_of(dataset_dir)
-        if loop_name in site_entry_names(self.store.root, tags):
-            return load_site(self.store.root), True
+        if loop_name in site_entry_names(self.store.root, tags, working=True):
+            return working_site(self.store.root) or {}, True
         return self._project_of(dataset_dir), False
 
     def _range_tags(self, dataset_dir: Path, in_site: bool) -> list[dict[str, Any]]:
         """Tag rows for the range check; site rows carry their eng_limits as flat fields."""
         tags = self.store.tags_of(dataset_dir)
-        return flat_tag_rows(self.store.root, tags) if in_site else tags
+        return flat_tag_rows(self.store.root, tags, working=True) if in_site else tags
 
-    def _save(self, document: dict[str, Any]) -> None:
-        """Validate and write knowledge into its single catalogue home."""
+    def _save(self, document: dict[str, Any], actor: str) -> None:
+        """Validate and write knowledge into the site draft (its single catalogue home)."""
         try:
-            save_catalogue(self.store.root, document)
+            save_catalogue(self.store.root, document, actor)
         except SiteError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -632,7 +641,9 @@ class _KnowledgeEndpoints:
     ) -> dict[str, Any]:
         """The knowledge of one loop plus which engineering ranges the tags already give."""
         loop = self.store.find_loop(dataset_dir, loop_name)
-        in_site = loop_name in site_entry_names(self.store.root, self.store.tags_of(dataset_dir))
+        in_site = loop_name in site_entry_names(
+            self.store.root, self.store.tags_of(dataset_dir), working=True
+        )
         try:
             knowledge = loop_knowledge(project, loop_name)
             defaults = tag_range_defaults(
@@ -685,7 +696,8 @@ def _loop_router(store: DatasetStore) -> APIRouter:
     router.add_api_route(path, knowledge.put_knowledge, methods=["PUT"])
     router.add_api_route(
         "/datasets/{dataset_id}/loops/migrate-knowledge",
-        knowledge.migrate_knowledge, methods=["POST"],
+        knowledge.migrate_knowledge,
+        methods=["POST"],
     )
     router.include_router(build_valve_router(_loop_record_loader(store)))
     router.include_router(
@@ -788,6 +800,8 @@ def _mount_data_routers(
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_equipment_live_router(store.root))
+    app.include_router(build_softsensor_runtime_router(
+        store.root, store.load_seconds, store.load_quality))
     app.include_router(build_trend_chart_router(store.root))
     app.include_router(build_backup_router(store.root))
 

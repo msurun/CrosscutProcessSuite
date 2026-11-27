@@ -23,6 +23,7 @@ import {
   parseNumberField,
 } from "./knowledgeDraft";
 import { acceptAllHighPatch, FieldProposal, OtherProposals, ProposalBar, useProposal } from "./KnowledgeProposals";
+import { DraftNotice } from "./DraftNotice";
 
 export { buildUpdate, parseNumberField };
 export type { NumberField } from "./knowledgeDraft";
@@ -233,6 +234,7 @@ function KnowledgeForm({ datasetId, loop, knowledge, t, onSaved, onOpenSteps }: 
       <RangeInfo range={loaded.ranges.pv} presentKey="knowledge.rangePv" missingKey="knowledge.rangePvMissing" t={t} />
       <FormActions canSave={canSave} isSaving={form.isSaving} onReset={form.reset} t={t} />
       <SaveStatus changes={form.changes} error={form.saveError} unit={loop.unit} t={t} onDismiss={form.dismiss} />
+      {form.changes !== null && <DraftNotice t={t} />}
     </form>
   );
 }
