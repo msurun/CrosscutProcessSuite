@@ -168,14 +168,15 @@ def _variable_row(var: Doc, catalogue: Doc, status: Doc | None) -> Doc:
 
 
 def _detail(root: Path, entry: Doc) -> Doc:
-    """Summary plus the variable rows with their live statuses."""
+    """Summary plus the variable rows with their live statuses and the MPC diagnostics (or None)."""
     statuses = {s["variable_id"]: s for s in read_variable_status(root).get(entry["id"], [])}
     catalogue = {v["id"]: v for v in entry["variables"]}
     rows = [
         _variable_row(v, catalogue[v["id"]], statuses.get(v["id"]))
         for v in _effective(root, entry)["variables"]
     ]
-    return {**_summary(root, entry), "variables": rows}
+    diagnostics = _read_record(root, entry["id"]).get("diagnostics")
+    return {**_summary(root, entry), "variables": rows, "diagnostics": diagnostics}
 
 
 def _check_operator(var: Doc, bounds: Bounds) -> None:
