@@ -120,6 +120,7 @@
         },
         "limits": {"$ref": "#/$defs/variable_limits"},
         "priority": {"type": "integer", "minimum": 1, "description": "1 is the highest priority."},
+        "target": {"type": "number", "description": "CV only (type mpc): target value in engineering units. Without it the CV is only kept inside its operator range."},
         "enabled_default": {"type": "boolean", "description": "Operator on/off at start; true when omitted."},
         "required": {"type": "boolean", "description": "MV only: the controller sheds when this MV is unavailable; false when omitted."}
       }
@@ -130,13 +131,34 @@
       "required": ["id", "type", "variables"],
       "properties": {
         "id": {"$ref": "#/$defs/identifier"},
-        "type": {"enum": ["fuzzy"], "description": "Controller kind; mpc is added later."},
+        "type": {"enum": ["fuzzy", "mpc"], "description": "Controller kind: fuzzy (rule base) or mpc (model predictive controller on an identified ident_model artifact)."},
         "description": {"type": "string"},
         "cycle_s": {"type": "number", "minimum": 10, "maximum": 300, "description": "Cycle period in seconds; 30 when omitted."},
         "stale_cycles": {"type": "integer", "minimum": 1, "description": "Cycles after which an unchanged source time stamp is stale; 3 when omitted."},
         "max_overruns": {"type": "integer", "minimum": 1, "description": "Overruns in a row before the controller sheds; 5 when omitted."},
         "liveness_cycles": {"type": "integer", "minimum": 2, "description": "Cycles without a liveness beat after which the gateway releases the targets this controller holds; 3 when omitted. The gateway refuses a controller whose target watchdog_s is below 2 x cycle_s."},
         "rule_base": {"$ref": "#/$defs/identifier", "description": "Id of a fuzzy system (fuzzy controllers)."},
+        "mpc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model"],
+          "description": "MPC settings (type mpc only). Write authority is not set here: proposals go through the gateway, whose mode (advisory, confirm, supervised) and roles (ADR 013) decide.",
+          "properties": {
+            "model": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact", "sha256"],
+              "description": "The identified model: artifact id in the model store (<data root>/_mpc/models) and the expected SHA-256 of its payload. The runtime refuses a model whose hash differs or whose per-pair gate failed.",
+              "properties": {
+                "artifact": {"$ref": "#/$defs/identifier"},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            },
+            "prediction_horizon": {"type": "integer", "minimum": 1, "maximum": 120, "description": "Prediction horizon in cycles; 60 when omitted."},
+            "move_horizon": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Move horizon in cycles; 8 when omitted."},
+            "move_suppression": {"type": "number", "exclusiveMinimum": 0, "description": "Move suppression weight; 1 when omitted."}
+          }
+        },
         "variables": {
           "type": "array",
           "items": {"$ref": "#/$defs/controller_variable"}

@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "On-prem runtime service: runs deployed jobs (live loop KPI) against live data sources"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
-dependencies = ["crosscut-connectors", "crosscut-loops", "crosscut-fuzzy", "crosscut-supervisor", "jsonschema>=4", "numpy>=1.26"]
+dependencies = ["crosscut-connectors", "crosscut-loops", "crosscut-fuzzy", "crosscut-supervisor", "jsonschema>=4", "numpy>=1.26", "crosscut-mpc"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
