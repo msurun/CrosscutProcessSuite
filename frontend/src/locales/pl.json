@@ -2527,5 +2527,6 @@
   "catalogueCsv.ok": "Sprawdzenie zaliczone: {tags} tagów gotowych do importu.",
   "catalogueCsv.errors": "Problemy znalezione w pliku CSV",
   "catalogueCsv.apply": "Importuj",
-  "catalogueCsv.applied": "Zaimportowano {tags} tagów."
+  "catalogueCsv.applied": "Zaimportowano {tags} tagów.",
+  "draftNotice.saved": "Zapisano w wersji roboczej instalacji. Zacznie działać dopiero po opublikowaniu w Site > Versions."
 }

@@ -71,8 +71,8 @@ def _import_body(preview: dict[str, Any], rules: list[dict[str, Any]]) -> dict[s
 
 
 def _site_json(root: Path) -> dict[str, Any]:
-    """The stored site document."""
-    return json.loads((root / "_site" / "site.json").read_text(encoding="utf-8"))
+    """The site draft, where imports land (#247); the published file stays as seeded."""
+    return json.loads((root / "_site" / "draft.json").read_text(encoding="utf-8"))
 
 
 def test_presets_endpoint_lists_the_builtin_rule_sets(client: TestClient) -> None:
@@ -188,9 +188,10 @@ def test_preview_on_a_source_without_browse_is_400(
 def test_existing_site_level_entry_is_reused_as_root(tmp_path: Path) -> None:
     """An existing site-level equipment entry becomes the parent of the new areas."""
     _seed(tmp_path)
-    site = _site_json(tmp_path)
+    path = tmp_path / "_site" / "site.json"
+    site = json.loads(path.read_text(encoding="utf-8"))
     site["equipment"] = [{"id": "plant", "level": "site"}]
-    (tmp_path / "_site" / "site.json").write_text(json.dumps(site), encoding="utf-8")
+    path.write_text(json.dumps(site), encoding="utf-8")
     client = TestClient(create_app(tmp_path, auth_enabled=False))
     rules = _rules()
     client.post("/sources/s1/catalogue-import", json=_import_body(_preview(client, rules), rules))

@@ -17,6 +17,7 @@ import type { Translate } from "../findings";
 import { listSources, type SiteSource } from "../sourcesApi";
 import { CatalogueNamingView } from "./CatalogueNamingView";
 import { CatalogueRulesEditor, draftToRule, type RuleDraft } from "./CatalogueRulesEditor";
+import { DraftNotice } from "./DraftNotice";
 
 export interface CatalogueFromSourceProps {
   t: Translate;
@@ -120,7 +121,10 @@ function ImportStep({ t, wiz }: { t: Translate; wiz: Wizard }): ReactElement {
         {t("catalogueSource.import", { count: wiz.checked.size })}
       </button>
       {wiz.added && (
-        <p role="status">{t("catalogueSource.added", { ...wiz.added })}</p>
+        <>
+          <p role="status">{t("catalogueSource.added", { ...wiz.added })}</p>
+          <DraftNotice t={t} />
+        </>
       )}
     </section>
   );

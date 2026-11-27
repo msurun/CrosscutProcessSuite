@@ -2516,5 +2516,6 @@
   "catalogueCsv.ok": "Check passed: {tags} tags ready to import.",
   "catalogueCsv.errors": "Problems found in the CSV",
   "catalogueCsv.apply": "Import",
-  "catalogueCsv.applied": "Imported {tags} tags."
+  "catalogueCsv.applied": "Imported {tags} tags.",
+  "draftNotice.saved": "Saved to the site draft. It goes live only after you publish it on Site > Versions."
 }

@@ -82,8 +82,8 @@ def as_user(app: FastAPI, name: str) -> tuple[TestClient, dict[str, str]]:
 
 
 def _site(root: Path) -> dict[str, Any]:
-    """The site.json document under the data root."""
-    found = list(root.rglob("site.json"))
+    """The site draft under the data root (source writes go through the draft, #247)."""
+    found = list(root.rglob("draft.json"))
     assert len(found) == 1, found
     doc: dict[str, Any] = json.loads(found[0].read_text(encoding="utf-8"))
     return doc
@@ -120,7 +120,7 @@ def test_put_invalid_driver_is_422_and_not_saved(open_client: TestClient, tmp_pa
     """An unknown driver is rejected with 422 and leaves no site file entry."""
     response = open_client.put("/sources/bad", json={"driver": "nope"})
     assert response.status_code == 422
-    assert not list(tmp_path.rglob("site.json"))
+    assert not list(tmp_path.rglob("draft.json"))
 
 
 def test_put_secret_stores_value_and_points_auth_at_it(
@@ -200,7 +200,7 @@ def test_delete_source_in_use_is_409_and_keeps_everything(
     """A source read by a catalogue tag is not deleted and keeps its secret."""
     _add_pi(open_client)
     open_client.put("/sources/pi1/secret", json={"value": SECRET})
-    path = next(tmp_path.rglob("site.json"))
+    path = next(tmp_path.rglob("draft.json"))
     doc = json.loads(path.read_text(encoding="utf-8"))
     doc["tags"] = [{"id": "t.pv", "source": "pi1"}]
     path.write_text(json.dumps(doc), encoding="utf-8")

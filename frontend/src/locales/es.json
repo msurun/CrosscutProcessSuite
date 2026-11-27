@@ -2527,5 +2527,6 @@
   "catalogueCsv.ok": "Comprobación correcta: {tags} etiquetas listas para importar.",
   "catalogueCsv.errors": "Problemas encontrados en el CSV",
   "catalogueCsv.apply": "Importar",
-  "catalogueCsv.applied": "Se importaron {tags} etiquetas."
+  "catalogueCsv.applied": "Se importaron {tags} etiquetas.",
+  "draftNotice.saved": "Guardado en el borrador del sitio. Solo entra en vigor al publicarlo en Site > Versions."
 }

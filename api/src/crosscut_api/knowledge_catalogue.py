@@ -7,8 +7,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from crosscut_connectors.site import SiteError, load_site, save_site, site_path, validate_site
+from crosscut_connectors.site import SiteError, validate_site
 from crosscut_loops.project_edit import KNOWLEDGE_KEYS, apply_knowledge
+
+from crosscut_api.site_version_routes import store_draft, working_site
 
 TAG_ROLES = ("pv", "sp", "out", "mode")  # Controller signal roles, each holding a tag id.
 TAG_METADATA = ("unit", "description")
@@ -17,8 +19,9 @@ SITE_SCHEMA_VERSION = 1
 
 def catalogue_of(root: Path) -> dict[str, Any]:
     """Read the catalogue, or return the minimal valid new-site document."""
-    if site_path(root).exists():
-        return load_site(root)
+    working = working_site(root)
+    if working is not None:
+        return working
     return {"schema_version": SITE_SCHEMA_VERSION, "site": {"name": "Site"},
             "tags": [], "loops": []}
 
@@ -52,12 +55,15 @@ def _add_missing_tags(
             known_ids.add(tag_id)
 
 
-def save_catalogue(root: Path, document: dict[str, Any]) -> None:
-    """Validate and atomically save; SiteError describes any invalid catalogue fields."""
+def save_catalogue(root: Path, document: dict[str, Any], actor: str) -> None:
+    """Validate and store as the site draft; SiteError describes any invalid catalogue fields.
+
+    Raises HTTPException 409 (``busy``/``pending_exists``) from the draft store.
+    """
     problems = validate_site(document)
     if problems:
         raise SiteError("; ".join(problems))
-    save_site(root, document)
+    store_draft(root, document, actor)
 
 
 def migration_reason(catalogue: dict[str, Any], entry: dict[str, Any]) -> str:
