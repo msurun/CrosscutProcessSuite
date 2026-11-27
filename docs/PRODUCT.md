@@ -428,7 +428,7 @@ the same PR that changes one of its rows.
 |---|---|---|---|---|---|
 | Console navigation (grouped menu, start page, status bar) | no (15 flat tabs) | - | - | - | #172-#177 |
 | Read connectors (CSV, SQL/ODBC, PI Web API, OPC UA) | yes | recorded fixtures, sim | yes | no real-source test | #32 |
-| Project catalogue | partly | e2e | editor and wizard; no versions, CSV bulk, mode proposals | no | #144, #145, #165, #166 |
+| Project catalogue | partly | e2e | editor and wizard; mode and equipment-group proposals from history (#145); no versions, CSV bulk | no | #144, #165, #166 |
 | Operating modes used by modules | stored only | - | edit only | no | #146 |
 | Loop KPI online | yes | L5-P1 live (catalogue built in code) | view yes, build path not proven | no | #151, #146 |
 | Worklist and diagnosis | partly | exp37 descriptive only | yes | no | #149, #150, #152 |

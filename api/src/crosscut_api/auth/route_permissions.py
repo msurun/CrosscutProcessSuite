@@ -109,6 +109,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
 
     # analysis.run (history proposals are read-only but still perform identification)
     ("GET", "/datasets/{dataset_id}/loops/{loop_name}/knowledge/proposal"): "analysis.run",
+    ("GET", "/datasets/{dataset_id}/catalogue/proposals/modes"): "analysis.run",
     ("POST", "/fuzzy/diff"): "analysis.run",
     ("POST", "/fuzzy/infer"): "analysis.run",
     ("POST", "/fuzzy/matrix"): "analysis.run",
