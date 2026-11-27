@@ -36,12 +36,11 @@
   ],
   "model": {
     "allowed_now": [
-      "pls"
-    ],
-    "planned": [
+      "pls",
       "ridge",
       "gradient_boosting"
     ],
+    "planned": [],
     "note": "Existing PLS engine with causal lags; lab sample timing must be explicit."
   },
   "validity_checks": [
