@@ -31,6 +31,7 @@ from crosscut_loops.tuning_types import TuningRequest
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
+from crosscut_api.admin_routes import build_admin_router
 from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.auth.deps import AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
@@ -723,6 +724,7 @@ def _new_app(
     enforcer = Depends(make_enforcer(AuthGuards(ctx), ctx))
     app = FastAPI(title=title, dependencies=[enforcer])
     app.state.auth_enabled = True
+    app.state.auth_audit = ctx.audit
     return app, build_auth_router_for(ctx, True)
 
 
@@ -776,6 +778,7 @@ def _mount_data_routers(
     app.include_router(build_catalogue_source_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_admin_router(store.root))
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_equipment_live_router(store.root))
