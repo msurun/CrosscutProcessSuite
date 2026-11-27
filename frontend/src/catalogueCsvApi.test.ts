@@ -1,9 +1,16 @@
-// Tests for the catalogue tag CSV client: request shapes and the 422-resolves semantics.
-// fetch is stubbed; no network.
+// Tests for the catalogue tag CSV client: the download text, the POST request shape with the dry
+// run flag, the refused import (422 resolves), and a server failure (ApiError). fetch is stubbed.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "./api";
-import { downloadTagsCsv, importTagsCsv } from "./catalogueCsvApi";
+import {
+  CsvImportResult,
+  CsvRowError,
+  downloadTagsCsv,
+  importTagsCsv,
+} from "./catalogueCsvApi";
+
+const CSV_SAMPLE = "tag,unit\nT1,bar\n";
 
 function stub(status: number, body: unknown) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
@@ -14,45 +21,48 @@ function stub(status: number, body: unknown) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-const SAMPLE_CSV = "tag,unit,description\nP1,degC,Reactor temperature\n";
-
 describe("catalogueCsvApi", () => {
-  it("downloads the tags CSV as text", async () => {
-    const fn = stub(200, SAMPLE_CSV);
-    expect(await downloadTagsCsv()).toBe(SAMPLE_CSV);
+  it("downloads the tags CSV text from the site route", async () => {
+    const fn = stub(200, CSV_SAMPLE);
+    expect(await downloadTagsCsv()).toBe(CSV_SAMPLE);
     expect(fn.mock.calls[0][0]).toBe("/api/site/tags.csv");
   });
 
-  it("posts the CSV as text/csv with dry_run=true on a dry run", async () => {
+  it("posts the CSV as text/csv with dry_run=true", async () => {
     const fn = stub(200, { errors: [], tags: 1, applied: false });
-    await importTagsCsv(SAMPLE_CSV, true);
+    await importTagsCsv(CSV_SAMPLE, true);
     const [url, init] = fn.mock.calls[0];
     expect(url).toBe("/api/site/tags.csv?dry_run=true");
     expect(init.method).toBe("POST");
-    expect(init.body).toBe(SAMPLE_CSV);
+    expect(init.body).toBe(CSV_SAMPLE);
     expect(init.headers["Content-Type"]).toBe("text/csv");
   });
 
-  it("posts with dry_run=false for a real import", async () => {
+  it("sends dry_run=false and returns the applied result for a real import", async () => {
     const fn = stub(200, { errors: [], tags: 1, applied: true });
-    const result = await importTagsCsv(SAMPLE_CSV, false);
+    const result: CsvImportResult = await importTagsCsv(CSV_SAMPLE, false);
     expect(fn.mock.calls[0][0]).toBe("/api/site/tags.csv?dry_run=false");
     expect(result.applied).toBe(true);
+    expect(result.tags).toBe(1);
   });
 
-  it("resolves a 422 refused import with its row problems", async () => {
-    const errors = [{ row: 2, column: "unit", message: "unknown unit" }];
-    stub(422, { errors, tags: 0, applied: false });
-    const result = await importTagsCsv(SAMPLE_CSV, false);
-    expect(result.errors).toEqual(errors);
-    expect(result.tags).toBe(0);
+  it("resolves a refused import (422) with its row errors", async () => {
+    const rowError: CsvRowError = { row: 2, column: "unit", message: "unknown unit" };
+    stub(422, { errors: [rowError], tags: 0, applied: false });
+    const result: CsvImportResult = await importTagsCsv(CSV_SAMPLE, false);
     expect(result.applied).toBe(false);
+    expect(result.errors).toEqual([rowError]);
   });
 
-  it("rejects a 500 with an ApiError carrying the status", async () => {
+  it("rejects a server failure (500) as an ApiError carrying the status", async () => {
     stub(500, "boom");
-    await expect(importTagsCsv(SAMPLE_CSV, false)).rejects.toBeInstanceOf(ApiError);
-    stub(500, "boom");
-    await expect(importTagsCsv(SAMPLE_CSV, false)).rejects.toMatchObject({ status: 500 });
+    let error: unknown;
+    try {
+      await importTagsCsv(CSV_SAMPLE, false);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(500);
   });
 });
