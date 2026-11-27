@@ -78,3 +78,18 @@ Citations are given from memory and must be verified against the originals befor
 ## Owner decision — 2026-11-17
 
 Crosscut validation uses public datasets; owner-site data is not used for development or validation. Check the licence before any use and add a source row here before use. Download only to a scratch folder outside the repository; never commit or redistribute the data. CC BY-SA and unlicensed datasets are local-only, with no derived data published. Existing historical rows do not grant permission to publish derived data. Unverified licence entries require checking before use, not only before redistribution.
+
+## Soft-sensor presets (#155)
+
+All v1 presets are `experimental` until the deployment gate passes on validation results. Gate margins, coverage and sample minimums are ASSUMPTION defaults, frozen before any validation run; exp39 supplies no qualifying preset.
+
+| Preset id | Method source | Kind | Implemented in |
+|---|---|---|---|
+| `preset:belt_scale_backup` | General belt-conveyor power model (DIN 22101 style); structure only, no plant parameters | ASSUMPTION | `softsensor/src/crosscut_softsensor/presets/belt_scale_backup.json` |
+| `preset:pump_flowmeter_backup` | Pump affinity laws and head/power curves, Hydraulic Institute standards; Karassik et al., Pump Handbook | method | `softsensor/src/crosscut_softsensor/presets/pump_flowmeter_backup.json` |
+| `preset:valve_flowmeter` | IEC 60534-2-1 incompressible flow equation | method | `softsensor/src/crosscut_softsensor/presets/valve_flowmeter.json` |
+| `preset:slurry_solids_flow_density` | Two-phase mass and volume balance, Wills, Mineral Processing Technology | method | `softsensor/src/crosscut_softsensor/presets/slurry_solids_flow_density.json` |
+| `preset:cyclone_overflow_size` | Plitt, A mathematical model of the hydrocyclone classifier, CIM Bulletin 69 (1976) | method | `softsensor/src/crosscut_softsensor/presets/cyclone_overflow_size.json` |
+| `preset:lab_quality_inference` | PLS: Wold, Sjostrom, Eriksson, Chemom. Intell. Lab. Syst. 58 (2001); Kadlec et al., Comput. Chem. Eng. 33 (2009) | method | `softsensor/src/crosscut_softsensor/presets/lab_quality_inference.json` |
+| `preset:inventory_mass_balance` | Node mass balance, Felder and Rousseau, Elementary Principles of Chemical Processes | method | `softsensor/src/crosscut_softsensor/presets/inventory_mass_balance.json` |
+| Deployment gate (skill over age-aware lab persistence at the same cutoff) | exp39 diagnosis `experiments/exp39_flotation_softsensor_blind/DIAGNOSIS.md`; skill score 1 - RMSE/RMSE_baseline | ASSUMPTION (thresholds) | `softsensor/src/crosscut_softsensor/deployment_gate.py` |

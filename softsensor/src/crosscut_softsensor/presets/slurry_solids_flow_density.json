@@ -1,0 +1,75 @@
+{
+  "key": "slurry_solids_flow_density",
+  "label": "Slurry solids flow and density",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Dry solids t/h and % solids from slurry flow, density and solids SG.",
+  "target": {
+    "role": "dry_solids_flow",
+    "unit": "t/h",
+    "range_min": 0.0,
+    "range_max": 10000.0
+  },
+  "inputs": [
+    {
+      "role": "slurry_flow",
+      "unit": "m3/h",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "slurry_density",
+      "unit": "kg/m3",
+      "required": true,
+      "range_min": 500,
+      "range_max": 3500
+    },
+    {
+      "role": "solids_sg",
+      "unit": "1",
+      "required": true,
+      "range_min": 1,
+      "range_max": 10
+    },
+    {
+      "role": "pump_power",
+      "unit": "kW",
+      "required": false,
+      "description": "For the backup density hybrid",
+      "range_min": 0
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "physics_template",
+      "hybrid"
+    ],
+    "note": "Mass and volume balance; backup density from pump power and flow (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "flow_positive",
+      "description": "Slurry flow above a minimum"
+    },
+    {
+      "id": "density_in_range",
+      "description": "Density between water density and solids density"
+    }
+  ],
+  "calibration": "against_instrument",
+  "default_mode": "shadow",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "last_good_instrument_value",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 500
+  },
+  "provenance": {
+    "id": "preset:slurry_solids_flow_density",
+    "kind": "method",
+    "source": "Two-phase mass and volume balance, Wills, Mineral Processing Technology."
+  }
+}
