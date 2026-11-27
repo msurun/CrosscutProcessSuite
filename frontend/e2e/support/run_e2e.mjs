@@ -8,8 +8,11 @@
 // Gateway stack (start_gateway_stack.py: OPC UA server, gateway process, control channel); its
 // description is passed to the specs as E2E_GW_* variables (used by gateway-live.spec.ts and
 // tuning-live.spec.ts; the stack also runs a simulated loop, its history and the tuning review).
+// E2E_L5_NOCODE=1 (nightly L5, needs the pinned RougherSim checkout) is the gateway run on an EMPTY data
+// root with live RougherSim instead of the simulated plant (start_l5_stack.py) and the runtime service
+// only: l5-nocode.spec.ts then builds source, catalogue, KPI job and tuning through the browser.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +22,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const frontend = resolve(here, "../..");
 const repo = resolve(frontend, "..");
 // The e2e suite runs with auth disabled (specs do not log in); E2E_AUTH=1 turns it on for auth.spec.ts.
-const GATEWAY_ON = process.env.E2E_GATEWAY === "1";
+const L5_ON = process.env.E2E_L5_NOCODE === "1";
+const GATEWAY_ON = process.env.E2E_GATEWAY === "1" || L5_ON;
 const AUTH_ON = process.env.E2E_AUTH === "1" || GATEWAY_ON;
 const ROLE_USERS = [
   ["e2e-engineer", "engineer"],
@@ -176,13 +180,27 @@ async function startGatewayStack(python, root, children) {
   };
 }
 
+/** Starts live RougherSim + the gateway on the empty `root` (start_l5_stack.py); returns E2E_L5_*. */
+async function startL5Stack(python, root, children) {
+  const stack = spawn(python, [join(here, "start_l5_stack.py"), "--root", root], { stdio: ["pipe", "pipe", "inherit"] });
+  children.push(stack);
+  const info = await firstJsonLine(stack, "L5 stack");
+  return { E2E_L5_NOCODE: "1", E2E_L5_INFO: JSON.stringify(info) };
+}
+
+/** Starts only the runtime service on `root` (the no-code run creates its jobs in the browser). */
+function startRuntime(python, root, children) {
+  const env = { ...process.env, CROSSCUT_TUNING_REVIEW_MIN_WINDOW_S: String(REVIEW_WINDOW_S) };
+  children.push(spawn(python, ["-m", "crosscut_runtime", "--root", root, "--interval", "0.5"], { env, stdio: "inherit" }));
+}
+
 async function main() {
   const python = findPython();
   const root = join(mkdtempSync(join(tmpdir(), "crosscut-e2e-")), "data");
   const children = [];
   try {
-    const made = spawnSync(python, [join(here, "make_e2e_root.py"), root], { stdio: "inherit" });
-    if (made.status !== 0) throw new Error("make_e2e_root.py failed");
+    if (L5_ON) mkdirSync(root, { recursive: true });
+    else if (spawnSync(python, [join(here, "make_e2e_root.py"), root], { stdio: "inherit" }).status !== 0) throw new Error("make_e2e_root.py failed");
     if (AUTH_ON) initAdmin(python, root);
     const users = GATEWAY_ON ? addRoleUsers(python, root) : {};
     const [apiPort, uiPort] = [await freePort(), await freePort()];
@@ -194,11 +212,14 @@ async function main() {
     const base = `http://localhost:${uiPort}`;
     await waitFor(`http://127.0.0.1:${apiPort}/docs`, api, "API");
     await waitFor(base, vite, "Vite");
-    const opcuaEndpoint = await startBackground(python, root, children);
+    const opcuaEndpoint = L5_ON ? "" : await startBackground(python, root, children);
+    if (L5_ON) startRuntime(python, root, children);
     const pw = join(frontend, "node_modules/@playwright/test/cli.js");
     const testEnv = { ...process.env, E2E_BASE_URL: base, E2E_DATA_ROOT: root, E2E_PYTHON: python, E2E_OPCUA_ENDPOINT: opcuaEndpoint };
     if (AUTH_ON) Object.assign(testEnv, { E2E_AUTH: "1", E2E_ADMIN_USER: ADMIN_USER, E2E_ADMIN_PASSWORD: ADMIN_PASSWORD });
-    if (GATEWAY_ON) {
+    if (L5_ON) {
+      Object.assign(testEnv, await startL5Stack(python, root, children), { E2E_USERS: JSON.stringify(users) });
+    } else if (GATEWAY_ON) {
       Object.assign(testEnv, await startGatewayStack(python, root, children));
       Object.assign(testEnv, { E2E_GATEWAY: "1", E2E_USERS: JSON.stringify(users) });
     }
