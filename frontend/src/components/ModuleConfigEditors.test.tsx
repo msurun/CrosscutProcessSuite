@@ -47,17 +47,21 @@ function serveModule(kind: string, initial: JsonDocument) {
 }
 
 /** Prove that save persists and reload discards a later unsaved edit. */
+// Generous waits: the round trip (save, then reload) is slow when the full suite runs on a loaded
+// machine; the default 1 s of findBy/waitFor made this test flaky (#259).
+const SLOW = { timeout: 10_000 };
+
 async function verifyRoundTrip(view: ReactElement, kind: string, document: JsonDocument) {
   const server = serveModule(kind, document);
   render(view);
-  const editor = within(await screen.findByRole("region", { name: "Configuration" }));
+  const editor = within(await screen.findByRole("region", { name: "Configuration" }, SLOW));
   fireEvent.change(editor.getByLabelText("description"), { target: { value: "Persisted description" } });
   fireEvent.click(editor.getByRole("button", { name: /^Save$/ }));
-  await editor.findByText("Saved.");
+  await editor.findByText("Saved.", {}, SLOW);
   expect(server.fetch).toHaveBeenCalledWith(server.url, expect.objectContaining({ method: "PUT" }));
   fireEvent.change(editor.getByLabelText("description"), { target: { value: "Discard me" } });
   fireEvent.click(editor.getByRole("button", { name: "Reload" }));
-  await waitFor(() => expect(screen.getByLabelText("description")).toHaveValue("Persisted description"));
+  await waitFor(() => expect(screen.getByLabelText("description")).toHaveValue("Persisted description"), SLOW);
 }
 
 /** Prove that rejected documents show validation without a success message. */
@@ -73,7 +77,7 @@ async function verifyValidation(view: ReactElement, kind: string, document: Json
 
 it("saves and reloads supervisor configuration in the Advisory view", async () => {
   await verifyRoundTrip(<AdvisoryPage datasetId="" t={t} />, "supervisor", supervisor);
-});
+}, 30_000);
 it("saves and reloads detector configuration in the Anomaly view", async () => {
   await verifyRoundTrip(<AnomalyPage datasetId="" recordHours={null} t={t} />, "anomaly", anomaly);
 });
