@@ -27,6 +27,10 @@ const CONFIG = {
   schema_version: "1.0.0", id: ID, target_tag: "lab.quality", input_tags: ["sim.mc.mill_power"], lab_delay_s: 3600, mode: "advisory",
 };
 const SCHEMA = { type: "object", properties: {} };
+const RUNTIME = {
+  sensor_id: ID, mode: "off", changed_by: null, changed_utc: null, output: null, last_lab: null, events: [],
+  gate: { available: false, deploy: false, skill: null, reasons: [], message: "" },
+};
 const RUN: SoftSensorRun = {
   series: {
     t_s: [0, 60, 120, 180], estimate: [null, 11, 12, 13], corrected: [null, null, 12, 13],
@@ -61,6 +65,7 @@ const storedRoutes = (extra: Routes = {}): Routes => ({
   [`GET ${BASE}`]: { body: CONFIG },
   [`GET ${BASE}/lab`]: { status: 404, body: { detail: `no lab results uploaded: ${ID}` } },
   [`GET ${BASE}/model`]: { status: 404, body: { detail: `model not fitted: ${ID}` } },
+  [`GET ${BASE}/runtime`]: { body: RUNTIME },
   ...extra,
 });
 
