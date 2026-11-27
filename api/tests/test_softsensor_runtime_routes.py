@@ -170,3 +170,17 @@ def test_viewers_cannot_change_the_mode_or_validate(world: tuple[FastAPI, Path])
                       headers=headers).status_code == 403
     assert client.post("/datasets/ds/softsensor/s1/validate", json={},
                        headers=headers).status_code == 403
+
+
+def test_presets_list_and_validate_returns_the_table(world: tuple[FastAPI, Path]) -> None:
+    """The wizard reads presets (status, structures) and gets the comparison table back."""
+    app, _root = world
+    client, headers = as_user(app, "eng1")
+    response = client.get("/softsensor-presets")
+    assert response.status_code == 200, response.text
+    listed = response.json()["presets"]
+    lab = next(p for p in listed if p["key"] == "lab_quality_inference")
+    assert lab["status"] and "pls" in lab["allowed_now"] and lab["inputs"]
+    view = _validate(client, headers)
+    assert view["structure"] == "pls" and view["table"]
+    assert {"method", "rmse", "coverage"} <= set(view["table"][0])

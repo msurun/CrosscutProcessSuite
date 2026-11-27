@@ -63,6 +63,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/live/finding-outcomes/usefulness"): "data.view",
     ("GET", "/anomaly/{aid}"): "data.view",
     ("GET", "/anomaly/{aid}/model"): "data.view",
+    ("GET", "/softsensor-presets"): "data.view",
     ("GET", "/softsensor"): "data.view",
     ("GET", "/softsensor/{sid}"): "data.view",
     ("GET", "/softsensor/{sid}/lab"): "data.view",

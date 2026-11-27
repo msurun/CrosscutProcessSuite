@@ -99,6 +99,15 @@ class SoftSensorRuntimeEndpoints:
                 "output": state.get("output"), "last_lab": state.get("last_lab"),
                 "events": state.get("events", []), "gate": gate_view(self.root, sid)}
 
+    def presets(self, actor: Actor) -> Document:
+        """The shipped presets as the wizard shows them (status, needs, structures, gate)."""
+        actor.require("data.view")
+        keys = ("key", "label", "version", "status", "description", "target", "inputs",
+                "calibration", "default_mode", "deployment_gate")
+        return {"presets": [
+            {**{k: p[k] for k in keys if k in p}, "allowed_now": p["model"]["allowed_now"]}
+            for p in load_presets().values()]}
+
     def validate(
         self, dataset_id: str, sid: Sid, body: ValidateRequest, actor: Actor
     ) -> Document:
@@ -118,7 +127,8 @@ class SoftSensorRuntimeEndpoints:
         self._audit("softsensor_validate", actor, {"sensor": sid, "dataset": dataset_id,
                                                    "validation_hash": record["hash"]})
         write_json_atomic(self.root / FOLDER / f"{sid}.validation.json", record)
-        return self._view(sid)
+        return {**self._view(sid), "preset": body.preset, "structure": body.structure,
+                "strongest_baseline": record["strongest_baseline"], "table": record["table"]}
 
     def _compare(
         self, dataset_id: str, sid: str, config: SoftSensorConfig, preset: dict[str, Any],
@@ -196,9 +206,10 @@ def build_softsensor_runtime_router(
     root: Path, load_seconds: SecondsLoader, load_quality: QualityLoader,
     clock: Callable[[], float] = time.time,
 ) -> APIRouter:
-    """Routes: GET runtime, PUT mode, POST validate (server-side validation)."""
+    """Routes: GET presets, GET runtime, PUT mode, POST validate (server-side validation)."""
     endpoints = SoftSensorRuntimeEndpoints(root, clock, load_seconds, load_quality)
     router = APIRouter()
+    router.add_api_route("/softsensor-presets", endpoints.presets, methods=["GET"])
     router.add_api_route("/softsensor/{sid}/runtime", endpoints.runtime, methods=["GET"])
     router.add_api_route("/softsensor/{sid}/mode", endpoints.put_mode, methods=["PUT"])
     router.add_api_route("/datasets/{dataset_id}/softsensor/{sid}/validate", endpoints.validate,
