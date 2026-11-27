@@ -21,7 +21,7 @@ from crosscut_api.catalogue_csv_routes import (
     build_catalogue_csv_router,
 )
 from crosscut_api.site_routes import build_site_router  # type: ignore[import-untyped,unused-ignore]
-from crosscut_connectors.site import load_site  # type: ignore[import-untyped,unused-ignore]
+from crosscut_api.site_version_routes import working_site
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -80,7 +80,7 @@ def test_dry_run_reports_errors_and_keeps_site(
     body = response.json()
     assert body["errors"]
     assert body["applied"] is False
-    assert load_site(tmp_path) == base_doc
+    assert working_site(tmp_path) == base_doc
 
 
 def test_apply_valid_csv_changes_site(
@@ -97,8 +97,39 @@ def test_apply_valid_csv_changes_site(
 
     assert response.status_code == 200
     assert response.json()["applied"] is True
-    assert load_site(tmp_path) != base_doc
-    assert load_site(tmp_path)["tags"][0]["dtype"] == new
+    assert working_site(tmp_path) != base_doc
+    assert working_site(tmp_path)["tags"][0]["dtype"] == new
+
+
+def test_apply_lands_in_the_draft_not_in_the_published_site(
+    client: TestClient, tmp_path: Path, base_doc: dict[str, Any]
+) -> None:
+    """An import changes the draft; site.json stays as published until the draft is published."""
+    assert client.post("/site/publish").status_code == 200
+    text = client.get("/site/tags.csv").text
+    old = list(csv.reader(io.StringIO(text)))[1][0]  # first tag id: rename it to a new label
+    edited = _edit_first_tag(text, "name", "changed by csv " + old)
+
+    assert client.post("/site/tags.csv", content=edited.encode("utf-8")).status_code == 200
+
+    published = json.loads((tmp_path / "_site" / "site.json").read_text(encoding="utf-8"))
+    draft = json.loads((tmp_path / "_site" / "draft.json").read_text(encoding="utf-8"))
+    assert published == base_doc
+    assert draft["tags"][0] != published["tags"][0]
+    assert client.get("/site/tags.csv").text == edited  # export reads the draft
+
+
+def test_apply_is_refused_while_a_publish_is_pending(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Like PUT /site, an import is a 409 while a publish request waits for approval."""
+    text = client.get("/site/tags.csv").text
+    (tmp_path / "_site" / "pending_publish.json").write_text("{}", encoding="utf-8")
+
+    response = client.post("/site/tags.csv", content=text.encode("utf-8"))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "pending_exists"
 
 
 def test_apply_with_errors_returns_422_and_keeps_site(
@@ -112,7 +143,7 @@ def test_apply_with_errors_returns_422_and_keeps_site(
     assert response.status_code == 422
     assert response.json()["errors"]
     assert response.json()["applied"] is False
-    assert load_site(tmp_path) == base_doc
+    assert working_site(tmp_path) == base_doc
 
 
 def test_permission_table_has_both_routes() -> None:

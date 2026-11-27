@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/msurun/CrosscutProcessSuite/schemas/softsensor-preset.schema.json",
+  "title": "Soft-sensor preset",
+  "description": "A ready soft-sensor configuration bound to catalogue roles, not tag names (PRODUCT 4.2). Status stays experimental until the deployment gate passes on validation results.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["key", "label", "version", "status", "description", "target", "inputs", "model", "validity_checks", "calibration", "default_mode", "deployment_gate", "provenance"],
+  "properties": {
+    "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+    "label": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "status": {"enum": ["experimental", "validated"]},
+    "description": {"type": "string", "minLength": 1},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "unit", "range_min", "range_max"],
+      "properties": {
+        "role": {"$ref": "#/$defs/role"},
+        "unit": {"type": "string", "minLength": 1},
+        "range_min": {"type": "number"},
+        "range_max": {"type": "number"}
+      }
+    },
+    "inputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/input"}},
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_now", "planned", "note"],
+      "properties": {
+        "allowed_now": {"type": "array", "uniqueItems": true, "items": {"enum": ["pls"]}},
+        "planned": {"type": "array", "uniqueItems": true, "items": {"enum": ["pls", "ridge", "gradient_boosting", "physics_template", "hybrid"]}},
+        "note": {"type": "string"}
+      }
+    },
+    "lab_sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_kind", "stamp_meaning", "report_delay_s_min", "report_delay_s_max"],
+      "properties": {
+        "sample_kind": {"enum": ["spot", "composite", "analyser"]},
+        "stamp_meaning": {"enum": ["sample_start", "sample_end", "report_time"]},
+        "report_delay_s_min": {"type": "number", "minimum": 0},
+        "report_delay_s_max": {"type": "number", "minimum": 0}
+      }
+    },
+    "validity_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "description": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "calibration": {"enum": ["against_instrument", "against_lab", "datasheet_only"]},
+    "default_mode": {"enum": ["shadow", "primary"]},
+    "deployment_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preregistered", "baseline", "same_information_cutoff", "min_skill", "min_scored_coverage", "min_samples"],
+      "properties": {
+        "preregistered": {"const": true},
+        "baseline": {"enum": ["age_aware_lab_persistence", "last_good_instrument_value"]},
+        "same_information_cutoff": {"const": true},
+        "min_skill": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "min_scored_coverage": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "min_samples": {"type": "integer", "minimum": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^preset:[a-z][a-z0-9_]*$"},
+        "kind": {"enum": ["method", "ASSUMPTION"]},
+        "source": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "unit", "required"],
+      "properties": {
+        "role": {"$ref": "#/$defs/role"},
+        "unit": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "description": {"type": "string"},
+        "range_min": {"type": "number"},
+        "range_max": {"type": "number"}
+      }
+    }
+  }
+}

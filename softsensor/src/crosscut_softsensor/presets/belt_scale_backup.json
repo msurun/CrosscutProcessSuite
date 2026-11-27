@@ -1,0 +1,76 @@
+{
+  "key": "belt_scale_backup",
+  "label": "Belt-scale backup",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Solids mass flow from conveyor drive power and belt speed; backup for the belt scale.",
+  "target": {
+    "role": "solids_mass_flow",
+    "unit": "t/h",
+    "range_min": 0.0,
+    "range_max": 10000.0
+  },
+  "inputs": [
+    {
+      "role": "drive_power",
+      "unit": "kW",
+      "required": true,
+      "description": "Motor electrical power",
+      "range_min": 0
+    },
+    {
+      "role": "belt_speed",
+      "unit": "m/s",
+      "required": true,
+      "range_min": 0,
+      "range_max": 10
+    },
+    {
+      "role": "empty_belt_power",
+      "unit": "kW",
+      "required": true,
+      "description": "Empty-belt power curve value at this speed",
+      "range_min": 0
+    },
+    {
+      "role": "belt_inclination",
+      "unit": "deg",
+      "required": false,
+      "range_min": -30,
+      "range_max": 30
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "physics_template",
+      "hybrid"
+    ],
+    "note": "Net power proportional to load times speed; calibrated against the scale while healthy (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "belt_running",
+      "description": "Belt speed above a minimum"
+    },
+    {
+      "id": "belt_loaded",
+      "description": "Net power above empty-belt power plus margin"
+    }
+  ],
+  "calibration": "against_instrument",
+  "default_mode": "shadow",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "last_good_instrument_value",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 500
+  },
+  "provenance": {
+    "id": "preset:belt_scale_backup",
+    "kind": "ASSUMPTION",
+    "source": "General belt-conveyor power model (DIN 22101 style); structure and parameters are not taken from a plant."
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "key": "cyclone_overflow_size",
+  "label": "Cyclone overflow size",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "P80 or % passing of the cyclone overflow, calibrated on lab results.",
+  "target": {
+    "role": "overflow_p80",
+    "unit": "um",
+    "range_min": 10.0,
+    "range_max": 1000.0
+  },
+  "inputs": [
+    {
+      "role": "cyclone_pressure",
+      "unit": "kPa",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "feed_density",
+      "unit": "kg/m3",
+      "required": true,
+      "range_min": 500,
+      "range_max": 3500
+    },
+    {
+      "role": "feed_flow",
+      "unit": "m3/h",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "cyclones_open",
+      "unit": "1",
+      "required": true,
+      "range_min": 0
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "hybrid",
+      "pls"
+    ],
+    "note": "Empirical classification model plus data-driven correction on lab (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "cyclones_open",
+      "description": "At least one cyclone open"
+    },
+    {
+      "id": "inside_envelope",
+      "description": "Inside the calibration envelope of pressure and density"
+    }
+  ],
+  "calibration": "against_lab",
+  "default_mode": "primary",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "age_aware_lab_persistence",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 100
+  },
+  "provenance": {
+    "id": "preset:cyclone_overflow_size",
+    "kind": "method",
+    "source": "Plitt, A mathematical model of the hydrocyclone classifier, CIM Bulletin 69 (1976)."
+  },
+  "lab_sample": {
+    "sample_kind": "spot",
+    "stamp_meaning": "sample_start",
+    "report_delay_s_min": 600,
+    "report_delay_s_max": 14400
+  }
+}

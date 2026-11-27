@@ -89,3 +89,11 @@ it("shows detector validation in the Anomaly view", async () => {
 it("shows sensor validation in the Soft sensor view", async () => {
   await verifyValidation(<SoftSensorPage datasetId="" recordHours={null} startUtc="" t={t} />, "softsensor", softsensor);
 });
+it("shows the advanced bias correction section in the Soft sensor editor", async () => {
+  serveModule("softsensor", softsensor);
+  render(<SoftSensorPage datasetId="" recordHours={null} startUtc="" t={t} />);
+  const editor = within(await screen.findByRole("region", { name: "Configuration" }));
+  expect(await editor.findByTestId("schema-object-bias_correction")).toBeInTheDocument();
+  expect(editor.getByLabelText("weight")).toBeInTheDocument();
+  expect(editor.getByText(/does not prove that the model beats lab persistence/)).toBeInTheDocument();
+});

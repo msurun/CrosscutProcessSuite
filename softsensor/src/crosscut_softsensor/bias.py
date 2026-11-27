@@ -10,6 +10,10 @@ import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
+DEFAULT_WEIGHT = 0.3  # EWMA weight of the newest lab-minus-estimate error
+DEFAULT_K_SIGMA = 3.0  # exceedance limit in cross-validated standard errors of the EWMA
+DEFAULT_CONSECUTIVE = 3  # overs in a row that raise the drift flag
+
 
 class BiasTrackerError(ValueError):
     """Raised for an invalid tracker setting or state."""
@@ -37,7 +41,11 @@ class BiasTracker:
     """
 
     def __init__(
-        self, sigma_cv: float, weight: float = 0.3, k_sigma: float = 3.0, consecutive: int = 3
+        self,
+        sigma_cv: float,
+        weight: float = DEFAULT_WEIGHT,
+        k_sigma: float = DEFAULT_K_SIGMA,
+        consecutive: int = DEFAULT_CONSECUTIVE,
     ) -> None:
         if not sigma_cv > 0 or not 0 < weight <= 1 or not k_sigma > 0 or consecutive < 1:
             raise BiasTrackerError("need sigma_cv>0, 0<weight<=1, k_sigma>0, consecutive>=1")

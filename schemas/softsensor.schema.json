@@ -18,6 +18,15 @@
     "max_components": {"type": "integer", "minimum": 1, "default": 8},
     "cv_blocks": {"type": "integer", "minimum": 2, "default": 5},
     "mode": {"enum": ["off", "advisory"]},
+    "bias_correction": {
+      "description": "Advanced: lab bias correction (EWMA of lab minus estimate and its drift flag). The correction compensates slow drift of the estimate; it does not prove that the model beats lab persistence (carry-forward of the last lab value). weight is the EWMA weight; the drift flag is raised after `consecutive` results in a row with |bias| above k_sigma times the cross-validated standard error of the EWMA. Defaults reproduce the previous fixed constants.",
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 0.3},
+        "k_sigma": {"type": "number", "exclusiveMinimum": 0, "default": 3.0},
+        "consecutive": {"type": "integer", "minimum": 1, "default": 3}
+      }
+    },
     "backup": {
       "description": "Backup mode: while the measured value of measured_tag is invalid (bad quality, frozen for frozen_s, outside [range_lo, range_hi], or flag_tag non-zero) the virtual sensor output substitutes it; the measurement returns after return_hold_s of continuous validity. When enabled is true every field except flag_tag is required (no plant defaults).",
       "type": "object", "additionalProperties": false,
