@@ -7,6 +7,9 @@ import { DEFAULT_LAGS_S, DEFAULT_LAB_DELAY_S, DEFAULT_SAMPLE_PERIOD_S } from "..
 const DEFAULT_MAX_COMPONENTS = 8;
 const DEFAULT_CV_BLOCKS = 5;
 const PERCENT = 100;
+const DEFAULT_BIAS_WEIGHT = 0.3;
+const DEFAULT_BIAS_K_SIGMA = 3;
+const DEFAULT_BIAS_CONSECUTIVE = 3;
 
 /** The reference inputs as one line each, or "none"; the coverage is shown in per cent. */
 function referencesText(config: SoftSensorConfig, t: Translate): string {
@@ -28,6 +31,14 @@ function backupText(config: SoftSensorConfig, t: Translate): string {
   });
 }
 
+/** The bias correction settings as one line, with the schema defaults for absent fields. */
+function biasText(config: SoftSensorConfig, t: Translate): string {
+  const b = config.bias_correction ?? {};
+  return t("soft.config.biasCorrectionItem", {
+    weight: b.weight ?? DEFAULT_BIAS_WEIGHT, k: b.k_sigma ?? DEFAULT_BIAS_K_SIGMA, n: b.consecutive ?? DEFAULT_BIAS_CONSECUTIVE,
+  });
+}
+
 /** The configuration as a definition list. */
 export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfig; t: Translate }) {
   const seconds = (value: number) => t("soft.config.seconds", { value });
@@ -42,11 +53,13 @@ export function SoftSensorConfigSummary({ config, t }: { config: SoftSensorConfi
     [t("soft.config.cvBlocks"), String(config.cv_blocks ?? DEFAULT_CV_BLOCKS)],
     [t("soft.config.references"), referencesText(config, t)],
     [t("soft.config.backup"), backupText(config, t)],
+    [t("soft.config.biasCorrection"), biasText(config, t)],
   ];
   return (
     <section aria-label={t("soft.config.title")}>
       <h3>{t("soft.config.title")}</h3>
       {config.description !== undefined && config.description !== "" && <p className="hint">{config.description}</p>}
+      <p className="hint" data-testid="soft-bias-hint">{t("soft.config.biasCorrectionHint")}</p>
       <dl className="advisory-config">
         {rows.map(([label, value]) => (
           <div key={label}>
