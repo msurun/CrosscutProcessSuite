@@ -67,23 +67,44 @@ class IdentifiedModel:
     quality: tuple[tuple[PairQuality, ...], ...]  # [cv][input]
     windows: dict[str, tuple[float, float]]  # "input->cv": (t_start_s, t_stop_s)
     method: str = METHOD
+    enabled: tuple[tuple[bool, ...], ...] | None = None  # [CV][input]; None enables all paths.
+    edit_metadata: dict[str, object] | None = None  # Hashed provenance of an edited version.
+
+    def __post_init__(self) -> None:
+        """Reject malformed enable grids before converting or storing a model."""
+        if self.enabled is None:
+            return
+        if len(self.enabled) != len(self.cv_names) or any(
+            len(row) != len(self.input_names) for row in self.enabled
+        ):
+            raise ValueError("enabled must have one boolean per CV/input pair")
+        if any(type(value) is not bool for row in self.enabled for value in row):
+            raise ValueError("enabled must contain booleans; use true or false for every pair")
+
+    def pair_enabled(self, row: int, column: int) -> bool:
+        """Return whether a path participates, including legacy artifacts without flags."""
+        return self.enabled is None or self.enabled[row][column]
 
     @property
     def accepted(self) -> bool:
-        """True when every pair passed the gate."""
-        return all(q.passed for row in self.quality for q in row)
+        """True when every enabled pair passed the original identification gate."""
+        return all(q.passed for row_index, row in enumerate(self.quality)
+                   for column, q in enumerate(row) if self.pair_enabled(row_index, column))
 
     def to_mpc_model(self) -> MpcFopdtModel:
         """Return the controller model; refuse when any pair failed the gate."""
         if not self.accepted:
             failed = [
                 f"{name}->{cv}: {'; '.join(q.reasons)}"
-                for cv, row in zip(self.cv_names, self.quality, strict=True)
-                for name, q in zip(self.input_names, row, strict=True)
-                if not q.passed
+                for row_index, (cv, row) in enumerate(zip(self.cv_names, self.quality, strict=True))
+                for column, (name, q) in enumerate(zip(self.input_names, row, strict=True))
+                if not q.passed and self.pair_enabled(row_index, column)
             ]
             raise IdentificationRejected("pairs failed the quality gate: " + " | ".join(failed))
-        return MpcFopdtModel(self.gains, self.time_constants_s, self.dead_times_s, self.cycle_s)
+        # Disabled paths contribute zero CV-unit/input-unit gain, retaining their fitted values
+        # in the artifact so re-enabling never destroys the original identification evidence.
+        gains = self.gains if self.enabled is None else np.where(self.enabled, self.gains, 0.0)
+        return MpcFopdtModel(gains, self.time_constants_s, self.dead_times_s, self.cycle_s)
 
 
 def _cycle_s(time_s: Array) -> float:
