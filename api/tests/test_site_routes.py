@@ -47,10 +47,11 @@ def test_put_site_saves_and_returns_document(
     assert response.status_code == 200
     assert response.json() == base_doc
 
-    # Verify file exists on disk
-    stored_path = tmp_path / "_site" / "site.json"
-    assert stored_path.is_file()
-    assert json.loads(stored_path.read_text()) == base_doc
+    # The edit is a draft: the published file appears only after publishing.
+    assert not (tmp_path / "_site" / "site.json").exists()
+    assert json.loads((tmp_path / "_site" / "draft.json").read_text()) == base_doc
+    assert client.post("/site/publish", json={"note": "first"}).status_code == 200
+    assert json.loads((tmp_path / "_site" / "site.json").read_text()) == base_doc
 
     # Verify GET returns the same
     get_response = client.get("/site")
@@ -101,6 +102,7 @@ def test_get_import_settings_returns_correct_structure(
     client: TestClient, base_doc: dict[str, Any]
 ) -> None:
     client.put("/site", json=base_doc)
+    client.post("/site/publish")
     response = client.get("/site/import-settings")
     assert response.status_code == 200
 
@@ -118,6 +120,7 @@ def test_import_settings_reflect_updated_values(
     client: TestClient, base_doc: dict[str, Any]
 ) -> None:
     client.put("/site", json=base_doc)
+    client.post("/site/publish")
 
     updated_doc = base_doc.copy()
     updated_import = updated_doc["import"].copy()
@@ -127,6 +130,7 @@ def test_import_settings_reflect_updated_values(
     updated_doc["import"] = updated_import
 
     client.put("/site", json=updated_doc)
+    client.post("/site/publish")
 
     response = client.get("/site/import-settings")
     assert response.status_code == 200

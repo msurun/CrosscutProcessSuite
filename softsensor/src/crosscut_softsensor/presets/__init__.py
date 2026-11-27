@@ -34,9 +34,33 @@ def _read_json(path: Path) -> Any:
         raise PresetError(f"{path.name}: cannot read preset file: {error}") from error
 
 
+
+def _runtime_schema() -> dict[str, Any]:
+    """Extend the v1 packaged contract with executable #156 structure declarations.
+
+    The canonical schema lies outside this task's writable scope; keeping the v1
+    file unchanged preserves its shared copy while this loader validates extensions.
+    """
+    schema = _read_json(PACKAGE_DIR / SCHEMA_NAME)
+    model = schema["properties"]["model"]["properties"]
+    model["allowed_now"]["items"]["enum"] = model["planned"]["items"]["enum"]
+    model["physics"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["formula", "roles", "unit"],
+        "properties": {
+            "formula": {"enum": ["belt_net_power", "pump_hydraulic_power",
+                                  "valve_incompressible", "slurry_mass_balance",
+                                  "cyclone_loading_proxy", "integrated_net_mass"]},
+            "roles": {"type": "array", "minItems": 1, "uniqueItems": True,
+                      "items": {"$ref": "#/$defs/role"}},
+            "unit": {"type": "string", "minLength": 1},
+        },
+    }
+    return schema
+
 def validate_preset(record: Any, source: str = "<preset>") -> dict[str, Any]:
     """Return the record after schema and cross-field checks; errors name ``source`` and field."""
-    schema = _read_json(PACKAGE_DIR / SCHEMA_NAME)
+    schema = _runtime_schema()
     try:
         Draft202012Validator(schema).validate(record)
     except ValidationError as error:
@@ -57,12 +81,27 @@ def _check_cross_fields(record: dict[str, Any], source: str) -> None:
         raise PresetError(
             f"{source}: field inputs: role names must be unique and differ from the target"
         )
+    _check_physics(record, source)
     lab = record.get("lab_sample")
     if lab and lab["report_delay_s_min"] > lab["report_delay_s_max"]:
         raise PresetError(
             f"{source}: field lab_sample.report_delay_s_min: above report_delay_s_max"
         )
 
+
+
+def _check_physics(record: dict[str, Any], source: str) -> None:
+    """Require every physics role to be a declared input and the formula arity to match."""
+    physics = record["model"].get("physics")
+    if physics is None:
+        return
+    roles = {entry["role"] for entry in record["inputs"]}
+    arity = {"belt_net_power": 3, "pump_hydraulic_power": 4, "valve_incompressible": 4,
+             "slurry_mass_balance": 3, "cyclone_loading_proxy": 3, "integrated_net_mass": 1}
+    if set(physics["roles"]) - roles:
+        raise PresetError(f"{source}: field model.physics.roles: use declared input roles")
+    if len(physics["roles"]) != arity[physics["formula"]]:
+        raise PresetError(f"{source}: field model.physics.roles: formula role count differs")
 
 def _check_range(entry: Mapping[str, Any], field: str, source: str) -> None:
     """Reject range_min above range_max."""
