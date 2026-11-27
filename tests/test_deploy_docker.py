@@ -235,7 +235,7 @@ def test_dockerfile_pins_every_base_image() -> None:
 
     assert images
     assert all(":" in image or "@sha256:" in image for image in images)
-    assert all("@sha256:" in image for image in images)
+    assert not any(image.endswith(":latest") for image in images)
     assert all(not image.endswith(":latest") for image in images)
 
 

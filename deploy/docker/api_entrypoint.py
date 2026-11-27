@@ -11,7 +11,6 @@ from pathlib import Path
 
 import uvicorn
 from crosscut_api.app import create_app
-from env_settings import env_path
 from fastapi import FastAPI
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles

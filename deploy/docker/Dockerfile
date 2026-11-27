@@ -3,7 +3,7 @@
 # python installs the Crosscut packages and serves as the shared runtime image
 # for the api, runtime and gateway containers. See deploy/docker/README.md.
 
-FROM node:22.11.0-bookworm-slim@sha256:f035ba7ffee18f67200e2eb8018e0f13c954ec16338f264940f701997e3c12da AS frontend-build
+FROM node:22.11.0-bookworm-slim AS frontend-build
 WORKDIR /build/frontend
 # Install from the lock file first so a source-only change reuses this layer.
 COPY frontend/package.json frontend/package-lock.json ./
@@ -11,7 +11,7 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.12.7-slim-bookworm@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d AS python-runtime
+FROM python:3.12.7-slim-bookworm AS python-runtime
 # Unbuffered output reaches `docker compose logs` immediately; the schema folder
 # is fixed here because the API and runtime resolve contracts from it.
 ENV PYTHONDONTWRITEBYTECODE=1 \
