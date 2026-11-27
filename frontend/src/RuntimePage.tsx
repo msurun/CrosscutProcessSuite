@@ -44,7 +44,7 @@ const EMPTY_FORM: NewJobForm = { id: "", kind: "loop_kpi", source: "", targets: 
 
 /** The chip colour of a job state; unknown states stay neutral. */
 export function jobStateChipClass(state: string): string {
-  if (state === "error" || state === "failed") return "status-chip status-chip--problem";
+  if (state === "error" || state === "failed" || state === "stale") return "status-chip status-chip--problem";
   if (state === "running" || state === "ok") return "status-chip status-chip--ok";
   return "status-chip status-chip--unused";
 }

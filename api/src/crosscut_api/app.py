@@ -45,6 +45,7 @@ from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.catalogue_source_routes import build_catalogue_source_router
 from crosscut_api.connector_routes import build_connector_router
 from crosscut_api.controller_routes import build_controller_router
+from crosscut_api.dependency_routes import build_dependency_router
 from crosscut_api.downsample import Envelope, downsample_minmax
 from crosscut_api.equipment_anomaly_routes import build_equipment_anomaly_router
 from crosscut_api.equipment_live_routes import build_equipment_live_router
@@ -794,6 +795,7 @@ def _mount_data_routers(
     app.include_router(build_catalogue_source_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_dependency_router(store.root))
     app.include_router(build_admin_router(store.root))
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.dependency_hooks import stale_problem
 
 MAX_VARIABLES = 8  # Limit QP dimensions and preview response size.
 MAX_PREDICTED_VALUES = 240  # CV-by-horizon entries bound dense QP slack matrices.
@@ -164,6 +165,9 @@ def load_preview_controller(root: Path, body: SimulationInput,
 def run_preview(root: Path, body: SimulationInput) -> dict[str, Any]:
     """Load a verified model, validate catalogue dimensions and run without persistence."""
     variables = catalogue_variables(root, body.controller_id)
+    problem = stale_problem(root, f"ident_model:{body.artifact_id}")
+    if problem:
+        raise ValueError(f"model {body.artifact_id!r} needs relearn or re-confirmation ({problem})")
     validate_preview_size(variables, body)
     controller = load_preview_controller(root, body, variables)
     result = simulate(controller, bound_pid_tunings(variables, body),

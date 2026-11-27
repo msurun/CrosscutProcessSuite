@@ -22,7 +22,8 @@ export type View =
   | "health"
   | "tuning"
   | "users"
-  | "backup";
+  | "backup"
+  | "dependencies";
 
 /** The sub-tabs of the "loops" view. */
 export type LoopSub = "detail" | "tuning" | "benefit" | "valve";
@@ -66,6 +67,7 @@ const KNOWN_VIEWS: readonly View[] = [
   "tuning",
   "users",
   "backup",
+  "dependencies",
 ];
 const CONTROLLERS_HASH = "#/controllers";
 const KNOWN_SUBS: readonly LoopSub[] = ["detail", "tuning", "benefit", "valve"];

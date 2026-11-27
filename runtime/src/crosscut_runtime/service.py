@@ -16,8 +16,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from crosscut_connectors.dependency_index import DependencyView
 from crosscut_connectors.registry import connector_from_source
 from crosscut_connectors.site import SiteError, load_site
+from crosscut_connectors.site_fingerprint import job_tag_ids, reason_text
 from crosscut_fuzzy.library import load_document
 from crosscut_fuzzy.model import FuzzyModelError
 
@@ -42,6 +44,7 @@ from crosscut_runtime.store import RuntimeStore, controller_period, controller_p
 
 _UNSET: Any = object()
 OVERRUN_PERIODS = 2.0  # a run later than this many periods after the previous one is an overrun
+STALE_PREFIX = "stale_dependency"  # error text of a job that refuses to run on a changed tag
 RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller", "equipment_scan",
                  "softsensor")
 
@@ -141,6 +144,8 @@ class RuntimeService:
         self._review_jobs: dict[str, TuningReviewJob] = {}
         self._softsensor_jobs: dict[str, tuple[dict[str, Any], SoftSensorJob]] = {}
         self._history = HistoryStore(history_path(root))
+        self._dep_memory: dict[str, Any] = {}
+        self._deps: DependencyView | None = None
         self._pending_samples: list[tuple[str, float, float, int]] = []
         self._started_utc = datetime.now(UTC).isoformat()
 
@@ -168,6 +173,7 @@ class RuntimeService:
 
     def _sync_scheduler(self, jobs: list[dict[str, Any]], site: dict[str, Any]) -> None:
         """Update job slots based on current configuration and site."""
+        self._deps = DependencyView(self._store.root, site, self._dep_memory)
         loop_docs = {loop["id"]: loop for loop in site.get("loops", [])}
         sources = {src["id"]: src for src in site.get("sources", [])}
         addresses = {t["id"]: t["address"] for t in site.get("tags", []) if t.get("address")}
@@ -181,16 +187,17 @@ class RuntimeService:
 
             active_ids.add(job_id)
             if job["kind"] == "tuning_review":
-                self._sync_review(job)
+                self._sync_review(job, site)
             elif job["kind"] == "loop_kpi":
-                self._sync_job(
-                    job, sources, addresses, lambda doc: self._loop_run(doc, loop_docs, site))
+                make = self._guarded(site, lambda doc: self._loop_run(doc, loop_docs, site))
+                self._sync_job(job, sources, addresses, make)
             elif job["kind"] == "anomaly_scan":
-                self._sync_job(job, sources, addresses, self._anomaly_run)
+                self._sync_job(job, sources, addresses, self._guarded(site, self._anomaly_run))
             elif job["kind"] == "equipment_scan":
-                self._sync_job(job, sources, addresses, lambda doc: self._equipment_run(doc, site))
+                make = self._guarded(site, lambda doc: self._equipment_run(doc, site))
+                self._sync_job(job, sources, addresses, make)
             elif job["kind"] == "softsensor":
-                self._sync_job(job, sources, addresses, self._softsensor_run)
+                self._sync_job(job, sources, addresses, self._guarded(site, self._softsensor_run))
             elif job["kind"] == "controller":
                 self._sync_controller(job, site)
 
@@ -220,6 +227,7 @@ class RuntimeService:
 
     def _controller_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
         """The run function of a controller job; a job that cannot be built fails each pass."""
+        reasons = self._stale_reasons(job, site)
         try:
             problem = controller_period_problem(job, _controller_entry(job, site))
             if problem:
@@ -231,22 +239,62 @@ class RuntimeService:
                 built = build_controller_job(job, site, self._store.root, deps)
                 cached = (key, built)
                 self._controller_jobs[job["id"]] = cached
-            return cached[1].run
         except (ValueError, ImportError, TypeError, KeyError) as error:
-            return _failing_run(str(error))
+            return self._controller_unbuildable(job, reasons, error)
+        cached[1].set_stale(reasons)
+        return cached[1].run
 
-    def _sync_review(self, job: dict[str, Any]) -> None:
+    def _controller_unbuildable(
+        self, job: dict[str, Any], reasons: list[str], error: Exception
+    ) -> Callable[[], Any]:
+        """Run for a controller that cannot be built now.
+
+        A running host whose tags went stale keeps cycling in the shed state, so the existing
+        shed path and liveness beat release its targets; otherwise the job fails visibly.
+        """
+        cached = self._controller_jobs.get(job["id"])
+        if reasons and cached is not None:
+            cached[1].set_stale(reasons)
+            return cached[1].run
+        return _failing_run(reasons[0] if reasons else str(error))
+
+    def _stale_reasons(self, job: dict[str, Any], site: dict[str, Any]) -> list[str]:
+        """Texts of the dependencies of a job that no longer match the catalogue (empty: fine)."""
+        try:
+            view = self._deps if self._deps is not None else DependencyView(self._store.root, site)
+            dependent = {"kind": "job", "id": job["id"], "tags": sorted(job_tag_ids(job, site))}
+            found = view.reasons(f"job:{job['id']}", dependent)
+            if job["kind"] == "anomaly_scan":
+                found += view.reasons(f"anomaly:{job.get('anomaly_id', job['id'])}")
+        except (KeyError, TypeError, AttributeError):
+            return []  # a malformed document is reported by the job's own build, not here
+        return [reason_text(found)] if found else []
+
+    def _guarded(
+        self, site: dict[str, Any], make_run: Callable[[dict[str, Any]], Callable[[], Any]]
+    ) -> Callable[[dict[str, Any]], Callable[[], Any]]:
+        """Wrap a run factory: a job on a stale tag refuses to run (no silent fallback)."""
+
+        def make(job: dict[str, Any]) -> Callable[[], Any]:
+            reasons = self._stale_reasons(job, site)
+            return _failing_run(reasons[0]) if reasons else make_run(job)
+
+        return make
+
+    def _sync_review(self, job: dict[str, Any], site: dict[str, Any]) -> None:
         """Update the JobSlot of a tuning_review job; no connector needed."""
         job_id = job["id"]
         cached = self._review_jobs.get(job_id)
         if cached is None or cached.job_doc != job:
             cached = TuningReviewJob(job, self._store.root, self._history, self._clock)
             self._review_jobs[job_id] = cached
+        reasons = self._stale_reasons(job, site)
+        run = _failing_run(reasons[0]) if reasons else cached.run
         existing = self._scheduler.get(job_id)
         if existing:
-            existing.run, existing.period_s = cached.run, job["period_s"]
+            existing.run, existing.period_s = run, job["period_s"]
         else:
-            self._scheduler.put(JobSlot(job_id, job["period_s"], cached.run))
+            self._scheduler.put(JobSlot(job_id, job["period_s"], run))
 
     def _sync_job(
         self,
@@ -410,7 +458,8 @@ class RuntimeService:
                     if job["kind"] == "loop_kpi":
                         record_kpi_run(self._store, job, st, now_utc)
                 else:
-                    st.update({"status": "error", "error": run.error})
+                    stale = str(run.error).startswith(STALE_PREFIX)
+                    st.update({"status": "stale" if stale else "error", "error": run.error})
                     self._store.append_log("error", run.error, job_id)
             elif not st.get("status"):
                 st["status"] = "idle"

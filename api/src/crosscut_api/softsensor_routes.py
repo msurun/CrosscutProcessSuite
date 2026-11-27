@@ -33,6 +33,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from crosscut_api.anomaly_routes import WindowRequest, _bin_means, _window_mask
+from crosscut_api.dependency_hooks import register_dependent
 from crosscut_api.site_versions import current_version
 from crosscut_api.target_alignment import (
     aligned_labs,
@@ -238,6 +239,7 @@ class _SoftSensorEndpoints:
         """Persist a fitted model and return the figures used by the GUI."""
         _write_text(self._path(sid, ".model.json"), json.dumps(model.to_dict(), indent=2))
         _write_text(self._path(sid, ".manifest.json"), json.dumps(manifest, indent=2))
+        register_dependent(self.folder.parent, "softsensor", sid)
         return _summary(model, manifest, manifest["r2_train"])
 
     def get_model(self, sid: Sid) -> dict[str, Any]:

@@ -30,10 +30,12 @@ class Health:
     any_cv_good: bool = True
     advisory_only: bool = False
     overrun_limit: bool = False
+    stale_dependency: bool = False  # a tag it uses was removed or changed in the catalogue (#166)
 
     def problem(self) -> str | None:
         """First failing guard as a reason code, ``None`` when all pass."""
         checks = (
+            (self.stale_dependency, "stale_dependency"),
             (self.comm_loss, "comm_loss"),
             (bool(self.unavailable_mvs), "mv_unavailable"),
             (not self.any_cv_good, "no_good_cv"),

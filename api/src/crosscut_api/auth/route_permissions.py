@@ -76,6 +76,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/site/diff"): "data.view",
     ("GET", "/site/publish/pending"): "data.view",
     ("GET", "/site/tags.csv"): "data.view",
+    ("GET", "/dependencies"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
     # Loop templates (4.1): the library is readable, a site copy is a catalogue edit.
     ("GET", "/loop-templates"): "data.view",
@@ -146,6 +147,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/site/publish"): "config.edit",
     ("POST", "/site/publish/approve"): "config.edit",
     ("POST", "/site/publish/reject"): "config.edit",
+    ("POST", "/dependencies/confirm"): "config.edit",
     ("POST", "/site/tags.csv"): "config.edit",
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/loop-templates/{key}"): "config.edit",
