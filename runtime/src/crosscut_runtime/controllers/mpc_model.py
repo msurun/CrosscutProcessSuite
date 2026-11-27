@@ -8,6 +8,7 @@ variables. Every refusal is a ``ModelRefused`` whose message starts with a stabl
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from crosscut_mpc.identification import IdentificationRejected
 from crosscut_mpc.model import FopdtModel
 
 MODEL_STORE = ("_mpc", "models")
+SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 CYCLE_TOLERANCE = 0.01  # relative difference between model sample time and controller cycle
 
 
@@ -39,8 +41,10 @@ class BoundModel:
 def model_directory(root: Path, artifact: str) -> Path:
     """The artifact folder inside the model store; a path leaving the store is refused."""
     store = root.joinpath(*MODEL_STORE).resolve()
+    if not isinstance(artifact, str) or not artifact.strip():
+        raise ModelRefused("model_missing: the catalogue names no artifact id")
     path = (store / artifact).resolve()
-    if not path.is_relative_to(store) or not path.is_dir():
+    if path == store or not path.is_relative_to(store) or not path.is_dir():
         raise ModelRefused(f"model_missing: no ident_model {artifact!r} in the model store")
     return path
 
@@ -68,9 +72,12 @@ def load_bound_model(
 ) -> BoundModel:
     """Load, verify and bind the model of controller ``doc``; ``ModelRefused`` on any problem."""
     ref = doc["mpc"]["model"]
-    path = model_directory(root, ref["artifact"])
+    sha = ref.get("sha256")
+    if not isinstance(sha, str) or SHA256.fullmatch(sha) is None:
+        raise ModelRefused("model_hash: the catalogue needs the 64 hex digit SHA-256 of the model")
+    path = model_directory(root, ref.get("artifact"))
     try:
-        model = load_ident_model(path, ref["sha256"])
+        model = load_ident_model(path, sha.lower())
         plant = model.to_mpc_model()
     except IdentModelIntegrityError as error:
         raise ModelRefused(f"model_hash: {error}") from error

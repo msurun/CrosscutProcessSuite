@@ -38,17 +38,28 @@ def _mv_steps(var: Mapping[str, Any], cycle_s: float) -> tuple[float, float]:
     return move, float(rate) if rate is not None else move / cycle_s
 
 
-def clamp_move(var: Mapping[str, Any], current: float, proposed: float, cycle_s: float) -> float:
-    """The proposal cut to the step limit and the range of the catalogue (solver tolerance).
+def clamp_move(
+    var: Mapping[str, Any], current: float, proposed: float, cycle_s: float,
+    last: float | None = None,
+) -> float:
+    """The proposal cut to the step windows and the range.
 
-    The solver certifies its plan only within a small tolerance; a proposal never leaves the
-    limits the operator and the catalogue set.
+    The solver certifies its plan only within a small tolerance, and a proposal may not have been
+    applied: the step window is the overlap of ``current +- step`` and ``last +- step`` (the
+    read-back window alone when they do not overlap). The result lies in the range; a setpoint
+    outside the range only approaches it by one step.
     """
     move, rate = _mv_steps(var, cycle_s)
     step = min(move, rate * cycle_s)
-    lo, hi = range_of(var)
-    cut = min(max(proposed, current - step), current + step)
-    return min(max(cut, lo), hi) if lo <= current <= hi else cut
+    lo, hi = current - step, current + step
+    if last is not None and max(lo, last - step) <= min(hi, last + step):
+        lo, hi = max(lo, last - step), min(hi, last + step)
+    r_lo, r_hi = range_of(var)
+    if hi < r_lo:
+        return hi
+    if lo > r_hi:
+        return lo
+    return min(max(proposed, max(lo, r_lo)), min(hi, r_hi))
 
 
 def build_limits(

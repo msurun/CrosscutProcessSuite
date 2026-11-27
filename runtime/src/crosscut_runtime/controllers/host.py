@@ -9,6 +9,7 @@ direct write). The state record is written atomically to
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -46,6 +47,8 @@ from crosscut_runtime.variable_status import (
 )
 
 OVERRUN_MARGIN = 0.1  # a start later than period * (1 + margin) after the last start is late
+LOGGER = logging.getLogger(__name__)
+CONTROLLER_ERROR_REASON = "controller_error"  # step raised: no proposal, controller shed
 CONTROLLER_SHED_REASON = "controller_shed"  # the controller itself asked to shed (MPC rule)
 NO_WRITE_REASON = "mode_no_write"  # gateway reason: mode off, advisory or dry_run
 
@@ -243,7 +246,7 @@ class ControllerHost:
             self._controller.initialise(statuses)
         elif new in (ON, ADVISORY):
             self._step(new, statuses)
-        if new != ON:
+        if self.record.state != ON:
             self.record.consecutive_overruns = 0
         if new != ADVISORY:
             self.record.last_advice = None
@@ -252,7 +255,14 @@ class ControllerHost:
 
     def _step(self, state: str, statuses: list[VariableStatus]) -> None:
         """Run one controller step; moves go to the gateway while on, to the record in advisory."""
-        result = self._controller.step(statuses)
+        try:
+            result = self._controller.step(statuses)
+        except Exception:  # noqa: BLE001 - any controller fault must end in a safe state
+            LOGGER.exception("controller %s failed in step; shedding", self._controller.id)
+            self.record.state, self.record.reason = SHED, CONTROLLER_ERROR_REASON
+            self.record.last_explanation, self.record.diagnostics = CONTROLLER_ERROR_REASON, None
+            self.record.last_advice = None
+            return
         self.record.last_explanation = result.explanation
         self.record.diagnostics = None if result.diagnostics is None else dict(result.diagnostics)
         if result.shed:

@@ -75,7 +75,7 @@ export interface ControllerVariable {
 }
 
 /** Reason code of one MPC MV in one cycle; also the common "why no move" reason. */
-export type MpcCode = "move" | "hold" | "shed" | "limit" | "no_target" | "at_target" | "input_bad" | "bumpless_start";
+export type MpcCode = "move" | "hold" | "shed" | "limit" | "no_target" | "at_target" | "input_bad" | "bumpless_start" | "bad_move";
 
 export interface MpcCv {
   id: string;

@@ -287,3 +287,111 @@ def test_a_proposal_never_leaves_step_and_range_limits() -> None:
     assert clamp_move(var, 40.0, 90.0, CYCLE_S) == pytest.approx(45.0)
     assert clamp_move(var, 98.0, 103.0, CYCLE_S) == pytest.approx(100.0)
     assert clamp_move(var, 120.0, 100.0, CYCLE_S) == pytest.approx(115.0)  # outside: approach
+
+
+# ---- independent review findings (safety) ----
+
+
+def test_only_good_inputs_may_drive_a_move(ctrl: MpcController) -> None:
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    for level in ("uncertain", "bad"):
+        rows = statuses((40.0, 60.0), (20.0, 30.0))
+        rows[2] = VariableStatus("y1", "t", level, ("stale",), 20.0, None)
+        held = ctrl.step(rows)
+        assert held.moves == () and held.diagnostics is not None
+        assert held.diagnostics["why_no_move"] == "input_bad"
+
+
+def test_recovery_after_an_infeasible_hold_is_bumpless(ctrl: MpcController) -> None:
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    held = ctrl.step(statuses((150.0, 60.0), (20.0, 30.0)))  # outside the hard limit: hold
+    assert held.diagnostics is not None and held.diagnostics["status"] == "hold"
+    back = ctrl.step(statuses((41.0, 60.0), (20.0, 30.0)))
+    assert [(m.value, m.reason) for m in back.moves] == [
+        (41.0, "bumpless_initialisation"), (60.0, "bumpless_initialisation")]
+
+
+def test_reenable_after_shed_is_bumpless_with_zero_move(ctrl: MpcController) -> None:
+    for _ in range(4):
+        ctrl.step(statuses((150.0, 60.0), (20.0, 30.0)))
+    ctrl.initialise([])
+    again = ctrl.step(statuses((42.0, 61.0), (20.0, 30.0)))
+    assert [(m.value, m.reason) for m in again.moves] == [
+        (42.0, "bumpless_initialisation"), (61.0, "bumpless_initialisation")]
+
+
+@pytest.mark.parametrize("sha", ["", "xyz", "a" * 63, "g" * 64, None])
+def test_refuses_a_missing_or_malformed_hash(tmp_path: Path, sha: Any) -> None:
+    store(tmp_path, make_model())
+    doc = controller_doc("0" * 64)
+    if sha is None:
+        del doc["mpc"]["model"]["sha256"]
+    else:
+        doc["mpc"]["model"]["sha256"] = sha
+    with pytest.raises(ModelRefused, match="model_hash"):
+        load_bound_model(tmp_path, doc, CYCLE_S)
+
+
+def test_hash_compare_ignores_case_and_an_empty_artifact_id_is_refused(tmp_path: Path) -> None:
+    sha = store(tmp_path, make_model())
+    assert load_bound_model(tmp_path, controller_doc(sha.upper()), CYCLE_S).mv_ids
+    for name in ("", "  ", "."):
+        with pytest.raises(ModelRefused, match="model_missing"):
+            load_bound_model(tmp_path, controller_doc(sha, name), CYCLE_S)
+
+
+def test_a_step_exception_sheds_without_any_proposal(tmp_path: Path) -> None:
+    sent: list[Any] = []
+    host = host_for(tmp_path, [], sent)
+
+    def boom(_: Any) -> Any:
+        raise RuntimeError("solver crashed")
+
+    host.request("switch_on")
+    host.run_cycle()
+    host._controller.step = boom  # type: ignore[method-assign]  # noqa: SLF001
+    record = host.run_cycle()
+    assert (record.state, record.reason) == ("shed", "controller_error")
+    assert sent == [] and record.diagnostics is None
+    assert record.consecutive_overruns == 0 and record.liveness_utc is not None
+
+
+def test_a_nonfinite_engine_move_holds_that_mv(
+    ctrl: MpcController, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import crosscut_runtime.controllers.mpc as module  # noqa: PLC0415
+
+    real = module.cycle
+
+    def poisoned(*args: Any) -> Any:
+        result, state = real(*args)
+        moves = (float("nan"), *result.moves[1:])
+        return dataclasses.replace(result, moves=moves), state
+
+    ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    monkeypatch.setattr(module, "cycle", poisoned)
+    out = ctrl.step(statuses((40.0, 60.0), (20.0, 30.0)))
+    assert "u1" not in {m.variable_id for m in out.moves}
+    assert out.diagnostics is not None
+    codes = {m["id"]: m["code"] for m in out.diagnostics["mvs"]}
+    assert codes["u1"] == "bad_move"
+    assert all(np.isfinite(m["proposed"]) for m in out.diagnostics["mvs"])
+
+
+def test_clamp_uses_the_last_proposal_and_always_the_range() -> None:
+    var = {"id": "u", "role": "MV", "limits": {"operator": {"lo": 0, "hi": 100}, "move_max": 5.0}}
+    assert clamp_move(var, 40.0, 49.0, CYCLE_S, last=44.0) == pytest.approx(45.0)
+    assert clamp_move(var, 40.0, 30.0, CYCLE_S, last=36.0) == pytest.approx(35.0)
+    assert clamp_move(var, 40.0, 49.0, CYCLE_S, last=60.0) == pytest.approx(45.0)  # no overlap
+    assert clamp_move(var, 40.0, 38.0, CYCLE_S, last=36.0) == pytest.approx(38.0)
+    assert clamp_move(var, 99.0, 500.0, CYCLE_S, last=100.0) == pytest.approx(100.0)
+    assert clamp_move(var, 102.0, 500.0, CYCLE_S) == pytest.approx(100.0)
+
+
+def test_unapplied_proposals_do_not_accumulate(ctrl: MpcController) -> None:
+    rows = statuses((40.0, 60.0), (20.0, 30.0))
+    ctrl.step(rows)
+    for _ in range(6):  # advisory: the plant never applies the proposal
+        out = ctrl.step(rows)
+        start = {"u1": 40.0, "u2": 60.0}
+        assert all(abs(m.value - start[m.variable_id]) <= 5.0 + 1e-9 for m in out.moves)

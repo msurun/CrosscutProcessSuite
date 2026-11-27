@@ -1787,6 +1787,7 @@
   "controllers.mpc.code.no_target": "sin objetivo de CV, nada que corregir",
   "controllers.mpc.code.at_target": "en el objetivo, no hace falta mover",
   "controllers.mpc.code.input_bad": "retenida: una entrada no es utilizable",
+  "controllers.mpc.code.bad_move": "retenida: el movimiento del solver no es un número",
   "controllers.mpc.code.bumpless_start": "arranque sin saltos: siguiendo la consigna actual",
   "tuning.err.reconcile_required": "El lazo tiene una intención de escritura de parámetros no resuelta; reconcilie antes de aplicar nuevos ajustes.",
   "tuning.reconcile.title": "Reconciliación requerida",

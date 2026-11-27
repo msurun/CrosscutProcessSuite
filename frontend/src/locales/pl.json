@@ -1787,6 +1787,7 @@
   "controllers.mpc.code.no_target": "nie ustawiono celu CV, nie ma czego korygować",
   "controllers.mpc.code.at_target": "na celu, zmiana niepotrzebna",
   "controllers.mpc.code.input_bad": "wstrzymane: niezdatne wejście",
+  "controllers.mpc.code.bad_move": "wstrzymane: ruch z solvera nie jest liczbą",
   "controllers.mpc.code.bumpless_start": "start bezuderzeniowy: śledzenie bieżącej wartości zadanej",
   "tuning.err.reconcile_required": "Pętla ma nierozstrzygniętą intencję zapisu parametrów; uzgodnij przed zastosowaniem nowych nastaw.",
   "tuning.reconcile.title": "Wymagane uzgodnienie",

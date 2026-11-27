@@ -16,9 +16,10 @@ import numpy as np
 from crosscut_mpc.engine import SHED_CYCLES, Result
 
 BUMPLESS, HOLD, SHED = "bumpless_start", "hold", "shed"
+BAD_MOVE = "bad_move"
 INPUT_BAD, LIMIT, NO_TARGET = "input_bad", "limit", "no_target"
 MOVE, AT_TARGET, SOLVED = "move", "at_target", "solved"
-WHY_ORDER = (SHED, INPUT_BAD, HOLD, BUMPLESS, LIMIT, NO_TARGET, AT_TARGET)
+WHY_ORDER = (SHED, INPUT_BAD, BAD_MOVE, HOLD, BUMPLESS, LIMIT, NO_TARGET, AT_TARGET)
 MAX_CONSTRAINTS = 40
 CONSTRAINT = re.compile(r"(mv|cv)\[(\d+)\]\.(lower|upper)@(\d+)")
 Range = tuple[float, float]
@@ -34,6 +35,7 @@ class Frame:
     ranges: Mapping[str, Range]
     targets: Mapping[str, float | None]
     live: tuple[np.ndarray, np.ndarray]  # (MV setpoints, CV values)
+    invalid: frozenset[str] = frozenset()  # MVs whose engine move was not finite
 
 
 def moved(proposed: float, current: float) -> bool:
@@ -78,6 +80,8 @@ def mv_codes(result: Result, frame: Frame) -> dict[str, str]:
     for index, name in enumerate(frame.mv_ids):
         if status != SOLVED:
             codes[name] = status
+        elif name in frame.invalid:
+            codes[name] = BAD_MOVE
         elif moved(float(target[index]), float(frame.live[0][index])):
             codes[name] = MOVE
         else:
@@ -106,7 +110,7 @@ def diagnostics(result: Result, frame: Frame, codes: Mapping[str, str]) -> dict[
         "cvs": [
             {"id": name, "value": float(frame.live[1][i]), "target": frame.targets[name],
              "lo": frame.ranges[name][0], "hi": frame.ranges[name][1],
-             "relaxed": name in relaxed, "predicted": [float(v) for v in path[:, i]]}
+             "relaxed": name in relaxed, "predicted": _finite_path(path[:, i])}
             for i, name in enumerate(frame.cv_ids)
         ],
         "mvs": [
@@ -116,6 +120,11 @@ def diagnostics(result: Result, frame: Frame, codes: Mapping[str, str]) -> dict[
         ],
         "active_constraints": constraints(result, frame),
     }
+
+
+def _finite_path(values: np.ndarray) -> list[float]:
+    """A predicted trajectory; empty when it holds a value that is not a finite number."""
+    return [float(v) for v in values] if np.all(np.isfinite(values)) else []
 
 
 def explanation(codes: Mapping[str, str], why: str | None, reason: str) -> str:

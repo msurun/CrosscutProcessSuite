@@ -305,3 +305,10 @@ def test_detail_carries_the_mpc_diagnostics_of_the_record(world: tuple[FastAPI, 
     assert client.get("/controllers/C1").json()["diagnostics"] == diagnostics
     write_json_atomic(root / "_runtime" / "controllers" / "C1.json", {"state": "off"})
     assert client.get("/controllers/C1").json()["diagnostics"] is None
+
+
+def test_detail_without_any_record_does_not_fail(world: tuple[FastAPI, Path]) -> None:
+    """A controller the host never ran has a detail (off, no diagnostics), not an error."""
+    client, _ = as_user(world[0], "view1")
+    detail = client.get("/controllers/C1").json()
+    assert (detail["state"], detail["diagnostics"]) == ("off", None)

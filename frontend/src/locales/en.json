@@ -1776,6 +1776,7 @@
   "controllers.mpc.code.no_target": "no CV target set, nothing to correct",
   "controllers.mpc.code.at_target": "at target, no move needed",
   "controllers.mpc.code.input_bad": "held: an input is unusable",
+  "controllers.mpc.code.bad_move": "held: the solver move was not a number",
   "controllers.mpc.code.bumpless_start": "bumpless start: tracking the current setpoint",
   "tuning.err.reconcile_required": "Loop has an unresolved parameter write intent; reconcile before applying new tuning.",
   "tuning.reconcile.title": "Reconciliation Required",
