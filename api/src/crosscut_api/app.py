@@ -70,6 +70,7 @@ from crosscut_api.schema_routes import build_schema_router
 from crosscut_api.site_loops import flat_tag_rows, site_entry_names, site_loops_of
 from crosscut_api.site_routes import build_site_router
 from crosscut_api.softsensor_routes import build_softsensor_router
+from crosscut_api.softsensor_runtime_routes import build_softsensor_runtime_router
 from crosscut_api.source_admin_routes import build_source_admin_router
 from crosscut_api.source_history import build_source_history_router
 from crosscut_api.step_analyzer_routes import StepRecord, build_step_analyzer_router
@@ -784,6 +785,7 @@ def _mount_data_routers(
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_equipment_live_router(store.root))
+    app.include_router(build_softsensor_runtime_router(store.root))
     app.include_router(build_trend_chart_router(store.root))
     app.include_router(build_backup_router(store.root))
 

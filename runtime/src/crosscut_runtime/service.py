@@ -34,6 +34,7 @@ from crosscut_runtime.history import HistoryError, HistoryStore, history_path
 from crosscut_runtime.jobs.anomaly_scan import ANOMALY_DIR, AnomalyScanJob
 from crosscut_runtime.jobs.equipment_scan import EquipmentScanJob
 from crosscut_runtime.jobs.loop_kpi import LoopKpiJob
+from crosscut_runtime.jobs.softsensor import SoftSensorJob
 from crosscut_runtime.jobs.tuning_review import TuningReviewJob
 from crosscut_runtime.kpi_history import record_kpi_run
 from crosscut_runtime.scheduler import JobSlot, Scheduler
@@ -41,7 +42,8 @@ from crosscut_runtime.store import RuntimeStore, controller_period, controller_p
 
 _UNSET: Any = object()
 OVERRUN_PERIODS = 2.0  # a run later than this many periods after the previous one is an overrun
-RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller", "equipment_scan")
+RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller", "equipment_scan",
+                 "softsensor")
 
 
 def _failing_run(message: str) -> Callable[[], Any]:
@@ -137,6 +139,7 @@ class RuntimeService:
         self._anomaly_jobs: dict[str, tuple[dict[str, Any], AnomalyScanJob]] = {}
         self._equipment_jobs: dict[str, tuple[str, EquipmentScanJob]] = {}
         self._review_jobs: dict[str, TuningReviewJob] = {}
+        self._softsensor_jobs: dict[str, tuple[dict[str, Any], SoftSensorJob]] = {}
         self._history = HistoryStore(history_path(root))
         self._pending_samples: list[tuple[str, float, float, int]] = []
         self._started_utc = datetime.now(UTC).isoformat()
@@ -185,6 +188,8 @@ class RuntimeService:
                 self._sync_job(job, sources, addresses, self._anomaly_run)
             elif job["kind"] == "equipment_scan":
                 self._sync_job(job, sources, addresses, lambda doc: self._equipment_run(doc, site))
+            elif job["kind"] == "softsensor":
+                self._sync_job(job, sources, addresses, self._softsensor_run)
             elif job["kind"] == "controller":
                 self._sync_controller(job, site)
 
@@ -199,6 +204,7 @@ class RuntimeService:
         self._anomaly_jobs.pop(job_id, None)
         self._review_jobs.pop(job_id, None)
         self._equipment_jobs.pop(job_id, None)
+        self._softsensor_jobs.pop(job_id, None)
         self._controller_jobs.pop(job_id, None)
 
     def _sync_controller(self, job: dict[str, Any], site: dict[str, Any]) -> None:
@@ -260,6 +266,7 @@ class RuntimeService:
             self._kpi_jobs.pop(job_id, None)
             self._anomaly_jobs.pop(job_id, None)
             self._equipment_jobs.pop(job_id, None)
+            self._softsensor_jobs.pop(job_id, None)
 
         run_fn = make_run(job)
         existing = self._scheduler.get(job_id)
@@ -284,6 +291,16 @@ class RuntimeService:
             scan.clock = self._clock
             cached = (key, scan)
             self._equipment_jobs[job["id"]] = cached
+        return cached[1].run
+
+    def _softsensor_run(self, job: dict[str, Any]) -> Callable[[], Any]:
+        """Keep the online sensor (bias, buffers) until the job document changes."""
+        cached = self._softsensor_jobs.get(job["id"])
+        if cached is None or cached[0] != job:
+            online = SoftSensorJob(job, self._connectors[job["id"]], self._store.root)
+            online.clock = self._clock
+            cached = (job, online)
+            self._softsensor_jobs[job["id"]] = cached
         return cached[1].run
 
     def _anomaly_run(self, job: dict[str, Any]) -> Callable[[], Any]:
@@ -380,6 +397,7 @@ class RuntimeService:
                     st["scan"] = run.result.get("scan")
                     st["controller"] = run.result.get("controller")
                     st["equipment"] = run.result.get("equipment")
+                    st["softsensor"] = run.result.get("softsensor")
                     if job["kind"] == "loop_kpi":
                         record_kpi_run(self._store, job, st, now_utc)
                 else:
