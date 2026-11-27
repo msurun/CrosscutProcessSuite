@@ -11,7 +11,7 @@ option(CROSSCUT_BUILD_TESTS "Build the GoogleTest unit tests" ON)
 option(CROSSCUT_BUILD_PYTHON "Build the pybind11 module" ON)
 option(CROSSCUT_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer (GCC/Clang)" OFF)
 
-add_library(crosscut_core_lib STATIC src/fopdt.cpp)
+add_library(crosscut_core_lib STATIC src/fopdt.cpp src/qp.cpp src/mpc.cpp)
 target_include_directories(crosscut_core_lib PUBLIC include)
 set_target_properties(crosscut_core_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -39,7 +39,7 @@ if(CROSSCUT_BUILD_TESTS)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
 
-  add_executable(crosscut_core_tests tests/test_fopdt.cpp)
+  add_executable(crosscut_core_tests tests/test_fopdt.cpp tests/test_mpc.cpp)
   target_link_libraries(crosscut_core_tests PRIVATE crosscut_core_lib GTest::gtest_main)
   include(GoogleTest)
   gtest_discover_tests(crosscut_core_tests)
@@ -47,12 +47,13 @@ endif()
 
 if(CROSSCUT_BUILD_PYTHON)
   find_package(Python 3.11 COMPONENTS Interpreter Development.Module REQUIRED)
+  set(PYBIND11_FINDPYTHON ON)  # Bind to the interpreter selected above on both platforms.
   FetchContent_Declare(
     pybind11
     URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   FetchContent_MakeAvailable(pybind11)
-  pybind11_add_module(crosscut_core bindings/module.cpp)
+  pybind11_add_module(crosscut_core bindings/module.cpp bindings/mpc.cpp)
   target_link_libraries(crosscut_core PRIVATE crosscut_core_lib)
 endif()
