@@ -22,7 +22,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: "fuzzy", views: ["fuzzy", "advisory"] },
   { id: "controllers", views: ["controllers"] },
   { id: "site", views: ["catalogue", "import", "onboarding"] },
-  { id: "admin", views: ["gateway", "runtime", "health", "users"] },
+  { id: "admin", views: ["gateway", "runtime", "health", "users", "backup"] },
 ];
 
 /** The groups with at least one visible view, each reduced to its visible views. */
@@ -64,6 +64,7 @@ export const VIEW_PERMISSIONS: Readonly<Record<View, readonly string[]>> = {
   runtime: ["job.manage"],
   users: ["users.manage"],
   health: ["job.manage"],
+  backup: ["users.manage"],
 };
 
 /** Every view the menu knows, in menu order. */

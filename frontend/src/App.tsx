@@ -17,6 +17,7 @@ import { ContextBar } from "./components/ContextBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { type AnalysisInfo } from "./components/LoopsPage";
 import { RoleBadge } from "./components/RoleBadge";
+import { StatusBar } from "./components/StatusBar";
 import { TagList } from "./components/TagList";
 import { SourcePicker } from "./components/SourcePicker";
 import { TopBar } from "./components/TopBar";
@@ -25,6 +26,7 @@ import { ConsoleNav } from "./components/ViewTabs";
 import { formatHash, withDataset, withQueryParams, withView, type Route } from "./route";
 import { historyQuery, type HistoryRequest } from "./sourcesApi";
 import { useRoute } from "./useRoute";
+import { useStatusBarData } from "./useStatusBar";
 import { useSourceReload } from "./useSourceReload";
 import { useTheme, type ThemePreference } from "./useTheme";
 
@@ -289,6 +291,7 @@ function AppShell({ lang }: ShellProps) {
   useDefaultDataset(datasets, route, navigate);
   useSourceReload(route, { datasets, loaded, refresh }, navigate);
   useFocusOnNavigate(route, mainRef);
+  const statusData = useStatusBarData();
   const tags = useTags(route.dataset);
   const loops = useLoops(route.dataset);
   const dataset = datasets.find((one) => one.id === route.dataset);
@@ -305,6 +308,7 @@ function AppShell({ lang }: ShellProps) {
         <Sidebar datasets={datasets} onHistory={openHistory} route={route} tags={tags} loops={loops} selectedTags={selectedTags} onDataset={changeDataset} onToggleTag={toggleTag} t={t} />
         <main className="main-area" id="main-content" tabIndex={-1} ref={mainRef}>
           {failed && <ApiOffline retry={retry} t={t} />}
+          <StatusBar data={statusData} onOpenQueue={() => navigate(withView(route, "gateway"))} t={t} />
           <ConsoleNav view={route.view} onSelect={(next) => navigate(withView(route, next))} t={t} />
           <ContextBar dataset={dataset} analysis={route.view === "loops" ? analysis : null} t={t} />
           <ErrorBoundary t={t} resetKey={formatHash(route)}>

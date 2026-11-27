@@ -70,3 +70,58 @@ describe("LiveLoops", () => {
     expect(mock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("finding outcomes", () => {
+  const finding = { code: "saturated", since_utc: "2026-01-01T00:00:00Z" };
+  const open = () => {
+    const mock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = init?.method === "PUT" ? { outcome: "fixed" } : { ...loop({ findings: [finding] }), history: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    render(<LiveLoops loops={[loop({ kpi: {}, findings: [finding] })]} t={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "L1" }));
+    return mock;
+  };
+  const putBody = (mock: ReturnType<typeof open>) => {
+    const call = mock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    return { url: call[0], body: JSON.parse(String(call[1]!.body)) };
+  };
+
+  it("saves a fixed outcome for the exact finding occurrence", async () => {
+    const mock = open();
+    fireEvent.click(screen.getByRole("button", { name: "findingOutcome.fixed" }));
+    await waitFor(() => expect(screen.getByText(/findingOutcome.saved/)).toBeTruthy());
+    expect(putBody(mock)).toEqual({
+      url: "/api/live/loops/l1/findings/saturated/outcome",
+      body: { since_utc: "2026-01-01T00:00:00Z", outcome: "fixed" },
+    });
+  });
+
+  it("needs a date before deferring and sends it as an aware instant", async () => {
+    const mock = open();
+    const defer = screen.getByRole("button", { name: "findingOutcome.deferred" });
+    expect((defer as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("findingOutcome.until"), { target: { value: "2999-01-02" } });
+    fireEvent.click(defer);
+    await waitFor(() => expect(putBody(mock).body.outcome).toBe("deferred"));
+    expect(putBody(mock).body.until_utc).toMatch(/^2999-01-0[23]T.*Z$/);
+  });
+
+  it("sends the optional work order with maintenance raised", async () => {
+    const mock = open();
+    fireEvent.change(screen.getByLabelText("findingOutcome.workOrder"), { target: { value: "WO-9" } });
+    fireEvent.click(screen.getByRole("button", { name: "findingOutcome.maintenance_raised" }));
+    await waitFor(() => expect(putBody(mock).body.work_order).toBe("WO-9"));
+  });
+
+  it("shows the stored outcome and a failed save", async () => {
+    const stored = { ...finding, outcome: "not_a_problem" as const };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "finding not found" }), { status: 404, headers: { "content-type": "application/json" } })));
+    render(<LiveLoops loops={[loop({ kpi: {}, findings: [stored] })]} t={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "L1" }));
+    expect(screen.getAllByText("findingOutcome.not_a_problem").length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole("button", { name: "findingOutcome.fixed" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("finding not found"));
+  });
+});

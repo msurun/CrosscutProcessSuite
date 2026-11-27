@@ -5,6 +5,7 @@
 // Needs the dataset `level_integrating_demo`: python e2e/support/make_level_dataset.py <data root>.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { isStatusBarConsoleNoise, isStatusBarProbe } from "./statusBarProbes";
 
 const DATASET = "level_integrating_demo";
 const tuningUrl = (loop: string): string => `/#/d/${DATASET}/loops/${loop}/tuning`;
@@ -37,8 +38,8 @@ async function applyWindow(page: Page, startMin: string, endMin: string): Promis
 for (const width of [1440, 390]) {
   test(`integrating loop: model, recommendation, averaging level @${width}`, async ({ page }) => {
     const errors: string[] = [];
-    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-    page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+    page.on("console", (m) => { if (m.type() === "error" && !isStatusBarConsoleNoise(m.text(), m.location().url)) errors.push(m.text()); });
+    page.on("response", (r) => { if (r.status() >= 400 && !isStatusBarProbe(r.url())) errors.push(`${r.status()} ${r.url()}`); });
     await openTuning(page, "LIC1", width);
     // The suggested window is extended to include the quiet lead, so the model is shown at once.
     await expect(page.getByText(/Okno poszerzono o \d+ s przed/)).toBeVisible();

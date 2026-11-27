@@ -10,6 +10,7 @@ import { formatFixed } from "../format";
 import { findingText, type Translate } from "../findings";
 import { fetchLiveLoop, fetchLiveLoops, type LiveLoop, type LiveLoopDetail } from "../liveLoopsApi";
 import { StatusChip } from "./StatusChip";
+import { FindingOutcomeControls } from "./WorklistDetails";
 import { TrendPane } from "./TrendPane";
 
 /** How often the list is fetched again, in milliseconds. */
@@ -181,6 +182,7 @@ function HistoryChart({ detail, t }: { detail: LiveLoopDetail; t: Translate }) {
 /** The detail panel of the selected loop: KPI, findings and history (fetched again after each run). */
 function LiveDetail({ loop, t }: { loop: LiveLoop; t: Translate }) {
   const [detail, setDetail] = useState<LiveLoopDetail | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const reload = useCallback(() => {
     fetchLiveLoop(loop.id).then(setDetail).catch(() => setDetail(null));
   }, [loop.id]);
@@ -190,6 +192,11 @@ function LiveDetail({ loop, t }: { loop: LiveLoop; t: Translate }) {
       <h3>{loop.name}</h3>
       {loop.kpi ? <KpiList kpi={loop.kpi} t={t} /> : <p className="status">{t("liveLoops.waiting")}</p>}
       <FindingList loop={loop} t={t} />
+      {loop.findings.map((finding) => (
+        <FindingOutcomeControls key={`${finding.code}|${finding.since_utc}`} loopId={loop.id} finding={finding} t={t}
+          onSaved={(outcome) => setSaved(t("findingOutcome.saved", { outcome: t(`findingOutcome.${outcome}`) }))} />
+      ))}
+      {saved && <p className="status" role="status">{saved}</p>}
       {detail && <HistoryChart detail={detail} t={t} />}
       <p className="hint">{t("liveLoops.pastWindowHint")}</p>
     </section>

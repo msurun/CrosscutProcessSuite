@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const START_URL = "/#/d/level_integrating_demo/import";
 const SCRIPT = fileURLToPath(new URL("./support/make_step_csv.py", import.meta.url));
@@ -58,7 +59,7 @@ async function runCheck(page: Page): Promise<void> {
 test("upload, preview, check, create and open the tuning view", async ({ page }, info) => {
   const errors: string[] = [];
   // The read-only import settings answer 404 when the data root has no site file: expected, not an error.
-  page.on("response", (r) => { if (r.status() >= 400 && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`); });
+  page.on("response", (r) => { if (r.status() >= 400 && !isStatusBarProbe(r.url()) && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`); });
   await chooseFile(page);
   await expect(page.locator("nav.view-tabs").getByRole("button", { name: "Import danych" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByLabel("Separator kolumn")).toHaveValue(";");
