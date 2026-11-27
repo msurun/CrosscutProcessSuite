@@ -1,0 +1,78 @@
+{
+  "key": "valve_flowmeter",
+  "label": "Valve flowmeter",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Flow through a control valve from position, pressures and density.",
+  "target": {
+    "role": "valve_flow",
+    "unit": "m3/h",
+    "range_min": 0.0,
+    "range_max": 20000.0
+  },
+  "inputs": [
+    {
+      "role": "valve_position",
+      "unit": "%",
+      "required": true,
+      "range_min": 0,
+      "range_max": 100
+    },
+    {
+      "role": "upstream_pressure",
+      "unit": "kPa",
+      "required": true
+    },
+    {
+      "role": "downstream_pressure",
+      "unit": "kPa",
+      "required": true
+    },
+    {
+      "role": "fluid_density",
+      "unit": "kg/m3",
+      "required": true,
+      "range_min": 500,
+      "range_max": 3000
+    },
+    {
+      "role": "cv_curve",
+      "unit": "m3/h",
+      "required": true,
+      "description": "Cv value at the valve position",
+      "range_min": 0
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "physics_template"
+    ],
+    "note": "Valve sizing equation in IEC 60534-2-1 form (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "opening_in_trusted_cv_range",
+      "description": "Valve opening within the trusted Cv range"
+    },
+    {
+      "id": "positive_dp",
+      "description": "Upstream pressure above downstream pressure"
+    }
+  ],
+  "calibration": "against_instrument",
+  "default_mode": "shadow",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "last_good_instrument_value",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 500
+  },
+  "provenance": {
+    "id": "preset:valve_flowmeter",
+    "kind": "method",
+    "source": "IEC 60534-2-1 incompressible flow equation."
+  }
+}
