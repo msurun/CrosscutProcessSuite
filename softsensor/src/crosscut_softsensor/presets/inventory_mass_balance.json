@@ -30,14 +30,27 @@
       "description": "For drift correction",
       "range_min": 0,
       "range_max": 100
+    },
+    {
+      "role": "integrated_net_mass",
+      "unit": "t",
+      "required": true,
+      "description": "Causal integral of (stream_in-stream_out) dt/3600 over full process history; origin fixed before validation."
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "physics_template"
     ],
-    "note": "Node mass balance with drift correction against level (#156)."
+    "planned": [],
+    "note": "Node mass balance with drift correction against level (#156).",
+    "physics": {
+      "formula": "integrated_net_mass",
+      "roles": [
+        "integrated_net_mass"
+      ],
+      "unit": "t"
+    }
   },
   "validity_checks": [
     {
