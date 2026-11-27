@@ -1,0 +1,3 @@
+# The site env file belongs outside the repository (for example
+# /etc/crosscut/crosscut.env). Ignore a local copy if someone makes one.
+.env
