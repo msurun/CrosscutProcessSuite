@@ -5,6 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const DATASET = "mill_circuit_observational_seed42";
 const PAGE_URL = `/#/d/${DATASET}/catalogue`;
@@ -51,7 +52,7 @@ async function openCataloguePage(page: Page): Promise<void> {
 test("renders site catalogue form, displays fields, and allows saving", async ({ page }) => {
   const errors: string[] = [];
   page.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 400 && !isStatusBarProbe(response.url())) errors.push(`${response.status()} ${response.url()}`);
   });
 
   await openCataloguePage(page);

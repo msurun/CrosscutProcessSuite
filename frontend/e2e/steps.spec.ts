@@ -5,6 +5,7 @@
 // response with status 400 or more.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const DATASET = "mill_circuit_step_test_seed42";
 const PAGE_URL = `/#/d/${DATASET}/steps`;
@@ -39,7 +40,7 @@ async function runAnalysisForTargetLoop(page: Page): Promise<void> {
 test("run the mill_feed analysis, see an OK OUT step and open its chart", async ({ page }) => {
   const errors: string[] = [];
   page.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 400 && !isStatusBarProbe(response.url())) errors.push(`${response.status()} ${response.url()}`);
   });
 
   await openStepsPage(page);

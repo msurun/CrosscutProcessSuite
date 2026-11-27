@@ -453,3 +453,10 @@ body {
 .import-numbers dt { min-width: 220px; }
 .import-findings { margin: 8px 0; padding-left: 18px; display: grid; gap: 8px; }
 .import-findings .badge { margin-left: 8px; }
+
+/* Global status bar (#174): one wrapping row of label + chip pairs above the console menu. */
+.status-bar { margin-bottom: 8px; padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.status-bar-list { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.status-bar-item { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.status-bar-label { color: var(--text-muted, inherit); }
+.status-bar-link { padding: 0; border: 0; background: none; cursor: pointer; }
