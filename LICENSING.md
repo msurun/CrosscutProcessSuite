@@ -43,3 +43,17 @@ The commercial licence is offered by the copyright holder, who wrote all code in
 Third-party datasets (SACAC, ISDB) are not part of this repository and are not covered by either licence; see
 [docs/PROVENANCE.md](docs/PROVENANCE.md). Dependencies keep their own licences and must be AGPL-compatible
 (permissive licences are fine).
+
+## Windows installer dependencies
+
+The installer uses **NSSM 2.24**, a native service wrapper released into the
+[public domain](https://nssm.cc/download). Its binary and upstream notice are supplied
+by the release builder, SHA256 checked and bundled; no wrapper binary is committed.
+NSSM launches embedded Python directly and sends console stop events before termination.
+CPython's embeddable distribution is under the PSF licence (retain its bundled licence).
+[Inno Setup](https://jrsoftware.org/files/is/license.txt) is the build-time compiler;
+retain its applicable licence when redistributing the compiler itself. Crosscut installers
+contain the compiled setup engine, subject to the Inno Setup licence's distribution terms.
+Wheels retain their upstream `.dist-info` licence notices. Release builders must review
+all resolved dependency licences and ship the corresponding Crosscut source required
+by the AGPL; the installer does not change Crosscut's licence.

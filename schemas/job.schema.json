@@ -49,7 +49,8 @@
             "anomaly_scan",
             "tuning_review",
             "controller",
-            "equipment_scan"
+            "equipment_scan",
+            "softsensor"
           ],
           "description": "What the job computes. equipment_scan: live learned equipment anomalies with persistence and clear hysteresis; loop_kpi: live KPI of the site loops named in 'loops'; anomaly_scan: live anomaly scan over the tags named in 'tags'; tuning_review: KPI before/after review of applied tuning proposals of the loops named in 'loops'. controller: runs the site controllers[] entry named in 'controller' one cycle per run (APC core); it proposes writes through the gateway only."
         },
@@ -103,6 +104,15 @@
           "minItems": 1,
           "uniqueItems": true,
           "description": "Catalogue equipment ids with saved normal-operation models."
+        },
+        "softsensor_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "softsensor only: id of the soft sensor configuration and fitted model under <data root>/_softsensor/ that the job runs online; defaults to the job id."
+        },
+        "stale_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "softsensor only: an input whose source timestamp is older than this many seconds is stale; defaults to three periods."
         },
         "persistence": {
           "type": "integer",

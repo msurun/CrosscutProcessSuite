@@ -80,7 +80,7 @@ def test_put_knowledge_writes_the_site_entry_not_project_json(data_root: Path) -
     url = f"/datasets/{DATASET}/loops/{name}/knowledge"
     response = client.put(url, json={"delay_s": 7.0, "process_kind": "integrating"})
     assert response.status_code == 200
-    stored = json.loads((data_root / "_site" / "site.json").read_text(encoding="utf-8"))
+    stored = json.loads((data_root / "_site" / "draft.json").read_text(encoding="utf-8"))
     assert stored["loops"][0]["delay_s"] == 7.0
     assert not (data_root / DATASET / "project.json").exists()
 
@@ -91,6 +91,8 @@ def test_site_knowledge_reaches_the_analysis(data_root: Path) -> None:
     client = TestClient(create_app_without_auth(data_root))
     url = f"/datasets/{DATASET}/loops/{name}/knowledge"
     client.put(url, json={"delay_s": 7.0, "pv_eng_min": 2.0})
+    assert client.get(url).json()["knowledge"]["delay_s"] == 7.0  # the editor sees its draft
+    assert client.post("/site/publish").status_code == 200  # the analysis reads the published file
     body = client.get(url).json()
     assert body["knowledge"]["delay_s"] == 7.0
     assert body["ranges"]["pv"] == [2.0, 9.0]

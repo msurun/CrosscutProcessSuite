@@ -19,7 +19,7 @@ from crosscut_connectors.base import CAP_BROWSE, CAP_METADATA, ConnectorError, N
 from crosscut_connectors.condition_signals import propose_kind, propose_running
 from crosscut_connectors.naming_rules import PRESETS, NamingResult, apply_rules, compile_rules
 from crosscut_connectors.registry import connector_from_source
-from crosscut_connectors.site import save_site, validate_site
+from crosscut_connectors.site import validate_site
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,7 @@ from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.auth.deps import AUDIT_FILE
 from crosscut_api.auth.store import auth_dir
 from crosscut_api.connector_routes import _find_source
+from crosscut_api.site_version_routes import store_draft
 from crosscut_api.source_admin_routes import _site
 
 Doc = dict[str, Any]
@@ -305,7 +306,7 @@ class _Endpoints:
         if problems:
             raise HTTPException(status_code=422, detail=problems)
         self._audit(actor, source_id, added)
-        save_site(self.root, site)
+        store_draft(self.root, site, actor.actor)
         return {"source": source_id, "added": added}
 
     def _audit(self, actor: ActorContext, source_id: str, added: Doc) -> None:

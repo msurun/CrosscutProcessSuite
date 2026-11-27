@@ -11,6 +11,8 @@ from typing import Any
 from crosscut_connectors.site import load_site, site_path
 from crosscut_loops.overview import LoopTags
 
+from crosscut_api.site_version_routes import working_site
+
 PROCESS_KIND_DEFAULT = "self_regulating"
 
 
@@ -79,14 +81,27 @@ def _stated_tags_in(entry: dict[str, Any], tag_dict: dict[str, dict[str, Any]]) 
     return all(tag in tag_dict for tag in stated if tag)
 
 
-def usable_site_entries(root: Path, tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Site loop entries whose stated PV/OUT exist in the dataset; [] without a catalogue."""
-    if not site_path(root).exists():
-        return []
+def _document_of(root: Path, working: bool) -> dict[str, Any] | None:
+    """The published catalogue, or with ``working`` the draft when one exists; None if absent."""
+    if working:
+        return working_site(root)
+    return load_site(root) if site_path(root).exists() else None
+
+
+def usable_site_entries(
+    root: Path, tags: list[dict[str, Any]], working: bool = False
+) -> list[dict[str, Any]]:
+    """Site loop entries whose stated PV/OUT exist in the dataset; [] without a catalogue.
+
+    ``working`` reads the draft (editors); the default is the published file (runtime).
+    """
     try:
-        entries = load_site(root).get("loops") or []
+        document = _document_of(root, working)
     except Exception:
         return []
+    if document is None:
+        return []
+    entries = document.get("loops") or []
     tag_dict = {t["id"]: t for t in tags}
     return [e for e in entries if _stated_tags_in(e, tag_dict)]
 
@@ -103,15 +118,18 @@ def site_loops_of(root: Path, tags: list[dict[str, Any]]) -> list[LoopTags]:
         return []
 
 
-def site_entry_names(root: Path, tags: list[dict[str, Any]]) -> set[str]:
+def site_entry_names(root: Path, tags: list[dict[str, Any]], working: bool = False) -> set[str]:
     """Display names of the usable site loops (name, else id)."""
-    return {str(e.get("name") or e.get("id", "")) for e in usable_site_entries(root, tags)}
+    entries = usable_site_entries(root, tags, working)
+    return {str(e.get("name") or e.get("id", "")) for e in entries}
 
 
-def flat_tag_rows(root: Path, tags: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def flat_tag_rows(
+    root: Path, tags: list[dict[str, Any]], working: bool = False
+) -> list[dict[str, Any]]:
     """Dataset tag rows merged with the site rows, limits flattened to eng_min/eng_max."""
     try:
-        site_tags = load_site(root).get("tags", []) if site_path(root).exists() else []
+        site_tags = (_document_of(root, working) or {}).get("tags", [])
     except Exception:
         site_tags = []
     rows = []

@@ -6,10 +6,10 @@ loops in Loops, inputs in Anomalies, and targets in Soft sensor.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
-from crosscut_connectors.site import load_site
 from crosscut_sim.run import main as run_simulation
 from fastapi.testclient import TestClient
 from open_app import create_app_without_auth
@@ -88,8 +88,9 @@ def test_catalogue_mapping_put_and_get(client: TestClient, test_root: Path) -> N
     put_res = client.put("/catalogue/mapping", json=body)
     assert put_res.status_code == 200
 
-    # Verify site.json on disk
-    site_doc = load_site(test_root)
+    # The mapping is a draft (#247): the published file is untouched until /site/publish.
+    assert not (test_root / "_site" / "site.json").exists()
+    site_doc = json.loads((test_root / "_site" / "draft.json").read_text(encoding="utf-8"))
     assert len(site_doc["loops"]) == 1
     assert site_doc["loops"][0]["id"] == "LIC1"
 
@@ -173,6 +174,8 @@ def test_mapping_drives_loop_anomaly_and_softsensor(client: TestClient) -> None:
     }
     mapping_res = client.put("/catalogue/mapping", json=body)
     assert mapping_res.status_code == 200
+    # The mapping is a draft (#247); the runtime views see it once it is published.
+    assert client.post("/site/publish").status_code == 200
 
     # 1. Drives a loop in Loops view
     loops_res = client.get(f"/datasets/{dataset_id}/loops")

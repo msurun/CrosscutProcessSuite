@@ -22,7 +22,7 @@ from crosscut_connectors.secret_store import (
     default_store,
     ref_for_source,
 )
-from crosscut_connectors.site import SiteError, load_site, save_site, site_path, validate_site
+from crosscut_connectors.site import SiteError, validate_site
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,7 @@ from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.auth.deps import AUDIT_FILE
 from crosscut_api.auth.store import auth_dir
+from crosscut_api.site_version_routes import store_draft, working_site
 
 Doc = dict[str, Any]
 # Auth kinds that need a secret; kerberos uses the service account of the process.
@@ -44,12 +45,13 @@ class SecretBody(BaseModel):
 
 def _site(root: Path) -> Doc:
     """The site document, or an empty one to start from; 422 when the file is unreadable."""
-    if not site_path(root).exists():
-        return {"schema_version": 1, "site": {"name": "Site"}, "tags": []}
     try:
-        return load_site(root)
+        working = working_site(root)
     except SiteError as error:
         raise HTTPException(status_code=422, detail=[str(error)]) from error
+    if working is not None:
+        return working
+    return {"schema_version": 1, "site": {"name": "Site"}, "tags": []}
 
 
 def _index(site: Doc, source_id: str) -> int | None:
@@ -103,7 +105,7 @@ class _Endpoints:
         source = {**body, "id": source_id}
         site = _checked(_with_source(_site(self.root), source))
         self._audit("source_saved", actor, source=source_id)
-        save_site(self.root, site)
+        store_draft(self.root, site, actor.actor)
         return {**source, "secret_stored": self._stored(source_id)}
 
     def delete_source(
@@ -121,7 +123,7 @@ class _Endpoints:
             )
         self._audit("source_deleted", actor, source=source_id)
         del site["sources"][at]
-        save_site(self.root, _checked(site))
+        store_draft(self.root, _checked(site), actor.actor)
         self._forget(source_id)
         return {"deleted": source_id}
 
@@ -147,7 +149,7 @@ class _Endpoints:
         updated = _checked(_with_source(site, pointed))
         self._audit("source_secret_set", actor, source=source_id)
         self._write_secret(ref, body.value)
-        save_site(self.root, updated)
+        store_draft(self.root, updated, actor.actor)
         return {"source": source_id, "stored": True}
 
     def delete_secret(
