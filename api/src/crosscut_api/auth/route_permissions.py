@@ -58,6 +58,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/equipment/{equipment_id}/shelve"): "ctl.operate",
     ("DELETE", "/equipment/{equipment_id}/shelve"): "ctl.operate",
     ("PUT", "/equipment/events/{opened_utc}/{equipment_id}/outcome"): "ctl.operate",
+    ("PUT", "/live/loops/{loop_id}/findings/{code}/outcome"): "ctl.operate",
+    ("GET", "/live/finding-outcomes"): "data.view",
+    ("GET", "/live/finding-outcomes/usefulness"): "data.view",
     ("GET", "/anomaly/{aid}"): "data.view",
     ("GET", "/anomaly/{aid}/model"): "data.view",
     ("GET", "/softsensor"): "data.view",
@@ -71,6 +74,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/site/versions/{number}"): "data.view",
     ("GET", "/site/diff"): "data.view",
     ("GET", "/site/publish/pending"): "data.view",
+    ("GET", "/site/tags.csv"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
     # Loop templates (4.1): the library is readable, a site copy is a catalogue edit.
     ("GET", "/loop-templates"): "data.view",
@@ -92,6 +96,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/runtime/log"): "data.view",
     ("GET", "/runtime/variables"): "data.view",
     ("GET", "/runtime/jobs"): "data.view",
+    # Observability (#170): health is read-only like the runtime page; the log export is admin.
+    ("GET", "/admin/health"): "data.view",
+    ("GET", "/admin/logs/export"): "users.manage",
 
     # APC core operator console (ADR 013): view for every role, operate for operator and up;
     # switch_off needs ctl.operate only, never a step-up
@@ -135,6 +142,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/site/publish"): "config.edit",
     ("POST", "/site/publish/approve"): "config.edit",
     ("POST", "/site/publish/reject"): "config.edit",
+    ("POST", "/site/tags.csv"): "config.edit",
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/loop-templates/{key}"): "config.edit",
     ("PUT", "/config/{kind}/{config_id}"): "config.edit",
@@ -232,6 +240,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/auth/stepup"): AUTHENTICATED,
 
     # auth (users.manage)
+    # Backup and restore of configuration without history (#167): administrators only.
+    ("GET", "/admin/backup"): "users.manage",
+    ("POST", "/admin/backup/inspect"): "users.manage",
+    ("POST", "/admin/backup/restore"): "users.manage",
     ("GET", "/auth/users"): "users.manage",
     ("GET", "/auth/users/{username}"): "users.manage",
     ("POST", "/auth/users"): "users.manage",

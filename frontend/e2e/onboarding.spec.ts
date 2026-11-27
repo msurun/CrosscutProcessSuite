@@ -3,6 +3,7 @@
 // and runs axe-core accessibility checks at 1440 and 390 px with no horizontal scroll.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const DATASET = "mill_circuit_observational_seed42";
 const PAGE_URL = `/#/d/${DATASET}/onboarding`;
@@ -16,7 +17,7 @@ async function openOnboardingPage(page: Page): Promise<void> {
 test("renders onboarding view with overall verdict and module checklist", async ({ page }) => {
   const errors: string[] = [];
   page.on("response", (response) => {
-    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 400 && !isStatusBarProbe(response.url())) errors.push(`${response.status()} ${response.url()}`);
   });
 
   await openOnboardingPage(page);

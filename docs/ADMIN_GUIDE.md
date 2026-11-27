@@ -117,6 +117,24 @@ The DCS and plant interlocks never depend on this software.
 
 Back up `<root>/_auth/` (`users.json`, `roles.json`, `config.json`, `auth-audit.jsonl`), the `_gateway` audit and policy files, and the secrets directory with the HMAC key, as listed in runbook section 9. Keep the audit copy on a second machine or write-once media: the hash chain shows edits but not truncation. Rotate the key as described in runbook section 8 (the gateway must be stopped, the policy re-pinned, the old audit log archived); a lost key blocks all writes except kill.
 
+### Backup and restore in the console (#167)
+
+Administration > Backup (permission `users.manage`, so administrators only). The backup holds configuration, not history.
+
+| In the backup | Left out |
+|---------------|----------|
+| Site catalogue (`_site`), module configurations and models (`_anomaly`, `_softsensor`, `_fuzzy`, `_supervisor`), saved trend charts (`_trends`), gateway policy, pin and draft (`_gateway/policy`, `policy-draft.json`), `plant-map.json`, users, roles and settings (`_auth/users.json`, `roles.json`, `config.json`) | Datasets and every Parquet file (history stays in the source historian), `_runtime`, `_advisory`, `_uploads`, live gateway queues, `_tuning` proposals, caches and temporary files, earlier backups (`_backup`) |
+| A copy of the audit logs (`_auth/auth-audit.jsonl`, `_gateway/audit.jsonl`) as evidence | Secrets: the OS secret store (source passwords and tokens) and `_secrets` (gateway key) are never exported |
+
+- **Secrets must be re-entered.** The manifest and the dry-run report list the source credentials (by reference name) and the gateway key file to enter or copy again on a new machine. Backup files contain the password hashes of the accounts: store them like the data root.
+- **Download.** The zip has `manifest.json` (format version, creation time, a sha256 per file, the exclusions and the secrets list). Download needs a fresh password confirmation and writes `backup_created` to the audit.
+- **Restore.** Upload the zip and press Check backup: the dry run verifies the manifest, every hash and the layout version of versioned files, and lists each file as add, replace, remove or unchanged without touching anything. A tampered or damaged archive, a path outside the scope, and a backup written by a newer format or newer file layout are refused. Restore needs the confirmation box, a fresh password confirmation, and restores exactly the archive that was checked. Audit logs are never replaced: the live chains stay intact and the audit gets `backup_restored` before the first file changes.
+- **Safety net.** Before any file changes the current configuration is saved as `<root>/_backup/pre-restore-<time>.zip` (the newest five are kept). Files are staged first and swapped in one by one with atomic replaces; a failure during the swap puts the safety copy back. To undo a restore, restore that safety copy.
+- **After a restore.** Reload the gateway policy (`policy_reload`, only in `off` or `advisory`) and restart the API and gateway if `roles.json` or `config.json` changed (they are read at start-up). A policy pin is signed with the gateway key: on a machine with a different key, pin the policy again with two distinct people.
+- **What the confirmation binds.** The restore request carries `confirm=<sha256 of the zip>`: the server refuses it unless the uploaded bytes are exactly the archive whose dry run you saw, and it runs every validation again before touching a file. Download, check and restore are all audited (`backup_created`, `backup_inspected`, `backup_restored`) and need the fresh password confirmation. Archives with an unpacked size above 512 MiB, or a member (1 MiB or more) compressed more than 200 times, are refused.
+- **A killed process can leave a partial restore.** The swap replaces files one by one. A failure inside the process is rolled back, but a hard kill (power loss, `kill -9`) in the middle is not. To recover: (1) stop the API and the gateway; (2) take the newest `<root>/_backup/pre-restore-<time>.zip`, made just before that restore; (3) unzip it to a scratch folder and copy its files over `<root>` with the same relative paths (skip `manifest.json` and the audit logs), or start the API and restore that zip in Administration > Backup; (4) delete leftover `<root>/_backup/staging-*` folders. If the automatic rollback itself fails, the API answers `rollback_failed` and audits `backup_rollback_failed`: use the same steps. On POSIX systems the restored `_auth` files and the audit file get mode 0600.
+- **No lock-out.** Check that the restored `users.json` contains an administrator you can sign in as; the dry run lists `_auth/users.json` as replaced.
+
 ## 8. What is NOT protected (threat model summary)
 
 Crosscut protects against unauthenticated browser users, operators exceeding their role, forged or replayed inbox files, and one person raising authority alone. It does not protect against:
@@ -173,3 +191,18 @@ identify bad values when communication succeeds. Writes remain exclusively in th
 
 Protocol reference: [AVEVA PI Web API](https://docs.aveva.com/bundle/pi-web-api-reference/page/help/getting-started.html).
 Real-server authentication and performance checks remain owner tasks; tests use synthetic fixtures.
+
+## Health and log export (issue #170)
+
+**Administration > Health** shows one read-only table, refreshed every 10 s, each row ok, warning or error with a reason:
+
+- **Runtime:** running, stopped, never started or stale (its state file older than 30 s), with uptime. Jobs: one row per enabled job with last run, last success, last error, overrun count and lag. A job is *late* (warning) after 2 periods without a run, *overdue* (error) after 5, and an *overrun* is counted when a run starts more than 2 periods after the previous one.
+- **Gateway:** state file fresh (10 s), mode (mode `off` is a warning), and the beats of the runtime and of each controller as the gateway sees them (a lost beat is an error).
+- **Audit:** time of the last audit write (gateway chain and sign-in log) and the gateway chain check.
+- **System:** free space on the data root (warning below 10 % or 5 GiB, error below 5 % or 1 GiB) and the installed package versions (warning when they differ).
+
+Everyone who may open the Runtime page (`data.view`) may read it; the API route is `GET /admin/health`.
+
+**Log export** (`GET /admin/logs/export?start=<ISO>&end=<ISO>`, button on the Health page) needs `users.manage`. It returns a zip with the lines of the chosen range (default: the last 24 h) of every log file that exists, and writes a `log_export` record (who, range, files) to the sign-in audit chain. Passwords, tokens, API keys, cookies, `Authorization` headers, URL credentials and private key blocks are replaced by `[redacted]`; the scrubbing is pattern based, so still read an export before sending it outside the site.
+
+Where the logs are: each process writes `<root>/_logs/<api|runtime|gateway>.log` (rotating, UTC time stamps) when it is started with its entry point (`python -m crosscut_api --root <root>`, `python -m crosscut_runtime`, `python -m crosscut_gateway`; the Windows and systemd wrappers in `deploy/` already do). The runtime job log `<root>/_runtime/log.jsonl` is exported too. Defaults, changed by environment variables of the process: `CROSSCUT_LOG_LEVEL=INFO`, `CROSSCUT_LOG_MAX_BYTES=5000000` per file, `CROSSCUT_LOG_BACKUPS=5` rotated files. An API started another way (for example `uvicorn` directly) writes no `api.log`, and the export then holds only what the other processes wrote. Each component log file assumes **one writer process**: do not start the API with `uvicorn --workers` or `--reload` in production (rotation would corrupt the file). A plain `uvicorn` start writes no `api.log` at all. The export refuses a range longer than 31 days or more than 100 MB of log text (422 with the reason) and needs a fresh step-up (password re-entry). The systemd unit of the API needs write access to `_logs` and `_auth` (the unit in `deploy/` grants both).

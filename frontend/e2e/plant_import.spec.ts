@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isStatusBarProbe } from "./statusBarProbes";
 
 const START_URL = "/#/d/level_integrating_demo/import";
 const SCRIPT = fileURLToPath(new URL("./support/make_plant_csv.py", import.meta.url));
@@ -68,7 +69,7 @@ test("preview, loops, test window, import and open the LIC-20103 loop", async ({
   const errors: string[] = [];
   page.on("response", (r) => {
     // 404 of the read-only import settings (no site file in the data root) is expected.
-    if (r.status() >= 400 && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`);
+    if (r.status() >= 400 && !isStatusBarProbe(r.url()) && !r.url().endsWith("/site/import-settings")) errors.push(`${r.status()} ${r.url()}`);
   });
   await chooseFiles(page);
   await runPreview(page);

@@ -236,6 +236,18 @@ def _positive_factor(value: Any) -> float:
     return NEUTRAL_FACTOR if number is None else max(0.0, number)
 
 
+def _is_deferred(row: Row) -> bool:
+    """True when a finding carries an active deferral and none is left unanswered.
+
+    The caller attaches finding["outcome"] only while a deferral is in force, so an expired
+    date simply brings the loop back to its normal rank.
+    """
+    findings = [f for f in row.get("findings") or [] if isinstance(f, dict)]
+    outcomes = [f.get("outcome") for f in findings]
+    return "deferred" in outcomes and all(
+        o in {"deferred", "fixed", "not_a_problem"} for o in outcomes)
+
+
 def _rank_factors(row: Row) -> dict[str, float]:
     """Read severity, catalogue consequence and the existing economic estimate."""
     knowledge = row.get("knowledge") or {}
@@ -303,5 +315,7 @@ def add_worklist(rows: list[Row]) -> None:
         # severity/consequence are dimensionless and benefit is site currency/hour
         # when priced, otherwise neutral 1. Scores are comparable within one site.
         row["rank_score"] = math.prod(factors.values())
+        if _is_deferred(row):
+            row["rank_score"] = 0.0  # deferred by the user: rank last until the date passes
     for rank, row in enumerate(sorted(rows, key=priority_key), start=1):
         row["priority_rank"] = rank

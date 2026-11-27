@@ -31,12 +31,15 @@ from crosscut_loops.tuning_types import TuningRequest
 from crosscut_sim.dataset import read_dataset, to_wide
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query
 
+from crosscut_api.admin_routes import build_admin_router
 from crosscut_api.anomaly_routes import build_anomaly_router
 from crosscut_api.auth.deps import AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
 from crosscut_api.auth.sessions import AuthConfig
 from crosscut_api.auth.settings import load_auth_config
 from crosscut_api.auth_routes import build_auth_router, build_auth_router_for
+from crosscut_api.backup_routes import build_backup_router
+from crosscut_api.catalogue_csv_routes import build_catalogue_csv_router
 from crosscut_api.catalogue_routes import build_catalogue_router
 from crosscut_api.catalogue_source_routes import build_catalogue_source_router
 from crosscut_api.connector_routes import build_connector_router
@@ -720,6 +723,7 @@ def _new_app(
     enforcer = Depends(make_enforcer(AuthGuards(ctx), ctx))
     app = FastAPI(title=title, dependencies=[enforcer])
     app.state.auth_enabled = True
+    app.state.auth_audit = ctx.audit
     return app, build_auth_router_for(ctx, True)
 
 
@@ -763,6 +767,7 @@ def _mount_data_routers(
     app.include_router(build_onboarding_router(store))
     app.include_router(build_plant_import_router(store.root))
     app.include_router(build_site_router(store.root))
+    app.include_router(build_catalogue_csv_router(store.root))
     app.include_router(build_catalogue_router(store.root, store.tags_of))
     app.include_router(build_loop_template_router(store.root))
     app.include_router(build_connector_router(store.root))
@@ -771,10 +776,12 @@ def _mount_data_routers(
     app.include_router(build_catalogue_source_router(store.root))
     app.include_router(build_schema_router(store.root))
     app.include_router(build_runtime_router(store.root))
+    app.include_router(build_admin_router(store.root))
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_equipment_live_router(store.root))
     app.include_router(build_trend_chart_router(store.root))
+    app.include_router(build_backup_router(store.root))
 
 
 def _register_health_route(app: FastAPI) -> None:
