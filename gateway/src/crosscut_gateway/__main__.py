@@ -22,6 +22,7 @@ from crosscut_gateway.audit import AuditError, AuditLog
 from crosscut_gateway.engine import Mode, WriteGateway, safe_gateway, start_from_policy_file
 from crosscut_gateway.keyfile import default_key_path, key_permission_problem, read_key
 from crosscut_gateway.latch_store import kill_latch_present
+from crosscut_gateway.logsetup import setup_file_logging
 from crosscut_gateway.opcua_plant import OpcUaPlant, PlantMapError
 from crosscut_gateway.policy import PolicyError
 from crosscut_gateway.policy_pin import pin_path_for
@@ -234,6 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns 0 on normal termination, 2 on argument or initialization error.
     """
     args = parse_args(argv)
+    setup_file_logging("gateway", args.root)
     inputs = _prepare(args)
     if inputs is None:
         return 2

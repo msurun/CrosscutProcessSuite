@@ -14,14 +14,15 @@ User=crosscut
 Group=crosscut
 WorkingDirectory=/opt/crosscut
 Environment=CROSSCUT_ROOT=/var/lib/crosscut
-# create_app(Path(...)) takes the data root as an argument, so uvicorn is
-# started through a one-line -c call (same pattern as frontend/e2e/support).
-ExecStart=/opt/crosscut/.venv/bin/python -c "import sys, os; from pathlib import Path; import uvicorn; from crosscut_api.app import create_app; uvicorn.run(create_app(Path(os.environ['CROSSCUT_ROOT'])), host='127.0.0.1', port=8000)"
+# Logs go to $CROSSCUT_ROOT/_logs/api.log (rotating) as well as to the journal.
+ExecStart=/opt/crosscut/.venv/bin/python -m crosscut_api --root "${CROSSCUT_ROOT}"
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadOnlyPaths=/var/lib/crosscut
+# The rotating log file and the audit chain are the API's only writes under the data root.
+ReadWritePaths=/var/lib/crosscut/_logs /var/lib/crosscut/_auth
 PrivateTmp=true
 
 [Install]
