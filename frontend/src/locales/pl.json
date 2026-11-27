@@ -2492,5 +2492,13 @@
   "modeProposal.newScope": "Dodaje także proponowany sprzęt {id}.",
   "modeProposal.members": "Członkowie: {tags}",
   "modeProposal.saved": "Zapisano {id} w katalogu.",
-  "modeProposal.badValue": "Każdy próg musi być liczbą."
+  "modeProposal.badValue": "Każdy próg musi być liczbą.",
+  "catalogueCsv.title": "Import i eksport tagów w CSV",
+  "catalogueCsv.download": "Pobierz tagi jako CSV",
+  "catalogueCsv.file": "Plik CSV",
+  "catalogueCsv.check": "Sprawdź (próbnie)",
+  "catalogueCsv.ok": "Sprawdzenie zaliczone: {tags} tagów gotowych do importu.",
+  "catalogueCsv.errors": "Problemy znalezione w pliku CSV",
+  "catalogueCsv.apply": "Importuj",
+  "catalogueCsv.applied": "Zaimportowano {tags} tagów."
 }
