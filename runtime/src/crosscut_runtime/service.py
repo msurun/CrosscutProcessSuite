@@ -40,6 +40,7 @@ from crosscut_runtime.scheduler import JobSlot, Scheduler
 from crosscut_runtime.store import RuntimeStore, controller_period, controller_period_problem
 
 _UNSET: Any = object()
+OVERRUN_PERIODS = 2.0  # a run later than this many periods after the previous one is an overrun
 RUNNABLE_KINDS = ("loop_kpi", "anomaly_scan", "tuning_review", "controller", "equipment_scan")
 
 
@@ -138,6 +139,7 @@ class RuntimeService:
         self._review_jobs: dict[str, TuningReviewJob] = {}
         self._history = HistoryStore(history_path(root))
         self._pending_samples: list[tuple[str, float, float, int]] = []
+        self._started_utc = datetime.now(UTC).isoformat()
 
     def run_once(self) -> None:
         """Synchronize configuration, run due jobs, and record the results."""
@@ -368,7 +370,7 @@ class RuntimeService:
 
             run = results_by_id.get(job_id)
             if run:
-                st["last_run_utc"] = now_utc
+                _note_run(st, job, now_utc, run.ok)
                 if run.ok and job["kind"] == "tuning_review":
                     self._review_state(st, run.result)
                 elif run.ok:
@@ -386,8 +388,35 @@ class RuntimeService:
             elif not st.get("status"):
                 st["status"] = "idle"
 
-        state.update({"service": "running", "updated_at_utc": now_utc, "jobs": job_states})
+        state.update(
+            {
+                "service": "running",
+                "updated_at_utc": now_utc,
+                "started_at_utc": self._started_utc,
+                "jobs": job_states,
+            }
+        )
         self._store.save_state(state)
+
+
+def _late_by_periods(previous_utc: str | None, now_utc: str, period_s: float) -> bool:
+    """True when two runs of a job lay more than two periods apart (it overran its slot)."""
+    if previous_utc is None or period_s <= 0:
+        return False
+    try:
+        now, previous = datetime.fromisoformat(now_utc), datetime.fromisoformat(previous_utc)
+        gap = (now - previous).total_seconds()
+    except ValueError:
+        return False
+    return gap > OVERRUN_PERIODS * period_s
+
+
+def _note_run(st: dict[str, Any], job: dict[str, Any], now_utc: str, ok: bool) -> None:
+    """Record one run in the job state: last run, last success or error time, overrun count."""
+    if _late_by_periods(st.get("last_run_utc"), now_utc, float(job.get("period_s") or 0)):
+        st["overrun_count"] = int(st.get("overrun_count", 0)) + 1
+    st["last_run_utc"] = now_utc
+    st["last_success_utc" if ok else "last_error_utc"] = now_utc
 
 
 def serve(

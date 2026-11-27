@@ -10,6 +10,7 @@ import type { Translate } from "../findings";
 import { OverviewPage } from "../OverviewPage";
 import { GatewayPage } from "../GatewayPage";
 import { withQueryParams, type Route } from "../route";
+import { HealthPage } from "./HealthPage";
 import { RuntimePage } from "../RuntimePage";
 import { BackupPage } from "../BackupPage";
 import { UsersPage } from "../UsersPage";
@@ -78,6 +79,7 @@ export function ViewContent(props: ViewContentProps) {
     runtime: <RuntimePage t={t} />,
     controllers: <ControllersPage t={t} />,
     gateway: <GatewayPage t={t} />,
+    health: <HealthPage t={t} />,
     tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
     backup: <BackupPage t={t} />,
