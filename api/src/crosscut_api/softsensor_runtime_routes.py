@@ -15,23 +15,30 @@ from typing import Annotated, Any, Literal
 
 from crosscut_runtime.jobs.softsensor import state_path
 from crosscut_runtime.store import write_json_atomic
+from crosscut_softsensor.comparison import ComparisonData, ComparisonOptions, compare_preset
 from crosscut_softsensor.config import SoftSensorConfig, SoftSensorConfigError, load_config
 from crosscut_softsensor.deployment import FOLDER, gate_for, gate_view, read_deployment
 from crosscut_softsensor.deployment_gate import (
+    REFUSAL_TEXT,
     DeploymentRefused,
     ValidationResults,
     require_deployable,
 )
 from crosscut_softsensor.online import STAMP_MEANINGS
 from crosscut_softsensor.presets import load_presets
+from crosscut_softsensor.reference import build_model_features, lag_gap
+from crosscut_softsensor.validation_store import build_record, file_sha256
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel
 
+from crosscut_api.anomaly_routes import WindowRequest
 from crosscut_api.auth.actor import ActorContext, actor_of
 from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.auth.deps import AUDIT_FILE
 from crosscut_api.auth.store import auth_dir
+from crosscut_api.softsensor_routes import QualityLoader, SecondsLoader, _SoftSensorEndpoints
+from crosscut_api.target_alignment import aligned_labs
 
 Actor = Annotated[ActorContext, Depends(actor_of)]
 Sid = Annotated[str, PathParam(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
@@ -46,24 +53,23 @@ class ModeRequest(BaseModel):
     stamp_window_s: float | None = None
 
 
-class ValidationRequest(BaseModel):
-    """Preset key and validation results to store for the deployment gate."""
+class ValidateRequest(WindowRequest):
+    """Preset to validate against (and the structure, default the deployed PLS) on a window."""
 
-    preset: str
-    rmse_model: float
-    rmse_baseline: float
-    scored_coverage: float
-    n_samples: int
-    baseline: str
-    same_information_cutoff: bool = True
+    preset: str = "lab_quality_inference"
+    structure: str = "pls"
 
 
 class SoftSensorRuntimeEndpoints:
     """Handlers bound to one data root."""
 
-    def __init__(self, root: Path, clock: Callable[[], float] = time.time) -> None:
-        """Bind the data root and clock."""
+    def __init__(
+        self, root: Path, clock: Callable[[], float], load_seconds: SecondsLoader,
+        load_quality: QualityLoader,
+    ) -> None:
+        """Bind the data root, clock and the dataset loaders."""
         self.root, self.clock = Path(root), clock
+        self.load_seconds, self.load_quality = load_seconds, load_quality
 
     def _config(self, sid: str) -> SoftSensorConfig:
         """The sensor configuration (404 unknown, 422 invalid)."""
@@ -93,18 +99,44 @@ class SoftSensorRuntimeEndpoints:
                 "output": state.get("output"), "last_lab": state.get("last_lab"),
                 "events": state.get("events", []), "gate": gate_view(self.root, sid)}
 
-    def put_validation(self, sid: Sid, body: ValidationRequest, actor: Actor) -> Document:
-        """Store validation results (audited); the gate is evaluated on them at mode change."""
-        actor.require("config.edit")
-        self._config(sid)
-        fields = body.model_dump()
-        preset = fields.pop("preset")
-        if preset not in load_presets():
-            raise HTTPException(status_code=422, detail=f"unknown preset: {preset}")
-        self._audit("softsensor_validation", actor, {"sensor": sid, "preset": preset})
-        write_json_atomic(self.root / FOLDER / f"{sid}.validation.json",
-                          {"preset": preset, "results": fields})
+    def validate(
+        self, dataset_id: str, sid: Sid, body: ValidateRequest, actor: Actor
+    ) -> Document:
+        """Run the comparison table on a stored dataset window and store the result (audited)."""
+        actor.require("analysis.run")
+        config = self._config(sid)
+        preset = load_presets().get(body.preset)
+        if preset is None or body.structure not in preset["model"]["allowed_now"]:
+            raise HTTPException(status_code=422, detail="unknown preset or structure")
+        model_file = self.root / FOLDER / f"{sid}.model.json"
+        if not model_file.is_file():
+            raise HTTPException(status_code=404, detail=f"model not fitted: {sid}")
+        table, window = self._compare(dataset_id, sid, config, preset, body)
+        origin = {"dataset_id": dataset_id, "window": window,
+                  "model_file_sha256": file_sha256(model_file)}
+        record = build_record(preset, body.structure, table, origin)
+        self._audit("softsensor_validate", actor, {"sensor": sid, "dataset": dataset_id,
+                                                   "validation_hash": record["hash"]})
+        write_json_atomic(self.root / FOLDER / f"{sid}.validation.json", record)
         return self._view(sid)
+
+    def _compare(
+        self, dataset_id: str, sid: str, config: SoftSensorConfig, preset: dict[str, Any],
+        body: ValidateRequest,
+    ) -> tuple[Any, dict[str, float]]:
+        """Bin the dataset window, build causal features and run the blocked comparison."""
+        source = _SoftSensorEndpoints(self.root, self.load_seconds, self.load_quality)
+        t_s, columns = source._binned(dataset_id, config, body)  # noqa: SLF001
+        features = build_model_features(columns, config)
+        labs = aligned_labs(self.root, source._lab_rows(sid), config)  # noqa: SLF001
+        data = ComparisonData(features.x, t_s, labs, tuple(features.names))
+        gap = lag_gap(config)
+        options = ComparisonOptions(config.cv_blocks, gap, gap)
+        try:
+            table = compare_preset(preset, data, options)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return table, {"start_s": float(t_s[0]), "end_s": float(t_s[-1])}
 
     def put_mode(self, sid: Sid, body: ModeRequest, actor: Actor) -> Document:
         """Change the mode; backup and primary require a passing gate (409 with the exact text)."""
@@ -127,8 +159,8 @@ class SoftSensorRuntimeEndpoints:
         """Pass the gate or audit the refusal and answer 409 with the exact refusal text."""
         try:
             decision, preset = gate_for(self.root, sid)
-            if decision is None or preset is None:
-                raise DeploymentRefused(gate_view(self.root, sid)["message"])
+            if decision is None or preset is None or not decision.deploy:
+                raise DeploymentRefused(REFUSAL_TEXT)
             require_deployable(preset, ValidationResults(**self._results(sid)))
         except DeploymentRefused as error:
             self._audit("softsensor_mode_refused", actor, fields)
@@ -161,12 +193,14 @@ class SoftSensorRuntimeEndpoints:
 
 
 def build_softsensor_runtime_router(
-    root: Path, clock: Callable[[], float] = time.time
+    root: Path, load_seconds: SecondsLoader, load_quality: QualityLoader,
+    clock: Callable[[], float] = time.time,
 ) -> APIRouter:
-    """Routes: GET runtime, PUT mode, PUT validation."""
-    endpoints = SoftSensorRuntimeEndpoints(root, clock)
+    """Routes: GET runtime, PUT mode, POST validate (server-side validation)."""
+    endpoints = SoftSensorRuntimeEndpoints(root, clock, load_seconds, load_quality)
     router = APIRouter()
     router.add_api_route("/softsensor/{sid}/runtime", endpoints.runtime, methods=["GET"])
     router.add_api_route("/softsensor/{sid}/mode", endpoints.put_mode, methods=["PUT"])
-    router.add_api_route("/softsensor/{sid}/validation", endpoints.put_validation, methods=["PUT"])
+    router.add_api_route("/datasets/{dataset_id}/softsensor/{sid}/validate", endpoints.validate,
+                         methods=["POST"])
     return router

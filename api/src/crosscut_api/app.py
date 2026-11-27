@@ -785,7 +785,8 @@ def _mount_data_routers(
     app.include_router(build_live_loops_router(store.root))
     app.include_router(build_controller_router(store.root))
     app.include_router(build_equipment_live_router(store.root))
-    app.include_router(build_softsensor_runtime_router(store.root))
+    app.include_router(build_softsensor_runtime_router(
+        store.root, store.load_seconds, store.load_quality))
     app.include_router(build_trend_chart_router(store.root))
     app.include_router(build_backup_router(store.root))
 

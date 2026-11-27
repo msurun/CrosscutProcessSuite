@@ -1,7 +1,7 @@
 """Stored deployment of a soft sensor: mode, validation results and the gate decision.
 
 Files under ``<data root>/_softsensor``: ``<sid>.deployment.json`` (mode, who changed it, lab
-stamp contract) and ``<sid>.validation.json`` (preset key and validation results). The mode is
+stamp contract) and ``<sid>.validation.json`` (server-computed record). The mode is
 written only by the audited API action; the runtime job only reads it and re-checks the gate.
 """
 
@@ -19,6 +19,7 @@ from crosscut_softsensor.deployment_gate import (
 )
 from crosscut_softsensor.online import MODES
 from crosscut_softsensor.presets import load_presets
+from crosscut_softsensor.validation_store import problems
 
 FOLDER = "_softsensor"
 DEFAULT_STAMP = {"meaning": "sample", "window_s": 0.0}
@@ -51,6 +52,9 @@ def gate_for(root: Path, sid: str) -> tuple[GateDecision | None, dict[str, Any] 
     if validation is None:
         return None, None
     preset = load_presets()[validation["preset"]]
+    stale = problems(validation, Path(root) / FOLDER / f"{sid}.model.json")
+    if stale:
+        return GateDecision(False, None, tuple(stale), REFUSAL_TEXT), preset
     results = ValidationResults(**validation["results"])
     return evaluate_gate(preset["deployment_gate"], results), preset
 

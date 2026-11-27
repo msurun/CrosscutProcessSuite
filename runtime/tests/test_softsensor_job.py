@@ -15,6 +15,7 @@ from crosscut_connectors.base import LiveValue
 from crosscut_runtime.jobs.softsensor import SoftSensorJob, state_path
 from crosscut_softsensor.config import load_config
 from crosscut_softsensor.pls import fit_pls
+from crosscut_softsensor.validation_store import code_version, content_hash, file_sha256
 
 T0 = 1_800_000_000.0
 PERIOD = 60.0
@@ -68,10 +69,14 @@ def world(tmp_path: Path) -> tuple[SoftSensorJob, Plant, Path]:
 
 
 def _mode(root: Path, mode: str, validation: bool = True) -> None:
-    """Write the deployment (and a passing validation) the audited API action would write."""
+    """Write the deployment and a record shaped like the server-side validation (test double)."""
     (root / "_softsensor" / "s1.deployment.json").write_text(json.dumps({"mode": mode}))
     if validation:
-        (root / "_softsensor" / "s1.validation.json").write_text(json.dumps(VALIDATION))
+        folder = root / "_softsensor"
+        record = {**VALIDATION, "code_version": code_version(),
+                  "model_file_sha256": file_sha256(folder / "s1.model.json")}
+        record["hash"] = content_hash(record)
+        (folder / "s1.validation.json").write_text(json.dumps(record))
 
 
 def _cycle(job: SoftSensorJob, plant: Plant, steps: int = 1) -> dict:
