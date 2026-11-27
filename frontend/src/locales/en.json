@@ -2604,5 +2604,6 @@
   "soft.rt.source.softsensor": "virtual sensor",
   "soft.rt.event": "{time}: {from} to {to} ({reason})",
   "soft.rt.gateTitle": "Deploy gate",
-  "soft.rt.gate": "Deploy allowed: {deploy}; skill: {skill}"
+  "soft.rt.gate": "Deploy allowed: {deploy}; skill: {skill}",
+  "draftNotice.saved": "Saved to the site draft. It goes live only after you publish it on Site > Versions."
 }

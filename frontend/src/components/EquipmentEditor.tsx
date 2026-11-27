@@ -6,6 +6,7 @@ import type { Translate } from "../findings";
 import { EquipmentDetail } from "./EquipmentDetail";
 import { EquipmentTree } from "./EquipmentTree";
 import { addEntry, confirmAll, removeEntry, updateEntry, type Equipment, type SiteDoc } from "./equipmentModel";
+import { DraftNotice } from "./DraftNotice";
 
 export interface EquipmentEditorProps {
   t: Translate;
@@ -19,6 +20,7 @@ function useSite(setProblems: (text: string) => void) {
   const [site, setSite] = useState<SiteDoc | null>(null);
   const [list, setList] = useState<Equipment[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [drafted, setDrafted] = useState(false);
   useEffect(() => {
     getJson<SiteDoc>(SITE_URL)
       .then((doc) => { setSite(doc); setList(doc.equipment ?? []); })
@@ -36,12 +38,13 @@ function useSite(setProblems: (text: string) => void) {
       await sendJson<unknown>("PUT", SITE_URL, { ...site, equipment: list });
       setSite({ ...site, equipment: list });
       setDirty(false);
+      setDrafted(true);
       setProblems("");
     } catch (e) {
       setProblems(message(e));
     }
   };
-  return { site, list, dirty, edit, save };
+  return { site, list, dirty, drafted, edit, save };
 }
 
 /** Which tree branches are collapsed. */
@@ -59,7 +62,7 @@ export function EquipmentEditor({ t }: EquipmentEditorProps): ReactElement {
   const [problems, setProblems] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, flip] = useCollapsed();
-  const { site, list, dirty, edit, save } = useSite(setProblems);
+  const { site, list, dirty, drafted, edit, save } = useSite(setProblems);
   const entry = list.find((e) => e.id === selected) ?? null;
   const add = (level: "area" | "equipment") => {
     const next = addEntry(list, level, selected ?? undefined);
@@ -81,6 +84,7 @@ export function EquipmentEditor({ t }: EquipmentEditorProps): ReactElement {
         <button type="button" onClick={save} disabled={!dirty}>{t("equipment.save")}</button>
       </div>
       {dirty && <p role="status">{t("equipment.unsaved")}</p>}
+      {drafted && !dirty && <DraftNotice t={t} />}
       {problems && <pre role="alert">{problems}</pre>}
       {site && (
         <div style={{ display: "flex", gap: "1rem" }}>

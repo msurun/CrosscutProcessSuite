@@ -17,9 +17,10 @@ from crosscut_connectors.base import (
     SourceConnectionError,
 )
 from crosscut_connectors.registry import connector_from_source
-from crosscut_connectors.site import load_site, site_path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+from crosscut_api.site_version_routes import working_site
 
 
 class ReadLiveRequest(BaseModel):
@@ -30,9 +31,9 @@ class ReadLiveRequest(BaseModel):
 
 def _find_source(root: Path, source_id: str) -> dict[str, Any]:
     """Locate a source entry inside the site document by its unique identifier."""
-    if not site_path(root).exists():
+    site_doc = working_site(root)  # a source saved to the draft can be tested before publish
+    if site_doc is None:
         raise HTTPException(status_code=404, detail="Site catalogue does not exist")
-    site_doc = load_site(root)
     # The site schema stores sources as a list of objects.
     sources: list[dict[str, Any]] = site_doc.get("sources", [])
     for src in sources:
@@ -49,10 +50,8 @@ class _ConnectorEndpoints:
 
     def list_sources(self) -> dict[str, Any]:
         """List configured data sources from the site catalogue."""
-        if not site_path(self.root).exists():
-            return {"sources": []}
-        site_doc = load_site(self.root)
-        return {"sources": site_doc.get("sources", [])}
+        site_doc = working_site(self.root)
+        return {"sources": (site_doc or {}).get("sources", [])}
 
     def test_source(self, source_id: str) -> dict[str, Any]:
         """Verify network connectivity and return supported capabilities."""

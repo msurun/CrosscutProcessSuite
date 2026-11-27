@@ -2615,5 +2615,6 @@
   "soft.rt.source.softsensor": "sensor virtual",
   "soft.rt.event": "{time}: {from} a {to} ({reason})",
   "soft.rt.gateTitle": "Compuerta de despliegue",
-  "soft.rt.gate": "Despliegue permitido: {deploy}; skill: {skill}"
+  "soft.rt.gate": "Despliegue permitido: {deploy}; skill: {skill}",
+  "draftNotice.saved": "Guardado en el borrador del sitio. Solo entra en vigor al publicarlo en Site > Versions."
 }

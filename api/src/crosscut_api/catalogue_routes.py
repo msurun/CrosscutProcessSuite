@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from crosscut_connectors.role_mapping import loops_from_signals, suggest_roles
-from crosscut_connectors.site import load_site, save_site, site_path, validate_site
-from fastapi import APIRouter, Body, HTTPException
+from crosscut_connectors.site import validate_site
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.site_version_routes import store_draft, working_site
 
 ANOMALY_DIR = "_anomaly"
 SOFTSENSOR_DIR = "_softsensor"
@@ -63,16 +66,20 @@ class _CatalogueEndpoints:
 
     def get_mapping(self) -> dict[str, Any]:
         """Return currently saved signals and loops from the site catalogue."""
-        if not site_path(self.root).exists():
+        doc = working_site(self.root)
+        if doc is None:
             return {"signals": [], "loops": []}
-        doc = load_site(self.root)
         return {
             "signals": doc.get("signals", []),
             "loops": doc.get("loops", []),
         }
 
-    def put_mapping(self, request: Annotated[MappingRequest, Body()]) -> dict[str, Any]:
-        """Validate, persist mapping to site.json, and sync default module configs."""
+    def put_mapping(
+        self,
+        request: Annotated[MappingRequest, Body()],
+        actor: Annotated[ActorContext, Depends(actor_of)],
+    ) -> dict[str, Any]:
+        """Validate, store the mapping in the site draft, and sync default module configs."""
         doc = self._get_or_create_site_doc()
         doc["signals"] = request.signals
         doc["loops"] = request.loops
@@ -82,7 +89,7 @@ class _CatalogueEndpoints:
         if problems:
             raise HTTPException(status_code=422, detail=problems)
 
-        save_site(self.root, doc)
+        store_draft(self.root, doc, actor.actor)
         module_configs = {
             "anomaly": _sync_anomaly_config(self.root, request.signals),
             "softsensor": _sync_softsensor_config(self.root, request.signals),
@@ -98,8 +105,9 @@ class _CatalogueEndpoints:
 
     def _get_or_create_site_doc(self) -> dict[str, Any]:
         """Load the existing site document, or initialise a minimal valid skeleton."""
-        if site_path(self.root).exists():
-            return load_site(self.root)
+        working = working_site(self.root)
+        if working is not None:
+            return working
         return {
             "schema_version": 1,
             "site": {"name": "Site"},
