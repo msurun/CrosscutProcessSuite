@@ -35,4 +35,4 @@ Results include absolute `moves`, time-major `move_plan` increments and `predict
 `ValueError`; a numerical failure returns a held plan and never licenses CV relaxation.
 
 The QP algorithm, deterministic stopping rules and scope are recorded in
-[ADR 001 MPC addendum](../docs/adr/001-mpc-dense-qp.md). No new solver dependency is required.
+[ADR 001 MPC addendum](../docs/adr/019-mpc-dense-qp.md). No new solver dependency is required.
