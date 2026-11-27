@@ -13,6 +13,7 @@ import { withQueryParams, type Route } from "../route";
 import { HealthPage } from "./HealthPage";
 import { RuntimePage } from "../RuntimePage";
 import { BackupPage } from "../BackupPage";
+import { DependenciesPage } from "../DependenciesPage";
 import { UsersPage } from "../UsersPage";
 import { AdvisoryPage } from "./AdvisoryPage";
 import { EquipmentAnomaliesPage } from "./EquipmentAnomaliesPage";
@@ -83,6 +84,7 @@ export function ViewContent(props: ViewContentProps) {
     tuning: <TuningProposalsPage t={t} />,
     users: <UsersPage t={t} />,
     backup: <BackupPage t={t} />,
+    dependencies: <DependenciesPage t={t} />,
   };
   return <>{global[route.view] ?? (props.datasetMissing ? null : datasetViews(props, route.dataset)[route.view])}</>;
 }

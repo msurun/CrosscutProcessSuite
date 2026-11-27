@@ -100,6 +100,7 @@ class ControllerRecord:
     last_explanation: str = ""
     disabled: list[str] | None = None
     last_advice: list[dict[str, Any]] | None = None  # moves seen in advisory, never proposed
+    stale_reasons: list[str] | None = None  # why the catalogue no longer fits (#166)
     warnings: list[str] | None = None  # e.g. "readiness_unknown:L1" (informational, no block)
 
 
@@ -135,6 +136,7 @@ class ControllerHost:
         self.record = load_record(self._path)
         self._command: str | None = None
         self._warnings: list[str] = []
+        self._stale: list[str] = []
         self._previous_start: datetime | None = None
         self._tags = sorted({tag for tags in config.tags_of.values() for tag in tags})
         variables = config.controller_doc.get("variables", [])
@@ -149,6 +151,10 @@ class ControllerHost:
     def request(self, command: str) -> None:
         """Queue an operator command (switch_on, switch_off, standby) for the next cycle."""
         self._command = command
+
+    def set_stale(self, reasons: list[str]) -> None:
+        """Name the stale dependencies of this cycle (empty: none); the host sheds while any."""
+        self._stale = list(reasons)
 
     def set_disabled(self, ids: list[str] | None) -> None:
         """Set the operator-disabled variable ids (``None``: use each ``enabled_default``)."""
@@ -206,6 +212,7 @@ class ControllerHost:
             any_cv_good=cv_good,
             advisory_only=advisory,
             overrun_limit=self.record.consecutive_overruns >= self._config.max_overruns,
+            stale_dependency=bool(self._stale),
         )
 
     def _mv_problems(self, statuses: list[VariableStatus]) -> tuple[list[str], bool]:
@@ -263,5 +270,6 @@ class ControllerHost:
         self.record.last_duration_s = (end - start).total_seconds()
         self.record.liveness_utc = end.isoformat()
         self.record.warnings = list(self._warnings) or None
+        self.record.stale_reasons = list(self._stale) or None
         write_json_atomic(self._path, asdict(self.record))
         write_variable_status(self._config.data_root, self._controller.id, statuses)

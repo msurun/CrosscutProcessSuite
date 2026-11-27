@@ -21,7 +21,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: "softsensor", views: ["softsensor"] },
   { id: "fuzzy", views: ["fuzzy", "advisory"] },
   { id: "controllers", views: ["controllers"] },
-  { id: "site", views: ["catalogue", "import", "onboarding"] },
+  { id: "site", views: ["catalogue", "import", "onboarding", "dependencies"] },
   { id: "admin", views: ["gateway", "runtime", "health", "users", "backup"] },
 ];
 
@@ -65,6 +65,7 @@ export const VIEW_PERMISSIONS: Readonly<Record<View, readonly string[]>> = {
   users: ["users.manage"],
   health: ["job.manage"],
   backup: ["users.manage"],
+  dependencies: ["config.edit"],
 };
 
 /** Every view the menu knows, in menu order. */

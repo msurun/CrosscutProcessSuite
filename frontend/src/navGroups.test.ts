@@ -7,7 +7,7 @@ import type { View } from "./route";
 
 const ALL: View[] = [
   "overview", "trends", "loops", "fuzzy", "advisory", "anomalies", "softsensor", "steps", "import",
-  "catalogue", "onboarding", "runtime", "controllers", "gateway", "health", "tuning", "users", "backup",
+  "catalogue", "onboarding", "runtime", "controllers", "gateway", "health", "tuning", "users", "backup", "dependencies",
 ];
 
 describe("navGroups", () => {

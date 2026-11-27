@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
+from crosscut_api.dependency_hooks import register_dependent
 from crosscut_api.site_versions import current_version
 
 DIR_NAME = "_anomaly"
@@ -94,6 +95,7 @@ class _AnomalyEndpoints:
         manifest = _manifest(config, model, dataset_id, window)
         manifest["catalogue_version"] = current_version(self.folder.parent)
         self._write(self._path(aid, ".manifest.json"), manifest)
+        register_dependent(self.folder.parent, "anomaly", aid)
         return {**_summary(model, manifest), "unreliable_tags": _ramp_tags(x, config)}
 
     def get_model(self, aid: Aid) -> dict[str, Any]:

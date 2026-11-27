@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -22,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from crosscut_connectors.dependency_index import DependencyError, on_publish
 from crosscut_connectors.site import (
     SITE_FOLDER,
     SiteError,
@@ -216,8 +218,18 @@ def publish_document(
         "time": datetime.now(UTC).isoformat(timespec="seconds"),
         "note": note,
     }
+    previous = load_site(root) if site_path(root).exists() else None
     write_json(versions_dir(root) / f"v{number:04d}.json", document, exclusive=True)
     write_json(versions_dir(root) / f"v{number:04d}.meta.json", meta, exclusive=True)
     save_site(root, document)
     discard_draft(root)
+    _track_dependencies(root, previous, document, number)
     return meta
+
+
+def _track_dependencies(root: Path, previous: Doc | None, document: Doc, number: int) -> None:
+    """Mark dependents of changed tags stale (#166); the publish itself never fails on it."""
+    try:
+        on_publish(root, previous, document, number)
+    except (DependencyError, OSError, KeyError, ValueError) as error:
+        logging.getLogger(__name__).warning("dependency tracking v%d failed: %s", number, error)

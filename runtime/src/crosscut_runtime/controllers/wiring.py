@@ -70,6 +70,10 @@ class ControllerJob:
         self._host, self._root, self._id = host, root, controller_id
         self._beat, self._count = beat, 0
 
+    def set_stale(self, reasons: list[str]) -> None:
+        """Pass the stale dependencies of this cycle to the host (it sheds while any)."""
+        self._host.set_stale(reasons)
+
     def run(self) -> dict[str, Any]:
         """Apply the newest operator command, run one cycle and return the record."""
         command = pick_command(take_commands(self._root, self._id))

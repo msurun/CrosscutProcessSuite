@@ -25,6 +25,8 @@ from crosscut_runtime.store import (
 from fastapi import APIRouter, Body, HTTPException, Query
 from jsonschema import Draft202012Validator
 
+from crosscut_api.dependency_hooks import register_dependent, stale_problem
+
 SERVICE_FRESHNESS_S = 30.0
 LOG_LIMIT_DEFAULT = 200
 LOG_LIMIT_MAX = 2000
@@ -141,6 +143,16 @@ def _check_equipment(job: dict, site: dict, root: Path | None) -> list[str]:
     return problems
 
 
+def _check_stale_model(job: dict, root: Path | None) -> list[str]:
+    """An anomaly_scan job may not be deployed on a model built on changed tags (#166)."""
+    if job.get("kind") != "anomaly_scan" or root is None or not job.get("enabled"):
+        return []
+    problem = stale_problem(root, f"anomaly:{job.get('anomaly_id', job.get('id'))}")
+    if not problem:
+        return []
+    return [f"job.anomaly_id: model needs relearn or re-confirmation ({problem})"]
+
+
 def job_problems(
     job: dict[str, Any],
     site_doc: dict[str, Any] | None,
@@ -157,6 +169,7 @@ def job_problems(
         return problems + ["no site catalogue: create it first"]
     problems += _cross_check_problems(job, site_doc, existing_ids)
     problems += _check_equipment(job, site_doc, root)
+    problems += _check_stale_model(job, root)
     return problems
 
 
@@ -254,6 +267,7 @@ class _RuntimeEndpoints:
             raise HTTPException(status_code=422, detail=problems)
         document.setdefault("jobs", []).append(job)
         self._save_jobs(document)
+        register_dependent(self._root, "job", str(job["id"]))
         return document
 
     def update_job(
@@ -266,10 +280,15 @@ class _RuntimeEndpoints:
         existing = self._find_job(document, job_id)
         merged = self._merge(existing, body)
         problems = job_problems(merged, _load_site_document(self._root), set(), self._root)
+        if set(body) <= {"enabled"} and merged.get("enabled"):
+            stale = stale_problem(self._root, f"job:{job_id}")
+            problems += [f"job: refused to start, {stale}; edit it or re-confirm"] if stale else []
         if problems:
             raise HTTPException(status_code=422, detail=problems)
         document["jobs"] = [merged if job.get("id") == job_id else job for job in document["jobs"]]
         self._save_jobs(document)
+        if set(body) - {"enabled"}:
+            register_dependent(self._root, "job", job_id)  # an edited config is re-validated
         return document
 
     def delete_job(self, job_id: str) -> dict[str, Any]:
