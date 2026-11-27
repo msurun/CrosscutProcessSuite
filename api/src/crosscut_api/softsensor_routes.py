@@ -33,6 +33,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from crosscut_api.anomaly_routes import WindowRequest, _bin_means, _window_mask
+from crosscut_api.site_versions import current_version
 from crosscut_api.target_alignment import (
     aligned_labs,
     catalogue_metadata,
@@ -230,6 +231,7 @@ class _SoftSensorEndpoints:
         window = {"start_s": float(t_s[0]), "end_s": end}
         manifest = _manifest(config, model, dataset_id, window)
         manifest["r2_train"] = _r2(model, x[before], y)
+        manifest["catalogue_version"] = current_version(self.folder.parent)
         return self._save_fit(sid, model, manifest)
 
     def _save_fit(self, sid: str, model: PlsModel, manifest: dict[str, Any]) -> dict[str, Any]:

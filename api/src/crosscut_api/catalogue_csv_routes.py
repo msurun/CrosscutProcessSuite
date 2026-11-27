@@ -2,7 +2,8 @@
 
 The site's tags go out as a flat CSV for editing in a spreadsheet and come
 back through the same endpoint; a dry run reports problems without touching
-the site file, and a real import saves only when the file is clean.
+the site, and a real import saves only when the file is clean. Both directions work on the
+working copy: the draft when there is one, else the published site; an import lands in the draft.
 """
 
 from __future__ import annotations
@@ -18,9 +19,12 @@ from crosscut_connectors.catalogue_csv import (
     export_tags_csv,
     parse_tags_csv,
 )
-from crosscut_connectors.site import SiteError, load_site, save_site, site_path
-from fastapi import APIRouter, HTTPException, Request, Response
+from crosscut_connectors.site import SiteError
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+
+from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.site_version_routes import store_draft, working_site
 
 CSV_MEDIA_TYPE = "text/csv"  # what the tag CSV travels as
 DOWNLOAD_NAME = "tags.csv"  # the file name a browser saves the download under
@@ -39,7 +43,12 @@ class _CatalogueCsvEndpoints:
         headers = {"Content-Disposition": f'attachment; filename="{DOWNLOAD_NAME}"'}
         return Response(csv_text, media_type=CSV_MEDIA_TYPE, headers=headers)
 
-    async def post_tags_csv(self, request: Request, dry_run: bool = False) -> JSONResponse:
+    async def post_tags_csv(
+        self,
+        request: Request,
+        actor: ActorContext = Depends(actor_of),  # noqa: B008
+        dry_run: bool = False,
+    ) -> JSONResponse:
         """Read a tag CSV back in, reporting problems and saving only clean files."""
         text = (await request.body()).decode("utf-8")
         site = self._load_or_404()
@@ -48,12 +57,15 @@ class _CatalogueCsvEndpoints:
             return self._answer(result, applied=False, status=200)
         if result.errors:
             return self._answer(result, applied=False, status=422)
-        return self._apply(site, result)
+        return self._apply(site, result, actor.actor)
 
-    def _apply(self, site: dict[str, Any], result: CsvImport) -> JSONResponse:
-        """Save a clean import over the site file, 422 when the result is refused."""
+    def _apply(self, site: dict[str, Any], result: CsvImport, actor: str) -> JSONResponse:
+        """Save a clean import into the draft, 422 when the result is refused.
+
+        409 ``pending_exists``/``busy`` come from the draft store (HTTPException passes through).
+        """
         try:
-            save_site(self.root, apply_tags_import(site, result))
+            store_draft(self.root, apply_tags_import(site, result), actor)
         except (SiteError, ValueError) as error:
             # a clean CSV can still build a site the validator refuses (unknown source)
             refused = CsvImport(tags=[], errors=[RowError(WHOLE_FILE_ROW, "", str(error))])
@@ -70,13 +82,14 @@ class _CatalogueCsvEndpoints:
         return JSONResponse(content=payload, status_code=status)
 
     def _load_or_404(self) -> dict[str, Any]:
-        """The stored site file, 404 when absent and 422 when unreadable."""
-        if not site_path(self.root).exists():
-            raise HTTPException(status_code=404, detail="no site file")
+        """The working copy (draft, else published), 404 when absent and 422 when unreadable."""
         try:
-            return load_site(self.root)
+            site = working_site(self.root)
         except SiteError as error:
             raise HTTPException(status_code=422, detail=[str(error)]) from error
+        if site is None:
+            raise HTTPException(status_code=404, detail="no site file")
+        return site
 
 
 def build_catalogue_csv_router(root: Path) -> APIRouter:

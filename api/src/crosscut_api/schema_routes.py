@@ -12,13 +12,17 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
-from crosscut_connectors.site import validate_site
-from fastapi import APIRouter, Body, HTTPException
+from crosscut_connectors.site import SiteError, validate_site
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi import Path as PathParam
 from jsonschema import Draft202012Validator
 
+from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.site_version_routes import store_draft, working_site
+
 AID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 Id = Annotated[str, PathParam(pattern=AID_PATTERN)]
+ActorDep = Annotated[ActorContext, Depends(actor_of)]
 
 _KINDS: dict[str, tuple[str, str | None]] = {
     "anomaly": ("_anomaly", None),
@@ -110,25 +114,45 @@ class _SchemaEndpoints:
         """Return the config document for a given kind and id, or 404 if missing."""
         if kind not in _KINDS:
             raise HTTPException(status_code=404, detail=f"unknown config kind: {kind}")
+        if kind == "site":
+            return self._site_or_404(config_id)
         path = _config_path(self._root, kind, config_id)
         if not path.is_file():
             raise HTTPException(status_code=404, detail=f"no {kind} config: {config_id}")
         return _read(path, kind, config_id)
+
+    def _site_or_404(self, config_id: str) -> dict[str, Any]:
+        """The site working copy (draft, else published); versions are in /site/versions."""
+        _config_path(self._root, "site", config_id)
+        try:
+            document = working_site(self._root)
+        except SiteError as error:
+            raise HTTPException(status_code=422, detail=[str(error)]) from error
+        if document is None:
+            raise HTTPException(status_code=404, detail=f"no site config: {config_id}")
+        return document
 
     def put_config(
         self,
         kind: str,
         config_id: Id,
         document: Annotated[dict[str, Any], Body()],
+        actor: ActorDep,
     ) -> dict[str, Any]:
-        """Validate and store a config document, returning the stored document."""
+        """Validate and store a config document, returning the stored document.
+
+        The site catalogue is stored as a draft; publishing it is a separate step (#165).
+        """
         if kind not in _KINDS:
             raise HTTPException(status_code=404, detail=f"unknown config kind: {kind}")
         problems = self._problems(kind, config_id, document)
         if problems:
             raise HTTPException(status_code=422, detail=problems)
         path = _config_path(self._root, kind, config_id)
-        _write(path, document)
+        if kind == "site":
+            store_draft(self._root, document, actor.actor)
+        else:
+            _write(path, document)
         return document
 
     def _problems(self, kind: str, config_id: str, document: dict[str, Any]) -> list[str]:

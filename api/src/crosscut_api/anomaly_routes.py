@@ -24,6 +24,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
+from crosscut_api.site_versions import current_version
+
 DIR_NAME = "_anomaly"
 AID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 DEFAULT_MAX_POINTS = 1500
@@ -90,6 +92,7 @@ class _AnomalyEndpoints:
         window = {"start_s": float(t_s[0]), "end_s": float(t_s[-1])}
         self._write(self._path(aid, ".model.json"), model.to_dict())
         manifest = _manifest(config, model, dataset_id, window)
+        manifest["catalogue_version"] = current_version(self.folder.parent)
         self._write(self._path(aid, ".manifest.json"), manifest)
         return {**_summary(model, manifest), "unreliable_tags": _ramp_tags(x, config)}
 
