@@ -1,0 +1,27 @@
+# Build-context filter for deploy/docker/Dockerfile (BuildKit reads this file
+# when the Dockerfile is named explicitly). Keep the context small and never
+# send local data, secrets, virtualenvs or installed node modules into a layer.
+.git
+.github
+.venv
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/node_modules
+**/dist
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+data
+**/data
+*.parquet
+*.npz
+graphify-out
+.agent-out
+.agent-prompts
+docs
+experiments
+tests
+tools
+dev
