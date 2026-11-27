@@ -216,6 +216,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
 
     # multi-MV step-test planner (MPC 7.1a): proposals only, through the gateway confirm path
     ("POST", "/mpc/simulate"): "gw.view",
+    ("GET", "/mpc/models/{model_id}"): "gw.view",
+    ("POST", "/mpc/models/{model_id}/versions"): "config.edit",
     ("POST", "/mpc/step-plans/preview"): "gw.propose",
     ("POST", "/mpc/step-plans"): "gw.propose",
     ("GET", "/mpc/step-plans"): "gw.view",

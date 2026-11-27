@@ -65,6 +65,10 @@ def _loop_row(
         "last_run_utc": entry.get("last_run_utc"),
         "fresh": bool(job) and _is_loop_fresh(job, entry), "kpi": kpi,
         "findings": _loop_findings(kpi, since),
+        # Operating mode of the newest sample, the KPI scope of the headline numbers
+        # ("mode" or "all_running") and the KPI of every mode with enough samples (#146).
+        "mode": (kpi or {}).get("mode"), "kpi_scope": (kpi or {}).get("kpi_scope"),
+        "by_mode": (kpi or {}).get("by_mode", {}),
     }
 
 
@@ -94,7 +98,8 @@ def _read_history(path: Path, limit: int) -> list[dict[str, Any]]:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue  # A concurrent append can expose an unfinished last line.
-        observations.append({"utc": entry["utc"], "kpi": entry["kpi"]})
+        observations.append({"utc": entry["utc"], "kpi": entry["kpi"],
+                             **({"mode": entry["mode"]} if entry.get("mode") else {})})
     return observations
 
 

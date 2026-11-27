@@ -186,7 +186,7 @@ class RuntimeService:
             if job["kind"] == "tuning_review":
                 self._sync_review(job, site)
             elif job["kind"] == "loop_kpi":
-                make = self._guarded(site, lambda doc: self._loop_run(doc, loop_docs))
+                make = self._guarded(site, lambda doc: self._loop_run(doc, loop_docs, site))
                 self._sync_job(job, sources, addresses, make)
             elif job["kind"] == "anomaly_scan":
                 self._sync_job(job, sources, addresses, self._guarded(site, self._anomaly_run))
@@ -319,10 +319,11 @@ class RuntimeService:
             self._scheduler.put(JobSlot(job_id, job["period_s"], run_fn))
 
     def _loop_run(
-        self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]]
+        self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]],
+        site: dict[str, Any] | None = None,
     ) -> Callable[[], Any]:
         """The run function of a loop_kpi job, bound to its cached LoopKpiJob."""
-        return self._kpi_job_for(job, loop_docs).run
+        return self._kpi_job_for(job, loop_docs, site).run
 
     def _equipment_run(self, job: dict[str, Any], site: dict[str, Any]) -> Callable[[], Any]:
         """Keep per-equipment hysteresis until the job or catalogue changes."""
@@ -361,16 +362,23 @@ class RuntimeService:
             self._anomaly_jobs[job_id] = cached
         return cached[1]
 
-    def _kpi_job_for(self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]]) -> LoopKpiJob:
+    def _kpi_job_for(
+        self, job: dict[str, Any], loop_docs: dict[str, dict[str, Any]],
+        site: dict[str, Any] | None = None,
+    ) -> LoopKpiJob:
         """The cached LoopKpiJob of a job, so its rolling window survives across runs.
 
         A new instance (and an empty window) is made only when the job doc or the loop docs change.
         """
         job_id = job["id"]
         cached = self._kpi_jobs.get(job_id)
-        if cached is None or cached.job_doc != job or cached.loop_docs != loop_docs:
+        modes = {"modes": (site or {}).get("modes", []),
+                 "equipment": (site or {}).get("equipment", [])}
+        if (cached is None or cached.job_doc != job or cached.loop_docs != loop_docs
+                or cached.site != modes):
             cached = LoopKpiJob(
-                job, loop_docs, self._connectors[job_id], on_sample=self._buffer_sample
+                job, loop_docs, self._connectors[job_id], on_sample=self._buffer_sample,
+                site=modes,
             )
             self._kpi_jobs[job_id] = cached
         return cached

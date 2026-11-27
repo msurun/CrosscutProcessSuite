@@ -40,12 +40,21 @@
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "physics_template",
       "hybrid"
     ],
-    "note": "Mass and volume balance; backup density from pump power and flow (#156)."
+    "planned": [],
+    "note": "Mass and volume balance; backup density from pump power and flow (#156).",
+    "physics": {
+      "formula": "slurry_mass_balance",
+      "roles": [
+        "slurry_flow",
+        "slurry_density",
+        "solids_sg"
+      ],
+      "unit": "t/h"
+    }
   },
   "validity_checks": [
     {

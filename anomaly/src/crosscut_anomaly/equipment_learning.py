@@ -21,6 +21,11 @@ EWMA_LIMIT = 3.0  # Standardised residual units, two-sided.
 RESIDUAL_FLOOR = 1e-12  # Signal engineering units; guards exact synthetic fits.
 CONDITION_KINDS = {"current", "power", "temperature", "vibration"}
 LOOP_ROLES = ("pv", "sp", "out")
+STOPPED_MODE = "stopped"  # mode label (crosscut_connectors.mode_eval): never learned or scored
+IGNORED_MODES = {STOPPED_MODE, "unknown", "none"}  # labels that get no model of their own
+MIN_MODE_SAMPLES = 200  # usable samples a mode needs before it gets limits of its own
+MODE_LIMITS = "mode"  # limits learned on this mode alone
+ALL_RUNNING_LIMITS = "all_running"  # fallback: limits of all running samples, flagged
 MANUAL_MODE = 0  # MODE code in crosscut_loops.loop_modes; every other finite code is active.
 
 
@@ -95,8 +100,14 @@ def _loop_rules(data: dict, loop: dict, count: int) -> tuple[np.ndarray, np.ndar
     return ~np.isfinite(mode) | (mode == MANUAL_MODE), saturated
 
 
-def training_mask(t_s: Any, data: dict, equipment: dict, loops: list[dict]) -> tuple:
-    """Return usability and exclusive counts removed by running, mode, OUT and quiet rules."""
+def training_mask(
+    t_s: Any, data: dict, equipment: dict, loops: list[dict], labels: Any = None,
+) -> tuple:
+    """Return usability and exclusive counts removed by running, mode, OUT and quiet rules.
+
+    ``labels`` (optional) holds the operating-mode label of every sample; samples in mode
+    ``stopped`` count as stopped like a false running signal.
+    """
     times = _times(t_s)
     mask = np.ones(len(times), dtype=bool)
     running = equipment.get("running")
@@ -104,6 +115,8 @@ def training_mask(t_s: Any, data: dict, equipment: dict, loops: list[dict]) -> t
     if running:
         values = _column(data, running["tag"], len(times))
         stopped = ~np.isfinite(values) | (values <= running["above"])
+    if labels is not None:
+        stopped |= np.asarray(labels, dtype=object) == STOPPED_MODE
     manual, saturated = np.zeros_like(mask), np.zeros_like(mask)
     for loop in _owned_loops(equipment, loops):
         loop_manual, loop_saturated = _loop_rules(data, loop, len(times))
@@ -179,6 +192,8 @@ class EquipmentModel:
     windows: list[list[float]]
     reasons: dict[str, int]
     pca: PcaModel | None = None
+    by_mode: dict[str, EquipmentModel] = field(default_factory=dict)
+    mode_limits: dict[str, str] = field(default_factory=dict)
     per_loop: dict[str, PcaModel] = field(default_factory=dict)
     regressions: dict[str, dict] = field(default_factory=dict)
     previous: list[float] | None = None
@@ -190,7 +205,19 @@ class EquipmentModel:
                 "reasons": self.reasons, "pca": self.pca.to_dict() if self.pca else None,
                 "fallback": "per_loop" if self.status == "not_enough_data" else None,
                 "per_loop": {name: model.to_dict() for name, model in self.per_loop.items()},
-                "regressions": self.regressions, "previous": self.previous, "ewma": self.ewma}
+                "regressions": self.regressions, "previous": self.previous, "ewma": self.ewma,
+                "by_mode": {mode: sub.to_dict() for mode, sub in self.by_mode.items()},
+                "mode_limits": self.mode_limits}
+
+    def for_mode(self, mode: str | None) -> tuple[EquipmentModel, str]:
+        """The model that scores samples of ``mode`` and the limits flag of that choice.
+
+        A mode with its own model gives ``mode``; any other mode (or none) falls back to the
+        all-running model and is flagged ``all_running`` so the console can show it.
+        """
+        if mode in self.by_mode:
+            return self.by_mode[mode], MODE_LIMITS
+        return self, ALL_RUNNING_LIMITS
 
     @classmethod
     def from_dict(cls, document: dict[str, Any]) -> EquipmentModel:
@@ -204,6 +231,9 @@ class EquipmentModel:
                           for name, saved in document.get("per_loop", {}).items()}
         model.regressions = document.get("regressions", {})
         model.previous, model.ewma = document.get("previous"), document.get("ewma", {})
+        model.by_mode = {mode: cls.from_dict(saved)
+                         for mode, saved in document.get("by_mode", {}).items()}
+        model.mode_limits = document.get("mode_limits", {})
         return model
 
 
@@ -238,13 +268,40 @@ def _exclude_samples(times: np.ndarray, mask: np.ndarray, exclusions: Any) -> np
 
 def learn_equipment(
     t_s: Any, data: dict, equipment: dict, loops: list[dict], exclusions: Any = (),
+    labels: Any = None,
 ) -> EquipmentModel:
-    """Fit lagged equipment PCA and conditional residuals, or explicit per-loop fallback."""
+    """Fit lagged equipment PCA and conditional residuals, or explicit per-loop fallback.
+
+    ``labels`` (operating-mode label per sample, optional) leaves stopped samples out and also
+    fits a model per mode that has enough usable samples; the other modes are flagged to use the
+    all-running model (``mode_limits``).
+    """
+    model = _fit_model(t_s, data, equipment, loops, (exclusions, labels, None))
+    if labels is None:
+        return model
+    names = {str(x) for x in labels} - IGNORED_MODES
+    for name in sorted(names):
+        sub = _fit_model(t_s, data, equipment, loops, (exclusions, labels, name))
+        usable = sub.status == "learned" or bool(sub.regressions)
+        if usable and sub.reasons["used"] >= MIN_MODE_SAMPLES:
+            model.by_mode[name] = sub
+        model.mode_limits[name] = MODE_LIMITS if name in model.by_mode else ALL_RUNNING_LIMITS
+    return model
+
+
+def _fit_model(
+    t_s: Any, data: dict, equipment: dict, loops: list[dict], scope: tuple,
+) -> EquipmentModel:
+    """Fit one model on the running samples, optionally only those of one operating mode."""
+    exclusions, labels, only = scope
     times = _times(t_s)
     tags = _variables(equipment, loops)
-    mask, reasons = training_mask(times, data, equipment, loops)
+    mask, reasons = training_mask(times, data, equipment, loops, labels)
+    if only is not None:
+        mask &= np.asarray(labels, dtype=object) == only
     selected = _exclude_samples(times, mask, exclusions)
-    reasons = {**reasons, "excluded": int(np.count_nonzero(mask & ~selected))}
+    reasons = {**reasons, "excluded": int(np.count_nonzero(mask & ~selected)),
+               "used": int(np.count_nonzero(selected))}
     if not tags:
         return EquipmentModel("not_enough_data", [], [], reasons)
     rows, selected = _selected_rows(times, data, tags, selected)
@@ -253,7 +310,7 @@ def learn_equipment(
     if model.pca is not None:
         model.status = "learned"
     else:
-        model.per_loop = _fallback_models((times, data), equipment, loops, exclusions)
+        model.per_loop = _fallback_models((times, data), equipment, loops, scope)
     model.regressions = _fit_regressions(data, equipment, loops, selected)
     return model
 
@@ -267,13 +324,16 @@ def _break_archive_gaps(times: np.ndarray, rows: np.ndarray) -> np.ndarray:
     return np.insert(rows, boundaries, np.nan, axis=0)
 
 
-def _fallback_models(record: tuple, equipment: dict, loops: list, exclusions: Any) -> dict:
-    """Fit each loop independently; equipment running and user exclusions still apply."""
+def _fallback_models(record: tuple, equipment: dict, loops: list, scope: tuple) -> dict:
+    """Fit each loop independently; running, stopped mode and user exclusions still apply."""
     times, data = record
+    exclusions, labels, only = scope
     result = {}
     for loop in _owned_loops(equipment, loops):
         local = {**equipment, "loops": [loop["id"]]}
-        mask, _ = training_mask(times, data, local, loops)
+        mask, _ = training_mask(times, data, local, loops, labels)
+        if only is not None:
+            mask &= np.asarray(labels, dtype=object) == only
         mask = _exclude_samples(times, mask, exclusions)
         tags = [loop[role] for role in LOOP_ROLES if role in loop]
         rows, _ = _selected_rows(times, data, tags, mask)

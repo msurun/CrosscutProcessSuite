@@ -134,7 +134,7 @@ function Row({ loop, selected, onSelect, t }: { loop: LiveLoop; selected: boolea
         <button type="button" className="link-button" onClick={onSelect}>{loop.name}</button>
       </th>
       <td>{loop.type ?? "-"}</td>
-      <td><LiveStatus loop={loop} t={t} /></td>
+      <td><LiveStatus loop={loop} t={t} /> <ModeBadge loop={loop} t={t} /></td>
       <td><FindingList loop={loop} t={t} /></td>
       <td><RunCell loop={loop} t={t} /></td>
     </tr>
@@ -158,6 +158,49 @@ function KpiList({ kpi, t }: { kpi: Record<string, unknown>; t: Translate }) {
         <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
       ))}
     </dl>
+  );
+}
+
+/** Badge with the operating mode of the newest sample and which samples the headline KPI uses. */
+function ModeBadge({ loop, t }: { loop: LiveLoop; t: Translate }) {
+  if (!loop.mode) return null;
+  return (
+    <span className="badge badge-partial" title={loop.kpi_scope ? t(`liveLoops.scope.${loop.kpi_scope}`) : undefined}>
+      {t("liveLoops.modeBadge", { mode: loop.mode })}
+    </span>
+  );
+}
+
+/** KPI of every operating mode side by side; stopped samples are not part of any row. */
+function ModeKpiTable({ byMode, t }: { byMode: Record<string, Record<string, unknown>>; t: Translate }) {
+  const modes = Object.keys(byMode);
+  if (modes.length === 0) return null;
+  const share = (kpi: Record<string, unknown>, key: string) =>
+    (num(kpi, key) === null ? "-" : `${formatFixed(num(kpi, key)! * 100, 1)} %`);
+  return (
+    <table className="loops-table">
+      <caption>{t("liveLoops.byMode.caption")}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{t("liveLoops.byMode.mode")}</th>
+          <th scope="col">{t("liveLoops.kpi.service")}</th>
+          <th scope="col">{t("liveLoops.kpi.saturation")}</th>
+          <th scope="col">{t("loops.harris")}</th>
+          <th scope="col">{t("liveLoops.kpi.classification")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {modes.map((mode) => (
+          <tr key={mode}>
+            <th scope="row">{mode}</th>
+            <td>{share(byMode[mode], "service_factor")}</td>
+            <td>{share(byMode[mode], "saturation_fraction")}</td>
+            <td>{num(byMode[mode], "harris_index") === null ? "-" : formatFixed(num(byMode[mode], "harris_index")!, 2)}</td>
+            <td>{String(byMode[mode].classification ?? "-")}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -189,8 +232,9 @@ function LiveDetail({ loop, t }: { loop: LiveLoop; t: Translate }) {
   useEffect(reload, [reload, loop.last_run_utc]);
   return (
     <section aria-label={t("liveLoops.detail", { name: loop.name })}>
-      <h3>{loop.name}</h3>
+      <h3>{loop.name} <ModeBadge loop={loop} t={t} /></h3>
       {loop.kpi ? <KpiList kpi={loop.kpi} t={t} /> : <p className="status">{t("liveLoops.waiting")}</p>}
+      {loop.by_mode && <ModeKpiTable byMode={loop.by_mode} t={t} />}
       <FindingList loop={loop} t={t} />
       {loop.findings.map((finding) => (
         <FindingOutcomeControls key={`${finding.code}|${finding.since_utc}`} loopId={loop.id} finding={finding} t={t}

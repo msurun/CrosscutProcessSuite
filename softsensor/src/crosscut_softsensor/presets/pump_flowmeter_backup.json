@@ -42,12 +42,22 @@
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "physics_template",
       "hybrid"
     ],
-    "note": "Affinity laws plus head and power curves; hybrid correction for wear (#156)."
+    "planned": [],
+    "note": "Hydraulic power balance Q=P/delta_p with fitted efficiency and residual ridge; requires a running pump.",
+    "physics": {
+      "formula": "pump_hydraulic_power",
+      "roles": [
+        "motor_power",
+        "discharge_pressure",
+        "suction_pressure",
+        "pump_speed"
+      ],
+      "unit": "m3/h"
+    }
   },
   "validity_checks": [
     {
