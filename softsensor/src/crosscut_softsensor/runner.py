@@ -57,7 +57,10 @@ def run_softsensor(
     t = np.asarray(t_s, dtype=float)
     feats = build_model_features(columns, config)
     est, validity = model.predict(feats.x), model.validity(feats.x)
-    tr = tracker if tracker is not None else BiasTracker(model.cv_sigma)
+    bc = config.bias_correction
+    tr = tracker if tracker is not None else BiasTracker(
+        model.cv_sigma, bc.weight, bc.k_sigma, bc.consecutive
+    )
     tr.reset()
     bias, drift, used = bias_series(t, est, labs, tr)
     corrected = est + bias

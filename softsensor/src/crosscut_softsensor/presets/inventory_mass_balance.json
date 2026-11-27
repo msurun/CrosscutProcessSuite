@@ -1,0 +1,67 @@
+{
+  "key": "inventory_mass_balance",
+  "label": "Inventory by mass balance",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Bin, sump or tank inventory from measured streams in and out.",
+  "target": {
+    "role": "inventory",
+    "unit": "t",
+    "range_min": 0.0,
+    "range_max": 100000.0
+  },
+  "inputs": [
+    {
+      "role": "stream_in",
+      "unit": "t/h",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "stream_out",
+      "unit": "t/h",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "level",
+      "unit": "%",
+      "required": false,
+      "description": "For drift correction",
+      "range_min": 0,
+      "range_max": 100
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "physics_template"
+    ],
+    "note": "Node mass balance with drift correction against level (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "streams_good",
+      "description": "Inflow and outflow quality good"
+    },
+    {
+      "id": "level_reference_recent",
+      "description": "Drift reference not older than the maximum age"
+    }
+  ],
+  "calibration": "against_instrument",
+  "default_mode": "primary",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "last_good_instrument_value",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 500
+  },
+  "provenance": {
+    "id": "preset:inventory_mass_balance",
+    "kind": "method",
+    "source": "Steady-state and dynamic mass balance of a node, Felder and Rousseau, Elementary Principles of Chemical Processes."
+  }
+}

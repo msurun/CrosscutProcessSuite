@@ -12,14 +12,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from crosscut_softsensor.bias import DEFAULT_CONSECUTIVE, DEFAULT_K_SIGMA, DEFAULT_WEIGHT
+
 MODES = ("off", "advisory")
 _REQUIRED = ("schema_version", "id", "target_tag", "input_tags", "mode")
 _OPTIONAL = (
     "description", "lags_s", "lab_delay_s", "sample_period_s", "max_components", "cv_blocks",
-    "reference_inputs", "backup",
+    "reference_inputs", "backup", "bias_correction",
 )
 _REFERENCE_KEYS = ("tag", "window_s", "shift_s", "min_coverage", "bias_weight")
 _BACKUP_KEYS = ("enabled", "measured_tag", "frozen_s", "range_lo", "range_hi", "return_hold_s")
+_BIAS_KEYS = ("weight", "k_sigma", "consecutive")
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 DEFAULT_LAGS_S = (0.0, 300.0, 900.0, 1800.0)
@@ -65,6 +68,19 @@ class BackupConfig:
 
 
 @dataclass(frozen=True)
+class BiasCorrection:
+    """Lab bias correction settings (defaults equal the former constants of bias.py).
+
+    ``weight`` in (0, 1] is the EWMA weight; the drift flag needs ``consecutive`` results in a
+    row with |bias| above ``k_sigma`` times the standard error of the EWMA.
+    """
+
+    weight: float = DEFAULT_WEIGHT
+    k_sigma: float = DEFAULT_K_SIGMA
+    consecutive: int = DEFAULT_CONSECUTIVE
+
+
+@dataclass(frozen=True)
 class SoftSensorConfig:
     """A validated advisory soft sensor configuration."""
 
@@ -81,6 +97,7 @@ class SoftSensorConfig:
     description: str = ""
     reference_inputs: tuple[ReferenceInput, ...] = ()
     backup: BackupConfig | None = None
+    bias_correction: BiasCorrection = BiasCorrection()
 
 
 def load_config(doc: Mapping[str, Any]) -> SoftSensorConfig:
@@ -107,6 +124,7 @@ def load_config(doc: Mapping[str, Any]) -> SoftSensorConfig:
         description=description,
         reference_inputs=_references(doc.get("reference_inputs", [])),
         backup=_backup(doc.get("backup")),
+        bias_correction=_bias_correction(doc.get("bias_correction")),
     )
 
 
@@ -262,3 +280,27 @@ def _backup_enabled(entry: Mapping[str, Any]) -> BackupConfig:
         return_hold_s=_ranged(entry, "return_hold_s", "backup", 0.0, None, False),
         flag_tag=None if flag is None else _name(flag, "backup.flag_tag"),
     )
+
+
+def _bias_correction(entry: Any) -> BiasCorrection:
+    """The optional bias_correction block; absent keys take the documented defaults."""
+    if entry is None:
+        return BiasCorrection()
+    if not isinstance(entry, Mapping):
+        raise SoftSensorConfigError("bias_correction: must be an object")
+    for key in entry:
+        if key not in _BIAS_KEYS:
+            raise SoftSensorConfigError(f"bias_correction.{key}: unknown field")
+    weight, k_sigma = entry.get("weight", DEFAULT_WEIGHT), entry.get("k_sigma", DEFAULT_K_SIGMA)
+    probe = {"weight": weight, "k_sigma": k_sigma}
+    _ranged(probe, "weight", "bias_correction", 0.0, 1.0, True)
+    _ranged(probe, "k_sigma", "bias_correction", 0.0, None, True)
+    return BiasCorrection(float(weight), float(k_sigma), _consecutive(entry))
+
+
+def _consecutive(entry: Mapping[str, Any]) -> int:
+    """The integer ``consecutive`` (at least 1) of the bias_correction block."""
+    value = entry.get("consecutive", DEFAULT_CONSECUTIVE)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise SoftSensorConfigError("bias_correction.consecutive: must be an integer >= 1")
+    return value

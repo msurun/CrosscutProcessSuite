@@ -154,6 +154,106 @@ Before the gateway writes PID parameters to the DCS, it records an intent file o
 - **How to resolve an open intent:** A qualified engineer or lead inspects the current parameter values directly at the DCS console and compares them with the intended values listed in the Tuning view or gateway status. Once the physical controller state is verified or corrected, the operator resolves the intent via the Tuning view (or `POST /tuning/intents/{key}/resolve`), which requires `gw.approve.tuning` authority plus password step-up confirmation. Resolving the intent removes the block and allows new parameter proposals; it never writes to the plant.
 - **Damaged intent file:** If `param_intents.json` is corrupted, truncated, or unreadable, the intent store enters the `damaged` state. A damaged intent file blocks all parameter writes across all loops to prevent writing over an unreadable intent. The gateway and API report this state rather than crashing. To recover, an administrator must check the DCS controller states first, and then either repair the JSON syntax or remove the damaged file.
 
+## Docker Compose deployment (Linux on-prem, #169)
+
+The Compose stack runs the same three processes as the systemd units, each in its own container and
+from one image: `api` (console and JSON API), `runtime` (scheduler and jobs) and `gateway` (the only
+process with authority to write to the plant, ADR 012). The files live in `deploy/docker/`.
+
+| Container | Writes | Reads |
+|-----------|--------|-------|
+| `api` | data root, gateway mailbox (`_gateway`) | everything in the data root |
+| `runtime` | data root, gateway mailbox (`_gateway`) | everything in the data root |
+| `gateway` | only its own `crosscut-gateway` volume (`_gateway`: policy, audit, state, inbox/outbox, key) | data root **read-only** (plant map, `_auth/config.json`) |
+
+Two named volumes hold the state: `crosscut-data` is the data root and `crosscut-gateway` is the
+gateway folder. Docker copies the image's ownership into an empty volume: the data root belongs to
+the API account (`10001:10000`), the gateway folder to the gateway account (`10002:10000`).
+
+### Install and first start
+
+1. Install Docker Engine 24 or newer with Compose v2 on the Linux host, then check out the repository.
+2. Create the site env file **outside the repository**. It holds settings, never a committed secret:
+   `sudo install -d -m 0750 /etc/crosscut`,
+   `sudo cp deploy/docker/.env.example /etc/crosscut/crosscut.env`,
+   `sudo chmod 0600 /etc/crosscut/crosscut.env`, then edit it. Every variable is documented in the
+   example; the defaults are safe for a first start.
+3. Build and start the stack:
+   `docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env up -d --build`
+4. Create the first administrator and the gateway HMAC key in one step. The command writes the key to
+   `<secrets dir>/gateway-hmac.key` with mode 0640, readable by the gateway through the shared group:
+   `docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env run --rm -it --user 10001:10000 api python -m crosscut_api.auth_cli init --root /var/lib/crosscut --username admin`
+5. Put the site plant map into the data root and make it group-readable:
+   `docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env cp deploy/examples/plant-map.example.json api:/var/lib/crosscut/plant-map.json`,
+   then `docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env exec --user 0 api sh -c 'chown 10001:10000 /var/lib/crosscut/plant-map.json && chmod 0640 /var/lib/crosscut/plant-map.json'`.
+6. Enter the write policy in the console and pin it with two distinct people (section 3). The gateway
+   starts in `advisory`; change `CROSSCUT_GATEWAY_MODE` only after the policy is pinned and tested.
+7. Open `http://<host>:8000/` for the console. The JSON API is under `/api` on the same port; the
+   gateway has no published port. Put a TLS reverse proxy in front for remote access.
+
+The gateway container starts with `restart: on-failure:5`: a configuration error (missing policy,
+pin, plant map or key) is not retried forever, matching `RestartPreventExitStatus=2` in the systemd
+unit. Fix the cause and run
+`docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env up -d gateway`
+again.
+
+### Upgrade
+
+Back up first (below), then rebuild or pull and recreate the containers. Volumes are kept:
+
+```
+docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env build --pull
+docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env up -d
+```
+
+With a registry image, replace `build --pull` by `pull`. Restarting the API signs everybody out
+(section 5). If `roles.json` or `config.json` changed, restart the gateway too. After a restore or a
+key change, reload and re-pin the policy as described in section 7 and the runbook.
+
+### Backup the volumes
+
+Stop the stack for a consistent copy, archive both volumes, then start it again:
+
+```
+docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env stop
+docker run --rm -v crosscut-data:/data:ro -v "$PWD":/backup alpine:3.20 tar czf /backup/crosscut-data-$(date +%F).tgz -C /data .
+docker run --rm -v crosscut-gateway:/data:ro -v "$PWD":/backup alpine:3.20 tar czf /backup/crosscut-gateway-$(date +%F).tgz -C /data .
+docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env start
+```
+
+The gateway archive contains the HMAC key, the audit log and the policy. Store it like the data root
+and keep a second copy off the machine; section 7 and the runbook explain what a backup holds and
+what must be re-entered. Restoring is the reverse: stop the stack, unpack into the volume with a
+temporary `alpine` container, fix ownership (`10001:10000` for `crosscut-data`, `10002:10000` for
+`crosscut-gateway`), then start.
+
+### Logs and health
+
+`docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env ps` shows
+the health state of all three containers; each has a healthcheck (the API probes `/healthz`, the
+runtime and gateway check that their `state.json` is fresh). Follow the container logs with:
+
+```
+docker compose -f deploy/docker/docker-compose.yml --env-file /etc/crosscut/crosscut.env logs -f --tail=200 api runtime gateway
+```
+
+Application evidence stays in the volumes: `_runtime/log.jsonl` for job runs and
+`_gateway/audit.jsonl` for every gateway decision and write. The Compose logging driver keeps five
+10 MiB files per container; copy the audit log off the machine daily as the runbook requires.
+
+### Secrets
+
+- **Never commit a secret.** The site env file lives outside the repository (`/etc/crosscut/crosscut.env`,
+  mode 0600). `deploy/docker/.env.example` is a template with empty values.
+- **Gateway HMAC key.** It is created by `auth_cli init` or `auth_cli rotate-key` inside the
+  `crosscut-gateway` volume at `_gateway/secrets/gateway-hmac.key`, owner `10001:10000`, mode 0640.
+  It must stay a file: the gateway refuses a key that is world-readable, which is how Docker secrets
+  are mounted (0444), so a Docker secret cannot replace it. The API and gateway share it through the
+  `crosscut-sec` group.
+- **Other credentials** (for example `PI_READ_TOKEN` for the PI Web API connector) go into the env
+  file outside the repository or a Docker secret mounted under `/run/secrets`. The gateway container
+  does not receive the env file, so source credentials never reach the write path.
+
 ## PI Web API connector (Phase 5, issue #49)
 
 PI reads use `pi` (or `piwebapi`) and point WebIds as tag addresses. Example source:

@@ -10,15 +10,15 @@ physical cause or justify a replacement model.
 
 Read: this folder's `README.md`, `results.md`, `frozen_config.json`, and `exp39.py`;
 the exp04 loader and README; and `softsensor/src/crosscut_softsensor/pls.py`.
-The protocol, frozen configuration and original results are unchanged. Neither `develop` nor
-`sealed` was executed. No held-out rows were loaded, fitted, scored or used for a new choice.
+The protocol, frozen configuration and original results are unchanged. Part 1 executed neither `develop` nor
+`sealed`; part 2 (below) runs development-only analyses. No held-out rows were fitted, scored or used for a new choice.
 Previously published sealed aggregates below describe the failure only.
 
 The README names an external CSV but supplies no absolute local path. No CSV was found in this
 worktree; the standard Downloads location and the other checkout's data location were also absent,
 and no FLOTATION/DATA_PATH environment setting was present. External storage was not exhaustively
-searched. Consequently this is the requested committed-results/code fallback: no new raw-development
-autocorrelation, lag correlations, feature ablation or regime statistics can honestly be reported.
+searched. Part 1 was therefore the committed-results/code fallback; the data became available for part 2,
+which supplies the raw-development statistics.
 The exp04 whole-record sampling observations are contextual evidence, not development-only estimates.
 
 Run `python experiments/exp39_flotation_softsensor_blind/diagnose.py` from the repository root.
@@ -102,23 +102,111 @@ exploration, but this checkout has no graph. No graph or implementation log was 
 the task restricts changes to this experiment folder. No new published modelling method is
 implemented; the script only audits existing aggregate arithmetic.
 
+## Part 2: development-only analyses on the data (issue #154)
+
+Run: `python experiments/exp39_flotation_softsensor_blind/diagnose_dev.py <csv>` (sha256 checked).
+**Sealed span guard:** `development_hourly` slices every hourly array at `exp39.cut_hour()`
+(first sealed hour, 2017-08-13 00:00) immediately after the hourly aggregation and
+`assert_development_only` raises if any array is longer; the sealed arrays are dropped and never
+fitted, scored or inspected. (The CSV is parsed whole by the frozen loader, so the file bytes pass
+through memory, but no sealed value is kept or used.) Protocol, `frozen_config.json` and
+`results.md` are unchanged. Development has 3,743 hourly slots, 3,425 with a lab value.
+"Validation" below is the protocol's own: PLS fitted on the first 80% of development, scored on
+the last 20% (hours 2,994 onward, 2017-07-12 19:00 to 08-12).
+
+**Target autocorrelation and the persistence identity.** rho(1h)=0.768, rho(2h)=0.662,
+rho(3h)=0.583, rho(6h)=0.366, rho(12h)=0.203, then a plateau near 0.18-0.19 out to 24 h (slow
+level shifts, not a decay to zero). The measured mean squared difference of lab values k hours
+apart matches `2 s2 (1 - rho_k)` within 0.3% at every lag 1-24 (ratio 0.999-1.003), so the
+identity is numerically confirmed on development: persistence error is fixed by the ACF.
+Persistence at the assumed h-2 delay therefore implies RMSE about sqrt(0.85)=0.92.
+
+**Baselines vs PLS on identical rows** (749 validation rows with every method defined):
+
+| method | RMSE (silica pp) |
+|---|---:|
+| M0 persistence, lab of h-2 | 0.912 |
+| M0 persistence, lab of h-1 | 0.728 |
+| mean of training labs | 1.072 |
+| M2 PLS (3 components when refit here) | 1.116 |
+| M3 PLS + EWMA bias | 0.923 |
+
+On development the PLS is worse than the mean and 22% worse than the delayed-lab baseline, i.e.
+the sealed failure (M2 1.132 vs M0 0.893) was already visible in development: the frozen lag
+search compared only PLS variants, never persistence. The PLS has no skill over the training mean
+in the last 20% of development; M3 again equals persistence (+1%).
+
+**Per-tag lag cross-correlation (hourly means, development, k=0..6 h; level / first difference).**
+Level correlations are weak (|r| <= 0.26) and almost flat across k=0-6 (for example column 01
+air flow -0.25, -0.26, -0.26, -0.26, -0.26, -0.25, -0.25), so there is no sign of a transport
+delay peak; they describe slow co-drifting between tags and silica, not a short-lag causal
+channel. After first-differencing both series every correlation is within +-0.05 at every lag:
+hour-to-hour changes of the tags carry no detectable linear information on hour-to-hour changes
+of silica, for any lag 0-6 h. The strongest level tags are air flow columns 01-03 (about -0.25),
+levels of columns 04, 05, 07 (-0.16 to -0.19 at k=0, shrinking with lag) and pH (-0.15).
+
+**Feature ablation** (validation RMSE on the same 749 rows; PLS refit, components re-chosen):
+
+| inputs | tags | RMSE |
+|---|---:|---:|
+| all | 19 | 1.116 |
+| drop reagents | 17 | 1.093 |
+| drop pulp | 16 | 1.120 |
+| drop air | 12 | 1.039 |
+| drop levels | 12 | 1.081 |
+| only reagents | 2 | 1.041 |
+| only pulp | 3 | 1.060 |
+| only air | 7 | 1.138 |
+| only levels | 7 | 1.060 |
+
+Removing any single group except pulp helps; air flows hurt most (dropping them is best, 1.039,
+about 3% better than the mean), and air alone is worst (1.138). Nothing beats the mean by more
+than 3% and nothing approaches persistence (0.912). These are single fits on one 20% block, not
+repeated or significance-tested, and the groups were not chosen for use: this is a diagnostic
+(the air flows carry the largest level correlations yet do not transfer, consistent with
+spurious drift association, and two of them are the flat-signal tags of exp04).
+
+**Per-month residual bias (PLS pred - lab, fit on first 80%; March to 12 July in-sample, rest validation).**
+
+| month | mean residual | residual RMSE | hours |
+|---|---:|---:|---:|
+| 2017-03 | -0.152 | 1.294 | 209 |
+| 2017-04 | -0.007 | 1.065 | 720 |
+| 2017-05 | -0.053 | 1.073 | 744 |
+| 2017-06 | +0.073 | 0.865 | 720 |
+| 2017-07 | +0.095 | 1.070 | 744 |
+| 2017-08 | +0.229 | 1.074 | 288 |
+
+Bias is small in every month (<= 0.23 pp) but moves monotonically from negative to positive, and
+residual RMSE stays about 1.07 even on in-sample months (June 0.86 is the only lower one); August is validation-only. The
+error is therefore mostly unexplained within-month variance, not a month-level offset: a
+bias correction fixes only a small part, which is why M3 only reaches persistence.
+
+**Evidence update.** (a) The ACF identity is now measured, not assumed. (b) Persistence beats
+the PLS already on development by about 20%, so the frozen choice rule (PLS variants only)
+could never have flagged the result. (c) No lag structure of 0-6 h appears in the correlations,
+so "tag-specific lags" is weakened as a cure; the loss is not primarily alignment of the
+hourly means (but sample-window semantics remain untested). (d) Process-to-silica association
+is slow drift, not hour-level dynamics, and generalises poorly between months. (e) The air-flow
+group is actively harmful for this linear model. These findings are descriptive, from one split.
+
 ## Ranked candidates for a NEW experiment line, and #155 gates
 
 All proposals below require development evaluation first, a separately frozen protocol and a
 genuinely new untouched holdout. The exp39 sealed span is permanently spent; it cannot select
 lags, structures, thresholds or regimes for the new line.
 
-1. **Resolve timing before adding capacity.** Obtain sample-window, timestamp, residence-time and
+1. **Resolve timing before adding capacity** (part 2: no 0-6 h lag structure in the correlations, so expect little from lags alone). Obtain sample-window, timestamp, residence-time and
    report-release metadata. On development only, compare causal windows and physically justified
    tag-specific lags on identical scored rows; report availability age and gaps. #155 must block
    ambiguous timing and future/unreleased lab inputs, and show the assumed estimation horizon.
-2. **Measure incremental skill over lab history.** On forward development splits, compare the
+2. **Measure incremental skill over lab history** (part 2: persistence already beats PLS by ~20% on development; promote this item to first). On forward development splits, compare the
    process model, age-aware persistence, autoregression, and process-plus-delayed-lab residual
    models at the same information cutoff. Report target ACF, change prediction and lab-age strata.
    #155 must require a preregistered material advantage over the strongest available causal
    baseline, not merely over the mean or uncorrected PLS. A successful bias correction alone is
    insufficient evidence of process-feature value.
-3. **Recover informative dynamics and disturbances.** Compare causal subhour summary windows,
+3. **Recover informative dynamics and disturbances** (part 2: first-difference correlations are ~0, air-flow inputs hurt; screen instruments first). Compare causal subhour summary windows,
    reagent-to-throughput relationships, instrument screening and feed assays released on time.
    Use development ablations before choosing interactions or nonlinear alternatives. #155 must
    require tag roles, units, quality, missingness, sample provenance and availability contracts;

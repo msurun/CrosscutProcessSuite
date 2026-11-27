@@ -1,0 +1,78 @@
+{
+  "key": "lab_quality_inference",
+  "label": "Lab / analyser quality inference",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Grade, recovery, moisture or any lab variable from lagged process tags.",
+  "target": {
+    "role": "quality_target",
+    "unit": "%",
+    "range_min": 0.0,
+    "range_max": 100.0
+  },
+  "inputs": [
+    {
+      "role": "process_tag_1",
+      "unit": "any",
+      "required": true
+    },
+    {
+      "role": "process_tag_2",
+      "unit": "any",
+      "required": true
+    },
+    {
+      "role": "process_tag_3",
+      "unit": "any",
+      "required": false
+    },
+    {
+      "role": "analyser_reference",
+      "unit": "%",
+      "required": false,
+      "range_min": 0,
+      "range_max": 100
+    }
+  ],
+  "model": {
+    "allowed_now": [
+      "pls"
+    ],
+    "planned": [
+      "ridge",
+      "gradient_boosting"
+    ],
+    "note": "Existing PLS engine with causal lags; lab sample timing must be explicit."
+  },
+  "validity_checks": [
+    {
+      "id": "inputs_complete",
+      "description": "All required inputs present and good"
+    },
+    {
+      "id": "lab_not_stale",
+      "description": "Newest released lab sample not older than the maximum age"
+    }
+  ],
+  "calibration": "against_lab",
+  "default_mode": "primary",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "age_aware_lab_persistence",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 100
+  },
+  "provenance": {
+    "id": "preset:lab_quality_inference",
+    "kind": "method",
+    "source": "PLS regression, Wold, Sjostrom, Eriksson, Chemom. Intell. Lab. Syst. 58 (2001); Kadlec et al., Comput. Chem. Eng. 33 (2009)."
+  },
+  "lab_sample": {
+    "sample_kind": "composite",
+    "stamp_meaning": "sample_end",
+    "report_delay_s_min": 3600,
+    "report_delay_s_max": 28800
+  }
+}
