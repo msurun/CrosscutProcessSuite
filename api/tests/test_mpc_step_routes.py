@@ -18,6 +18,7 @@ from crosscut_api.auth.deps import AUDIT_FILE, AuthGuards, build_auth_context
 from crosscut_api.auth.enforce import make_enforcer
 from crosscut_api.auth.store import auth_dir
 from crosscut_api.auth_routes import build_auth_router_for
+from crosscut_api.mpc_simulation_routes import build_simulation_router
 from crosscut_api.mpc_step_routes import build_step_plan_router
 from crosscut_connectors.site import save_site
 from fastapi import Depends, FastAPI
@@ -95,6 +96,7 @@ class World:
         ctx = build_auth_context(root, TEST_CONFIG, FakeClock())
         self.app = FastAPI(dependencies=[Depends(make_enforcer(AuthGuards(ctx), ctx))])
         self.app.include_router(build_auth_router_for(ctx))
+        self.app.include_router(build_simulation_router(root))
         self.app.include_router(build_step_plan_router(
             root, lambda: self.gateway, self.live.__getitem__, lambda: self.now))  # type: ignore[arg-type]
         self.client = TestClient(self.app)
@@ -369,3 +371,140 @@ def test_small_negative_age_is_clamped_not_an_error(world: World) -> None:
     confirm(world)
     world.now -= 2 * NS
     assert step(world, 0)["status"] == "running"
+
+
+@pytest.fixture
+def simulation(world: World) -> dict[str, Any]:
+    """Store a synthetic verified model and build an explicit PID-snapshot preview."""
+    import numpy as np
+    from crosscut_mpc.artifact import save_ident_model
+    from crosscut_mpc.identification import IdentifiedModel, PairQuality
+
+    model = IdentifiedModel(("mva", "mvb"), ("cv1",), np.array([[1., .5]]),
+                            np.array([[10., 15.]]), np.zeros((1, 2)), 1.,
+                            ((PairQuality(.99, 3, True, ()),) * 2,), {})
+    save_ident_model(world.root / "_mpc" / "models" / "test_model", model)
+    return {"artifact_id": "test_model", "controller_id": "C1",
+            "limits": {"mv_lower": [-2., -2.], "mv_upper": [2., 2.],
+                       "cv_lower": [-5.], "cv_upper": [5.], "priorities": [0.],
+                       "move_max": [.5, .5], "rate_max": [.5, .5], "target_rate": [1.],
+                       "funnel_start": [10.], "funnel_end": [10.]},
+            "settings": {"prediction_horizon": 10, "move_horizon": 2},
+            "scenario": {"kind": "sp_step", "steps": 12, "step_at": 2},
+            "pid_tunings": [{"loop_id": "LA", "kp": .5, "ti_s": 10.},
+                            {"loop_id": "LB", "kp": .2, "ti_s": 15.}]}
+
+
+def simulate_request(world: World, body: dict[str, Any]) -> Any:
+    """Send a simulation request with the active user's CSRF token."""
+    return world.client.post("/mpc/simulate", json=body, headers=world.headers)
+
+
+def test_simulation_returns_comparison_without_writes(
+    world: World, simulation: dict[str, Any],
+) -> None:
+    """A preview reads artifacts and produces no gateway call or persistent result."""
+    before = set(world.root.rglob("*"))
+    response = simulate_request(world, simulation)
+    assert response.status_code == 200, response.text
+    assert response.json()["pid_source"] == "entered_snapshot"
+    assert len(response.json()["mpc"]["cvs"]) == 13
+    assert response.json()["pid"]["kpis"]["iae"][0] > 0
+    assert set(world.root.rglob("*")) == before
+    assert world.gateway.calls == []
+
+
+def test_simulation_is_available_to_viewers(world: World, simulation: dict[str, Any]) -> None:
+    """gw.view permits offline simulation while step-plan preview needs gw.propose."""
+    world.as_user("view1")
+    assert simulate_request(world, simulation).status_code == 200
+    assert world.post("/preview", SEQUENTIAL).status_code == 403
+
+
+def test_simulation_requires_authentication(world: World, simulation: dict[str, Any]) -> None:
+    """The real route enforcer rejects anonymous preview requests."""
+    anonymous = TestClient(world.app)
+    assert anonymous.post("/mpc/simulate", json=simulation).status_code == 401
+
+
+def test_simulation_refuses_unknown_artifacts(world: World, simulation: dict[str, Any]) -> None:
+    """A missing artifact has a stable not-found response."""
+    simulation["artifact_id"] = "missing"
+    assert simulate_request(world, simulation).status_code == 404
+
+
+def test_simulation_refuses_corrupt_artifacts(world: World, simulation: dict[str, Any]) -> None:
+    """Payload integrity is checked before numerical execution."""
+    payload = world.root / "_mpc" / "models" / "test_model" / "model.json"
+    payload.write_text("{}", encoding="utf-8")
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_path_traversal(world: World, simulation: dict[str, Any]) -> None:
+    """Artifact ids cannot contain filesystem paths."""
+    simulation["artifact_id"] = "../test_model"
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_unknown_pid_loops(world: World, simulation: dict[str, Any]) -> None:
+    """Snapshots must describe the controller's real catalogue MV bindings."""
+    simulation["pid_tunings"][0]["loop_id"] = "unknown"
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_missing_pid_snapshot(world: World, simulation: dict[str, Any]) -> None:
+    """An absent snapshot never becomes invented PID defaults."""
+    simulation.pop("pid_tunings")
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_excessive_horizons(world: World, simulation: dict[str, Any]) -> None:
+    """Preview request validation bounds synchronous numerical work."""
+    simulation["settings"]["prediction_horizon"] = 10000
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_unknown_controller(world: World, simulation: dict[str, Any]) -> None:
+    """A preview cannot bypass a missing catalogue controller binding."""
+    simulation["controller_id"] = "missing"
+    assert simulate_request(world, simulation).status_code == 404
+
+
+def test_simulation_refuses_swapped_model_channels(
+    world: World, simulation: dict[str, Any],
+) -> None:
+    """Equal dimensions do not permit applying one loop's model to another loop."""
+    from dataclasses import replace
+
+    from crosscut_mpc.artifact import load_ident_model, save_ident_model
+
+    directory = world.root / "_mpc" / "models" / "test_model"
+    model = load_ident_model(directory)
+    save_ident_model(directory.with_name("swapped"), replace(model, input_names=("mvb", "mva")))
+    simulation["artifact_id"] = "swapped"
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_failed_identification(world: World, simulation: dict[str, Any]) -> None:
+    """An artifact whose fit gate failed is never used as a pre-commissioning plant."""
+    from dataclasses import replace
+
+    from crosscut_mpc.artifact import load_ident_model, save_ident_model
+    from crosscut_mpc.identification import PairQuality
+
+    directory = world.root / "_mpc" / "models" / "test_model"
+    model = load_ident_model(directory)
+    quality = ((PairQuality(.1, 0, False, ("insufficient excitation",)), model.quality[0][1]),)
+    save_ident_model(directory.with_name("rejected"), replace(model, quality=quality))
+    simulation["artifact_id"] = "rejected"
+    assert simulate_request(world, simulation).status_code == 422
+
+
+def test_simulation_refuses_excessive_total_work(
+    world: World, simulation: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole experiment has a bound in addition to individual horizon limits."""
+    monkeypatch.setattr("crosscut_api.mpc_simulation_routes.MAX_PREVIEW_VALUES", 10)
+    response = simulate_request(world, simulation)
+    assert response.status_code == 422
+    assert "experiment length" in response.json()["detail"]
