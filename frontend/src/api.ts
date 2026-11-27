@@ -1101,6 +1101,14 @@ export interface SoftSensorConfig {
   mode: "off" | "advisory";
   reference_inputs?: ReferenceInputConfig[];
   backup?: BackupConfig;
+  bias_correction?: BiasCorrectionConfig;
+}
+
+/** Lab bias correction settings; defaults are the documented ones of the schema. */
+export interface BiasCorrectionConfig {
+  weight?: number;
+  k_sigma?: number;
+  consecutive?: number;
 }
 
 /** Backup mode (no defaults when enabled): the virtual sensor substitutes an invalid measurement. */

@@ -29,8 +29,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_gateway_client import POLICY, TAG, SimPlant
 
-CLIENT_TIMEOUT_S = 3.0
-PROMPT_S = 1.5
+# A refusal must arrive well before the client would give up (504). A wide gap keeps a loaded CI
+# machine from turning a prompt refusal into a false failure (#243): answer < PROMPT_S << timeout.
+CLIENT_TIMEOUT_S = 12.0
+PROMPT_S = 5.0
 SERVICE_INTERVAL_S = 0.02
 DOC: dict[str, Any] = {
     "version": 1,

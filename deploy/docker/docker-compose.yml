@@ -1,0 +1,155 @@
+# Docker Compose stack for the Linux on-prem deployment.
+# One image runs three processes: api (console + JSON API), runtime (periodic
+# jobs) and gateway (the only process allowed to write to the plant, ADR 012).
+# Paths and modes are explained in docs/ADMIN_GUIDE.md, section "Docker Compose".
+# Secrets: the gateway HMAC key stays a 0640 file in the crosscut-gateway volume
+# (the gateway refuses world-readable keys). Other credentials come from the env
+# file outside the repository or Docker secrets mounted under /run/secrets.
+name: crosscut
+
+services:
+  api:
+    image: ${CROSSCUT_IMAGE:-crosscut:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    user: "10001:10000"
+    command: ["python", "/opt/crosscut/deploy/docker/api_entrypoint.py"]
+    env_file:
+      - ${CROSSCUT_ENV_FILE:-/etc/crosscut/crosscut.env}
+    environment:
+      CROSSCUT_ROOT: ${CROSSCUT_ROOT:-/var/lib/crosscut}
+      CROSSCUT_SECRETS_DIR: ${CROSSCUT_SECRETS_DIR:-/var/lib/crosscut/_gateway/secrets}
+      CROSSCUT_SCHEMAS_DIR: /opt/crosscut/schemas
+      CROSSCUT_CONSOLE_DIR: /opt/crosscut/frontend/dist
+      CROSSCUT_LOG_LEVEL: ${CROSSCUT_LOG_LEVEL:-info}
+    ports:
+      # Only the console/API is published; the gateway has no network listener.
+      - "${CROSSCUT_API_PORT:-8000}:8000"
+    volumes:
+      - type: volume
+        source: crosscut-data
+        target: /var/lib/crosscut
+      # The API is the mailbox producer, so it writes inbox/ and reads outbox/.
+      - type: volume
+        source: crosscut-gateway
+        target: /var/lib/crosscut/_gateway
+    healthcheck:
+      test: ["CMD", "python", "/opt/crosscut/deploy/docker/healthcheck.py", "api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    depends_on:
+      gateway:
+        condition: service_started
+      runtime:
+        condition: service_started
+
+  runtime:
+    image: ${CROSSCUT_IMAGE:-crosscut:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    user: "10001:10000"
+    command: ["python", "/opt/crosscut/deploy/docker/runtime_entrypoint.py"]
+    env_file:
+      - ${CROSSCUT_ENV_FILE:-/etc/crosscut/crosscut.env}
+    environment:
+      CROSSCUT_ROOT: ${CROSSCUT_ROOT:-/var/lib/crosscut}
+      CROSSCUT_SECRETS_DIR: ${CROSSCUT_SECRETS_DIR:-/var/lib/crosscut/_gateway/secrets}
+      CROSSCUT_SCHEMAS_DIR: /opt/crosscut/schemas
+      CROSSCUT_RUNTIME_INTERVAL: ${CROSSCUT_RUNTIME_INTERVAL:-1.0}
+    volumes:
+      - type: volume
+        source: crosscut-data
+        target: /var/lib/crosscut
+      # Controller jobs and the liveness beat use the same signed mailbox.
+      - type: volume
+        source: crosscut-gateway
+        target: /var/lib/crosscut/_gateway
+    healthcheck:
+      test: ["CMD", "python", "/opt/crosscut/deploy/docker/healthcheck.py", "runtime"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    depends_on:
+      gateway:
+        condition: service_started
+
+  gateway:
+    image: ${CROSSCUT_IMAGE:-crosscut:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    user: "10002:10000"
+    command: ["python", "/opt/crosscut/deploy/docker/gateway_entrypoint.py"]
+    # No env_file here: the gateway receives only the variables it needs and no
+    # source credentials (for example PI_READ_TOKEN) that the API and runtime use.
+    environment:
+      CROSSCUT_ROOT: ${CROSSCUT_ROOT:-/var/lib/crosscut}
+      CROSSCUT_SECRETS_DIR: ${CROSSCUT_SECRETS_DIR:-/var/lib/crosscut/_gateway/secrets}
+      CROSSCUT_SCHEMAS_DIR: /opt/crosscut/schemas
+      CROSSCUT_POLICY: ${CROSSCUT_POLICY:-/var/lib/crosscut/_gateway/policy/write-policy.json}
+      CROSSCUT_PLANT_MAP: ${CROSSCUT_PLANT_MAP:-/var/lib/crosscut/plant-map.json}
+      CROSSCUT_GATEWAY_MODE: ${CROSSCUT_GATEWAY_MODE:-advisory}
+      CROSSCUT_GATEWAY_INTERVAL: ${CROSSCUT_GATEWAY_INTERVAL:-1.0}
+      CROSSCUT_GATEWAY_TIMEOUT: ${CROSSCUT_GATEWAY_TIMEOUT:-2.0}
+      CROSSCUT_GATEWAY_KILL_FILE: ${CROSSCUT_GATEWAY_KILL_FILE:-config}
+    volumes:
+      # Read-only data root: the gateway reads the plant map and _auth/config.json
+      # but has no write access outside its own _gateway volume (ADR 012).
+      - type: volume
+        source: crosscut-data
+        target: /var/lib/crosscut
+        read_only: true
+      # Writable mailbox, policy, audit and HMAC key folder of the gateway.
+      - type: volume
+        source: crosscut-gateway
+        target: /var/lib/crosscut/_gateway
+    healthcheck:
+      test: ["CMD", "python", "/opt/crosscut/deploy/docker/healthcheck.py", "gateway"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # A configuration error exits with code 2; retry a few times and then stop
+    # instead of restarting forever. Fix the cause and start the service again.
+    restart: on-failure:5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  # Explicit names keep the backup commands stable (see docs/ADMIN_GUIDE.md).
+  crosscut-data:
+    name: crosscut-data
+  crosscut-gateway:
+    name: crosscut-gateway

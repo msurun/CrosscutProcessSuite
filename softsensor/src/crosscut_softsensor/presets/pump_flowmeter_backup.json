@@ -1,0 +1,77 @@
+{
+  "key": "pump_flowmeter_backup",
+  "label": "Pump flowmeter backup",
+  "version": "1.0.0",
+  "status": "experimental",
+  "description": "Volumetric flow from pump speed, power and pressures.",
+  "target": {
+    "role": "volumetric_flow",
+    "unit": "m3/h",
+    "range_min": 0.0,
+    "range_max": 20000.0
+  },
+  "inputs": [
+    {
+      "role": "pump_speed",
+      "unit": "rpm",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "motor_power",
+      "unit": "kW",
+      "required": true,
+      "range_min": 0
+    },
+    {
+      "role": "discharge_pressure",
+      "unit": "kPa",
+      "required": true
+    },
+    {
+      "role": "suction_pressure",
+      "unit": "kPa",
+      "required": true
+    },
+    {
+      "role": "fluid_density",
+      "unit": "kg/m3",
+      "required": true,
+      "range_min": 500,
+      "range_max": 3000
+    }
+  ],
+  "model": {
+    "allowed_now": [],
+    "planned": [
+      "physics_template",
+      "hybrid"
+    ],
+    "note": "Affinity laws plus head and power curves; hybrid correction for wear (#156)."
+  },
+  "validity_checks": [
+    {
+      "id": "pump_running",
+      "description": "Pump speed above a minimum"
+    },
+    {
+      "id": "inside_curve",
+      "description": "Operating point inside the pump curve envelope"
+    }
+  ],
+  "calibration": "against_instrument",
+  "default_mode": "shadow",
+  "deployment_gate": {
+    "preregistered": true,
+    "baseline": "last_good_instrument_value",
+    "same_information_cutoff": true,
+    "min_skill": 0.1,
+    "min_scored_coverage": 0.8,
+    "min_samples": 500
+  },
+  "provenance": {
+    "id": "preset:pump_flowmeter_backup",
+    "kind": "method",
+    "source": "Pump affinity laws and head/power curves, Hydraulic Institute standards; Karassik et al., Pump Handbook."
+  }
+}

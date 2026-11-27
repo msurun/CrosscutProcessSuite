@@ -37,3 +37,9 @@ experiments/exp19_triage_no_knowledge/results19.md
 
 # Generated code-graph output (graphify), 30 MB, never committed
 graphify-out/
+
+# agent/test scratch
+.browser-temp/
+.test-temp/
+.playwright-temp/
+.playwright-results/
