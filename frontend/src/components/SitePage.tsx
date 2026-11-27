@@ -16,6 +16,7 @@ import { SourceAdminPanel } from "./SourceAdminPanel";
 import { EquipmentEditor } from "./EquipmentEditor";
 import { SiteVersions } from "./SiteVersions";
 import { ModeProposals } from "./ModeProposals";
+import { CatalogueCsvPanel } from "./CatalogueCsvPanel";
 
 export interface SitePageProps {
   /** Translation function for localized UI strings. */
@@ -31,7 +32,7 @@ export interface SitePageProps {
  * JSON schema form, walk through the mapping wizard, or test connector sources.
  */
 export function SitePage({ t }: SitePageProps): ReactElement {
-  const [mode, setMode] = useState<"editor" | "wizard" | "sources" | "fromSource" | "equipment" | "versions" | "modes">("editor");
+  const [mode, setMode] = useState<"editor" | "wizard" | "sources" | "fromSource" | "equipment" | "versions" | "modes" | "csv">("editor");
 
   return (
     <section className="site-page" aria-label={t("nav.catalogue")}>
@@ -92,6 +93,14 @@ export function SitePage({ t }: SitePageProps): ReactElement {
         >
           {t("modeProposal.tab")}
         </button>
+        <button
+          type="button"
+          className={`filter-chip ${mode === "csv" ? "filter-chip-active" : ""}`}
+          data-testid="mode-csv"
+          onClick={() => setMode("csv")}
+        >
+          {t("catalogueCsv.title")}
+        </button>
       </div>
 
       {mode === "wizard" && <CatalogueWizard t={t} onClose={() => setMode("editor")} />}
@@ -105,6 +114,7 @@ export function SitePage({ t }: SitePageProps): ReactElement {
       {mode === "versions" && <SiteVersions t={t} />}
       {mode === "modes" && <ModeProposals t={t} />}
       {mode === "fromSource" && <CatalogueFromSource t={t} />}
+      {mode === "csv" && <CatalogueCsvPanel t={t} />}
       {mode === "editor" && <ConfigEditorPage kind="site" configId="site" t={t} />}
     </section>
   );

@@ -70,6 +70,12 @@ Citations are given from memory and must be verified against the originals befor
 | Multi-MV step-test design: sequential bounded steps and generalised binary noise (GBN) with switching probability and fixed seed | Ljung, System Identification: Theory for the User (2nd ed., 1999), section 13.3 (input design, binary and pseudo-random signals); Tulleken, Generalized binary noise test-signal concept for improved identification-experiment design, Automatica 26 (1990), 37-49. Bounds from the site variable model and the gateway write policy; accepted `docs/design/mpc-design-note.md`, section 8. | 2026-11-26, Claude; synthetic planner only | `mpc/src/crosscut_mpc/step_planner.py` |
 | Two-cluster split of a machine activity tag by maximising the between-class variance (stopped vs running threshold, separation ratio) | N. Otsu, "A threshold selection method from gray-level histograms", IEEE Trans. Systems, Man, and Cybernetics 9 (1979) 62-66 | implemented | `connectors/src/crosscut_connectors/mode_proposals.py` |
 
+## MPC C++ core (#185)
+
+| Method | Public source | Date / implementation |
+|---|---|---|
+| Dense ADMM QP and FOPDT step-response MPC | Boyd et al., Distributed Optimization and Statistical Learning via ADMM (2011), https://web.stanford.edu/~boyd/papers/admm_distr_stats.html; existing Python MPC reference | 2026-11-27, Codex, `core/src/qp.cpp`, `core/src/mpc.cpp`; original implementation, no solver code copied |
+
 ## Rules
 
 1. Add a row (source, date, author of the implementation) before implementing a method.
