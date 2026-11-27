@@ -44,11 +44,21 @@
     }
   ],
   "model": {
-    "allowed_now": [],
-    "planned": [
+    "allowed_now": [
       "physics_template"
     ],
-    "note": "Valve sizing equation in IEC 60534-2-1 form (#156)."
+    "planned": [],
+    "note": "Valve sizing equation in IEC 60534-2-1 form (#156).",
+    "physics": {
+      "formula": "valve_incompressible",
+      "roles": [
+        "cv_curve",
+        "upstream_pressure",
+        "downstream_pressure",
+        "fluid_density"
+      ],
+      "unit": "m3/h"
+    }
   },
   "validity_checks": [
     {

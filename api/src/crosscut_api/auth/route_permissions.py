@@ -69,6 +69,11 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("GET", "/softsensor/{sid}/model"): "data.view",
     ("GET", "/site"): "data.view",
     ("GET", "/site/import-settings"): "data.view",
+    ("GET", "/site/status"): "data.view",
+    ("GET", "/site/versions"): "data.view",
+    ("GET", "/site/versions/{number}"): "data.view",
+    ("GET", "/site/diff"): "data.view",
+    ("GET", "/site/publish/pending"): "data.view",
     ("GET", "/site/tags.csv"): "data.view",
     ("GET", "/catalogue/mapping"): "data.view",
     # Loop templates (4.1): the library is readable, a site copy is a catalogue edit.
@@ -134,6 +139,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
     ("POST", "/softsensor/{sid}/lab"): "config.edit",
     ("POST", "/datasets/{dataset_id}/softsensor/{sid}/fit"): "config.edit",
     ("PUT", "/site"): "config.edit",
+    ("DELETE", "/site/draft"): "config.edit",
+    ("POST", "/site/publish"): "config.edit",
+    ("POST", "/site/publish/approve"): "config.edit",
+    ("POST", "/site/publish/reject"): "config.edit",
     ("POST", "/site/tags.csv"): "config.edit",
     ("PUT", "/catalogue/mapping"): "config.edit",
     ("PUT", "/loop-templates/{key}"): "config.edit",
@@ -205,6 +214,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], Requirement] = {
 
     # multi-MV step-test planner (MPC 7.1a): proposals only, through the gateway confirm path
     ("POST", "/mpc/simulate"): "gw.view",
+    ("GET", "/mpc/models/{model_id}"): "gw.view",
+    ("POST", "/mpc/models/{model_id}/versions"): "config.edit",
     ("POST", "/mpc/step-plans/preview"): "gw.propose",
     ("POST", "/mpc/step-plans"): "gw.propose",
     ("GET", "/mpc/step-plans"): "gw.view",

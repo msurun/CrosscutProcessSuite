@@ -61,7 +61,7 @@ def test_put_rejects_loop_with_unknown_tag(
 ) -> None:
     """A loop whose pv names a missing tag is refused and nothing new is stored."""
     assert client.put("/site", json=base_doc).status_code == 200
-    stored_path = tmp_path / "_site" / "site.json"
+    stored_path = tmp_path / "_site" / "draft.json"
     before = stored_path.read_bytes()
 
     doc = copy.deepcopy(base_doc)
@@ -102,6 +102,7 @@ def test_import_settings_available_after_example_put(
 ) -> None:
     """GET /site/import-settings answers with the defaults after a valid PUT."""
     assert client.put("/site", json=base_doc).status_code == 200
+    assert client.post("/site/publish").status_code == 200
 
     response = client.get("/site/import-settings")
 
