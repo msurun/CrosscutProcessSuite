@@ -1,0 +1,56 @@
+{
+  "protocol": "exp43_v1",
+  "plant": {
+    "repo": "RougherSim",
+    "commit": "c09b17a883a90611dbb5eceb652628c4402d9a91",
+    "flowsheet": "scenarios/grinding/flowsheet.json",
+    "ident_scenario": "scenarios/grinding/step_test_sequential.json",
+    "ident_seed": 100024,
+    "warmup_s": 3600,
+    "dt_s": 5,
+    "cycle_s": 30,
+    "hardness_sigma": 0.02,
+    "hardness_disturbance": "mill_hardness"
+  },
+  "seeds": {"development": [200001, 200002], "held_out": [300001, 300002, 300003, 300004, 300005, 300006, 300007, 300008]},
+  "mvs": {
+    "FIC102": {"nominal": 40.0, "range": [28.0, 56.0], "move_max": 2.0, "amplitude": 4.0},
+    "SIC201": {"nominal": 26.8, "range": [22.0, 32.0], "move_max": 0.5, "amplitude": 2.0}
+  },
+  "cvs": {
+    "JT101": {"unit": "MW", "scale": 0.001, "range": [7.0, 8.8], "target": 8.5, "priority": 1, "noise_sd": 0.015, "loop_mv": "FIC102"},
+    "PDT204": {"unit": "kPa", "scale": 1.0, "range": [65.0, 80.0], "target": 75.0, "priority": 2, "noise_sd": 0.5, "loop_mv": "SIC201"}
+  },
+  "dv": {"id": "HIT101", "disturbance": "mill_hardness", "ident_offset": 0.05},
+  "identification": {
+    "max_delay_s": 300,
+    "windows_s": {"FIC102": [5100, 9900], "SIC201": [9900, 14700], "HIT101": [15300, 17400]},
+    "dv_block_start_s": 15600,
+    "dv_block_off_s": 16500,
+    "dv_block_end_s": 17400,
+    "required_pairs": [["FIC102", "JT101"], ["SIC201", "PDT204"]],
+    "min_signal_to_noise": 4.0
+  },
+  "scenario": {
+    "duration_s": 7200,
+    "events": [
+      {"t_s": 900, "kind": "target", "cv": "PDT204", "value": 78.0},
+      {"t_s": 2400, "kind": "hardness", "value": 0.08},
+      {"t_s": 4800, "kind": "hardness", "value": 0.0},
+      {"t_s": 5400, "kind": "target", "cv": "PDT204", "value": 75.0}
+    ],
+    "high_hardness_window_s": [2400, 4800]
+  },
+  "controllers": {
+    "pid": {"robustness": 0.5, "rule": "SIMC PI via crosscut_loops.tuning_rules.simc_pi, tau_c = lambda_from_robustness(model, robustness)"},
+    "mpc": {"prediction_horizon": 60, "move_horizon": 8, "move_suppression": 0.1},
+    "fuzzy": {"input_span": {"jt_err": 0.6, "pdt_err": 12.0, "hit101": [0.9, 1.1]}, "fic_delta": 2.0, "sic_delta": 0.5}
+  },
+  "criteria": {
+    "iae_median_ratio_max": 0.9,
+    "iae_win_share_min": 0.75,
+    "violation_median_ratio_max": 1.0,
+    "travel_median_ratio_max": 1.25,
+    "violation_tie_epsilon": 1e-3
+  }
+}

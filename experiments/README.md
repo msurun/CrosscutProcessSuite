@@ -42,3 +42,4 @@ New experiments must serve a product feature named in `docs/PRODUCT.md`; a valid
 | review_pack | foundations | active | Blind-review pack for the loop worklist (HANDOFF step 3). |
 | exp40_anomaly_regimes_public | anomaly | protocol frozen, not run | Re-validation of exp36 (SKAB, 3W) with regime-aware PCA and stuck exemptions on new splits (#102); same targets as exp36. |
 | exp41_pronto_regimes | anomaly | protocol frozen, not run | Re-validation of exp38 (PRONTO) with regime-aware PCA and stuck exemptions, leave-one-day-out (#102); same targets as exp38. |
+| exp43_mpc_vs_pid | MPC | protocol frozen, not run | Frozen comparison of MPC, SIMC-tuned PID and fuzzy on the RougherSim grinding bed (FIC102, SIC201 -> JT101, PDT204; cond 1.0 vs 1818 for the rejected L5 pairs), held-out seeds (#186). |
