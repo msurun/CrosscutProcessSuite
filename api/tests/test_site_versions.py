@@ -15,15 +15,15 @@ import pytest
 from crosscut_api.auth.actor import ActorContext
 from crosscut_api.auth.audit import AuthAudit
 from crosscut_api.site_routes import build_site_router
-from crosscut_connectors.site import load_site
-from crosscut_connectors.site_diff import diff_sites
-from crosscut_connectors.site_versions import (
+from crosscut_api.site_versions import (
     VersionCorruptError,
     VersionMissingError,
     get_version,
     publish_document,
     site_lock,
 )
+from crosscut_connectors.site import load_site
+from crosscut_connectors.site_diff import diff_sites
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 

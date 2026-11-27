@@ -20,7 +20,14 @@ from typing import Annotated, Any
 
 from crosscut_connectors.site import SiteError, load_site, site_path, validate_site
 from crosscut_connectors.site_diff import diff_sites
-from crosscut_connectors.site_versions import (
+from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import JSONResponse
+
+from crosscut_api.auth.actor import ActorContext, actor_of
+from crosscut_api.auth.actor_names import same_actor
+from crosscut_api.auth.audit import AuthAudit
+from crosscut_api.catalogue_approval import active_writes, approval_reasons
+from crosscut_api.site_versions import (
     SiteBusyError,
     VersionCorruptError,
     VersionMissingError,
@@ -39,13 +46,6 @@ from crosscut_connectors.site_versions import (
     versions_dir,
     write_json,
 )
-from fastapi import APIRouter, Body, Depends, HTTPException
-from fastapi.responses import JSONResponse
-
-from crosscut_api.auth.actor import ActorContext, actor_of
-from crosscut_api.auth.actor_names import same_actor
-from crosscut_api.auth.audit import AuthAudit
-from crosscut_api.catalogue_approval import active_writes, approval_reasons
 
 Doc = dict[str, Any]
 ActorDep = Annotated[ActorContext, Depends(actor_of)]

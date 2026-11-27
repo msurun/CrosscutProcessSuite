@@ -69,7 +69,7 @@ test("a pending publish of another engineer is approved from the approval entry"
     requested_at: "2026-11-26T10:00:00+00:00",
     note: "touches a running loop",
     reasons: ["loop:L1"],
-    base_sha256: canonicalSha(SITE),
+    base_sha256: canonicalSha(SITE), document_sha256: canonicalSha(renamed),
     document: renamed,
   });
   await openVersions(page);
@@ -86,7 +86,7 @@ for (const width of [1440, 390]) {
   test(`versions view has no axe violations and no horizontal scroll @${width}`, async ({ page }) => {
     reset(renamed, {
       id: "abc123", requested_by: "other-engineer", requested_at: "2026-11-26T10:00:00+00:00",
-      note: "n", reasons: ["loop:L1"], base_sha256: canonicalSha(SITE), document: renamed,
+      note: "n", reasons: ["loop:L1"], base_sha256: canonicalSha(SITE), document_sha256: canonicalSha(renamed), document: renamed,
     });
     await page.setViewportSize({ width, height: 900 });
     await openVersions(page);

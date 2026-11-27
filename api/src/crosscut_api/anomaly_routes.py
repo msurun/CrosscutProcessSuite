@@ -20,10 +20,11 @@ from crosscut_anomaly.config import AnomalyConfig, AnomalyConfigError, load_conf
 from crosscut_anomaly.detect import AnomalyEvent, scan
 from crosscut_anomaly.pca_model import PcaModel, PcaModelError, fit_pca
 from crosscut_anomaly.ramp_detect import unreliable_tags
-from crosscut_connectors.site_versions import current_version
 from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
+
+from crosscut_api.site_versions import current_version
 
 DIR_NAME = "_anomaly"
 AID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"

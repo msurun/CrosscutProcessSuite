@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
-from crosscut_connectors.site_versions import current_version
 from crosscut_softsensor.alignment import AlignmentError, scan_alignment
 from crosscut_softsensor.backup import backup_columns, run_backup
 from crosscut_softsensor.bias import BiasTrackerError
@@ -34,6 +33,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from crosscut_api.anomaly_routes import WindowRequest, _bin_means, _window_mask
+from crosscut_api.site_versions import current_version
 from crosscut_api.target_alignment import (
     aligned_labs,
     catalogue_metadata,
