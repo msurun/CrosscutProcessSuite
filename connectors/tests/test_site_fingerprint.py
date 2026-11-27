@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
+import pytest
 from crosscut_connectors.dependency_index import (
     DependencyView,
+    IndexUnreadableError,
     confirm,
     load_index,
     on_publish,
@@ -139,11 +142,50 @@ def test_register_after_relearn_clears_and_confirm_is_recorded(tmp_path: Path) -
     assert load_index(root)["items"]["job:j"]["confirmed"]["note"].startswith("unit")
 
 
-def test_view_uses_memory_baseline_without_writing_the_index(tmp_path: Path) -> None:
+def test_first_sight_baseline_is_persisted_and_survives_a_restart(tmp_path: Path) -> None:
     root = _root(tmp_path)
-    memory: dict[str, Any] = {}
     dependent = {"kind": "job", "id": "j", "tags": ["a", "b", "c"]}
-    assert DependencyView(root, SITE, memory).reasons("job:j", dependent) == []
+    assert DependencyView(root, SITE, {}).reasons("job:j", dependent) == []
+    assert "job:j" in load_index(root)["items"]
     new = _changed(lambda s: s["tags"][0].update(address="x"))
-    assert DependencyView(root, new, memory).reasons("job:j", dependent)[0]["kind"] == "remapped"
-    assert not (root / "_site" / "dependencies.json").exists()
+    again = DependencyView(root, new, {})  # a restarted runtime: empty memory
+    assert again.reasons("job:j", dependent)[0]["kind"] == "remapped"
+
+
+@pytest.mark.parametrize("text", ["{not json", "[]", '{"items": []}', '{"items": {}, "stale": 3}'])
+def test_corrupt_index_fails_closed(tmp_path: Path, text: str) -> None:
+    root = _root(tmp_path)
+    (root / "_site" / "dependencies.json").write_text(text, encoding="utf-8")
+    with pytest.raises(IndexUnreadableError):
+        load_index(root)
+    dependent = {"kind": "job", "id": "j", "tags": ["a"]}
+    found = DependencyView(root, SITE, {}).reasons("job:j", dependent)
+    assert found[0]["kind"] == "dependency_index_unreadable"
+    with pytest.raises(IndexUnreadableError):
+        register(root, SITE, dependent, 1)
+    assert (root / "_site" / "dependencies.json").read_text(encoding="utf-8") == text
+
+
+def test_absent_index_is_a_first_run_not_an_error(tmp_path: Path) -> None:
+    assert load_index(_root(tmp_path))["items"] == {}
+
+
+def test_concurrent_registers_and_publish_lose_nothing(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    errors: list[Exception] = []
+
+    def work(n: int) -> None:
+        try:
+            register(root, SITE, {"kind": "anomaly", "id": f"m{n}", "tags": ["a"]}, 1)
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(12)]
+    threads.append(threading.Thread(target=lambda: on_publish(root, SITE, SITE, 2)))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    keys = set(load_index(root)["items"])
+    assert {f"anomaly:m{n}" for n in range(12)} <= keys and "job:j" in keys

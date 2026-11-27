@@ -15,7 +15,8 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,13 +32,19 @@ from crosscut_connectors.site_fingerprint import (
 Doc = dict[str, Any]
 INDEX_FILE = "dependencies.json"
 LOCK_FILE = "dependencies.lock"
-LOCK_TRIES = 40
+LOCK_TRIES = 200
+LOCK_STALE_S = 60.0
+UNREADABLE = "dependency_index_unreadable"
 LOCK_WAIT_S = 0.05
 MODEL_KINDS = ("anomaly", "softsensor", "ident_model")
 
 
 class DependencyError(ValueError):
     """The dependent does not exist or the index cannot be written."""
+
+
+class IndexUnreadableError(DependencyError):
+    """``dependencies.json`` exists but is corrupt: everything that needs it fails closed."""
 
 
 def index_path(root: Path) -> Path:
@@ -51,20 +58,40 @@ def empty_index() -> Doc:
 
 
 def load_index(root: Path) -> Doc:
-    """The stored index; an absent or unreadable file is an empty index."""
+    """The stored index; only an absent file (first run) is an empty index.
+
+    A corrupt or malformed file raises IndexUnreadableError so that callers refuse to run
+    (fail closed) instead of treating every dependent as unknown and therefore fine.
+    """
     try:
-        value = json.loads(index_path(root).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+        text = index_path(root).read_text(encoding="utf-8")
+    except FileNotFoundError:
         return empty_index()
-    return value if isinstance(value, dict) and "items" in value else empty_index()
+    except OSError as error:
+        raise IndexUnreadableError(f"{UNREADABLE}: {error}") from error
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise IndexUnreadableError(f"{UNREADABLE}: {error}") from error
+    if not (isinstance(value, dict) and isinstance(value.get("items"), dict)):
+        raise IndexUnreadableError(f"{UNREADABLE}: not an index document")
+    if not isinstance(value.setdefault("stale", {}), dict):
+        raise IndexUnreadableError(f"{UNREADABLE}: bad stale map")
+    return value
 
 
-def _locked_write(root: Path, index: Doc) -> None:
-    """Write the index atomically while holding an exclusive lock file."""
+@contextmanager
+def _index_lock(root: Path) -> Iterator[None]:
+    """Exclusive lock file around a read-modify-write of the index; a crashed holder times out."""
     folder = root / SITE_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     lock = folder / LOCK_FILE
     for attempt in range(LOCK_TRIES):
+        try:
+            if time.time() - lock.stat().st_mtime > LOCK_STALE_S:
+                lock.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
         try:
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             break
@@ -73,13 +100,27 @@ def _locked_write(root: Path, index: Doc) -> None:
                 raise DependencyError("the dependency index is busy") from None
             time.sleep(LOCK_WAIT_S)
     try:
-        handle, temp = tempfile.mkstemp(dir=folder, suffix=".tmp")
-        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
-            json.dump(index, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
-        os.replace(temp, index_path(root))
+        yield
     finally:
         lock.unlink(missing_ok=True)
+
+
+def _write(root: Path, index: Doc) -> None:
+    """Replace the index file atomically (caller holds the lock)."""
+    handle, temp = tempfile.mkstemp(dir=root / SITE_FOLDER, suffix=".tmp")
+    with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+        json.dump(index, stream, indent=2, ensure_ascii=False)
+        stream.write("\n")
+    os.replace(temp, index_path(root))
+
+
+def _update(root: Path, mutate: Callable[[Doc], Any]) -> Any:
+    """Re-read the index inside the lock, apply ``mutate`` and write: no lost updates."""
+    with _index_lock(root):
+        index = load_index(root)
+        result = mutate(index)
+        _write(root, index)
+    return result
 
 
 def _read(path: Path) -> Doc:
@@ -156,11 +197,24 @@ def register(
 ) -> Doc:
     """(Re)baseline one dependent on ``site``: a relearn, a redeploy or a fresh config."""
     key = f"{dependent['kind']}:{dependent['id']}"
-    index = load_index(root)
-    index["items"][key] = baseline_entry(dependent, site, version)
-    index["stale"].pop(key, None)
-    _locked_write(root, index)
-    return index["items"][key]
+
+    def mutate(index: Doc) -> Doc:
+        index["items"][key] = baseline_entry(dependent, site, version)
+        index["stale"].pop(key, None)
+        entry: Doc = index["items"][key]
+        return entry
+
+    result: Doc = _update(root, mutate)
+    return result
+
+
+def ensure_baseline(
+    root: Path, site: Mapping[str, Any], dependent: Mapping[str, Any], version: int | None = None
+) -> None:
+    """Record a baseline for a dependent that has none (its first sight); never overwrite one."""
+    key = f"{dependent['kind']}:{dependent['id']}"
+    _update(root, lambda index: index["items"].setdefault(
+        key, baseline_entry(dependent, site, version)))
 
 
 def reasons_of(
@@ -183,24 +237,28 @@ def on_publish(
 ) -> Doc:
     """After publishing ``version``: baseline unrecorded dependents on the previous catalogue.
 
-    Then record which dependents are now stale and why; returns that stale map.
+    Then record which dependents are now stale and why; returns that stale map. The whole
+    read-modify-write runs under the index lock, so a concurrent register is never lost.
     """
-    index = load_index(root)
-    if previous is not None:
-        for key, dependent in scan_dependents(root, previous).items():
-            before = (version - 1) or None
-            index["items"].setdefault(key, baseline_entry(dependent, previous, before))
-    current = scan_dependents(root, site)
-    stale: Doc = {}
-    for key, entry in index["items"].items():
-        used = current.get(key, {}).get("tags") if entry["kind"] == "job" else None
-        reasons = reasons_of(entry, site, used)
-        if reasons:
-            since = index["stale"].get(key, {}).get("since_version", version)
-            stale[key] = {"since_version": since, "reasons": reasons}
-    index["stale"] = stale
-    _locked_write(root, index)
-    return stale
+
+    def mutate(index: Doc) -> Doc:
+        if previous is not None:
+            for key, dependent in scan_dependents(root, previous).items():
+                before = (version - 1) or None
+                index["items"].setdefault(key, baseline_entry(dependent, previous, before))
+        current = scan_dependents(root, site)
+        stale: Doc = {}
+        for key, entry in index["items"].items():
+            used = current.get(key, {}).get("tags") if entry["kind"] == "job" else None
+            reasons = reasons_of(entry, site, used)
+            if reasons:
+                since = index["stale"].get(key, {}).get("since_version", version)
+                stale[key] = {"since_version": since, "reasons": reasons}
+        index["stale"] = stale
+        return stale
+
+    result: Doc = _update(root, mutate)
+    return result
 
 
 def _view(key: str, entry: Mapping[str, Any], reasons: list[Any], since: Any, exists: bool) -> Doc:
@@ -235,38 +293,59 @@ def confirm(
     dependent = scan_dependents(root, site).get(key)
     if dependent is None:
         raise DependencyError(f"unknown dependent {key!r}")
-    index = load_index(root)
-    entry = baseline_entry(dependent, site, version)
-    entry["confirmed"] = {
-        "by": by, "note": note, "version": version,
-        "time": datetime.now(UTC).isoformat(timespec="seconds"),
-    }
-    index["items"][key] = entry
-    index["stale"].pop(key, None)
-    _locked_write(root, index)
-    return entry
+
+    def mutate(index: Doc) -> Doc:
+        entry = baseline_entry(dependent, site, version)
+        entry["confirmed"] = {
+            "by": by, "note": note, "version": version,
+            "time": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        index["items"][key] = entry
+        index["stale"].pop(key, None)
+        return entry
+
+    result: Doc = _update(root, mutate)
+    return result
 
 
 class DependencyView:
     """One pass over the index for the runtime: fingerprints and index are read once per pass.
 
-    A dependent without a stored record (its job predates the index) is baselined in ``memory``
-    on first sight, so the runtime never writes the index and a restart cannot hide a change that
-    ``on_publish`` already recorded.
+    A dependent without a stored record (its job predates the index) is baselined on first sight
+    and the baseline is persisted, so a restart cannot accept a later catalogue silently. When the
+    index cannot be read at all every dependent reports ``dependency_index_unreadable``.
     """
 
     def __init__(self, root: Path, site: Mapping[str, Any], memory: Doc | None = None) -> None:
         """Read the index and fingerprint the catalogue once."""
-        self._site, self._index = site, load_index(root)
+        self._root, self._site = root, site
         self._memory = memory if memory is not None else {}
         self._current = tag_fingerprints(site)
+        self._index: Doc = empty_index()
+        self._broken: str | None = None
+        try:
+            self._index = load_index(root)
+        except IndexUnreadableError as error:
+            self._broken = str(error)
 
     def reasons(self, key: str, dependent: Mapping[str, Any] | None = None) -> list[dict[str, str]]:
         """Reasons ``key`` is stale; ``dependent`` (a job's tags now) enables rebound detection."""
+        if self._broken is not None:
+            return [{"tag": INDEX_FILE, "kind": UNREADABLE, "detail": self._broken}]
         entry = self._index["items"].get(key) or self._memory.get(key)
         if entry is None and dependent is not None:
-            entry = self._memory.setdefault(key, baseline_entry(dependent, self._site, None))
+            entry = self._first_sight(key, dependent)
         if entry is None:
             return []
         used = dependent["tags"] if dependent and entry["kind"] == "job" else None
         return diff_fingerprints(entry["fingerprints"], self._current, used)
+
+    def _first_sight(self, key: str, dependent: Mapping[str, Any]) -> Doc:
+        """Baseline an unrecorded dependent now; keep it in memory when it cannot be persisted."""
+        entry = baseline_entry(dependent, self._site, None)
+        try:
+            ensure_baseline(self._root, self._site, dependent)
+        except DependencyError:
+            pass  # in-memory baseline until the index is writable again
+        self._memory[key] = entry
+        return entry

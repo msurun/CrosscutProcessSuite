@@ -128,3 +128,27 @@ def test_controller_with_a_removed_tag_never_runs(tmp_path: Path) -> None:
 
 def test_site_fixture_is_the_one_the_controller_tests_use() -> None:
     assert SITE["controllers"][0]["id"] == "c1"
+
+
+def test_corrupt_index_stops_jobs_and_sheds_controllers(tmp_path: Path) -> None:
+    service, clock, root = _setup(tmp_path, [_job("kpi", "FIC-101", "opcua-ok")])
+    _run_passes(service, clock, 1)
+    (root / "_site" / "dependencies.json").write_text("{broken", encoding="utf-8")
+    _run_passes(service, clock, 1)
+    state = job_state(root)["jobs"]["kpi"]
+    assert state["status"] == "stale" and "dependency_index_unreadable" in state["error"]
+
+
+def test_corrupt_index_sheds_a_running_controller(tmp_path: Path) -> None:
+    proposed: list[Move] = []
+    service = _service(tmp_path, proposed)
+    service.run_once()
+    enqueue_command(tmp_path, "c1", "switch_on")
+    service.run_once()
+    service.run_once()
+    (tmp_path / "_site" / "dependencies.json").write_text("[]", encoding="utf-8")
+    before = len(proposed)
+    service.run_once()
+    record = controller_state(tmp_path)["controller"]
+    assert record["state"] == "shed" and record["reason"] == "stale_dependency"
+    assert len(proposed) == before

@@ -12,6 +12,7 @@ from typing import Annotated, Any
 
 from crosscut_connectors.dependency_index import (
     DependencyError,
+    IndexUnreadableError,
     confirm,
     load_index,
     stale_items,
@@ -46,11 +47,14 @@ class _DependencyEndpoints:
     def get_dependencies(self) -> dict[str, Any]:
         """Stale dependents of the published catalogue and how many dependents are tracked."""
         site = _site(self.root)
-        return {
-            "published_version": current_version(self.root),
-            "tracked": len(load_index(self.root)["items"]),
-            "items": stale_items(self.root, site),
-        }
+        try:
+            return {
+                "published_version": current_version(self.root),
+                "tracked": len(load_index(self.root)["items"]),
+                "items": stale_items(self.root, site),
+            }
+        except IndexUnreadableError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     def post_confirm(self, actor: ActorDep, body: Annotated[dict[str, Any], Body()]) -> Any:
         """Accept the catalogue for one stale dependent: an engineer's audited decision."""
@@ -62,6 +66,8 @@ class _DependencyEndpoints:
             entry = confirm(
                 self.root, _site(self.root), key, current_version(self.root), actor.actor, note
             )
+        except IndexUnreadableError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except DependencyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         self.audit.append("dependency_confirm", actor=actor.actor, key=key, note=note,

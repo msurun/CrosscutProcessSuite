@@ -130,3 +130,50 @@ def test_deployed_job_is_listed_with_edit_config_action(
     assert refused.status_code == 422 and "remapped" in json.dumps(refused.json())
     client.post("/dependencies/confirm", json={"key": "job:kpi", "note": "unit ok"})
     assert client.post("/runtime/jobs/kpi/start").status_code == 200
+
+
+def test_corrupt_index_blocks_deploy_and_listing(client: TestClient, root: Path) -> None:
+    register_dependent(root, "anomaly", "m1")
+    (root / "_site" / "dependencies.json").write_text("{broken", encoding="utf-8")
+    assert "dependency_index_unreadable" in (stale_problem(root, "anomaly:m1") or "")
+    refused = client.post("/runtime/jobs", json=_anomaly_job())
+    assert refused.status_code == 422
+    assert "dependency_index_unreadable" in json.dumps(refused.json())
+    listing = client.get("/dependencies")
+    assert listing.status_code == 409 and "dependency_index_unreadable" in listing.json()["detail"]
+
+
+def test_unreadable_catalogue_is_a_problem_not_a_pass(root: Path) -> None:
+    (root / "_site" / "site.json").write_text("{broken", encoding="utf-8")
+    assert stale_problem(root, "anomaly:m1") == "catalogue_unreadable"
+
+
+def test_no_catalogue_at_all_is_not_a_problem(tmp_path: Path) -> None:
+    assert stale_problem(tmp_path, "anomaly:m1") is None
+
+
+def test_register_retries_a_busy_index(
+    root: Path, base: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import crosscut_api.dependency_hooks as hooks
+    from crosscut_connectors.dependency_index import DependencyError
+
+    register_dependent(root, "anomaly", "m1")
+    _publish_unit_change_address(root, base)
+    assert stale_problem(root, "anomaly:m1")
+    real, calls = hooks.register, []
+
+    def flaky(*args: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise DependencyError("busy")
+        return real(*args)
+
+    monkeypatch.setattr(hooks, "register", flaky)
+    monkeypatch.setattr(hooks, "REGISTER_WAIT_S", 0.0)
+    register_dependent(root, "anomaly", "m1")
+    assert len(calls) == 2 and stale_problem(root, "anomaly:m1") is None
+
+
+def _publish_unit_change_address(root: Path, base: dict[str, Any]) -> None:
+    _publish_unit_change(root, base)
