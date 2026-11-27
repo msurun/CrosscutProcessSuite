@@ -59,6 +59,7 @@ from crosscut_api.knowledge_catalogue import (
 from crosscut_api.knowledge_proposal_routes import build_knowledge_proposal_router
 from crosscut_api.live_loops_routes import build_live_loops_router
 from crosscut_api.loop_template_routes import build_loop_template_router
+from crosscut_api.mpc_simulation_routes import build_simulation_router
 from crosscut_api.mpc_step_routes import build_step_plan_router
 from crosscut_api.onboarding_routes import build_onboarding_router
 from crosscut_api.plant_import_routes import build_plant_import_router
@@ -738,6 +739,7 @@ def _mount_routers(app: FastAPI, store: DatasetStore) -> None:
     sources = Sources(store.root, store.load_wide, store.loops_of)
     app.include_router(build_tuning_proposal_router(TuningDeps(sources, provider)))
     app.include_router(build_step_plan_router(store.root, provider))
+    app.include_router(build_simulation_router(store.root))
     _register_health_route(app)
     app.include_router(_dataset_router(store))
     app.include_router(_loop_router(store))
