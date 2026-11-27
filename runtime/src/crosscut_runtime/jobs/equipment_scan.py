@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from crosscut_anomaly.equipment_learning import EWMA_LIMIT, EquipmentModel, score
+from crosscut_connectors import mode_eval
 
 from crosscut_runtime.jobs import backfill
 
@@ -34,6 +35,7 @@ class EquipmentState:
     normal: int = 0
     event: dict | None = None
     latest_s: float | None = None
+    mode: str | None = None  # operating mode of the previous scored sample
     history: dict[float, dict[str, float]] = field(default_factory=dict)
 
 
@@ -95,10 +97,12 @@ class EquipmentScanJob:
         state = self.states.get(equipment_id)
         if state is None or state.document != document:
             model = EquipmentModel.from_dict(json.loads(document))
-            model.previous, model.ewma = None, {}
+            for part in (model, *model.by_mode.values()):
+                part.previous, part.ewma = None, {}
             state = EquipmentState(model, document, event=self._restore_event(equipment_id))
             self.states[equipment_id] = state
-        return state if state.model.pca is not None or state.model.regressions else None
+        usable = state.model.pca is not None or state.model.regressions or state.model.by_mode
+        return state if usable else None
 
     def _restore_event(self, equipment_id: str) -> dict | None:
         """Recover the latest open identity after a service restart without duplicating alarms."""
@@ -142,10 +146,12 @@ class EquipmentScanJob:
                 "peak": 0.0, "contributions": contributions, "residuals": _residuals(result),
                 "loops_affected": affected}
 
-    def _hysteresis(self, state: EquipmentState, context: tuple, result: dict) -> None:
+    def _hysteresis(
+        self, state: EquipmentState, context: tuple, result: dict, active: EquipmentModel,
+    ) -> None:
         """Count consecutive excursions and clear samples independently to prevent chatter."""
         equipment, now_s = context
-        severity = _severity(state.model, result)
+        severity = _severity(active, result)
         # Statistics and EWMA are normalized by their limits: a ratio above one is abnormal.
         state.abnormal = state.abnormal + 1 if severity > 1 else 0
         state.normal = state.normal + 1 if severity <= 1 else 0
@@ -169,6 +175,7 @@ class EquipmentScanJob:
         """Reset continuity across stopped or shelved operation and retire any active event."""
         state.abnormal, state.normal = 0, 0
         state.model.previous, state.model.ewma = None, {}
+        state.mode = None
         if state.event is not None:
             state.event["closed_utc"] = _utc(now_s)
             self._append(state.event)
@@ -177,20 +184,27 @@ class EquipmentScanJob:
     def _cycle(self, equipment: dict, state: EquipmentState, sample: tuple) -> dict:
         """Score one eligible sample, separating stopped and unavailable measurements."""
         row, now_s = sample
+        mode, stopped = mode_eval.evaluate_row(self.site, equipment["id"], row)
         running = equipment.get("running")
-        if running and running["tag"] in row and row[running["tag"]] <= running["above"]:
+        off = running and running["tag"] in row and row[running["tag"]] <= running["above"]
+        if stopped or off:
             self._suppress(state, now_s)
-            return {"status": "stopped", "open_event": None}
+            return {"status": "stopped", "open_event": None, "mode": mode}
         required = self._tags(equipment, state)
         if any(tag not in row for tag in required):
             state.abnormal, state.normal = 0, 0
             state.model.previous, state.model.ewma = None, {}
             return {"status": "anomaly" if state.event else "ok", "open_event": state.event,
-                    "reason": "missing_good_values"}
-        result = score(state.model, row)
-        self._hysteresis(state, (equipment, now_s), result)
+                    "reason": "missing_good_values", "mode": mode}
+        active, limits = state.model.for_mode(mode)
+        if state.mode != mode:  # lag history and EWMA of another mode must not carry over
+            active.previous, active.ewma = None, {}
+        state.mode = mode
+        result = score(active, row)
+        self._hysteresis(state, (equipment, now_s), result, active)
         return {"status": "anomaly" if state.event else "ok", "open_event": state.event,
-                "t2": result["t2"], "spe": result["spe"], "ewma": result.get("ewma", {})}
+                "t2": result["t2"], "spe": result["spe"], "ewma": result.get("ewma", {}),
+                "mode": mode, "limits": limits}
 
     @staticmethod
     def _tags(equipment: dict, state: EquipmentState) -> list[str]:
@@ -199,6 +213,11 @@ class EquipmentScanJob:
         if equipment.get("running"):
             tags.append(equipment["running"]["tag"])
         return list(dict.fromkeys(tags))
+
+    def _read_tags(self, equipment: dict, state: EquipmentState) -> list[str]:
+        """Required tags plus the optional tags of the operating-mode conditions."""
+        extra = mode_eval.mode_tags(self.site, equipment["id"])
+        return list(dict.fromkeys([*self._tags(equipment, state), *extra]))
 
     def _backfill(self, equipment: dict, state: EquipmentState, now_s: float) -> dict | None:
         """Replay aligned GOOD archive samples chronologically on startup and after a gap."""
@@ -211,7 +230,7 @@ class EquipmentScanJob:
             return None
         state.model.previous, state.model.ewma = None, {}
         state.abnormal, state.normal = 0, 0
-        tags = self._tags(equipment, state)
+        tags = self._read_tags(equipment, state)
         plan = backfill.BackfillPlan(tags, start_s, now_s, period_s)
         filled = backfill.backfill(self.connector, plan,
                                    lambda tag, stamp, value: self._keep(state, tag, (stamp, value)))
@@ -239,7 +258,7 @@ class EquipmentScanJob:
             state.latest_s = now_s
             return {"status": "ok", "open_event": None, "shelved": True}
         filled = self._backfill(equipment, state, now_s)
-        values = self.connector.read_live(self._tags(equipment, state))
+        values = self.connector.read_live(self._read_tags(equipment, state))
         row = {tag: float(value.value) for tag, value in values.items()
                if value.quality == GOOD_QUALITY and value.value is not None
                and math.isfinite(value.value)}

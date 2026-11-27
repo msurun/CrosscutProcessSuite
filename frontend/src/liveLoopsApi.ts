@@ -42,12 +42,19 @@ export interface LiveLoop {
   fresh: boolean;
   kpi: LiveKpi | null;
   findings: LiveFinding[];
+  /** Operating mode of the newest sample (#146); null when the catalogue defines no modes. */
+  mode?: string | null;
+  /** "mode": the headline KPI is the current mode's; "all_running": that mode had too few samples. */
+  kpi_scope?: "mode" | "all_running" | null;
+  /** KPI of every operating mode with enough samples, stopped samples left out. */
+  by_mode?: Record<string, LiveKpi>;
 }
 
 /** One stored observation of a loop's KPI. */
 export interface LiveObservation {
   utc: string;
   kpi: LiveKpi;
+  mode?: string | null;
 }
 
 /** A loop row plus its KPI history (`GET /api/live/loops/{id}`). */

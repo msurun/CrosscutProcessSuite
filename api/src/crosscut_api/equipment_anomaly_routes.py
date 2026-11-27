@@ -14,6 +14,7 @@ from typing import Annotated, Any
 
 import numpy as np
 from crosscut_anomaly.equipment_learning import equipment_variables, learn_equipment
+from crosscut_connectors import mode_eval
 from crosscut_connectors.site import SiteError, load_site
 from fastapi import APIRouter, HTTPException
 from fastapi import Path as PathParam
@@ -84,8 +85,12 @@ class EquipmentEndpoints:
         times = (timestamps - timestamps[0]) / NS_PER_SECOND
         exclusions = _relative_exclusions(request, origin_s)
         data = _quality_filtered(data, self.load_quality(dataset_id))
+        # Operating modes of the catalogue give each sample a label (stopped, normal, ...).
+        labels = (mode_eval.evaluate(site, equipment_id, data, len(times))
+                  if site.get("modes") else None)
         try:
-            model = learn_equipment(times, data, equipment, site.get("loops", []), exclusions)
+            model = learn_equipment(times, data, equipment, site.get("loops", []), exclusions,
+                                    labels)
         except (ValueError, KeyError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         document = {**model.to_dict(), "dataset_id": dataset_id}
@@ -105,6 +110,7 @@ class EquipmentEndpoints:
         document = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
         return {"equipment_id": equipment_id, "status": document.get("status", "none"),
                 "windows": document.get("windows", []),
+                "mode_limits": document.get("mode_limits", {}),
                 "variables": document.get("variables", equipment_variables(site, equipment_id))}
 
     def _path(self, equipment_id: str) -> Path:
