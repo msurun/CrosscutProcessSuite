@@ -29,6 +29,8 @@ from crosscut_runtime.controllers.host import (
     HostPorts,
     Readiness,
 )
+from crosscut_runtime.controllers.mpc import MpcBindingError, MpcController
+from crosscut_runtime.controllers.mpc_model import load_bound_model
 from crosscut_runtime.controllers.state import DEFAULT_MAX_OVERRUNS
 from crosscut_runtime.store import RuntimeStore
 from crosscut_runtime.variable_status import DEFAULT_CYCLE_S
@@ -180,6 +182,20 @@ def _connector(
     return AddressedSnapshot(inner, addresses)
 
 
+def _make_controller(doc: Mapping[str, Any], root: Path, targets: Mapping[str, str]) -> Any:
+    """The controller of the entry's type; ValueError with a stable code when it cannot start."""
+    kind = doc["type"]
+    if kind not in ("fuzzy", "mpc"):
+        raise ValueError(f"unsupported_type: {kind}")
+    try:
+        if kind == "mpc":
+            cycle_s = float(doc.get("cycle_s", DEFAULT_CYCLE_S))
+            return MpcController(doc, load_bound_model(root, doc, cycle_s), targets)
+        return FuzzyController(doc, _load_system(root, doc.get("rule_base")), targets)
+    except (ControllerBindingError, MpcBindingError) as error:
+        raise ValueError(f"binding: {error}") from error
+
+
 def build_controller_job(
     job: Mapping[str, Any],
     site: Mapping[str, Any],
@@ -188,14 +204,9 @@ def build_controller_job(
 ) -> ControllerJob:
     """Build the job; ``deps`` is ``(connector_factory, gateway_ports_factory[, beat_factory])``."""
     doc = _find(site, job["controller"])
-    if doc["type"] != "fuzzy":
-        raise ValueError(f"unsupported_type: {doc['type']}")
     loops = {loop["id"]: loop for loop in site.get("loops", [])}
     tags_of, targets = _variable_tags(doc, loops)
-    try:
-        controller = FuzzyController(doc, _load_system(root, doc.get("rule_base")), targets)
-    except ControllerBindingError as error:
-        raise ValueError(f"binding: {error}") from error
+    controller = _make_controller(doc, root, targets)
     sources = {src["id"]: src for src in site.get("sources", [])}
     connector = _connector(deps[0], sources.get(job["source"], {}), site)
     availability, propose = deps[1](root, doc["id"], time.time_ns, frozenset(targets.values()))

@@ -181,3 +181,21 @@ core contains only the `Fopdt` smoke test with a pybind11 parity test.
 | 7.3 Runtime | `controller.type = mpc`, host per ADR 015, advisory -> confirm -> supervised, bumpless start (#153); console with CV/MV limits, predictions, active constraints, why no move | L5 rows of section 6 on RougherSim | #184 |
 | 7.4 C++ core | C++20 per ADR 001 with parity test, deterministic iteration cap | Parity within tolerance; solve time below 10 % of the cycle | #185 |
 | 7.5 Validation | Frozen-protocol experiment: MPC versus well-tuned PID and versus fuzzy under the same constraints | Repeatable advantage in CV variance, constraint violations and distance to the active constraint; a miss is reported | #186 |
+
+### 8.1 Stage 7.3 as built (#184)
+
+- Catalogue: `controller.type = mpc`, `controller.mpc.model {artifact, sha256}` (artifact id in `<data root>/_mpc/models`),
+  optional `prediction_horizon`, `move_horizon`, `move_suppression`; a CV may carry `target`; `priority` is the CV
+  relaxation order; limits come from the variable `limits` (`operator`, else `eng`; MV also `move_max`, optional `rate_max`).
+  The model channels must match the variables (id, tag or loop). There is no `mode` field: write authority is the gateway
+  mode of the targets (advisory, confirm, supervised) and the roles of ADR 013; supervised stays with the controls engineer.
+- Runtime: `MpcController` (`controllers/mpc.py`) implements the host protocol. The job refuses to build (`model_missing`,
+  `model_hash`, `model_gate`, `model_cycle`, `model_names`, `binding`) on any model problem. Start is bumpless: the first
+  cycle takes the live values as the operating point and proposes the current setpoints. A bad input holds the MVs and the
+  next good cycle starts bumpless again. The engine's shed rule (3 infeasible cycles) makes the host shed
+  (`controller_shed`). Every proposal is cut to `move_max`/`rate_max` x cycle and the range, so solver tolerance never
+  leaves the catalogue limits. Writes go only through the existing proposal port (`make_gateway_ports`), as for fuzzy.
+- Console: the host record carries `diagnostics` (CV/MV limits, predicted CV trajectories, active constraints, relaxed
+  CVs, a reason code per MV and the common "why no move": shed, input_bad, hold, bumpless_start, limit, no_target,
+  at_target); the controller detail shows them read-only. Live operator limits are not supported for MPC yet.
+- Known limit: a bad CV or DV holds the MVs (it is not yet dropped from the CV set as section 3.3 describes).
