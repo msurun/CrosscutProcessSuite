@@ -89,21 +89,43 @@ def _stats(a: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def cv_split(
-    idx: np.ndarray, n_blocks: int, gap: int
+    idx: np.ndarray, n_blocks: int, gap: int, forward_only: bool = False
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Contiguous validation blocks and their training positions.
 
     ``idx`` holds the (sorted) original sample index of every valid row. Training rows whose
     index lies within ``gap`` samples of a validation block (either side) are removed.
+    Forward validation reserves the first block for training and uses past rows only.
+    Gap is measured in original sample periods, not in retained labelled rows.
     """
+    idx = _checked_cv_indices(idx, n_blocks, gap, forward_only)
+    blocks = np.array_split(np.arange(len(idx)), n_blocks + int(forward_only))
     splits = []
-    for val in np.array_split(np.arange(len(idx)), n_blocks):
+    for val in blocks[int(forward_only):]:
         lo, hi = idx[val[0]] - gap, idx[val[-1]] + gap
-        train = np.flatnonzero((idx < lo) | (idx > hi))
+        train = np.flatnonzero(idx < lo if forward_only else (idx < lo) | (idx > hi))
         if len(train) < 3:
             raise PlsModelError("the cross-validation gap leaves too few training rows")
         splits.append((train, val))
     return splits
+
+
+def _checked_cv_indices(
+    indices: np.ndarray, n_blocks: int, gap: int, forward_only: bool
+) -> np.ndarray:
+    """Require ordered original row indices and a nonnegative integer purge gap."""
+    indices = np.asarray(indices)
+    if indices.ndim != 1 or not np.issubdtype(indices.dtype, np.integer):
+        raise PlsModelError("cross-validation indices must be a one-dimensional integer array")
+    if np.any(indices < 0) or np.any(np.diff(indices) <= 0):
+        raise PlsModelError("cross-validation indices must be nonnegative and strictly increasing")
+    if not isinstance(gap, (int, np.integer)) or gap < 0:
+        raise PlsModelError("cross-validation gap must be a nonnegative integer sample count")
+    if not isinstance(n_blocks, (int, np.integer)) or not 2 <= n_blocks:
+        raise PlsModelError("cross-validation needs at least two integer validation blocks")
+    if n_blocks + int(forward_only) > len(indices):
+        raise PlsModelError("cross-validation needs at least one row in every block")
+    return indices
 
 
 def _fold_errors(
@@ -125,7 +147,8 @@ def _cv_errors(
     x: np.ndarray, y: np.ndarray, splits: list[tuple[np.ndarray, np.ndarray]], a_max: int
 ) -> np.ndarray:
     """Squared cross-validation errors, one row per sample, one column per component count."""
-    sq = np.zeros((len(y), a_max))
+    # Forward folds leave warm-up rows unscored; zero would invent perfect predictions.
+    sq = np.full((len(y), a_max), np.nan)
     for split in splits:
         sq[split[1]] = _fold_errors(x, y, split, a_max)
     return sq
@@ -133,6 +156,9 @@ def _cv_errors(
 
 def select_components(sq: np.ndarray) -> tuple[list[float], int]:
     """CV RMSE per count and the one-standard-error choice (smallest count within 1 SE)."""
+    sq = sq[np.isfinite(sq).all(axis=1)]
+    if len(sq) < 2:
+        raise PlsModelError("component selection needs at least two scored validation rows")
     n = sq.shape[0]
     rmse = np.sqrt(sq.mean(axis=0))
     best = int(np.argmin(rmse))

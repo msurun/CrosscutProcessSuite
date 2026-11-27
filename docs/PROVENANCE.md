@@ -70,6 +70,12 @@ Citations are given from memory and must be verified against the originals befor
 | Multi-MV step-test design: sequential bounded steps and generalised binary noise (GBN) with switching probability and fixed seed | Ljung, System Identification: Theory for the User (2nd ed., 1999), section 13.3 (input design, binary and pseudo-random signals); Tulleken, Generalized binary noise test-signal concept for improved identification-experiment design, Automatica 26 (1990), 37-49. Bounds from the site variable model and the gateway write policy; accepted `docs/design/mpc-design-note.md`, section 8. | 2026-11-26, Claude; synthetic planner only | `mpc/src/crosscut_mpc/step_planner.py` |
 | Two-cluster split of a machine activity tag by maximising the between-class variance (stopped vs running threshold, separation ratio) | N. Otsu, "A threshold selection method from gray-level histograms", IEEE Trans. Systems, Man, and Cybernetics 9 (1979) 62-66 | implemented | `connectors/src/crosscut_connectors/mode_proposals.py` |
 
+## MPC C++ core (#185)
+
+| Method | Public source | Date / implementation |
+|---|---|---|
+| Dense ADMM QP and FOPDT step-response MPC | Boyd et al., Distributed Optimization and Statistical Learning via ADMM (2011), https://web.stanford.edu/~boyd/papers/admm_distr_stats.html; existing Python MPC reference | 2026-11-27, Codex, `core/src/qp.cpp`, `core/src/mpc.cpp`; original implementation, no solver code copied |
+
 ## Rules
 
 1. Add a row (source, date, author of the implementation) before implementing a method.
@@ -94,3 +100,13 @@ All v1 presets are `experimental` until the deployment gate passes on validation
 | `preset:lab_quality_inference` | PLS: Wold, Sjostrom, Eriksson, Chemom. Intell. Lab. Syst. 58 (2001); Kadlec et al., Comput. Chem. Eng. 33 (2009) | method | `softsensor/src/crosscut_softsensor/presets/lab_quality_inference.json` |
 | `preset:inventory_mass_balance` | Node mass balance, Felder and Rousseau, Elementary Principles of Chemical Processes | method | `softsensor/src/crosscut_softsensor/presets/inventory_mass_balance.json` |
 | Deployment gate (skill over age-aware lab persistence at the same cutoff) | exp39 diagnosis `experiments/exp39_flotation_softsensor_blind/DIAGNOSIS.md`; skill score 1 - RMSE/RMSE_baseline | ASSUMPTION (thresholds) | `softsensor/src/crosscut_softsensor/deployment_gate.py` |
+
+## Soft-sensor structures and causal comparison (#156)
+
+| Method | Public source | Date / implementation author |
+|---|---|---|
+| Standardised ridge | Hoerl and Kennard, Ridge Regression, Technometrics 12 (1970), doi:10.1080/00401706.1970.10488634 | 2026-11-27 / Codex |
+| Gradient-boosted regression stumps | Friedman, Greedy Function Approximation, Annals of Statistics 29 (2001), doi:10.1214/aos/1013203451 | 2026-11-27 / Codex |
+| Physics gain and offset | Conservation of mass and calibrated ratio templates; Felder and Rousseau, Elementary Principles of Chemical Processes; preset sources above | 2026-11-27 / Codex |
+| Hybrid residual ridge | Kadlec et al., Data-driven Soft Sensors, Computers and Chemical Engineering 33 (2009), doi:10.1016/j.compchemeng.2008.12.012 | 2026-11-27 / Codex |
+| Blocked validation and delayed-lab baselines | Roberts et al., Cross-validation strategies for data with temporal structure, Ecography 40 (2017), doi:10.1111/ecog.02881; exp39 diagnosis above. EWMA weight and formula proxies are ASSUMPTION defaults | 2026-11-27 / Codex |

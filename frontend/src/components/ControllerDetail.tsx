@@ -8,6 +8,7 @@ import type { ControllerCommand, ControllerDetail as Detail, VariableOverride } 
 import type { Translate } from "../findings";
 import { ControllerVariableRow } from "./ControllerVariableRow";
 import { ControllerStateChip } from "./ControllerStateChip";
+import { MpcPanel } from "./MpcPanel";
 import { reasonText } from "./controllersFormat";
 
 export interface ControllerDetailProps {
@@ -72,6 +73,7 @@ export function ControllerDetail({ detail, canOperate, onCommand, onSave, t }: C
           </tbody>
         </table>
       </div>
+      {detail.diagnostics?.kind === "mpc" && <MpcPanel diagnostics={detail.diagnostics} t={t} />}
     </section>
   );
 }

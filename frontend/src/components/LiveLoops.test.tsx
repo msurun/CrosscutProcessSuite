@@ -124,4 +124,16 @@ describe("finding outcomes", () => {
     fireEvent.click(screen.getByRole("button", { name: "findingOutcome.fixed" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("finding not found"));
   });
+
+  it("shows the mode badge and a per-mode KPI table", async () => {
+    const kpi = { service_factor: 0.9, harris_index: 0.4, classification: "ok" };
+    const l = loop({ kpi, mode: "normal", kpi_scope: "mode", by_mode: { normal: kpi, start_up: { ...kpi, classification: "poor_performance" } } });
+    stubFetch([l]);
+    render(<LiveLoops loops={[l]} t={t} />);
+    expect(screen.getAllByText(/liveLoops.modeBadge\{"mode":"normal"\}/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "L1" }));
+    const table = await screen.findByRole("table", { name: "liveLoops.byMode.caption" });
+    expect(table.textContent).toContain("start_up");
+    expect(table.textContent).toContain("poor_performance");
+  });
 });
