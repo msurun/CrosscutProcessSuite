@@ -291,3 +291,17 @@ def test_lost_runtime_marks_every_controller_lost(world: tuple[FastAPI, Path]) -
     client, _ = as_user(app, "view1")
     live = client.get("/controllers").json()["controllers"][0]["gateway_liveness"]
     assert (live["lost"], live["runtime_lost"]) == (True, True)
+
+
+def test_detail_carries_the_mpc_diagnostics_of_the_record(world: tuple[FastAPI, Path]) -> None:
+    """The console reads limits, predictions and the why-no-move code from the host record."""
+    app, root = world
+    diagnostics = {"kind": "mpc", "status": "solved", "why_no_move": "limit", "cvs": [], "mvs": []}
+    write_json_atomic(
+        root / "_runtime" / "controllers" / "C1.json",
+        {"state": "on", "reason": "running", "diagnostics": diagnostics},
+    )
+    client, _ = as_user(app, "view1")
+    assert client.get("/controllers/C1").json()["diagnostics"] == diagnostics
+    write_json_atomic(root / "_runtime" / "controllers" / "C1.json", {"state": "off"})
+    assert client.get("/controllers/C1").json()["diagnostics"] is None

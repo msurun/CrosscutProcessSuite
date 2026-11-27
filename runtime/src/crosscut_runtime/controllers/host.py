@@ -46,6 +46,7 @@ from crosscut_runtime.variable_status import (
 )
 
 OVERRUN_MARGIN = 0.1  # a start later than period * (1 + margin) after the last start is late
+CONTROLLER_SHED_REASON = "controller_shed"  # the controller itself asked to shed (MPC rule)
 NO_WRITE_REASON = "mode_no_write"  # gateway reason: mode off, advisory or dry_run
 
 Availability = Callable[[list[str]], Mapping[str, Mapping[str, Any]]]
@@ -101,6 +102,7 @@ class ControllerRecord:
     disabled: list[str] | None = None
     last_advice: list[dict[str, Any]] | None = None  # moves seen in advisory, never proposed
     warnings: list[str] | None = None  # e.g. "readiness_unknown:L1" (informational, no block)
+    diagnostics: dict[str, Any] | None = None  # MPC: limits, predictions, constraints, why no move
 
 
 def record_path(root: Path, controller_id: str) -> Path:
@@ -245,11 +247,17 @@ class ControllerHost:
             self.record.consecutive_overruns = 0
         if new != ADVISORY:
             self.record.last_advice = None
+        if self.record.state not in (ON, ADVISORY, SHED):
+            self.record.diagnostics = None
 
     def _step(self, state: str, statuses: list[VariableStatus]) -> None:
         """Run one controller step; moves go to the gateway while on, to the record in advisory."""
         result = self._controller.step(statuses)
         self.record.last_explanation = result.explanation
+        self.record.diagnostics = None if result.diagnostics is None else dict(result.diagnostics)
+        if result.shed:
+            self.record.state, self.record.reason = SHED, CONTROLLER_SHED_REASON
+            return
         if state == ADVISORY:
             self.record.last_advice = [asdict(move) for move in result.moves]
             return

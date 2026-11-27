@@ -74,8 +74,51 @@ export interface ControllerVariable {
   source_utc: string | null;
 }
 
+/** Reason code of one MPC MV in one cycle; also the common "why no move" reason. */
+export type MpcCode = "move" | "hold" | "shed" | "limit" | "no_target" | "at_target" | "input_bad" | "bumpless_start";
+
+export interface MpcCv {
+  id: string;
+  value: number;
+  target: number | null;
+  lo: number;
+  hi: number;
+  relaxed: boolean;
+  /** Predicted CV trajectory over the prediction horizon, engineering units. */
+  predicted: number[];
+}
+
+export interface MpcMv {
+  id: string;
+  sp: number;
+  proposed: number;
+  lo: number;
+  hi: number;
+  code: MpcCode;
+}
+
+export interface MpcConstraint {
+  kind: "MV" | "CV";
+  variable: string;
+  side: "lower" | "upper";
+  sample: number;
+}
+
+/** What the MPC controller reports each cycle (host record field `diagnostics`). */
+export interface MpcDiagnostics {
+  kind: "mpc";
+  status: string;
+  reason: string;
+  why_no_move: MpcCode | null;
+  shed_after: number;
+  cvs: MpcCv[];
+  mvs: MpcMv[];
+  active_constraints: MpcConstraint[];
+}
+
 export interface ControllerDetail extends ControllerSummary {
   variables: ControllerVariable[];
+  diagnostics?: MpcDiagnostics | null;
 }
 
 /** An HTTP failure; `problems` holds the server's detail as one or more readable lines. */

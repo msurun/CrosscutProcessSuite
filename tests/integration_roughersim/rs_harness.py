@@ -30,6 +30,7 @@ SETPOINT_TAG = "FIC203.RSP"
 STEP_S = 5.0  # RougherSim plant step (examples/rougher_mvp.json dt_s)
 S = 1_000_000_000
 START_TIMEOUT_S = 60.0
+MVP_FLOWSHEET = "examples/rougher_mvp.json"
 SERVE = "import sys; from roughersim.cli import main; sys.exit(main(sys.argv[1:]))"
 
 
@@ -40,10 +41,12 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _serve_command(rs_dir: Path, port: int, speed: float, watchdog_s: float) -> list[str]:
-    """Command line of ``roughersim serve`` for the MVP plant."""
+def _serve_command(
+    rs_dir: Path, port: int, speed: float, watchdog_s: float, flowsheet: str = MVP_FLOWSHEET
+) -> list[str]:
+    """Command line of ``roughersim serve`` for the MVP plant (or another flowsheet)."""
     return [
-        str(venv_python(rs_dir)), "-c", SERVE, "serve", str(rs_dir / "examples/rougher_mvp.json"),
+        str(venv_python(rs_dir)), "-c", SERVE, "serve", str(rs_dir / flowsheet),
         "--port", str(port), "--speed", str(speed), "--watchdog-s", str(watchdog_s),
     ]
 
@@ -65,11 +68,12 @@ def _stop(proc: subprocess.Popen[bytes]) -> None:
 
 @contextmanager
 def rs_server(
-    log: Path, hooks: str | None, speed: float, watchdog_s: float = 4.0
+    log: Path, hooks: str | None, speed: float, watchdog_s: float = 4.0,
+    flowsheet: str = MVP_FLOWSHEET,
 ) -> Iterator[int]:
     """Run the RougherSim server for the duration of the block; yields its port."""
     rs_dir, port = roughersim_dir(), free_port()
-    cmd = _serve_command(rs_dir, port, speed, watchdog_s)
+    cmd = _serve_command(rs_dir, port, speed, watchdog_s, flowsheet)
     if hooks:
         cmd += ["--hooks", hooks]
     env = {**os.environ, "PYTHONPATH": str(rs_dir / "src")}

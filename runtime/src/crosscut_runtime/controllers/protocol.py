@@ -6,9 +6,9 @@ as proposals.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from crosscut_runtime.variable_status import VariableStatus
 
@@ -25,10 +25,16 @@ class Move:
 
 @dataclass(frozen=True)
 class StepResult:
-    """Moves of one cycle and a short plain-language explanation."""
+    """Moves of one cycle and a short plain-language explanation.
+
+    ``diagnostics`` is optional plain JSON for the console (MPC: limits, predictions, active
+    constraints); ``shed`` asks the host to shed the controller to base control.
+    """
 
     moves: tuple[Move, ...]
     explanation: str
+    diagnostics: Mapping[str, Any] | None = None
+    shed: bool = False
 
 
 class Controller(Protocol):
