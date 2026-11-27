@@ -127,7 +127,7 @@ def test_controller_proposes_only_after_switch_on(tmp_path: Path) -> None:
 
 
 def test_unsupported_controller_type_is_a_job_error(tmp_path: Path) -> None:
-    service = _service(tmp_path, [], _site_with(lambda s: s["controllers"][0].update(type="mpc")))
+    service = _service(tmp_path, [], _site_with(lambda s: s["controllers"][0].update(type="pid")))
     service.run_once()
     assert "unsupported_type" in _state(tmp_path)["error"]
 

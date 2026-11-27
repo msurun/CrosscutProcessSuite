@@ -123,7 +123,7 @@ def test_rule_base_is_only_an_id() -> None:
 def test_schema_ranges_and_documented_defaults() -> None:
     props = SCHEMA["$defs"]["controller"]["properties"]
     assert (props["cycle_s"]["minimum"], props["cycle_s"]["maximum"]) == (10, 300)
-    assert props["type"]["enum"] == ["fuzzy"]
+    assert props["type"]["enum"] == ["fuzzy", "mpc"]
     for name, default in (("cycle_s", "30"), ("stale_cycles", "3"), ("max_overruns", "5")):
         assert f"{default} when omitted" in props[name]["description"]
 

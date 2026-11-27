@@ -96,7 +96,9 @@ def _equipment_row(entry: Document, root: Path, context: Document) -> Document:
     opened = next((event for event in events if event.get("closed_utc") is None), None)
     live = context["states"].get(equipment_id, {"status": "unknown" if model else "no_model"})
     return {"equipment_id": equipment_id, "model_status": model.get("status", "none"),
-            "live_state": live, "open_event": opened, "events": events[:EVENT_LIMIT],
+            "live_state": live, "mode": live.get("mode"),
+            "mode_limits": model.get("mode_limits", {}), "open_event": opened,
+            "events": events[:EVENT_LIMIT],
             "shelved_until_utc": context["shelved"].get(equipment_id)}
 
 

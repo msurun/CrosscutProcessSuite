@@ -162,3 +162,24 @@ def test_live_worklist_preserves_structured_valve_evidence(
 
     assert row["findings"][0]["evidence"] == "direct"
     assert row["findings"][0]["params"] == {"measured": True}
+
+
+def test_payload_carries_mode_and_per_mode_kpi(tmp_path: Path) -> None:
+    """Row and history expose the mode, the KPI scope and the KPI of every mode (#146)."""
+    (tmp_path / "_site").mkdir()
+    (tmp_path / "_site/site.json").write_text(json.dumps({"loops": [{"id": "a"}]}))
+    runtime = tmp_path / "_runtime"
+    (runtime / "kpi").mkdir(parents=True)
+    by_mode = {"high": {"classification": "ok"}, "normal": {"classification": "oscillating"}}
+    kpi = {"classification": "ok", "mode": "high", "kpi_scope": "mode", "by_mode": by_mode}
+    runtime.joinpath("jobs.json").write_text(json.dumps({"jobs": [
+        {"id": "j", "kind": "loop_kpi", "enabled": True, "loops": ["a"], "period_s": 60}]}))
+    runtime.joinpath("state.json").write_text(json.dumps({"jobs": {"j": {
+        "status": "ok", "last_run_utc": datetime.now(UTC).isoformat(), "kpi": {"a": kpi}}}}))
+    runtime.joinpath("kpi/a.jsonl").write_text(
+        json.dumps({"utc": "t1", "job": "j", "kpi": kpi, "mode": "high"}) + "\n")
+    client = TestClient(create_app(tmp_path, auth_enabled=False))
+    row = client.get("/live/loops").json()["loops"][0]
+    assert row["mode"] == "high" and row["kpi_scope"] == "mode"
+    assert set(row["by_mode"]) == {"high", "normal"}
+    assert client.get("/live/loops/a").json()["history"][0]["mode"] == "high"

@@ -23,6 +23,12 @@ def finding_codes(kpi: dict[str, Any]) -> set[str]:
     return {code for code in codes if isinstance(code, str) and code}
 
 
+def _mode_field(kpi: dict[str, Any] | None) -> dict[str, str]:
+    """The operating mode of the newest sample as an observation field, absent without modes."""
+    mode = (kpi or {}).get("mode")
+    return {"mode": mode} if mode else {}
+
+
 def _append_observation(path: Path, observation: dict[str, Any]) -> None:
     """Append one JSON line and trim in batches once the slack is exhausted."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +63,7 @@ def record_kpi_run(
             findings_since[loop_id] = {code: previous.get(code, utc) for code in finding_codes(kpi)}
         path = store.root / "_runtime" / "kpi" / f"{loop_id}.jsonl"
         try:
-            _append_observation(path, {"utc": utc, "job": job["id"], "kpi": kpi})
+            _append_observation(path, {"utc": utc, "job": job["id"], "kpi": kpi,
+                                      **_mode_field(kpi)})
         except OSError as error:
             _log_failure(store, job["id"], error)

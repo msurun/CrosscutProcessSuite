@@ -40,6 +40,10 @@ def _payload_bytes(model: IdentifiedModel) -> bytes:
         "dead_times_s": model.dead_times_s.tolist(),
         "cycle_s": model.cycle_s,
     }
+    if model.enabled is not None:
+        doc["enabled"] = [list(row) for row in model.enabled]
+    if model.edit_metadata is not None:
+        doc["edit_metadata"] = model.edit_metadata
     return json.dumps(doc, sort_keys=True, indent=1).encode("utf-8")
 
 
@@ -99,6 +103,8 @@ def load_ident_model(path: str | Path, expected_sha256: str | None = None) -> Id
         tuple(doc["input_names"]), tuple(doc["cv_names"]), np.array(doc["gains"]),
         np.array(doc["time_constants_s"]), np.array(doc["dead_times_s"]), doc["cycle_s"],
         quality, windows, manifest["metrics"]["method"],
+        tuple(tuple(row) for row in doc["enabled"]) if "enabled" in doc else None,
+        doc.get("edit_metadata"),
     )
 
 

@@ -8,6 +8,7 @@ of the offline record of the same series are exactly equal (the property the tes
 
 from __future__ import annotations
 
+import math
 import time
 from bisect import bisect_left
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
+from crosscut_connectors import mode_eval
 from crosscut_loops import monitor
 from crosscut_loops.overview import (
     DELAY_S,
@@ -87,6 +89,12 @@ def _nearest(rows: list[tuple[float, float]], ts: float, tol_s: float) -> float 
     if not near:
         return None
     return rows[min(near, key=lambda j: abs(stamps[j] - ts))][1]
+
+
+def _nearest_or_nan(rows: list[tuple[float, float]], ts: float, tol_s: float) -> float:
+    """``_nearest`` with NaN for a missing sample (the mode evaluator reads NaN as unknown)."""
+    value = _nearest(rows, ts, tol_s)
+    return math.nan if value is None else value
 
 
 def _good_stamp(live: Any) -> float | None:
@@ -203,6 +211,7 @@ class LoopKpiJob:
         loop_docs: dict[str, dict[str, Any]],
         connector: Any,
         on_sample: Callable[[str, float, float], None] | None = None,
+        site: dict[str, Any] | None = None,
     ) -> None:
         """Create the job from its jobs.json document, the site loop docs and a read connector.
 
@@ -210,7 +219,10 @@ class LoopKpiJob:
         ``crosscut_connectors.base.Connector``); ``loop_docs`` maps a loop id to its site
         catalogue loop document. ``on_sample(tag, ts, value)``, when given, is called for every
         accepted sample (epoch seconds, tag units), e.g. to persist it to the history store.
+        ``site`` (the catalogue, optional) supplies the operating modes and the equipment
+        ``running`` signals: with it the KPI is kept per mode and stopped samples are left out.
         """
+        self.site = site or {}
         self.job_doc = job_doc
         self.loop_docs = loop_docs
         self.connector = connector
@@ -222,8 +234,15 @@ class LoopKpiJob:
     def _all_tags(self) -> list[str]:
         """Every channel tag of every loop of the job that names all four channels."""
         docs = (self.loop_docs.get(loop_id) for loop_id in self.job_doc["loops"])
-        sets = (self._tag_ids(doc) for doc in docs if doc is not None)
-        return list(dict.fromkeys(tag for tags in sets if tags for tag in tags.values()))
+        pairs = [(doc, self._tag_ids(doc)) for doc in docs if doc is not None]
+        return list(dict.fromkeys(
+            tag for doc, tags in pairs if tags
+            for tag in [*tags.values(), *self._mode_tags(doc)]))
+
+    def _mode_tags(self, loop_doc: dict[str, Any]) -> list[str]:
+        """Tags the loop's operating modes and running signal read (empty without modes)."""
+        owner = mode_eval.owner_of_loop(self.site, str(loop_doc.get("id", "")))
+        return mode_eval.mode_tags(self.site, owner)
 
     def _accept(self, tag: str, ts: float, value: float) -> None:
         """Add one good sample to the window and hand it to ``on_sample`` (history store)."""
@@ -253,9 +272,10 @@ class LoopKpiJob:
 
     def _pull(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> None:
         """Read the four live values of one loop and append the good ones to the window."""
-        values = self.connector.read_live(list(tags.values()))
+        extra = self._mode_tags(loop_doc)
+        values = self.connector.read_live(list(dict.fromkeys([*tags.values(), *extra])))
         anchor = _good_stamp(values.get(tags["pv"]))
-        for _channel, tag in tags.items():
+        for tag in [*tags.values(), *extra]:
             ts = _good_stamp(values.get(tag))
             if ts is None:
                 continue  # missing, or not GOOD (uncertain/bad): never analysed or stored
@@ -270,21 +290,62 @@ class LoopKpiJob:
                 self.on_sample(tag, ts, float(value))
 
     def _loop_kpi(self, loop_doc: dict[str, Any], tags: dict[str, str]) -> dict[str, Any] | None:
-        """The KPI of one loop from the window, or None while below the sample threshold."""
+        """The KPI of one loop from the window, or None while below the sample threshold.
+
+        With operating modes the KPI is computed per mode on the samples that are not stopped; the
+        headline KPI is the one of the current mode (the newest sample) when it has enough samples,
+        else of all running samples, and ``kpi_scope`` says which.
+        """
         rows = {channel: self.window.rows(tags[channel]) for channel in CHANNELS}
         # Align by timestamp (nearest within half a sample period), not by position.
         tol_s = float(self.job_doc.get("period_s", 1.0)) / 2.0
         stamps, values = align_channels(rows, tol_s)
-        if len(stamps) < monitor.MIN_KPI_SAMPLES:
+        settings = settings_for_loop(loop_doc)
+        names = self._mode_tags(loop_doc)
+        if not names:
+            if len(stamps) < monitor.MIN_KPI_SAMPLES:
+                return None
+            return kpi_from_series(stamps, values["pv"], values["sp"], values["out"],
+                                   values["mode"], settings=settings)
+        return self._kpi_by_mode(loop_doc, (stamps, values), names, tol_s)
+
+    def _kpi_by_mode(
+        self, loop_doc: dict[str, Any], aligned: tuple, names: list[str], tol_s: float,
+    ) -> dict[str, Any] | None:
+        """Per-mode KPIs of the aligned series, stopped samples excluded (see ``_loop_kpi``)."""
+        stamps, values = aligned
+        if not stamps:
             return None
-        return kpi_from_series(
-            stamps,
-            values["pv"],
-            values["sp"],
-            values["out"],
-            values["mode"],
-            settings=settings_for_loop(loop_doc),
-        )
+        owner = mode_eval.owner_of_loop(self.site, str(loop_doc.get("id", "")))
+        data = {name: [_nearest_or_nan(self.window.rows(name), ts, tol_s) for ts in stamps]
+                for name in names}
+        labels = mode_eval.evaluate(self.site, owner, data, len(stamps))
+        off = mode_eval.not_running(self.site, owner, data, len(stamps))
+        keep = ~mode_eval.stopped_mask(labels, off)
+        current = str(labels[-1])
+        if not keep[-1]:
+            return None  # stopped now: no KPI is computed from a stopped machine
+        settings = settings_for_loop(loop_doc)
+
+        def kpi_of(mask: np.ndarray) -> dict[str, Any] | None:
+            """KPI of the masked samples, None below the sample threshold."""
+            if int(mask.sum()) < monitor.MIN_KPI_SAMPLES:
+                return None
+            pick = {c: [v for v, m in zip(values[c], mask, strict=True) if m] for c in CHANNELS}
+            when = [t for t, m in zip(stamps, mask, strict=True) if m]
+            return kpi_from_series(when, pick["pv"], pick["sp"], pick["out"], pick["mode"],
+                                   settings=settings)
+
+        by_mode = {label: kpi for label in sorted({str(x) for x in labels[keep]})
+                   if (kpi := kpi_of(keep & (labels == label))) is not None}
+        headline = by_mode.get(current)
+        scope = "mode"
+        if headline is None:
+            headline, scope = kpi_of(keep), "all_running"
+        if headline is None:
+            return None
+        return {**headline, "mode": current, "kpi_scope": scope, "by_mode": by_mode,
+                "excluded_samples": int((~keep).sum())}
 
     def run(self) -> dict[str, Any]:
         """Pull one fresh sample of every tag, then return the KPI of every loop with enough data.

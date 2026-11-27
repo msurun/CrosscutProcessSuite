@@ -36,8 +36,25 @@ def _controller(
     for role in ("MV", "CV"):
         if role not in roles:
             problems.append(f"{where}.variables: needs at least one {role}")
+    problems += _kind_problems(where, controller)
     for index, var in enumerate(variables):
         problems += _variable(f"{where}.variables.{index}", var, tags, loops)
+    return problems
+
+
+def _kind_problems(where: str, controller: Document) -> list[str]:
+    """Settings that belong to the controller kind: mpc needs ``mpc``, fuzzy has none of it."""
+    mpc = controller["type"] == "mpc"
+    problems = []
+    if mpc and "mpc" not in controller:
+        problems.append(f"{where}.mpc: a controller of type mpc needs its mpc settings")
+    if not mpc and "mpc" in controller:
+        problems.append(f"{where}.mpc: only a controller of type mpc has mpc settings")
+    if mpc and "rule_base" in controller:
+        problems.append(f"{where}.rule_base: only a fuzzy controller has a rule_base")
+    for index, var in enumerate(controller["variables"]):
+        if "target" in var and not (mpc and var["role"] == "CV"):
+            problems.append(f"{where}.variables.{index}.target: only a CV of an mpc controller")
     return problems
 
 
