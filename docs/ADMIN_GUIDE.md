@@ -306,3 +306,77 @@ Everyone who may open the Runtime page (`data.view`) may read it; the API route 
 **Log export** (`GET /admin/logs/export?start=<ISO>&end=<ISO>`, button on the Health page) needs `users.manage`. It returns a zip with the lines of the chosen range (default: the last 24 h) of every log file that exists, and writes a `log_export` record (who, range, files) to the sign-in audit chain. Passwords, tokens, API keys, cookies, `Authorization` headers, URL credentials and private key blocks are replaced by `[redacted]`; the scrubbing is pattern based, so still read an export before sending it outside the site.
 
 Where the logs are: each process writes `<root>/_logs/<api|runtime|gateway>.log` (rotating, UTC time stamps) when it is started with its entry point (`python -m crosscut_api --root <root>`, `python -m crosscut_runtime`, `python -m crosscut_gateway`; the Windows and systemd wrappers in `deploy/` already do). The runtime job log `<root>/_runtime/log.jsonl` is exported too. Defaults, changed by environment variables of the process: `CROSSCUT_LOG_LEVEL=INFO`, `CROSSCUT_LOG_MAX_BYTES=5000000` per file, `CROSSCUT_LOG_BACKUPS=5` rotated files. An API started another way (for example `uvicorn` directly) writes no `api.log`, and the export then holds only what the other processes wrote. Each component log file assumes **one writer process**: do not start the API with `uvicorn --workers` or `--reload` in production (rotation would corrupt the file). A plain `uvicorn` start writes no `api.log` at all. The export refuses a range longer than 31 days or more than 100 MB of log text (422 with the reason) and needs a fresh step-up (password re-entry). The systemd unit of the API needs write access to `_logs` and `_auth` (the unit in `deploy/` grants both).
+
+## Windows installer: API/console, runtime and gateway services (#168)
+
+Build on Windows x64 with Python 3.12 x64 plus pip, Node/npm and optionally Inno
+Setup 6 (`ISCC.exe` on PATH). Supply the CPython 3.12 x64 embeddable ZIP, NSSM 2.24
+x64 executable and its upstream public-domain notice. Obtain both binary SHA256
+values through your release review; the build checks them before staging anything.
+No downloads or secrets occur during installation. For example, using PowerShell
+variables pointing at those reviewed local files and digests:
+
+```powershell
+.\deploy\windows\build-installer.ps1 -PythonArchive $PythonZip `
+  -PythonSha256 $PythonDigest -NssmExecutable $NssmExe `
+  -NssmSha256 $NssmDigest -NssmLicense $NssmNotice
+```
+
+The script builds local wheels plus dependencies, installs them into embedded
+Python, builds the console with `npm ci` / `npm run build`, copies schemas and
+licence notices, and calls Inno Setup if available. Output is in a fresh directory
+under `deploy/windows/build`. Without the compiler it leaves the payload and prints
+a warning. Dependency resolution needs network access at build time; archive the
+wheelhouse and dependency/licence inventory for each released installer. Tests only
+inspect source text; building/signing the EXE and Windows VM smoke testing are release
+steps. The compiler and release signing certificate are not bundled.
+
+Run the resulting EXE elevated. It installs under Program Files\Crosscut and creates
+`%ProgramData%\Crosscut`. It registers **CrosscutGateway**, **CrosscutRuntime**, and
+**CrosscutApi** using NSSM, with automatic startup and dependencies gateway → runtime
+→ API. The API service serves the built console at `http://127.0.0.1:8000/` and the
+API at `/api`; use a site-managed TLS reverse proxy for remote access.
+
+Each service runs as its own passwordless Windows virtual account:
+`NT SERVICE\CrosscutGateway`, `NT SERVICE\CrosscutRuntime`, and
+`NT SERVICE\CrosscutApi`. No local-user password is generated, requested or stored.
+The gateway alone receives service-account access to `_gateway\policy` and
+`_gateway\private` (gateway-only credential material); administrators and SYSTEM
+retain maintenance access. Shared signing material is a deliberate exception:
+`_secrets\gateway-hmac.key` must be readable by the API and runtime signers as well
+as the gateway verifier. No unprivileged account may write it. API/runtime can modify
+their working data and signed inbox/outbox; they only read the gateway state and
+cannot modify its policy, private folder or audit. Windows does not validate key
+ACLs in the gateway process: inspect them after every restore and key rotation.
+Do not store gateway-only credentials in the shared signing folder.
+
+Installation leaves all services **stopped for commissioning**. As administrator,
+follow `docs/GATEWAY_RUNBOOK.md` to initialise users, create the signing key and
+provision the plant map and pinned policy. Paths for this installer are
+`%ProgramData%\Crosscut\plant-map.json`, `_gateway\policy\write-policy.json`
+and `_secrets\gateway-hmac.key`. Never put those site-specific files in the payload.
+Run the installed `configure-services.ps1 -InstallDirectory 'C:\Program Files\Crosscut'`
+again after provisioning to reapply ACLs, then start CrosscutGateway, CrosscutRuntime
+and CrosscutApi in that order. Gateway mode is initially advisory. Verify state,
+audit-chain integrity, console login and runtime health before enabling writes.
+The gateway's signed mailbox and all ADR 012–016 guards remain in force.
+
+NSSM restarts unexpected process exits after 10 seconds; configuration exit 2 stops
+without a loop. SCM wrapper-crash recovery delays are 10/30/60 seconds, reset after
+24 hours. NSSM sends a console stop event and allows 30 seconds before forced stop.
+Rotating component logs are `_logs\api.log`, `runtime.log`, and `gateway.log`;
+NSSM also captures stdout/stderr in `_logs\Crosscut*.stdout.log` / `*.stderr.log`
+with online rotation at 5 MB. Setup output is `installer.log` in the data root.
+
+For an upgrade, back up the data root and signing key securely, then run the newer
+installer elevated into the same install directory. Setup stops services in reverse
+order before replacing files and reapplies accounts, recovery and ACLs without
+seeding or overwriting site configuration. Services remain stopped for validation;
+start them after checking logs and configuration compatibility. There is no automatic
+data migration or rollback: retain the previous installer and backup.
+
+Uninstall through Windows Installed Apps. Services are stopped and removed; the data
+root is **kept by default**, including for silent uninstall. Interactive uninstall
+offers a separate, default-No confirmation to delete data permanently. Export any
+required backups first. Retained ACLs reference virtual service identities which
+become usable again when the same services are reinstalled.
