@@ -91,6 +91,40 @@ def walk(connector: Any, starts: list[str | None]) -> list[NodeInfo]:
     return found
 
 
+def _path_segments(node: NodeInfo) -> list[str]:
+    """The ``/`` parts of a string node id (``ns=2;s=A/B/C`` gives A, B, C), else [name]."""
+    _, found, identifier = node.id.partition(";s=")
+    parts = [part for part in identifier.split("/") if part] if found else []
+    return parts or [node.name]
+
+
+def _distinct_tails(group: list[NodeInfo]) -> dict[str, str]:
+    """Names for nodes that share a browse name: the shortest path tails that tell them apart."""
+    deepest = max(len(_path_segments(n)) for n in group)
+    for depth in range(2, deepest + 1):
+        tails = {n.id: ".".join(_path_segments(n)[-depth:]) for n in group}
+        if len(set(tails.values())) == len(group):
+            return tails
+    return {n.id: n.name for n in group}
+
+
+def unique_names(nodes: list[NodeInfo]) -> dict[str, str]:
+    """Tag name per node id: the browse name, or a path tail when that name is not unique.
+
+    OPC UA browse names are unique only under one parent (a DCS has ``Pv`` under every loop) but
+    a catalogue tag id must be unique, so a repeated name becomes ``parent.name`` (``LIC301.Pv``),
+    which naming rules can read the loop from. Names that are already unique are unchanged.
+    """
+    groups: dict[str, list[NodeInfo]] = {}
+    for node in nodes:
+        groups.setdefault(node.name, []).append(node)
+    names = {node.id: node.name for node in nodes}
+    for group in groups.values():
+        if len(group) > 1:
+            names.update(_distinct_tails(group))
+    return names
+
+
 def _metadata(connector: Any, nodes: list[NodeInfo]) -> dict[str, Doc]:
     """Unit, description and range per node id: browse info, improved by metadata() if offered."""
     meta = {n.id: {"unit": n.unit, "description": n.description} for n in nodes}
@@ -251,7 +285,8 @@ class _Endpoints:
             meta = _metadata(connector, nodes)
         except ConnectorError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
-        items = [{"name": n.name, "address": n.id, **meta.get(n.id, {})} for n in nodes]
+        names = unique_names(nodes)
+        items = [{"name": names[n.id], "address": n.id, **meta.get(n.id, {})} for n in nodes]
         return {
             "source": source_id,
             "items": items,

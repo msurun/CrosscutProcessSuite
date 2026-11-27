@@ -6,6 +6,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const GATEWAY_LIVE = process.env.E2E_GATEWAY === "1";
+const L5_NOCODE = process.env.E2E_L5_NOCODE === "1";
 
 /** Finds a Chromium executable: E2E_CHROMIUM, else the newest in the Playwright cache. */
 function findChromium(): string | undefined {
@@ -32,13 +33,17 @@ export default defineConfig({
   // by run_e2e.mjs): with that switch they are the only projects, so no other spec runs against a
   // live gateway. tuning-live runs after gateway-live (which leaves the stack re-enabled and in
   // advisory mode) and sets up its own state.
-  projects: GATEWAY_LIVE
+  // l5-nocode.spec.ts (nightly L5, #151) runs alone against live RougherSim (E2E_L5_NOCODE=1, see
+  // run_e2e.mjs); no other project matches it, so neither the normal nor the gateway run executes it.
+  projects: L5_NOCODE
+    ? [{ name: "l5-nocode", testMatch: /l5-nocode\.spec\.ts/ }]
+    : GATEWAY_LIVE
     ? [
         { name: "gateway-live", testMatch: /gateway-live\.spec\.ts/ },
         { name: "tuning-live", testMatch: /tuning-live\.spec\.ts/, dependencies: ["gateway-live"] },
       ]
     : [
-        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live|config-editor-modules)\.spec\.ts/ },
+        { name: "main", testIgnore: /(runtime|gateway-live|tuning-live|l5-nocode|config-editor-modules)\.spec\.ts/ },
         { name: "config-editors", testMatch: /config-editor-modules\.spec\.ts/, dependencies: ["main"] },
         { name: "runtime", testMatch: /runtime\.spec\.ts/, dependencies: ["config-editors"] },
       ],

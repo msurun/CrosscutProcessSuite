@@ -230,3 +230,29 @@ def test_engineer_can_import_the_catalogue(auth_world: tuple[FastAPI, Path]) -> 
     """An engineer holds config.edit and gets 200."""
     app, _ = auth_world
     assert _import_as(app, "eng1") == 200
+
+
+def _node(identifier: str, name: str) -> Any:
+    """A browsed variable node with a string id."""
+    from crosscut_connectors.base import NodeInfo
+
+    return NodeInfo(id=identifier, name=name, node_type="variable", has_children=False)
+
+
+def test_repeated_browse_names_take_their_parent_as_prefix() -> None:
+    """Pv under two loops becomes LIC301.Pv and FIC203.Pv; a unique name stays as it is."""
+    nodes = [
+        _node("ns=2;s=Application/Loop/LIC301/Pv", "Pv"),
+        _node("ns=2;s=Application/Loop/FIC203/Pv", "Pv"),
+        _node("ns=2;s=Application/System/TimeS", "TimeS"),
+    ]
+    names = routes.unique_names(nodes)
+    assert names["ns=2;s=Application/Loop/LIC301/Pv"] == "LIC301.Pv"
+    assert names["ns=2;s=Application/Loop/FIC203/Pv"] == "FIC203.Pv"
+    assert names["ns=2;s=Application/System/TimeS"] == "TimeS"
+
+
+def test_repeated_names_without_a_path_keep_their_browse_name() -> None:
+    """Numeric node ids carry no path, so a repeated name cannot be told apart and stays."""
+    nodes = [_node("i=1", "Status"), _node("i=2", "Status")]
+    assert set(routes.unique_names(nodes).values()) == {"Status"}
