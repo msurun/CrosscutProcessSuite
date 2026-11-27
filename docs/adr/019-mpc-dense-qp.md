@@ -1,4 +1,4 @@
-# ADR 001 addendum: bounded dense MPC QP implementation (#185)
+# ADR 019: bounded dense MPC QP implementation (#185), addendum to ADR 001
 
 Status: implementation decision, 2026-11-27; scoped to Phase 7.4 and the explicit
 dependency-free solver requirement of issue #185.
