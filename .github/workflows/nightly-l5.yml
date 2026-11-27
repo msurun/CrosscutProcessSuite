@@ -1,4 +1,5 @@
-# Nightly L5 gate: runs the RougherSim integration rows and measures Python coverage.
+# Nightly L5 gate: runs the RougherSim integration rows, the no-code browser acceptance (#151)
+# and measures Python coverage.
 # The RougherSim release is pinned in tests/integration_roughersim/pin.json; this file reads
 # the tag and commit from there instead of keeping a second copy. The repository is private,
 # so the checkout uses the ROUGHERSIM_DEPLOY_KEY secret: the private half of a read-only
@@ -105,6 +106,37 @@ jobs:
           if unexpected_skips:
               sys.exit("L5 rows were skipped instead of run:\n" + "\n".join(unexpected_skips))
           PY
+
+      # #151, Phase 1 and 3 exit criterion: from an empty project to live KPI, a tuning write in
+      # confirm mode and its rollback, driven only through the browser against live RougherSim
+      # (the rig starts the pinned server, the gateway and the runtime; see docs/L5_FINDINGS.md).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium with system dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: No-code browser acceptance against live RougherSim
+        working-directory: frontend
+        env:
+          E2E_L5_NOCODE: "1"
+          ROUGHERSIM_DIR: ${{ github.workspace }}/RougherSim
+        run: node e2e/support/run_e2e.mjs e2e/l5-nocode.spec.ts
+      - name: Upload the no-code run report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l5-nocode-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Report only: there is no fail-under threshold yet. The L5 folder is ignored because
       # those rows need RougherSim and already ran in the step above.

@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -126,7 +127,7 @@ class RuntimeStore:
             with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(document, stream, indent=2, ensure_ascii=False)
                 stream.write("\n")
-            os.replace(temp_name, path)
+            replace_file(temp_name, path)
         except Exception:
             os.unlink(temp_name)
             raise
@@ -157,7 +158,7 @@ class RuntimeStore:
             with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(state, stream, indent=2, ensure_ascii=False)
                 stream.write("\n")
-            os.replace(temp_name, path)
+            replace_file(temp_name, path)
         except Exception:
             os.unlink(temp_name)
             raise
@@ -196,6 +197,26 @@ class RuntimeStore:
         return entries
 
 
+REPLACE_TRIES = 20  # attempts to replace a file another process has open (Windows only)
+REPLACE_WAIT_S = 0.05  # pause between those attempts, in seconds
+
+
+def replace_file(source: str | Path, target: Path) -> None:
+    """``os.replace`` that waits a little when a reader holds the target (Windows: PermissionError).
+
+    The API reads state.json while the service rewrites it; on Windows the rename then fails for a
+    moment, and one such failure used to stop the whole service.
+    """
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_TRIES - 1:
+                raise
+            time.sleep(REPLACE_WAIT_S)
+
+
 def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
     """Write ``document`` to ``path`` through a temp file and an atomic replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,7 +225,7 @@ def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(document, stream, indent=2, ensure_ascii=False)
             stream.write("\n")
-        os.replace(temp_name, path)
+        replace_file(temp_name, path)
     except Exception:
         os.unlink(temp_name)
         raise
