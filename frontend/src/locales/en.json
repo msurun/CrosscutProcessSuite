@@ -2481,5 +2481,13 @@
   "modeProposal.newScope": "Also adds the proposed equipment {id}.",
   "modeProposal.members": "Members: {tags}",
   "modeProposal.saved": "Saved {id} to the catalogue.",
-  "modeProposal.badValue": "Every threshold must be a number."
+  "modeProposal.badValue": "Every threshold must be a number.",
+  "catalogueCsv.title": "Tag CSV import and export",
+  "catalogueCsv.download": "Download tags as CSV",
+  "catalogueCsv.file": "CSV file",
+  "catalogueCsv.check": "Check (dry run)",
+  "catalogueCsv.ok": "Check passed: {tags} tags ready to import.",
+  "catalogueCsv.errors": "Problems found in the CSV",
+  "catalogueCsv.apply": "Import",
+  "catalogueCsv.applied": "Imported {tags} tags."
 }

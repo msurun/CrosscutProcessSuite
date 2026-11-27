@@ -2492,5 +2492,13 @@
   "modeProposal.newScope": "También añade el equipo propuesto {id}.",
   "modeProposal.members": "Miembros: {tags}",
   "modeProposal.saved": "{id} guardado en el catálogo.",
-  "modeProposal.badValue": "Cada umbral debe ser un número."
+  "modeProposal.badValue": "Cada umbral debe ser un número.",
+  "catalogueCsv.title": "Importación y exportación de etiquetas en CSV",
+  "catalogueCsv.download": "Descargar etiquetas como CSV",
+  "catalogueCsv.file": "Archivo CSV",
+  "catalogueCsv.check": "Comprobar (prueba)",
+  "catalogueCsv.ok": "Comprobación correcta: {tags} etiquetas listas para importar.",
+  "catalogueCsv.errors": "Problemas encontrados en el CSV",
+  "catalogueCsv.apply": "Importar",
+  "catalogueCsv.applied": "Se importaron {tags} etiquetas."
 }
